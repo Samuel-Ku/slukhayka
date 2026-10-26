@@ -187,10 +187,23 @@ fun LibraryScreen(
     val scope = rememberCoroutineScope()
 
     // Spec #8 ticket T7: system file picker (SAF) → one picked audio file = one book.
+    // ADR-0061: the picked document URI IS the book's only address, so the grant
+    // must survive a reboot — without this line the file played once and became
+    // unreadable on the next launch (the tree picker below always took it).
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
-        if (uri != null) viewModel.importLocalAudioFile(uri)
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (e: SecurityException) {
+                Log.w("LibraryScreen", "Persistable grant refused for $uri", e)
+            }
+            viewModel.importLocalAudioFile(uri)
+        }
     }
 
     // Spec #8 Block 4: SAF tree picker → recursively import every audio file

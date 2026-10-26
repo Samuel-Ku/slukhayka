@@ -52,7 +52,7 @@ class LocalSourceAppendTest {
     private fun imports() = LibraryImport(dao, context, emptyList())
 
     private fun entry(name: String, byte: Int, folder: String = "Кобзар") =
-        LocalAudioEntry(name, folder) { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
+        LocalAudioEntry(name, folder, uri = "content://test/local") { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
 
     private suspend fun importKobzar(vararg files: Pair<String, Int>): String {
         imports().importAudioEntries(
@@ -205,6 +205,7 @@ class LocalSourceAppendTest {
         fun counted(name: String, byte: Int) = LocalAudioEntry(
             fileName = name,
             parentFolder = "Кобзар",
+            uri = "content://test/$name",
             sizeBytes = 16L,
             lastModifiedMs = 1_000L + byte
         ) {
@@ -235,6 +236,7 @@ class LocalSourceAppendTest {
         fun counted(name: String, byte: Int, size: Int, lastModified: Long) = LocalAudioEntry(
             fileName = name,
             parentFolder = "Кобзар",
+            uri = "content://test/$name",
             sizeBytes = size.toLong(),
             lastModifiedMs = lastModified
         ) {
@@ -249,17 +251,16 @@ class LocalSourceAppendTest {
         )
         assertEquals("перший скан мусить прочитати обидва файли", mapOf("01.mp3" to 1, "02.mp3" to 1), opens)
 
-        // 2) 01.mp3 змінився (інший вміст, розмір і дата): читається лише він;
-        //    незмінений 02.mp3 не відкривається взагалі. Змінений файл сьогодні
-        //    відкривається двічі — хеш і копія нового файла; після T1-кроку-2
-        //    (запис за посиланням) число стане 1, і тест це покаже.
+        // 2) 01.mp3 змінився (інший вміст, розмір і дата): читається лише він,
+        //    і рівно один раз — нового файла більше не копіюють (ADR-0061),
+        //    тож хеш і є єдина причина відкрити потік.
         opens.clear()
         val changed = imports().rescanAudioEntries(
             listOf(counted("01.mp3", 9, 20, 300L), counted("02.mp3", 2, 16, 200L)),
             TREE
         )
         assertEquals("незмінений файл не мусить відкриватися", null, opens["02.mp3"])
-        assertEquals("змінений файл читається: хеш + копія", 2, opens["01.mp3"])
+        assertEquals("змінений файл читається один раз — лише заради хешу", 1, opens["01.mp3"])
         assertEquals(1, changed.newChapters)
         assertEquals("старий вміст 01.mp3 зник із теки", 1, changed.missingFiles)
 

@@ -171,7 +171,7 @@ class NarrationClaimDoorTest {
     fun `claim keeps local folder rescan attached to surviving narration`() = runBlocking {
         seed()
         val tree = "content://tree/narration-local"
-        fun file(number: Int) = LocalAudioEntry("0$number.mp3", null) {
+        fun file(number: Int) = LocalAudioEntry("0$number.mp3", null, uri = "content://test/local") {
             java.io.ByteArrayInputStream(ByteArray(16) { number.toByte() })
         }
         val files = (1..3).map(::file)

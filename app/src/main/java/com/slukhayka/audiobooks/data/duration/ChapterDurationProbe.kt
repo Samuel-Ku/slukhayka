@@ -182,7 +182,7 @@ class ChapterDurationProbe(
                     pair.chapter.durationSeconds <
                     com.slukhayka.audiobooks.data.metadata.DurationSanity.MIN_SHARED_SECONDS
             unknownOrSuspect && if (local) {
-                localDurations != null && localPathOf(track).isNotBlank()
+                localDurations != null && localAddressOf(track).isNotBlank()
             } else {
                 track.url.isNotBlank() // no probe target
             }
@@ -200,7 +200,7 @@ class ChapterDurationProbe(
                                 // guess from its size: the byte arithmetic
                                 // belongs to streams, where a CBR frame header
                                 // proves the bitrate.
-                                localDurations?.durationSeconds(localPathOf(track))
+                                localDurations?.durationSeconds(localAddressOf(track))
                                     ?: return@withPermit
                             } else {
                                 // #516 — the source identity rides the probe so
@@ -255,12 +255,13 @@ class ChapterDurationProbe(
     }
 
     /**
-     * #1187 — the file that plays one LOCAL chapter: the import stores the
-     * copied file in [SourceTrackEntity.localFilePath], where it doubles as the
-     * track's url (the entity's own note). A row that carries only one of the
-     * two is still measured; a blank answer means there is nothing to open.
+     * #1187 — the address that plays one LOCAL chapter. ADR-0061: a
+     * by-reference track's only address is its SAF document URI (`url`); a copy
+     * written by an older version keeps it in
+     * [SourceTrackEntity.localFilePath]. A row that carries only one of the two
+     * is still measured; a blank answer means there is nothing to open.
      */
-    private fun localPathOf(track: SourceTrackEntity): String =
+    private fun localAddressOf(track: SourceTrackEntity): String =
         track.localFilePath?.takeIf { it.isNotBlank() } ?: track.url
 
     companion object {

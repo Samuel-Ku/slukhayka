@@ -18,6 +18,7 @@ class ImportPlannerTest {
     private fun entry(name: String, folder: String? = null) = LocalAudioEntry(
         fileName = name,
         parentFolder = folder,
+        uri = "content://test/$name",
         openStream = { ByteArrayInputStream(byteArrayOf(0)) }
     )
 
@@ -77,7 +78,7 @@ class ImportPlannerTest {
     @Test
     fun `joining planned books preserves target metadata and every chapter but renews merge consent`() {
         var reads = 0
-        fun lazyFile(name: String, folder: String? = null) = LocalAudioEntry(name, folder) { reads++; ByteArrayInputStream(byteArrayOf(1)) }
+        fun lazyFile(name: String, folder: String? = null) = LocalAudioEntry(name, folder, uri = "content://test/local") { reads++; ByteArrayInputStream(byteArrayOf(1)) }
         var plan = ImportPlanner.buildPlan(SourceRef.Folder("content://tree"),
             listOf(lazyFile("Збірка.mp3"), lazyFile("Інший файл.mp3"), lazyFile("02.mp3", "Інша"), lazyFile("01.mp3", "Інша")),
             listOf(ImportPlanner.ExistingWork("existing", "Збірка", "збірка|локальний файл")))

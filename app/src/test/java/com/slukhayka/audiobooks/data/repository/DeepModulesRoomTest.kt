@@ -1640,7 +1640,7 @@ class DeepModulesRoomTest {
     fun `local import records a LOCAL source row`() = runBlocking {
         val mods = modules()
 
-        val book = mods.imports.importLocalAudioStream("Моя книга.mp3", ByteArrayInputStream(ByteArray(32)))
+        val book = mods.imports.importLocalAudioStream("Моя книга.mp3", ByteArrayInputStream(ByteArray(32)), "content://test/Моя книга.mp3")
 
         val sources = dao.getSourcesForBookSync(book.id)
         assertEquals(1, sources.size)
@@ -1880,7 +1880,7 @@ class DeepModulesRoomTest {
     fun `importLocalAudioStream creates a downloadable single-chapter book`() = runBlocking {
         val mods = modules()
 
-        val book = mods.imports.importLocalAudioStream("Моя книга.mp3", ByteArrayInputStream(ByteArray(32)))
+        val book = mods.imports.importLocalAudioStream("Моя книга.mp3", ByteArrayInputStream(ByteArray(32)), "content://test/Моя книга.mp3")
 
         assertEquals("Моя книга", book.title)
         assertEquals("Локальний файл", book.author)
@@ -1891,12 +1891,16 @@ class DeepModulesRoomTest {
         assertEquals(1, chapters.size)
         assertEquals(book.id, chapters.first().bookId)
         assertEquals(0, chapters.first().chapterIndex)
-        // ADR-0007: the physical copy lives on the local source's TRACK.
+        // ADR-0061: the document URI IS the track's address; no copy exists.
         val tracks = dao.getTracksForBookSync(book.id)
         assertEquals(1, tracks.size)
         val track = tracks.first()
-        assertTrue("local file must exist", File(track.localFilePath!!).exists())
-        assertEquals(track.localFilePath, track.url)
+        assertEquals("content://test/Моя книга.mp3", track.url)
+        assertNull("жодної приватної копії", track.localFilePath)
+        assertTrue(
+            "local_imports мусить лишитися порожнім",
+            File(context.filesDir, "local_imports").listFiles().isNullOrEmpty()
+        )
 
         // The imported book shows in the downloaded set.
         val downloaded = dao.getDownloadedAudiobooks().first()
@@ -1913,10 +1917,10 @@ class DeepModulesRoomTest {
 
         val result = mods.imports.importAudioEntries(
             listOf(
-                LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
-                LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) },
-                LocalAudioEntry("Лісова пісня.mp3", null) { ByteArrayInputStream(ByteArray(18)) },
-                LocalAudioEntry("Промова.mp3", "Історія") { ByteArrayInputStream(ByteArray(19)) }
+                LocalAudioEntry("01.mp3", "Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(16)) },
+                LocalAudioEntry("02.mp3", "Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(17)) },
+                LocalAudioEntry("Лісова пісня.mp3", null, uri = "content://test/local") { ByteArrayInputStream(ByteArray(18)) },
+                LocalAudioEntry("Промова.mp3", "Історія", uri = "content://test/local") { ByteArrayInputStream(ByteArray(19)) }
             )
         )
 
@@ -1929,13 +1933,12 @@ class DeepModulesRoomTest {
         val rootBook = books.first { it.title == "Лісова пісня" }
         val historyBook = books.first { it.title == "Історія" }
 
-        // Folder book: two chapters, all downloaded, pointing at copied files
-        // (ADR-0007: the copies live on the TRACK rows).
+        // Folder book: two chapters, addresses are document URIs (ADR-0061).
         assertEquals(2, dao.getChaptersListForBook(folderBook.id).size)
         val folderTracks = dao.getTracksForBookSync(folderBook.id)
         assertEquals(2, folderTracks.size)
-        assertTrue(folderTracks.all { it.isDownloaded && it.localFilePath != null })
-        assertTrue(folderTracks.all { File(it.localFilePath!!).exists() })
+        assertTrue(folderTracks.all { it.isDownloaded && it.localFilePath == null })
+        assertTrue(folderTracks.all { it.url.startsWith("content://") })
 
         // Root book: single chapter, title = file name (T7 behaviour).
         assertEquals(1, dao.getChaptersListForBook(rootBook.id).size)
@@ -1948,9 +1951,9 @@ class DeepModulesRoomTest {
 
         mods.imports.importAudioEntries(
             listOf(
-                LocalAudioEntry("track10.mp3", "Сага") { ByteArrayInputStream(ByteArray(10)) },
-                LocalAudioEntry("track2.mp3", "Сага") { ByteArrayInputStream(ByteArray(8)) },
-                LocalAudioEntry("track1.mp3", "Сага") { ByteArrayInputStream(ByteArray(9)) }
+                LocalAudioEntry("track10.mp3", "Сага", uri = "content://test/local") { ByteArrayInputStream(ByteArray(10)) },
+                LocalAudioEntry("track2.mp3", "Сага", uri = "content://test/local") { ByteArrayInputStream(ByteArray(8)) },
+                LocalAudioEntry("track1.mp3", "Сага", uri = "content://test/local") { ByteArrayInputStream(ByteArray(9)) }
             )
         )
 
@@ -1968,9 +1971,9 @@ class DeepModulesRoomTest {
 
         val result = mods.imports.importAudioEntries(
             listOf(
-                LocalAudioEntry("broken.mp3", "Поламана") { throw java.io.IOException("no access") },
-                LocalAudioEntry("good.mp3", "Поламана") { ByteArrayInputStream(ByteArray(8)) },
-                LocalAudioEntry("empty.mp3", "Пуста") { throw java.io.IOException("no access") }
+                LocalAudioEntry("broken.mp3", "Поламана", uri = "content://test/local") { throw java.io.IOException("no access") },
+                LocalAudioEntry("good.mp3", "Поламана", uri = "content://test/local") { ByteArrayInputStream(ByteArray(8)) },
+                LocalAudioEntry("empty.mp3", "Пуста", uri = "content://test/local") { throw java.io.IOException("no access") }
             )
         )
 
@@ -1990,8 +1993,8 @@ class DeepModulesRoomTest {
 
         mods.imports.importAudioEntries(
             listOf(
-                LocalAudioEntry("01.mp3", "SeriesA/Кобзар") { ByteArrayInputStream(ByteArray(8)) },
-                LocalAudioEntry("01.mp3", "SeriesB/Кобзар") { ByteArrayInputStream(ByteArray(9)) }
+                LocalAudioEntry("01.mp3", "SeriesA/Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(8)) },
+                LocalAudioEntry("01.mp3", "SeriesB/Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(9)) }
             )
         )
 
@@ -2004,21 +2007,25 @@ class DeepModulesRoomTest {
     }
 
     @Test
-    fun `importAudioEntries preserves the original file extension`() = runBlocking {
+    fun `importAudioEntries keeps each document address and its extension`() = runBlocking {
         val mods = modules()
 
         mods.imports.importAudioEntries(
             listOf(
-                LocalAudioEntry("Розділ.ogg", "Книга") { ByteArrayInputStream(ByteArray(8)) },
-                LocalAudioEntry("Глава.m4a", "Книга") { ByteArrayInputStream(ByteArray(9)) }
+                LocalAudioEntry("Розділ.ogg", "Книга", uri = "content://tree/Книга/Розділ.ogg") {
+                    ByteArrayInputStream(ByteArray(8))
+                },
+                LocalAudioEntry("Глава.m4a", "Книга", uri = "content://tree/Книга/Глава.m4a") {
+                    ByteArrayInputStream(ByteArray(9))
+                }
             )
         )
 
         val book = dao.getAllAudiobooks().first().first { it.title == "Книга" }
-        // ADR-0007: the copied files live on the TRACK rows.
-        val paths = dao.getTracksForBookSync(book.id).mapNotNull { it.localFilePath }
-        assertTrue(paths.any { it.endsWith(".ogg") })
-        assertTrue(paths.any { it.endsWith(".m4a") })
+        // ADR-0061: the address is the SAF document itself.
+        val urls = dao.getTracksForBookSync(book.id).map { it.url }
+        assertTrue(urls.any { it.endsWith(".ogg") })
+        assertTrue(urls.any { it.endsWith(".m4a") })
     }
 
     // ---------------------------------------------------------------------
@@ -2029,9 +2036,9 @@ class DeepModulesRoomTest {
     fun `applyImportPlan without edits behaves exactly like the direct import`() = runBlocking {
         val mods = modules()
         val entries = listOf(
-            LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
-            LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) },
-            LocalAudioEntry("Лісова пісня.mp3", null) { ByteArrayInputStream(ByteArray(18)) }
+            LocalAudioEntry("01.mp3", "Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(16)) },
+            LocalAudioEntry("02.mp3", "Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(17)) },
+            LocalAudioEntry("Лісова пісня.mp3", null, uri = "content://test/local") { ByteArrayInputStream(ByteArray(18)) }
         )
 
         val plan = ImportPlanner.buildPlan(SourceRef.Folder("content://tree"), entries)
@@ -2077,7 +2084,7 @@ class DeepModulesRoomTest {
             id = "b1", workId = existingKey, isFavorite = false, createdAt = 0L, downloadProgress = 0f
         )
 
-        val entries = listOf(LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) })
+        val entries = listOf(LocalAudioEntry("01.mp3", "Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(16)) })
         val plan = ImportPlanner.buildPlan(
             SourceRef.Folder("content://tree"),
             entries,
@@ -2120,7 +2127,7 @@ class DeepModulesRoomTest {
         dao.upsertLibraryEntry(
             id = "b1", workId = existingKey, isFavorite = false, createdAt = 0L, downloadProgress = 0f
         )
-        val entries = listOf(LocalAudioEntry("01.mp3", "Книга") { ByteArrayInputStream(ByteArray(16)) })
+        val entries = listOf(LocalAudioEntry("01.mp3", "Книга", uri = "content://test/local") { ByteArrayInputStream(ByteArray(16)) })
         var plan = ImportPlanner.buildPlan(
             SourceRef.Folder("content://tree"),
             entries,
@@ -2146,8 +2153,8 @@ class DeepModulesRoomTest {
         val mods = modules()
         mods.imports.importAudioEntries(
             listOf(
-                LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
-                LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) }
+                LocalAudioEntry("01.mp3", "Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(16)) },
+                LocalAudioEntry("02.mp3", "Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(17)) }
             ),
             sourceTreeUri = "content://tree/books"
         )
@@ -2155,9 +2162,9 @@ class DeepModulesRoomTest {
         // The user drops 03.mp3 into the same folder, then re-scans.
         val report = mods.imports.rescanAudioEntries(
             listOf(
-                LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
-                LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) },
-                LocalAudioEntry("03.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(18)) }
+                LocalAudioEntry("01.mp3", "Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(16)) },
+                LocalAudioEntry("02.mp3", "Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(17)) },
+                LocalAudioEntry("03.mp3", "Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(18)) }
             ),
             treeUri = "content://tree/books"
         )
@@ -2168,11 +2175,11 @@ class DeepModulesRoomTest {
 
         val book = dao.getAllAudiobooks().first().first { it.title == "Кобзар" }
         assertEquals(3, dao.getChaptersListForBook(book.id).size)
-        // ADR-0007: the rebuilt local copies live on the TRACK rows.
+        // ADR-0061: new tracks point at document URIs; no copies are rebuilt.
         val tracks = dao.getTracksForBookSync(book.id)
         assertEquals(3, tracks.size)
-        assertTrue(tracks.all { it.isDownloaded && it.localFilePath != null })
-        assertTrue(tracks.all { File(it.localFilePath!!).exists() })
+        assertTrue(tracks.all { it.isDownloaded && it.localFilePath == null })
+        assertTrue(tracks.all { it.url.startsWith("content://") })
     }
 
     @Test
@@ -2180,8 +2187,8 @@ class DeepModulesRoomTest {
         val mods = modules()
         mods.imports.importAudioEntries(
             listOf(
-                LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
-                LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) }
+                LocalAudioEntry("01.mp3", "Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(16)) },
+                LocalAudioEntry("02.mp3", "Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(17)) }
             ),
             sourceTreeUri = "content://tree/books"
         )
@@ -2190,7 +2197,7 @@ class DeepModulesRoomTest {
 
         // 01.mp3 was deleted on the device; the folder still has 02.mp3.
         val report = mods.imports.rescanAudioEntries(
-            listOf(LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) }),
+            listOf(LocalAudioEntry("02.mp3", "Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(17)) }),
             treeUri = "content://tree/books"
         )
 
@@ -2207,8 +2214,8 @@ class DeepModulesRoomTest {
         val mods = modules()
         mods.imports.importAudioEntries(
             listOf(
-                LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
-                LocalAudioEntry("02.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) }
+                LocalAudioEntry("01.mp3", "Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(16)) },
+                LocalAudioEntry("02.mp3", "Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(17)) }
             ),
             sourceTreeUri = "content://tree/books"
         )
@@ -2216,8 +2223,8 @@ class DeepModulesRoomTest {
         // Same bytes as 02.mp3 but under a new name — moved, not new.
         val report = mods.imports.rescanAudioEntries(
             listOf(
-                LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) },
-                LocalAudioEntry("глава-2.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(17)) }
+                LocalAudioEntry("01.mp3", "Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(16)) },
+                LocalAudioEntry("глава-2.mp3", "Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(17)) }
             ),
             treeUri = "content://tree/books"
         )
@@ -2233,7 +2240,7 @@ class DeepModulesRoomTest {
 
         val report = mods.imports.rescanAudioEntries(
             listOf(
-                LocalAudioEntry("Лісова пісня.mp3", null) { ByteArrayInputStream(ByteArray(18)) }
+                LocalAudioEntry("Лісова пісня.mp3", null, uri = "content://test/local") { ByteArrayInputStream(ByteArray(18)) }
             ),
             treeUri = "content://tree/new"
         )
@@ -2249,7 +2256,7 @@ class DeepModulesRoomTest {
     fun `rescanAudioEntries never duplicates bytes already stored elsewhere in the library`() = runBlocking {
         val mods = modules()
         mods.imports.importAudioEntries(
-            listOf(LocalAudioEntry("01.mp3", "Кобзар") { ByteArrayInputStream(ByteArray(16)) }),
+            listOf(LocalAudioEntry("01.mp3", "Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(16)) }),
             sourceTreeUri = "content://tree/books"
         )
         val knownBookId = dao.getAllAudiobooks().first().first().id
@@ -2257,7 +2264,7 @@ class DeepModulesRoomTest {
 
         // A different folder now contains a byte-identical copy of 01.mp3.
         val report = mods.imports.rescanAudioEntries(
-            listOf(LocalAudioEntry("01.mp3", "Дублікати") { ByteArrayInputStream(ByteArray(16)) }),
+            listOf(LocalAudioEntry("01.mp3", "Дублікати", uri = "content://test/local") { ByteArrayInputStream(ByteArray(16)) }),
             treeUri = "content://tree/dupes"
         )
 
@@ -2273,25 +2280,30 @@ class DeepModulesRoomTest {
     // ---------------------------------------------------------------------
 
     @Test
-    fun `importLocalAudioStream twice with identical bytes returns the existing book and copies once`() = runBlocking {
+    fun `importLocalAudioStream twice with identical bytes returns the existing book without a second address`() = runBlocking {
         val mods = modules()
-        val filesDir = File(context.filesDir, "local_imports")
 
-        val first = mods.imports.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(32)))
-        val second = mods.imports.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(32)))
+        val first = mods.imports.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(32)), "content://test/Книга.mp3")
+        val second = mods.imports.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(32)), "content://test/Книга.mp3")
 
         assertEquals("duplicate import must return the same book", first.id, second.id)
         assertEquals(1, dao.getAllAudiobooks().first().size)
         assertEquals(1, dao.getChaptersListForBook(first.id).size)
-        assertEquals("only one copy may exist on disk", 1, filesDir.listFiles()?.size ?: 0)
+        val tracks = dao.getTracksForBookSync(first.id)
+        assertEquals("the duplicate never adds a second track", 1, tracks.size)
+        assertEquals("content://test/Книга.mp3", tracks.single().url)
+        assertTrue(
+            "nothing was copied for either import",
+            File(context.filesDir, "local_imports").listFiles().isNullOrEmpty()
+        )
     }
 
     @Test
     fun `importLocalAudioStream with different bytes creates a second book`() = runBlocking {
         val mods = modules()
 
-        mods.imports.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(32)))
-        mods.imports.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(33)))
+        mods.imports.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(32)), "content://test/Книга.mp3")
+        mods.imports.importLocalAudioStream("Книга.mp3", ByteArrayInputStream(ByteArray(33)), "content://test/Книга-2.mp3")
 
         assertEquals(2, dao.getAllAudiobooks().first().size)
     }
@@ -2301,8 +2313,8 @@ class DeepModulesRoomTest {
         val mods = modules()
         val bytes = ByteArray(16) { it.toByte() }
         val entries = listOf(
-            LocalAudioEntry("01.mp3", "Сага") { ByteArrayInputStream(bytes) },
-            LocalAudioEntry("02.mp3", "Сага") { ByteArrayInputStream(bytes.copyOf(17)) }
+            LocalAudioEntry("01.mp3", "Сага", uri = "content://test/local") { ByteArrayInputStream(bytes) },
+            LocalAudioEntry("02.mp3", "Сага", uri = "content://test/local") { ByteArrayInputStream(bytes.copyOf(17)) }
         )
         val filesDir = File(context.filesDir, "local_imports")
 
@@ -2327,7 +2339,7 @@ class DeepModulesRoomTest {
         val bytes = ByteArray(64) { it.toByte() }
 
         mods.imports.importAudioEntries(
-            listOf(LocalAudioEntry("Розділ.mp3", "Книга") { ByteArrayInputStream(bytes) })
+            listOf(LocalAudioEntry("Розділ.mp3", "Книга", uri = "content://test/local") { ByteArrayInputStream(bytes) })
         )
 
         val book = dao.getAllAudiobooks().first().first()
@@ -2341,7 +2353,7 @@ class DeepModulesRoomTest {
         val mods = modules()
 
         mods.imports.importAudioEntries(
-            listOf(LocalAudioEntry("Розділ.mp3", "Книга") { ByteArrayInputStream(ByteArray(8)) }),
+            listOf(LocalAudioEntry("Розділ.mp3", "Книга", uri = "content://test/local") { ByteArrayInputStream(ByteArray(8)) }),
             sourceTreeUri = "content://com.android.externalstorage.documents/tree/primary%3AAudioBooks"
         )
 
@@ -2398,16 +2410,18 @@ class DeepModulesRoomTest {
     }
 
     @Test
-    fun `removeOfflineDownload clears hashes so a re-import can copy the files again`() = runBlocking {
+    fun `removeOfflineDownload clears hashes so a re-import can add the book again`() = runBlocking {
         val mods = modules()
         val bytes = ByteArray(16) { it.toByte() }
-        val entries = listOf(LocalAudioEntry("01.mp3", "Сага") { ByteArrayInputStream(bytes) })
+        val entries = listOf(
+            LocalAudioEntry("01.mp3", "Сага", uri = "content://test/Сага/01.mp3") { ByteArrayInputStream(bytes) }
+        )
 
         val imported = mods.imports.importAudioEntries(entries)
         val book = dao.getAllAudiobooks().first().first()
         assertEquals(1, imported.booksImported)
         val filesDir = File(context.filesDir, "local_imports")
-        val copiesBefore = filesDir.listFiles()?.size ?: 0
+        assertEquals("ADR-0061: імпорт не лишає копій", 0, filesDir.listFiles()?.size ?: 0)
 
         mods.downloads.removeOfflineDownload(book.id)
         assertEquals(0, filesDir.listFiles()?.size ?: 0)
@@ -2416,9 +2430,9 @@ class DeepModulesRoomTest {
 
         assertEquals("re-import must NOT be blocked by a stale hash", 1, reimport.booksImported)
         assertEquals(0, reimport.duplicateFiles)
-        assertEquals("a fresh copy must land on disk", copiesBefore, filesDir.listFiles()?.size ?: 0)
-        // The original book survives the takedown; the re-import adds a second,
-        // playable copy next to it.
+        assertEquals("a re-import never duplicates bytes on disk either", 0, filesDir.listFiles()?.size ?: 0)
+        // The original book survives the takedown; the re-import adds a second
+        // card that addresses the same document.
         assertEquals(2, dao.getAllAudiobooks().first().size)
     }
 
@@ -2537,7 +2551,7 @@ class DeepModulesRoomTest {
         val mods = modules()
         val bytes = ByteArray(16) { it.toByte() }
         mods.imports.importAudioEntries(
-            listOf(LocalAudioEntry("01.mp3", "Сага") { ByteArrayInputStream(bytes) })
+            listOf(LocalAudioEntry("01.mp3", "Сага", uri = "content://test/local") { ByteArrayInputStream(bytes) })
         )
         val first = dao.getAllAudiobooks().first().first()
         mods.entries.deleteBook(first.id)
@@ -2546,7 +2560,7 @@ class DeepModulesRoomTest {
         // Local ids are time-stamped, so the re-import is a NEW book with a
         // fresh id — never suppressed by the old tombstone, never a duplicate.
         mods.imports.importAudioEntries(
-            listOf(LocalAudioEntry("01.mp3", "Сага") { ByteArrayInputStream(bytes) })
+            listOf(LocalAudioEntry("01.mp3", "Сага", uri = "content://test/local") { ByteArrayInputStream(bytes) })
         )
         val after = dao.getAllAudiobooks().first()
         assertEquals(1, after.size)

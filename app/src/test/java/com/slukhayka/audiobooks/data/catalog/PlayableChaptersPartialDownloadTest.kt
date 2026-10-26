@@ -163,7 +163,13 @@ class PlayableChaptersPartialDownloadTest {
     }
 
     /** ADR-0061 — a by-reference import: tracks carry SAF document URIs, no private copy. */
-    private fun seedByReferenceBook(bookId: String, chapterCount: Int) = runBlocking {
+    private fun seedByReferenceBook(
+        bookId: String,
+        chapterCount: Int,
+        /** How many leading chapters have a local (document URI) track. */
+        localChapterCount: Int = chapterCount,
+        withRemoteSource: Boolean = false
+    ) = runBlocking {
         dao.insertAudiobooks(
             listOf(
                 AudiobookEntity(
@@ -173,7 +179,7 @@ class PlayableChaptersPartialDownloadTest {
                     narrator = "",
                     description = "",
                     coverDrawableRes = 0,
-                    sourceUrl = "",
+                    sourceUrl = if (withRemoteSource) "https://lihtar.in.ua/book/$bookId" else "",
                     genre = ""
                 )
             )
@@ -194,32 +200,73 @@ class PlayableChaptersPartialDownloadTest {
                 )
             }
         )
-        val sourceId = "local-$bookId"
-        dao.insertSources(
-            listOf(SourceEntity(id = sourceId, bookId = bookId, editionId = editionId, type = "local", url = ""))
+        val localSourceId = "local-$bookId"
+        val sources = mutableListOf(
+            SourceEntity(id = localSourceId, bookId = bookId, editionId = editionId, type = "local", url = "")
         )
-        dao.insertTracks(
-            (0 until chapterCount).map { index ->
-                SourceTrackEntity(
-                    id = "$sourceId-tr$index",
-                    sourceId = sourceId,
+        if (withRemoteSource) {
+            sources += SourceEntity(
+                id = "lihtar-$bookId",
+                bookId = bookId,
+                editionId = editionId,
+                type = "lihtar",
+                url = "https://lihtar.in.ua/book/$bookId"
+            )
+        }
+        dao.insertSources(sources)
+        val tracks = mutableListOf<SourceTrackEntity>()
+        (0 until localChapterCount).forEach { index ->
+            tracks += SourceTrackEntity(
+                id = "$localSourceId-tr$index",
+                sourceId = localSourceId,
+                trackIndex = index,
+                url = "content://tree/books/$bookId/$index.mp3",
+                localFilePath = null,
+                isDownloaded = true
+            )
+        }
+        if (withRemoteSource) {
+            (0 until chapterCount).forEach { index ->
+                tracks += SourceTrackEntity(
+                    id = "lihtar-$bookId-tr$index",
+                    sourceId = "lihtar-$bookId",
                     trackIndex = index,
-                    url = "content://tree/books/$bookId/$index.mp3",
-                    localFilePath = null,
-                    isDownloaded = true
+                    url = "https://lihtar.in.ua/audio/$bookId/$index.mp3"
                 )
             }
-        )
+        }
+        dao.insertTracks(tracks)
     }
 
     // ------------------------------------------------------------------
-    // (a.0) ADR-0061 — by-reference local book: no copy exists, the SAF
-    //       document URI is the playable address. The pairing must accept it;
-    //       otherwise a #1479-style import would play nothing at all.
+    // (a.0) ADR-0061 — by-reference local import: no copy exists, the SAF
+    //       document URI is the playable address. A FULLY local book already
+    //       paired through the selected-source branch; the PARTIAL case is
+    //       the one the local lock must unlock: without it a neighbouring
+    //       full remote source silently streamed every chapter from the
+    //       network (breaking the #472/#505 local-first lock).
     // ------------------------------------------------------------------
 
     @Test
-    fun `by-reference local tracks pair from their document uri`() = runBlocking {
+    fun `partial by-reference coverage keeps the local chapters local`() = runBlocking {
+        val bookId = "byref-partial"
+        seedByReferenceBook(bookId, chapterCount = 3, localChapterCount = 2, withRemoteSource = true)
+
+        val playable = catalog.getPlayableChapters(bookId)
+
+        assertEquals(3, playable.size)
+        // Chapters with a local address stay local...
+        assertEquals("local", playable[0].sourceId)
+        assertEquals("content://tree/books/$bookId/0.mp3", playable[0].track?.url)
+        assertEquals("local", playable[1].sourceId)
+        assertEquals("content://tree/books/$bookId/1.mp3", playable[1].track?.url)
+        // ...and only the uncovered chapter streams from the remote source.
+        assertEquals("lihtar", playable[2].sourceId)
+        assertTrue(playable[2].track?.url?.startsWith("https://") == true)
+    }
+
+    @Test
+    fun `a fully by-reference book pairs every chapter from its document uri`() = runBlocking {
         val bookId = "byref"
         seedByReferenceBook(bookId, chapterCount = 3)
 
@@ -237,6 +284,7 @@ class PlayableChaptersPartialDownloadTest {
     }
 
     // ------------------------------------------------------------------
+    // (a) Partial coverage → local chapters play from LOCAL; chapters    // ------------------------------------------------------------------
     // (a) Partial coverage → local chapters play from LOCAL; chapters
     //     without a copy STREAM from the same source's remote tracks (#505
     //     revises #472: presence of local files must not block streaming).

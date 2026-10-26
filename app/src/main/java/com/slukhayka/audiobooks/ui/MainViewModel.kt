@@ -1942,7 +1942,7 @@ class MainViewModel @JvmOverloads constructor(
             val track = playable.getOrNull(freshIndex)?.track
             when (
                 SmartRetryPolicy.decide(
-                    localFileReady = SmartRetryPolicy.localFileReady(track?.localFilePath),
+                    localFileReady = SmartRetryPolicy.localAddressReady(track?.localFilePath, track?.url),
                     canReResolve = smartRetryMemo.canAttempt(bookId)
                 )
             ) {

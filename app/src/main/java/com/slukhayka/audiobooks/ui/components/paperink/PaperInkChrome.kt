@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -32,6 +33,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
@@ -119,6 +122,7 @@ fun PaperInkMiniPlayerBar(
 data class PaperInkNavItem(
     val label: String,
     val icon: ImageVector,
+    val testTag: String? = null,
 )
 
 /**
@@ -136,7 +140,7 @@ fun PaperInkNavigationBar(
 ) {
     val colorScheme = MaterialTheme.colorScheme
     Row(
-        modifier = modifier.fillMaxWidth().height(64.dp),
+        modifier = modifier.fillMaxWidth().heightIn(min = 64.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceEvenly,
     ) {
@@ -150,6 +154,7 @@ fun PaperInkNavigationBar(
                         role = Role.Tab,
                         onClick = { onSelect(index) },
                     )
+                    .then(if (item.testTag != null) Modifier.testTag(item.testTag) else Modifier)
                     .padding(vertical = 6.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -173,7 +178,10 @@ fun PaperInkNavigationBar(
                     text = item.label,
                     style = PaperInkType.Micro,
                     color = if (selected) colorScheme.onSurface else colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    // A 200 % font scale must wrap, not clip: the bar is allowed
+                    // to grow with its labels (a clipped label is an unreadable one).
+                    maxLines = 2,
+                    textAlign = TextAlign.Center,
                 )
             }
         }

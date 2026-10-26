@@ -2331,7 +2331,7 @@ class LibraryImport(
          * reordered Edition.
          */
         val structuralChangeRejected: Boolean = false,
-        /** Unreadable, failed-to-copy or changed-between-reads files; never duplicates. */
+        /** Unreadable or unaddressable files (no document URI); never duplicates. */
         val skippedFiles: Int = 0
     )
 
@@ -2341,10 +2341,10 @@ class LibraryImport(
      * current hash the memory cannot agree on (ADR-0061 §3; a file with
      * matching metadata and a known current hash keeps its remembered hash and
      * never touches disk), diffs against the stored chapters by content hash,
-     * applies new files as
-     * chapters/books, and reports missing/moved/duplicate files. The library
-     * entry and every stored track survive every outcome (wayfinder #59):
-     * nothing here ever deletes a row or a file.
+     * applies new files as chapters/books, and reports
+     * missing/moved/duplicate files. The library entry and every stored track
+     * survive every outcome (wayfinder #59): nothing here ever deletes a row or
+     * a file.
      */
     suspend fun rescanLocalFolder(treeUri: String): RescanReport = withContext(Dispatchers.IO) {
         val ctx = context ?: return@withContext RescanReport(treeUri)

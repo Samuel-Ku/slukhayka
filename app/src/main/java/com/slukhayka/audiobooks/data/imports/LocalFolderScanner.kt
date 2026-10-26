@@ -28,6 +28,14 @@ data class LocalAudioEntry(
      * entries built without a document (legacy seams).
      */
     val uri: String? = null,
+    /**
+     * The SAF metadata seen during the walk (ADR-0061 §3): lets a re-scan
+     * reuse a remembered hash instead of reading an unchanged file. Zero from
+     * the provider means "unknown", so it becomes null — never a fabricated
+     * size or timestamp.
+     */
+    val sizeBytes: Long? = null,
+    val lastModifiedMs: Long? = null,
     val openStream: () -> InputStream
 )
 
@@ -57,7 +65,13 @@ object LocalFolderScanner {
             if (name.substringAfterLast('.', "").lowercase() !in AUDIO_EXTENSIONS) return emptyList()
             val uri = root.uri
             return listOf(
-                LocalAudioEntry(fileName = name, parentFolder = null, uri = uri.toString()) {
+                LocalAudioEntry(
+                    fileName = name,
+                    parentFolder = null,
+                    uri = uri.toString(),
+                    sizeBytes = root.length().takeIf { it > 0 },
+                    lastModifiedMs = root.lastModified().takeIf { it > 0 }
+                ) {
                     openOrFail(resolver, uri)
                 }
             )
@@ -109,7 +123,9 @@ object LocalFolderScanner {
                         LocalAudioEntry(
                             fileName = name,
                             parentFolder = relativePath,
-                            uri = uri.toString()
+                            uri = uri.toString(),
+                            sizeBytes = child.length().takeIf { it > 0 },
+                            lastModifiedMs = child.lastModified().takeIf { it > 0 }
                         ) {
                             openOrFail(resolver, uri)
                         }

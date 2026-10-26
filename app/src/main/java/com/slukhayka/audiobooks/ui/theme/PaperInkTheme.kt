@@ -3,7 +3,9 @@ package com.slukhayka.audiobooks.ui.theme
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 
 /**
  * The «Папір і голос» theme, applied subtree-first while screens migrate.
@@ -20,6 +22,16 @@ import androidx.compose.runtime.remember
  * player is intended to always use the dark one (product decision A) — screens
  * that need it can pass `darkTheme = true` regardless of the system setting.
  */
+/**
+ * True inside a [PaperInkTheme] subtree.
+ *
+ * It lets SHARED legacy components (the canonical section header, chips, rows)
+ * upgrade their typography only on migrated screens, without changing every
+ * un-migrated screen at once. Read it as a migration seam; delete it when the
+ * last screen moves to [PaperInkTheme].
+ */
+val LocalPaperInkDesign = staticCompositionLocalOf { false }
+
 @Composable
 fun PaperInkTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -28,12 +40,14 @@ fun PaperInkTheme(
     val colorScheme = remember(darkTheme) {
         if (darkTheme) paperInkDarkScheme() else paperInkLightScheme()
     }
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = PaperInkType.typography,
-        shapes = PaperInkShapes,
-        content = content,
-    )
+    CompositionLocalProvider(LocalPaperInkDesign provides true) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = PaperInkType.typography,
+            shapes = PaperInkShapes,
+            content = content,
+        )
+    }
 }
 
 /**

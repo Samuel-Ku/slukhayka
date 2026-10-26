@@ -75,20 +75,26 @@ fun AppSectionHeader(
     // was always wrong. The SECTION level also carried +1 sp tracking, while
     // the prototype tightens (−0.5 px) — expressive headings read as one
     // phrase, not as letters standing apart.
-    val titleStyle = when (level) {
-        SectionHeaderLevel.GROUP -> com.slukhayka.audiobooks.ui.theme.SectionGroupTitleStyle
-        SectionHeaderLevel.SECTION -> MaterialTheme.typography.titleSmall.copy(
-            fontWeight = FontWeight.Bold
-        )
+    val newDesign = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
+    val titleStyle = if (newDesign) {
+        // The direction's one section role: 21/26 Onest Bold, sentence case.
+        com.slukhayka.audiobooks.ui.theme.PaperInkType.SectionTitle
+    } else {
+        when (level) {
+            SectionHeaderLevel.GROUP -> com.slukhayka.audiobooks.ui.theme.SectionGroupTitleStyle
+            SectionHeaderLevel.SECTION -> MaterialTheme.typography.titleSmall.copy(
+                fontWeight = FontWeight.Bold
+            )
+        }
     }
     Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(
-                start = AppDimens.PageSides,
-                end = AppDimens.PageSides,
-                top = AppDimens.SpaceLg,
-                bottom = AppDimens.SpaceSm
+                start = if (newDesign) com.slukhayka.audiobooks.ui.theme.PaperInkDimens.SpacePage else AppDimens.PageSides,
+                end = if (newDesign) com.slukhayka.audiobooks.ui.theme.PaperInkDimens.SpacePage else AppDimens.PageSides,
+                top = if (newDesign) com.slukhayka.audiobooks.ui.theme.PaperInkDimens.SpaceSection else AppDimens.SpaceLg,
+                bottom = AppDimens.SpaceSm,
             ),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -108,7 +114,11 @@ fun AppSectionHeader(
             if (secondary != null) {
                 Text(
                     text = secondary,
-                    style = MaterialTheme.typography.labelMedium,
+                    style = if (newDesign) {
+                        com.slukhayka.audiobooks.ui.theme.PaperInkType.Micro
+                    } else {
+                        MaterialTheme.typography.labelMedium
+                    },
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }

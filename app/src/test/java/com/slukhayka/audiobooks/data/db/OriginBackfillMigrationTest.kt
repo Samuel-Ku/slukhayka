@@ -32,7 +32,7 @@ import org.robolectric.annotation.Config
 class OriginBackfillMigrationTest {
 
     @Test
-    fun `v54 promotes only rows with evidence of a deliberate start`() {
+    fun `the chain promotes evidence rows at 54 and the rest of the library at 56`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val name = "origin-backfill-migration-54.db"
         context.deleteDatabase(name)
@@ -132,8 +132,13 @@ class OriginBackfillMigrationTest {
             assertEquals("вподобана книга мусить стати особистою", "EXPLICIT_SAVE", origin("saved"))
             assertEquals("книга з прогресом мусить стати особистою", "EXPLICIT_SAVE", origin("played"))
             assertEquals(
-                "рядок БЕЗ доказу мусить лишитись UNKNOWN — міграція не вигадує даних",
-                "UNKNOWN",
+                // #1465 (варіант В, рішення власника): 54->55 сам по собі лишає
+                // рядок без доказу в UNKNOWN — він справді не вигадує даних. Але
+                // 55->56 підвищує саме UNKNOWN, бо до v47 колонки origin не існувало
+                // і UNKNOWN там означає «колонки ще не було», а не «невідоме походження».
+                // Без цього кроку бібліотека власника поверталась як 1 книга з 211.
+                "рядок без доказу лишається UNKNOWN після 54->55, але 55->56 його повертає",
+                "EXPLICIT_SAVE",
                 origin("silent"),
             )
             assertEquals(

@@ -2408,11 +2408,11 @@ class LibraryImport(
             // stale staging leftovers before it runs.
             localWriteMutex.withLock {
                 cleanupStaging()
-                // ADR-0061 §3 — a file whose SAF metadata is unchanged is not
-                // read again: the folder memory remembers (size, last-modified)
-                // beside the hash, so the re-scan reuses that hash and reads
-                // only changed or new files. Missing memory keeps the old
-                // behaviour: hash the stream.
+                // ADR-0061 §3 — a file is NOT read when the folder memory knows
+                // its current hash AND (size, last-modified) still match. Memory
+                // written by the previous format (v2), or a path whose owners
+                // disagree on the current hash, is read once and then rewritten
+                // with today's observation — so the next scan can reuse it.
                 val memory = LocalFolderMemory(dao).read(treeUri)
                 val remembered = mergedRecords(memory)
                 val scanned = entries.mapNotNull { entry ->
@@ -2620,17 +2620,16 @@ class LibraryImport(
                     )
                     if (diff.newFiles.isEmpty()) {
                         val proven = files.filter { file -> localTracks.any { it.contentHash == file.contentHash } }
-                        val observed = observedOrigin(book.id, proven)
-                        val newProof = proven.filter { file ->
-                            val key = LocalImportGrouping.key(file.fileName, file.parentFolder, grouping)
-                            file.contentHash !in lineage?.files?.get(LocalImportGrouping.fileKey(file.fileName, file.parentFolder))?.hashes.orEmpty() ||
-                                (key in observed.claimedGroups && key !in lineage?.groups.orEmpty())
-                        }
-                        if (newProof.isNotEmpty()) {
-                            // A rename is a physical observation, not a logical edit.
-                            // Remember it even when no new Chapter is appended.
+                        // ADR-0061 §3 — persist the fresh SAF observation even when
+                        // nothing structural changed. Without this a v2 record (every
+                        // import made before the metadata format) or a file whose
+                        // bytes are the same but whose timestamp moved would stay
+                        // metadata-unknown, and every re-scan would read it again.
+                        // A rename is a physical observation too, so it is remembered
+                        // even when no new Chapter is appended.
+                        if (proven.isNotEmpty()) {
                             try {
-                                writeBatchRunner { LocalFolderMemory(dao).remember(book.id, observedOrigin(book.id, newProof)) }
+                                writeBatchRunner { LocalFolderMemory(dao).remember(book.id, observedOrigin(book.id, proven)) }
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (e: Exception) {

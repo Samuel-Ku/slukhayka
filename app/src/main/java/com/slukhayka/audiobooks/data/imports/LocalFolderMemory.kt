@@ -20,7 +20,15 @@ internal data class LocalFolderOrigin(
  * a fabricated number.
  */
 internal data class LocalFileRecord(
+    /** Every content hash ever observed at this path — the missing-detection history. */
     val hashes: Set<String>,
+    /**
+     * The hash of the NEWEST observation at this path. History is not enough to
+     * reuse: after one content change the path carries two hashes forever, and
+     * an unchanged file would then be re-read on every scan. Null when unknown
+     * (a v2 record, or several owners disagree) — the caller then reads.
+     */
+    val lastHash: String? = null,
     val sizeBytes: Long? = null,
     val lastModifiedMs: Long? = null
 ) {

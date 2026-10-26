@@ -25,9 +25,11 @@ internal object LocalFolderMemoryCodec {
         lineage.grouping.name,
         lineage.groups.sorted().joinToString(".", transform = ::token),
         lineage.files.toSortedMap().entries.joinToString(".") { (path, record) ->
-            token(path) + ":" + record.hashes.sorted().joinToString(",") +
-                ";" + (record.sizeBytes?.toString().orEmpty()) +
-                ";" + (record.lastModifiedMs?.toString().orEmpty())
+            token(path) + ":" +
+                (record.lastHash.orEmpty()) + ";" +
+                (record.sizeBytes?.toString().orEmpty()) + ";" +
+                (record.lastModifiedMs?.toString().orEmpty()) + ";" +
+                record.hashes.sorted().joinToString(",")
         }
     ).joinToString("|")
 
@@ -46,11 +48,20 @@ internal object LocalFolderMemoryCodec {
                 val parts = entry.split(':', limit = 2)
                 require(parts.size == 2)
                 val meta = parts[1].split(';')
-                require(meta.size == if (version == VERSION_V3) 3 else 1)
-                val hashes = meta[0].split(',').filter { it.isNotEmpty() }.toSet()
-                require(hashes.all { it.matches(HASH) })
+                require(meta.size == if (version == VERSION_V3) 4 else 1)
+                val hashes = meta[meta.lastIndex].split(',').filter { it.isNotEmpty() }.toSet()
+                require(hashes.isNotEmpty() && hashes.all { it.matches(HASH) })
+                val lastHash = if (version == VERSION_V3) {
+                    meta[0].takeIf { it.isNotEmpty() }
+                } else {
+                    // v2 never recorded which hash is current: one hash is
+                    // unambiguous, several are not — unknown, never a guess.
+                    hashes.singleOrNull()
+                }
+                require(lastHash == null || lastHash.matches(HASH))
                 untoken(parts[0]) to LocalFileRecord(
                     hashes = hashes,
+                    lastHash = lastHash,
                     sizeBytes = if (version == VERSION_V3) meta[1].toLongOrNull() else null,
                     lastModifiedMs = if (version == VERSION_V3) meta[2].toLongOrNull() else null
                 )
@@ -69,9 +80,10 @@ internal object LocalFolderMemoryCodec {
 /**
  * ADR-0061 §3 — may a re-scan reuse a remembered hash instead of reading the
  * file? Only when the path is remembered, its (size, last-modified) still
- * equals the scan, and the path carries exactly ONE remembered hash. Several
- * hashes for one path mean several owners or changed bytes — an ambiguity,
- * not a cache hit.
+ * equals the scan, and the memory knows WHICH hash is current at that path.
+ * History alone is not enough: after one content change a path carries two
+ * hashes forever, so the current hash is what gets reused. Owners that
+ * disagree leave it unknown — then the file is read.
  */
 internal fun rememberedHashFor(
     records: Map<String, LocalFileRecord>,
@@ -82,7 +94,7 @@ internal fun rememberedHashFor(
 ): String? {
     val record = records[LocalImportGrouping.fileKey(fileName, parentFolder)] ?: return null
     if (!record.sameMetadata(sizeBytes, lastModifiedMs)) return null
-    return record.hashes.singleOrNull()
+    return record.lastHash
 }
 
 /**
@@ -95,6 +107,7 @@ internal fun rememberedHashFor(
 internal fun observedRecord(previous: LocalFileRecord?, file: FolderRescan.RescanFile): LocalFileRecord =
     LocalFileRecord(
         hashes = previous?.hashes.orEmpty() + file.contentHash,
+        lastHash = file.contentHash,
         sizeBytes = file.sizeBytes,
         lastModifiedMs = file.lastModifiedMs
     )
@@ -114,6 +127,7 @@ internal fun mergedRecords(lineages: List<LocalFolderLineage>): Map<String, Loca
             } else {
                 LocalFileRecord(
                     hashes = previous.hashes + record.hashes,
+                    lastHash = agree(previous.lastHash, record.lastHash),
                     sizeBytes = agree(previous.sizeBytes, record.sizeBytes),
                     lastModifiedMs = agree(previous.lastModifiedMs, record.lastModifiedMs)
                 )
@@ -123,4 +137,4 @@ internal fun mergedRecords(lineages: List<LocalFolderLineage>): Map<String, Loca
     return merged
 }
 
-private fun agree(a: Long?, b: Long?): Long? = if (a != null && a == b) a else null
+private fun <T> agree(a: T?, b: T?): T? = if (a != null && a == b) a else null

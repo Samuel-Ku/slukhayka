@@ -198,6 +198,36 @@ class LocalSourceAppendTest {
         assertEquals(listOf("01", "02", "10"), chapters(bookId).map { it.title })
     }
 
+    @Test
+    fun `a second rescan reuses remembered metadata and opens no stream`() = runBlocking {
+        val bookId = importKobzar("01.mp3" to 1, "02.mp3" to 2)
+        var opened = 0
+        fun counted(name: String, byte: Int) = LocalAudioEntry(
+            fileName = name,
+            parentFolder = "Кобзар",
+            sizeBytes = 16L,
+            lastModifiedMs = 1_000L + byte
+        ) {
+            opened++
+            ByteArrayInputStream(ByteArray(16) { byte.toByte() })
+        }
+
+        // Перший скан після імпорту бачить пам'ять без метаданих — читає файли
+        // один раз і записує свіжі (розмір, дата).
+        imports().rescanAudioEntries(listOf(counted("01.mp3", 1), counted("02.mp3", 2)), TREE)
+        assertTrue("перший скан мусить прочитати файли", opened >= 2)
+
+        opened = 0
+        val second = imports().rescanAudioEntries(
+            listOf(counted("01.mp3", 1), counted("02.mp3", 2)),
+            TREE
+        )
+
+        assertEquals("незмінені файли не мусять читатися на другому скані", 0, opened)
+        assertEquals(0, second.newChapters)
+        assertEquals(2, chapters(bookId).size)
+    }
+
     companion object {
         private const val TREE = "content://tree/books"
     }

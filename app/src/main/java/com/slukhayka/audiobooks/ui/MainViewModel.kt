@@ -4699,8 +4699,10 @@ class MainViewModel @JvmOverloads constructor(
      *
      * The DAO rows are the truth: a local Source exists, its tracks have no
      * readable locator, and no other (non-refused) Source can play the
-     * Edition. A content:// track is treated as present — its grant failure
-     * surfaces at playback, not as a fabricated absence here.
+     * Edition. ADR-0061/T2: a by-reference track's address is a SAF document
+     * URI, and it counts as present only while the document really opens —
+     * a revoked grant must surface here as «відновити доступ», not hide
+     * behind the scheme.
      */
     val bookLocalAccess: StateFlow<LocalAccessRecovery.State?> = _selectedBookId
         .flatMapLatest { bookId ->
@@ -4716,24 +4718,36 @@ class MainViewModel @JvmOverloads constructor(
                 ) { book, sources, tracks, refusedSet ->
                     val localIds = sources.filter { it.type == "local" }.map { it.id }.toSet()
                     val localTracks = tracks.filter { it.sourceId in localIds }
-                    val localUnreadable = localTracks.any { track ->
-                        !(SmartRetryPolicy.localFileReady(track.localFilePath) ||
-                            (track.localFilePath.isNullOrBlank() && track.url.startsWith("content://")))
-                    }
                     val otherPlayable = sources.any { source ->
                         source.type != "local" && source.type !in refusedSet &&
                             tracks.any { it.sourceId == source.id && it.url.startsWith("http") }
                     }
-                    LocalAccessRecovery.State(
+                    LocalAccessRecovery.stateOf(
                         localBook = localIds.isNotEmpty(),
                         hasKnownFolder = !book?.sourceTreeUri.isNullOrBlank(),
-                        localFilesUnreadable = localUnreadable,
+                        localTracks = localTracks.map {
+                            LocalAccessRecovery.LocalTrackAddress(it.localFilePath, it.url)
+                        },
+                        isLocalFileReady = SmartRetryPolicy::localFileReady,
+                        isDocumentReadable = ::isLocalDocumentReadable,
                         otherPlayableSource = otherPlayable
                     )
                 }
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * #1185/T2 — does a by-reference track's SAF document really open? The
+     * recovery panel reflects a revoked grant, so this asks the resolver for
+     * the stream and closes it at once: no bytes are read, only readability is
+     * proven. A failing provider counts as unreadable — the honest answer.
+     */
+    private fun isLocalDocumentReadable(address: String): Boolean = try {
+        App.instance.contentResolver.openInputStream(android.net.Uri.parse(address))?.use { true } ?: false
+    } catch (e: Exception) {
+        false
+    }
 
     /** Whether the open book is on the Source Watch (ADR-0037 §6). */
     val bookWatched: StateFlow<Boolean> = _selectedBookId

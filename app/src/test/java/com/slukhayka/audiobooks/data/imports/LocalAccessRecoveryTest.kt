@@ -19,6 +19,74 @@ class LocalAccessRecoveryTest {
         otherPlayableSource = false
     )
 
+    // --- #1185/T2: a by-reference address is healthy only while it opens ---
+
+    private fun stateOf(
+        tracks: List<LocalAccessRecovery.LocalTrackAddress>,
+        isLocalFileReady: (String?) -> Boolean = { false },
+        isDocumentReadable: (String) -> Boolean = { true }
+    ) = LocalAccessRecovery.stateOf(
+        localBook = true,
+        hasKnownFolder = true,
+        localTracks = tracks,
+        isLocalFileReady = isLocalFileReady,
+        isDocumentReadable = isDocumentReadable,
+        otherPlayableSource = false
+    )
+
+    @Test
+    fun `a readable document keeps a by-reference book healthy`() {
+        val state = stateOf(
+            listOf(LocalAccessRecovery.LocalTrackAddress(null, "content://tree/books/01.mp3"))
+        )
+
+        assertFalse(state.localFilesUnreadable)
+        assertFalse(state.recoverable)
+        assertTrue(state.actions().isEmpty())
+    }
+
+    @Test
+    fun `a revoked grant turns a by-reference book into a recoverable one`() {
+        val state = stateOf(
+            listOf(LocalAccessRecovery.LocalTrackAddress(null, "content://tree/books/01.mp3")),
+            isDocumentReadable = { false }
+        )
+
+        assertTrue("відкликана грамота — це нечитабельне аудіо", state.localFilesUnreadable)
+        assertTrue(state.recoverable)
+        assertEquals(
+            listOf(
+                LocalAccessRecovery.Action.RESELECT_FILE,
+                LocalAccessRecovery.Action.RESELECT_FOLDER,
+                LocalAccessRecovery.Action.RESCAN_KNOWN_FOLDER,
+                LocalAccessRecovery.Action.SOURCE_WATCH
+            ),
+            state.actions()
+        )
+    }
+
+    @Test
+    fun `a ready copied file keeps the book healthy without any document`() {
+        val state = stateOf(
+            listOf(LocalAccessRecovery.LocalTrackAddress("/data/books/01.mp3", "/data/books/01.mp3")),
+            isLocalFileReady = { it != null },
+            isDocumentReadable = { false }
+        )
+
+        assertFalse(state.localFilesUnreadable)
+    }
+
+    @Test
+    fun `a missing file with no document address is unreadable`() {
+        val state = stateOf(
+            listOf(LocalAccessRecovery.LocalTrackAddress("/gone/01.mp3", "/gone/01.mp3")),
+            isLocalFileReady = { false },
+            isDocumentReadable = { false }
+        )
+
+        assertTrue(state.localFilesUnreadable)
+    }
+
     @Test
     fun `file and folder doors come before the network`() {
         assertEquals(

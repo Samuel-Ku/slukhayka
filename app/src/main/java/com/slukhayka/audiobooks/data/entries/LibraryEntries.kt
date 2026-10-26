@@ -83,6 +83,14 @@ class LibraryEntries(
             rows.map { it.copy(currentChapterIndex = mappings[it.bookId]?.getOrNull(it.currentChapterIndex) ?: it.currentChapterIndex) }
         }
 
+    /**
+     * #1469 — works with at least one finished pass, as a set for O(1) admission
+     * into the «Прослухані» shelf. Read-throughs are work-keyed (they outlive a
+     * single edition), which is exactly the key the composer holds per card.
+     */
+    val finishedWorkIds: Flow<Set<String>> =
+        dao.observeFinishedWorkIds().map { it.toSet() }
+
     /** The widget/media session resumes the freshest stored anchor, independent of display order. */
     suspend fun mostRecentListeningAnchor(): com.slukhayka.audiobooks.data.listening.AnchoredProgress? =
         dao.getAllPlaybackProgress().first().maxByOrNull { it.lastListenedAt }

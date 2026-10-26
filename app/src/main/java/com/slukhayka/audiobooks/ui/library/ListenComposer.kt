@@ -20,8 +20,25 @@ import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
  */
 object ListenComposer {
 
-    /** The stable id of every Listen block — persisted in prefs, never renamed. */
-    enum class BlockId { HERO, ALMOST_DONE, RETURN, NEXT_IN_SERIES, TRAVEL, SHORT, FAVORITE_AUTHORS, RECENTLY_ADDED }
+    /**
+     * The stable id of every Listen block — persisted in prefs, never renamed.
+     *
+     * [FINISHED] is appended rather than inserted: prefs store ids by name and
+     * the order list is a plain `List<BlockId>`, so a new id that an existing
+     * preference file does not mention is simply appended by [effectiveOrder]
+     * instead of displacing anything the user already arranged.
+     */
+    enum class BlockId {
+        HERO,
+        ALMOST_DONE,
+        RETURN,
+        NEXT_IN_SERIES,
+        TRAVEL,
+        SHORT,
+        FAVORITE_AUTHORS,
+        RECENTLY_ADDED,
+        FINISHED
+    }
 
     /** One rendered block: already eligible, with its books and a reason line. */
     data class Block(
@@ -31,7 +48,13 @@ object ListenComposer {
         val books: List<LibraryBook>
     )
 
-    /** The default (product) priority — first eligible block renders first. */
+    /**
+     * The default (product) priority — first eligible block renders first.
+     *
+     * [BlockId.FINISHED] sits last: it is an archive shelf («що я вже
+     * прослухав»), not a prompt to act, so it must never push the live blocks
+     * — continue, almost done, return — below the fold.
+     */
     val DEFAULT_ORDER = listOf(
         BlockId.HERO,
         BlockId.ALMOST_DONE,
@@ -40,7 +63,8 @@ object ListenComposer {
         BlockId.TRAVEL,
         BlockId.SHORT,
         BlockId.FAVORITE_AUTHORS,
-        BlockId.RECENTLY_ADDED
+        BlockId.RECENTLY_ADDED,
+        BlockId.FINISHED
     )
 
     /** «Ви слухали N днів тому» — a book not touched for this long is dormant. */
@@ -55,16 +79,24 @@ object ListenComposer {
     /**
      * Composes the eligible, ordered, prefs-filtered block list.
      *
-     * @param library       every library card (buildLibraryBooks output).
-     * @param nextInSeries  the next volume of the hero's series (spec-9 T4),
-     *                      or null when there is none.
-     * @param prefs         local-only preferences (order / hidden / dismissed).
-     * @param now           wall clock, injectable for tests.
+     * @param library        every library card (buildLibraryBooks output).
+     * @param nextInSeries   the next volume of the hero's series (spec-9 T4),
+     *                       or null when there is none.
+     * @param prefs          local-only preferences (order / hidden / dismissed).
+     * @param finishedWorkIds works with at least one finished readthrough
+     *                       (#1469). Admission to the FINISHED block is
+     *                       `progress.isCompleted || workId in this set`, so
+     *                       the manual «Позначити прослуханим» toggle counts
+     *                       through `isCompleted` and a completed pass counts
+     *                       through the readthrough, and neither alone is
+     *                       required.
+     * @param now            wall clock, injectable for tests.
      */
     fun compose(
         library: List<LibraryBook>,
         nextInSeries: AudiobookEntity?,
         prefs: ListenPrefs,
+        finishedWorkIds: Set<String> = emptySet(),
         now: Long = System.currentTimeMillis()
     ): List<Block> {
         val dismissed = prefs.dismissedBookIds
@@ -79,6 +111,7 @@ object ListenComposer {
             shortBooks(visible)?.let { put(BlockId.SHORT, it) }
             favoriteAuthors(visible)?.let { put(BlockId.FAVORITE_AUTHORS, it) }
             recentlyAdded(visible, now)?.let { put(BlockId.RECENTLY_ADDED, it) }
+            finished(visible, finishedWorkIds)?.let { put(BlockId.FINISHED, it) }
         }
 
         val order = effectiveOrder(prefs)
@@ -187,6 +220,37 @@ object ListenComposer {
             .sortedByDescending { it.book.createdAt }
         if (books.isEmpty()) return null
         return Block(BlockId.RECENTLY_ADDED, "Нещодавно додані", reason = "Додано цього тижня", books = books)
+    }
+
+    /**
+     * Block 9 — «Прослухані» (#1469): the books the listener has finished.
+     *
+     * A book qualifies on EITHER sign of completion, because they are genuinely
+     * independent records of the same fact:
+     *
+     * - `progress.isCompleted` — the listener reached the end, or toggled
+     *   «Позначити прослуханим» (that toggle writes this same flag through
+     *   `setCompleted`), so the manual mark needs no separate field;
+     * - a finished readthrough — a pass with `finishedAt != null`. A readthrough
+     *   can be finished while a *newer* pass of the same work is under way,
+     *   which leaves `isCompleted` false; ignoring it would drop a book the
+     *   listener demonstrably finished.
+     *
+     * Newest first: `lastListenedAt` orders books that reclaimed this shelf.
+     * A readthrough-only book has no progress clock, so it sorts last rather
+     * than being dropped.
+     */
+    private fun finished(library: List<LibraryBook>, finishedWorkIds: Set<String>): Block? {
+        val books = library
+            .filter { it.isCompleted || it.book.id in finishedWorkIds }
+            .sortedByDescending { it.lastListenedAt }
+        if (books.isEmpty()) return null
+        return Block(
+            BlockId.FINISHED,
+            "Прослухані",
+            reason = "Завершено: ${books.size}",
+            books = books
+        )
     }
 
     private fun pluralDays(days: Int): String = when {

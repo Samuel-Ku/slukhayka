@@ -1523,7 +1523,7 @@ private fun DualProgress(
  * The chapter seek: a 6 dp track whose touch zone is at least 44 dp, and the
  * only adjustable progress control in the reference player.
  */
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun SilentlySeekChapter(
     value: Float,
@@ -1577,6 +1577,7 @@ private fun BookProgressLine(
     val activeMarker = MaterialTheme.colorScheme.onTertiary
     val inactiveMarker = MaterialTheme.colorScheme.onSurfaceVariant
     val bookmarkColor = MaterialTheme.colorScheme.tertiary
+    val trackColor = MaterialTheme.colorScheme.outlineVariant
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -1594,7 +1595,7 @@ private fun BookProgressLine(
                 .height(2.dp)
         ) {
             drawLine(
-                color = MaterialTheme.colorScheme.outlineVariant,
+                color = trackColor,
                 start = androidx.compose.ui.geometry.Offset(0f, size.height / 2f),
                 end = androidx.compose.ui.geometry.Offset(size.width, size.height / 2f),
                 strokeWidth = size.height,

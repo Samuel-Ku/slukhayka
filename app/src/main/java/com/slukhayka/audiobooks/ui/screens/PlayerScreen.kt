@@ -694,7 +694,8 @@ private fun PlayerScreenContentBody(
     onSelectFallback: (com.slukhayka.audiobooks.data.editions.FallbackCandidate) -> Unit = {}
 ) {
     val background = MaterialTheme.colorScheme.background
-    val tint = artworkAccent ?: MaterialTheme.colorScheme.primary
+    // One saturated accent for sound; verdigris stays for quiet actions.
+    val tint = artworkAccent ?: MaterialTheme.colorScheme.tertiary
     val largeFont = LocalDensity.current.fontScale >= 2f
     // #962 — a wide-but-SHORT window (a phone in landscape: 905 × 411 dp on
     // the device this was found on) cannot fit the portrait column. The cover
@@ -1228,7 +1229,12 @@ private fun ColumnScope.PlayerArtworkPane(
                 semantics = BookCoverSemantics.Decorative,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
-                onImageLoaded = onArtworkLoaded
+                onImageLoaded = onArtworkLoaded,
+                // The player is always ink: a missing cover is a paper/ink
+                // block with the book's letter, never the genre's neon tile
+                // that fights the whole screen.
+                placeholderAccentOverride = MaterialTheme.colorScheme.surfaceVariant,
+                placeholderContentColorOverride = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -1475,8 +1481,8 @@ private fun DualProgress(
                 }
                 .testTag("player_progress_slider"),
             colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
+                thumbColor = MaterialTheme.colorScheme.tertiary,
+                activeTrackColor = MaterialTheme.colorScheme.tertiary,
                 inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
             ),
             track = { sliderState ->
@@ -1501,8 +1507,8 @@ private fun BookProgressTrack(
     onJumpToBookmark: (BookmarkEntity) -> Unit,
     onShowAllBookmarks: () -> Unit
 ) {
-    val active = MaterialTheme.colorScheme.primary
-    val activeMarker = MaterialTheme.colorScheme.onPrimary
+    val active = MaterialTheme.colorScheme.tertiary
+    val activeMarker = MaterialTheme.colorScheme.onTertiary
     val inactiveMarker = MaterialTheme.colorScheme.onSurfaceVariant
     val bookmarkColor = MaterialTheme.colorScheme.tertiary
     Box(modifier = Modifier.fillMaxWidth().testTag("book_progress_track")) {
@@ -1579,7 +1585,7 @@ private fun BookProgressTrack(
                     .testTag("jump_to_last_bookmark"),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
             }
         }
     }
@@ -1670,7 +1676,10 @@ private fun TransportControls(
                     stateDescription = playbackStateDescription
                 }
                 .testTag("player_play_pause_button"),
-            colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary)
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = MaterialTheme.colorScheme.tertiary,
+                contentColor = MaterialTheme.colorScheme.onTertiary,
+            )
         ) {
             Icon(
                 if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -1955,7 +1964,7 @@ internal fun BookmarksListSheet(
                         .padding(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceSm),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
                     Spacer(Modifier.width(AppDimens.SpaceSm))
                     Column(Modifier.weight(1f)) {
                         Text(bookmark.chapterTitle, style = MaterialTheme.typography.bodyMedium)

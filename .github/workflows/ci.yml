@@ -518,11 +518,29 @@ jobs:
             rm -rf /tmp/robolectric-*
           fi
 
+          # #1461: the retry below used to re-run the WHOLE partition. For the
+          # slow legs (Room Robolectric-only is 28-36 min) a second full run
+          # cannot fit inside the 60-minute job ceiling, so the leg silently
+          # burned an hour and looked like a hang. The native-crash class this
+          # retry exists for (#804) happens EARLY, so retry only while the
+          # failed attempt was short; otherwise fail fast and say why.
           attempt=1
           max_attempts=2
-          until ./gradlew ${{ matrix.tasks }} $EXTRA_FLAGS --no-daemon --stacktrace; do
-            status=$?
+          retry_window_s=900
+          while true; do
+            attempt_started=$(date +%s)
+            if ./gradlew ${{ matrix.tasks }} $EXTRA_FLAGS --no-daemon --stacktrace; then
+              break
+            else
+              status=$?
+            fi
+            attempt_elapsed=$(( $(date +%s) - attempt_started ))
+            echo "${{ matrix.name }}: attempt ${attempt} failed after ${attempt_elapsed}s" >> "$GITHUB_STEP_SUMMARY"
             if [ "$attempt" -ge "$max_attempts" ] || [ "${{ matrix.needs-robolectric }}" != "true" ]; then
+              exit $status
+            fi
+            if [ "$attempt_elapsed" -gt "$retry_window_s" ]; then
+              echo "::error::${{ matrix.name }}: спроба тривала ${attempt_elapsed}s (> ${retry_window_s}s) — друга повна спроба не влізе у 60-хвилинну стелю джоба, тож не повторюю (діагноз: #1461). Якщо це флейк — перезапусти ногу вручну."
               exit $status
             fi
             attempt=$((attempt + 1))

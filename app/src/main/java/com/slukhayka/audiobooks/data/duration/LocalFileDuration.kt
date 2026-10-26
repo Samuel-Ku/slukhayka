@@ -1,14 +1,17 @@
 package com.slukhayka.audiobooks.data.duration
 
+import android.content.Context
 import android.media.MediaMetadataRetriever
+import android.net.Uri
 import android.util.Log
+import com.slukhayka.audiobooks.App
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * #1187 — how long the audio inside one LOCAL file is, in seconds; null when
- * the file is missing, unreadable, or its container says nothing usable.
+ * #1187 — how long the audio behind one LOCAL address is, in seconds; null when
+ * it is missing, unreadable, or its container says nothing usable.
  *
  * This is the local half of the chapter-duration probe: a local import has no
  * site total and no stream to measure, so before this seam its chapters only
@@ -21,30 +24,46 @@ import kotlinx.coroutines.withContext
  * for a platform without a retriever.
  */
 fun interface LocalFileDurationReader {
-    /** @return the audio length in seconds, or null when it cannot be known. */
-    suspend fun durationSeconds(path: String): Long?
+    /**
+     * @param address a local file path, or a SAF document URI (ADR-0061: the
+     *   folder is the storage, so a by-reference track's address is `content://`).
+     * @return the audio length in seconds, or null when it cannot be known.
+     */
+    suspend fun durationSeconds(address: String): Long?
 }
 
 /**
- * The production reader — [MediaMetadataRetriever] over the copied local file:
- * the container's own header, offline, no network, and without reading the
- * audio bytes (the ticket's «метадані, а не байти»). The local import keeps its
- * own private copy under `filesDir/local_imports` — written and hashed in the
- * staging dir first (#618) — and the database rows point at that copy, so the
- * path the local import stored is the file this opens.
+ * The production reader — [MediaMetadataRetriever] over the local audio: the
+ * container's own header, offline, no network, and without reading the audio
+ * bytes (the ticket's «метадані, а не байти»).
+ *
+ * Two kinds of address reach it. A copy written by an older version is a plain
+ * file path. A by-reference import (ADR-0061) stores the SAF document URI as
+ * the track's only address, so the retriever must open that URI through the
+ * ContentResolver — the persisted grant taken by the picker keeps it readable
+ * across launches. [contextProvider] exists so tests can pass null and the
+ * default reads the app singleton ([App.instance]); a platform without a
+ * context simply answers "unknown".
  *
  * Duration is never derived from file size or bitrate here: that arithmetic
  * belongs to the stream prober, where a CBR frame header proves the bitrate. A
  * local container that reports nothing stays unknown.
  */
-class MediaMetadataRetrieverLocalFileDuration : LocalFileDurationReader {
+class MediaMetadataRetrieverLocalFileDuration(
+    private val contextProvider: () -> Context? = { runCatching { App.instance }.getOrNull() }
+) : LocalFileDurationReader {
 
-    override suspend fun durationSeconds(path: String): Long? = withContext(Dispatchers.IO) {
-        if (path.isBlank()) return@withContext null
-        if (!File(path).isFile) return@withContext null
+    override suspend fun durationSeconds(address: String): Long? = withContext(Dispatchers.IO) {
+        if (address.isBlank()) return@withContext null
         val retriever = MediaMetadataRetriever()
         try {
-            retriever.setDataSource(path)
+            if (address.startsWith("content://")) {
+                val context = contextProvider() ?: return@withContext null
+                retriever.setDataSource(context, Uri.parse(address))
+            } else {
+                if (!File(address).isFile) return@withContext null
+                retriever.setDataSource(address)
+            }
             retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                 ?.toLongOrNull()
                 // The metadata is milliseconds; a sub-second value rounds to
@@ -52,9 +71,9 @@ class MediaMetadataRetrieverLocalFileDuration : LocalFileDurationReader {
                 ?.div(1_000L)
                 ?.takeIf { it > 0L }
         } catch (e: Exception) {
-            // A torn download, a codec this device cannot parse, a file the
-            // folder lost: the honest answer is "unknown", never a guess.
-            Log.w(TAG, "local file duration unreadable: $path", e)
+            // A torn file, a codec this device cannot parse, a grant the folder
+            // lost: the honest answer is "unknown", never a guess.
+            Log.w(TAG, "local duration unreadable: $address", e)
             null
         } finally {
             runCatching { retriever.release() }

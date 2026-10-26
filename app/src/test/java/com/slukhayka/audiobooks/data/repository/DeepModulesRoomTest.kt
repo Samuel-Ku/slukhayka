@@ -2410,16 +2410,18 @@ class DeepModulesRoomTest {
     }
 
     @Test
-    fun `removeOfflineDownload clears hashes so a re-import can copy the files again`() = runBlocking {
+    fun `removeOfflineDownload clears hashes so a re-import can add the book again`() = runBlocking {
         val mods = modules()
         val bytes = ByteArray(16) { it.toByte() }
-        val entries = listOf(LocalAudioEntry("01.mp3", "Сага", uri = "content://test/local") { ByteArrayInputStream(bytes) })
+        val entries = listOf(
+            LocalAudioEntry("01.mp3", "Сага", uri = "content://test/Сага/01.mp3") { ByteArrayInputStream(bytes) }
+        )
 
         val imported = mods.imports.importAudioEntries(entries)
         val book = dao.getAllAudiobooks().first().first()
         assertEquals(1, imported.booksImported)
         val filesDir = File(context.filesDir, "local_imports")
-        val copiesBefore = filesDir.listFiles()?.size ?: 0
+        assertEquals("ADR-0061: імпорт не лишає копій", 0, filesDir.listFiles()?.size ?: 0)
 
         mods.downloads.removeOfflineDownload(book.id)
         assertEquals(0, filesDir.listFiles()?.size ?: 0)
@@ -2428,9 +2430,9 @@ class DeepModulesRoomTest {
 
         assertEquals("re-import must NOT be blocked by a stale hash", 1, reimport.booksImported)
         assertEquals(0, reimport.duplicateFiles)
-        assertEquals("a fresh copy must land on disk", copiesBefore, filesDir.listFiles()?.size ?: 0)
-        // The original book survives the takedown; the re-import adds a second,
-        // playable copy next to it.
+        assertEquals("a re-import never duplicates bytes on disk either", 0, filesDir.listFiles()?.size ?: 0)
+        // The original book survives the takedown; the re-import adds a second
+        // card that addresses the same document.
         assertEquals(2, dao.getAllAudiobooks().first().size)
     }
 

@@ -2185,15 +2185,11 @@ class LibraryImport(
         folderOrigin: LocalFolderOrigin? = null
     ): AudiobookEntity {
         var created: AudiobookEntity? = null
-        try {
-            writeBatchRunner {
-                created = writeLocalBookRows(title, author, description, chapters, sourceTreeUri, narrator, seriesTitle, seriesIndex)
-                folderOrigin?.let { LocalFolderMemory(dao).remember(created!!.id, it) }
-            }
-        } catch (e: Exception) {
-            // Nothing was copied to disk (ADR-0061): the rollback is the Room
-            // transaction alone, and no file of the attempt can outlive it.
-            throw e
+        // ADR-0061: nothing is copied to disk, so the Room transaction IS the
+        // whole rollback — no file of the attempt can outlive it.
+        writeBatchRunner {
+            created = writeLocalBookRows(title, author, description, chapters, sourceTreeUri, narrator, seriesTitle, seriesIndex)
+            folderOrigin?.let { LocalFolderMemory(dao).remember(created!!.id, it) }
         }
         return created ?: throw IllegalStateException("local book transaction produced no row")
     }
@@ -2470,28 +2466,24 @@ class LibraryImport(
                     }.toSet())
 
                 var report = RescanReport(treeUri, skippedFiles = entries.size - scanned.size)
-                suspend fun copyForRescan(file: FolderRescan.RescanFile): LocalChapterInput? {
+                suspend fun chapterInputFor(file: FolderRescan.RescanFile): LocalChapterInput? {
                     val entry = entries.first { it.fileName == file.fileName && it.parentFolder == file.parentFolder }
-                    return when (val copied = chapterForRescan(entry, sanitizeLocalBaseName(file.fileName), file.contentHash)) {
-                        is LocalChapterCopy.Copied -> copied.input
-                        LocalChapterCopy.Duplicate -> {
+                    return when (val result = chapterForRescan(entry, sanitizeLocalBaseName(file.fileName), file.contentHash)) {
+                        is LocalChapterResult.Added -> result.input
+                        LocalChapterResult.Duplicate -> {
                             report = report.copy(duplicateFiles = report.duplicateFiles + 1)
                             null
                         }
-                        LocalChapterCopy.Skipped -> {
+                        LocalChapterResult.Skipped -> {
                             report = report.copy(skippedFiles = report.skippedFiles + 1)
                             null
                         }
                     }
                 }
-                suspend fun copyGroup(files: List<FolderRescan.RescanFile>): List<LocalChapterInput> {
+                suspend fun newChapterInputs(files: List<FolderRescan.RescanFile>): List<LocalChapterInput> {
                     val inputs = mutableListOf<LocalChapterInput>()
-                    try {
-                        for (file in files) copyForRescan(file)?.let { inputs.add(it) }
-                        return inputs
-                    } catch (e: Exception) {
-                        throw e
-                    }
+                    for (file in files) chapterInputFor(file)?.let { inputs.add(it) }
+                    return inputs
                 }
                 val groups = linkedMapOf<String, MutableList<FolderRescan.RescanFile>>()
                 existingBooks.forEach { groups["book:${it.id}"] = mutableListOf() }
@@ -2532,7 +2524,7 @@ class LibraryImport(
                     if (book == null) {
                         // A book the library doesn't know from this tree yet: copy its
                         // files through the shared dedupe core, then create the book.
-                        val newInputs = copyGroup(files)
+                        val newInputs = newChapterInputs(files)
                         if (newInputs.isEmpty()) continue
                         val created = try {
                             insertLocalBook(
@@ -2626,7 +2618,7 @@ class LibraryImport(
 
                     // Local-only Edition: append the new chapters AFTER every stored
                     // one — existing ids, indices and Listening State stay untouched.
-                    val newInputs = copyGroup(diff.newFiles)
+                    val newInputs = newChapterInputs(diff.newFiles)
                     if (newInputs.isEmpty()) continue
                     try {
                         appendLocalChapters(book.id, localSource, chapters, newInputs, observedOrigin(book.id, files.filter { file -> localTracks.any { it.contentHash == file.contentHash } || newInputs.any { it.contentHash == file.contentHash } }))
@@ -2865,10 +2857,10 @@ class LibraryImport(
         }
     }
 
-    private sealed interface LocalChapterCopy {
-        data class Copied(val input: LocalChapterInput) : LocalChapterCopy
-        data object Duplicate : LocalChapterCopy
-        data object Skipped : LocalChapterCopy
+    private sealed interface LocalChapterResult {
+        data class Added(val input: LocalChapterInput) : LocalChapterResult
+        data object Duplicate : LocalChapterResult
+        data object Skipped : LocalChapterResult
     }
 
     /**
@@ -2880,25 +2872,25 @@ class LibraryImport(
         entry: LocalAudioEntry,
         chapterTitle: String,
         contentHash: String
-    ): LocalChapterCopy {
+    ): LocalChapterResult {
         val uri = entry.uri
         if (uri.isNullOrBlank()) {
             Log.w("AudiobookRepo", "Re-scan skipped ${entry.fileName}: no document address")
-            return LocalChapterCopy.Skipped
+            return LocalChapterResult.Skipped
         }
         // A remote download may have committed while the scan ran.
         return try {
             if (dao.getTrackByContentHash(contentHash) != null) {
-                LocalChapterCopy.Duplicate
+                LocalChapterResult.Duplicate
             } else {
-                LocalChapterCopy.Copied(
+                LocalChapterResult.Added(
                     LocalChapterInput(title = chapterTitle, uri = uri, contentHash = contentHash)
                 )
             }
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             Log.w("AudiobookRepo", "Re-scan could not verify ${entry.fileName}", e)
-            LocalChapterCopy.Skipped
+            LocalChapterResult.Skipped
         }
     }
 
@@ -2919,15 +2911,11 @@ class LibraryImport(
         newInputs: List<LocalChapterInput>,
         folderOrigin: LocalFolderOrigin? = null
     ) {
-        try {
-            writeBatchRunner {
-                writeAppendedLocalChapters(bookId, localSource, existingChapters, newInputs)
-                folderOrigin?.let { LocalFolderMemory(dao).remember(bookId, it) }
-            }
-        } catch (e: Exception) {
-            // #618 — the append is one transaction: the Rows roll back, and
-            // nothing was copied to disk (ADR-0061), so no file needs removing.
-            throw e
+        // #618 — the append is one transaction; nothing is copied to disk
+        // (ADR-0061), so the Room rollback is the whole rollback.
+        writeBatchRunner {
+            writeAppendedLocalChapters(bookId, localSource, existingChapters, newInputs)
+            folderOrigin?.let { LocalFolderMemory(dao).remember(bookId, it) }
         }
     }
 

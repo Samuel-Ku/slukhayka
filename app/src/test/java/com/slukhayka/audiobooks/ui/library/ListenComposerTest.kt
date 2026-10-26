@@ -310,4 +310,64 @@ class ListenComposerTest {
 
         assertEquals(listOf(ListenComposer.BlockId.HERO), blocks.map { it.id })
     }
+
+    // --- #1469 «Прослухані» --------------------------------------------------
+
+    @Test
+    fun `finished block lists a book whose position reached the end`() {
+        val done = card(book("done", "Дослухана"), progress("done", position = 3600L, lastListenedAt = NOW - DAY))
+        val live = card(book("live", "В процесі"), progress("live", position = 100L, lastListenedAt = NOW))
+
+        val blocks = ListenComposer.compose(listOf(done, live), nextInSeries = null, prefs = prefs(), now = NOW)
+
+        val finished = blocks.first { it.id == ListenComposer.BlockId.FINISHED }
+        assertEquals(listOf("done"), finished.books.map { it.book.id })
+        assertEquals("Прослухані", finished.title)
+    }
+
+    @Test
+    fun `finished block lists a book whose only finished pass carries no completion flag`() {
+        // A readthrough can be finished while a NEWER pass of the same work is
+        // under way, which leaves `isCompleted` false. The book was finished,
+        // so it belongs on the shelf.
+        val restarted = card(book("restarted", "Переслуховую"), progress("restarted", position = 30L, lastListenedAt = NOW))
+
+        val blocks = ListenComposer.compose(
+            listOf(restarted),
+            nextInSeries = null,
+            prefs = prefs(),
+            finishedWorkIds = setOf("restarted"),
+            now = NOW
+        )
+
+        val finished = blocks.first { it.id == ListenComposer.BlockId.FINISHED }
+        assertEquals(listOf("restarted"), finished.books.map { it.book.id })
+    }
+
+    @Test
+    fun `finished block is absent when nothing has been finished`() {
+        val live = card(book("live", "В процесі"), progress("live", position = 100L, lastListenedAt = NOW))
+
+        val blocks = ListenComposer.compose(listOf(live), nextInSeries = null, prefs = prefs(), now = NOW)
+
+        assertNull(blocks.firstOrNull { it.id == ListenComposer.BlockId.FINISHED })
+    }
+
+    @Test
+    fun `finished block orders the most recently listened book first`() {
+        val older = card(book("older", "Раніше"), progress("older", position = 3600L, lastListenedAt = NOW - 2 * DAY))
+        val newer = card(book("newer", "Пізніше"), progress("newer", position = 3600L, lastListenedAt = NOW - DAY))
+
+        val blocks = ListenComposer.compose(listOf(older, newer), nextInSeries = null, prefs = prefs(), now = NOW)
+
+        val finished = blocks.first { it.id == ListenComposer.BlockId.FINISHED }
+        assertEquals(listOf("newer", "older"), finished.books.map { it.book.id })
+        assertEquals("Завершено: 2", finished.reason)
+    }
+
+    @Test
+    fun `finished block is last in the default order so the live blocks stay above the fold`() {
+        assertEquals(ListenComposer.BlockId.FINISHED, ListenComposer.DEFAULT_ORDER.last())
+        assertTrue(ListenComposer.BlockId.FINISHED in ListenComposer.DEFAULT_ORDER)
+    }
 }

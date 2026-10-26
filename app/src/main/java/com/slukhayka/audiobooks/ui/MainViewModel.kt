@@ -1597,12 +1597,14 @@ class MainViewModel @JvmOverloads constructor(
     val listenBlocks: StateFlow<List<com.slukhayka.audiobooks.ui.library.ListenComposer.Block>> = combine(
         libraryBooks,
         nextInSeries,
+        libraryEntries.finishedWorkIds,
         _listenPrefsVersion
-    ) { books, seriesBook, _ ->
+    ) { books, seriesBook, finishedWorkIds, _ ->
         com.slukhayka.audiobooks.ui.library.ListenComposer.compose(
             library = books,
             nextInSeries = seriesBook,
-            prefs = listenPrefs
+            prefs = listenPrefs,
+            finishedWorkIds = finishedWorkIds
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 

@@ -2148,6 +2148,17 @@ interface AudiobookDao {
     suspend fun allReadthroughs(): List<ReadthroughEntity>
 
     /**
+     * #1469 — works with at least one FINISHED pass, newest-first shelf input.
+     *
+     * `finishedAt` is the completion mark, not `state`: a pass that was finished
+     * and then superseded by a newer one keeps its timestamp, and the listener
+     * did finish that book. Reading `state` instead would drop it the moment the
+     * next pass starts.
+     */
+    @Query("SELECT DISTINCT workId FROM readthroughs WHERE finishedAt IS NOT NULL")
+    fun observeFinishedWorkIds(): Flow<List<String>>
+
+    /**
      * #1174 — the AUDIO passes the listener has abandoned, by Library Entry id.
      * The library badge and the book page read this ONE flow, so the mark shows
      * up on both surfaces the moment it is written.

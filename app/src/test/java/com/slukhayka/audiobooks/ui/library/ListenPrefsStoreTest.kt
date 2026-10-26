@@ -38,7 +38,9 @@ class ListenPrefsStoreTest {
         // Default order is HERO, ALMOST_DONE, RETURN, NEXT_IN_SERIES, TRAVEL…;
         // one move-up puts TRAVEL one step higher (position 3, 0-based).
         assertEquals(3, store.order.indexOf(ListenComposer.BlockId.TRAVEL))
-        assertEquals(8, store.order.size)
+        // The whole default order is materialised once a move writes it, so this
+        // count tracks DEFAULT_ORDER — #1469 appended FINISHED (8 → 9).
+        assertEquals(ListenComposer.DEFAULT_ORDER.size, store.order.size)
 
         // A fresh store over the same prefs file sees the same order.
         val reloaded = store()

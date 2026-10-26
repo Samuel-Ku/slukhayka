@@ -1985,7 +1985,7 @@ class LibraryImport(
                             writeBatchRunner {
                                 // #54 merge: attach the local source to the existing Work —
                                 // no new card, chapters join the existing book's logical
-                                // chapter list, and the tracks carry the copied files
+                                // chapter list, and the tracks carry the SAF document URIs
                                 // (ADR-0007: download state lives on tracks, never on
                                 // chapter rows). The Edition is the existing book's
                                 // rendition; a local source already present is reused so
@@ -2149,8 +2149,9 @@ class LibraryImport(
     /**
      * #618 — removes the safe leftovers of local attempts that died before
      * their commit. Only the app-private staging dir is swept: a library file
-     * (a committed private copy) is never a candidate. Best-effort: a failing
-     * cleanup never masks the pass that follows.
+     * (a private copy written by a version that still copied) is never a
+     * candidate. Best-effort: a failing cleanup never masks the pass that
+     * follows.
      */
     private fun cleanupStaging() {
         val ctx = context ?: return
@@ -2342,7 +2343,7 @@ class LibraryImport(
      * never touches disk), diffs against the stored chapters by content hash,
      * applies new files as
      * chapters/books, and reports missing/moved/duplicate files. The library
-     * entry and its private copies survive every outcome (wayfinder #59):
+     * entry and every stored track survive every outcome (wayfinder #59):
      * nothing here ever deletes a row or a file.
      */
     suspend fun rescanLocalFolder(treeUri: String): RescanReport = withContext(Dispatchers.IO) {

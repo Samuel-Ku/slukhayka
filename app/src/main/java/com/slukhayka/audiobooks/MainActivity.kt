@@ -907,10 +907,6 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     )
                 }
             },
-            onSkipNextClick = { viewModel.playerManager.nextChapter() },
-            // Issue #808: the bar carries the full transport —
-            // previous chapter sits where cast used to be.
-            onPreviousClick = { viewModel.playerManager.previousChapter() },
             onCloseClick = { viewModel.dismissMiniPlayer() },
             onBarClick = { viewModel.setShowFullPlayer(true) }
         )

@@ -74,8 +74,6 @@ class MiniPlayerBarSnapshotTest {
                             isOfflineMode = true
                         ),
                         onPlayPauseClick = {},
-                        onPreviousClick = {},
-                        onSkipNextClick = {},
                         onCloseClick = {},
                         onBarClick = {}
                     )
@@ -97,12 +95,12 @@ class MiniPlayerBarSnapshotTest {
     }
 
     /**
-     * #885 — the prototype draws the progress line along the BOTTOM edge of the
-     * bar. A screenshot cannot prove that at 2 % progress (the filled part is a
-     * few pixels), so the position is checked geometrically instead.
+     * The direction replaces the bottom underline with the ring around the ONE
+     * play target: a screenshot can show the ring, but not that it is the only
+     * transport control and that the bar keeps its 64 dp height.
      */
     @Test
-    fun mini_player_progress_line_sits_in_the_lower_half() {
+    fun mini_player_has_one_ringed_play_target_and_no_underline() {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 NarrowBar {
@@ -117,8 +115,6 @@ class MiniPlayerBarSnapshotTest {
                             currentPositionMs = 500L
                         ),
                         onPlayPauseClick = {},
-                        onPreviousClick = {},
-                        onSkipNextClick = {},
                         onCloseClick = {},
                         onBarClick = {}
                     )
@@ -126,15 +122,24 @@ class MiniPlayerBarSnapshotTest {
             }
         }
 
+        val density = composeTestRule.density
         val bar = composeTestRule.onNodeWithTag("mini_player_bar", useUnmergedTree = true)
             .fetchSemanticsNode().boundsInRoot
-        val line = composeTestRule.onNodeWithTag("mini_player_progress", useUnmergedTree = true)
+        val target = composeTestRule.onNodeWithTag("mini_player_play_pause")
             .fetchSemanticsNode().boundsInRoot
-
         assertTrue(
-            "progress line must sit in the lower half of the bar " +
-                "(bar ${bar.top}..${bar.bottom}, line ${line.top}..${line.bottom})",
-            line.top > bar.top + bar.height / 2
+            "bar must be 64 dp tall, was ${bar.height / density.density} dp",
+            bar.height >= with(density) { 64.dp.toPx() },
         )
+        assertTrue(
+            "ring play target must be 48 dp, was ${target.height / density.density} dp",
+            target.height >= with(density) { 48.dp.toPx() },
+        )
+        // The old bottom underline is gone, and so are the previous/next
+        // buttons: one control, plus the summary.
+        composeTestRule.onNodeWithTag("mini_player_progress").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("mini_player_previous").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("mini_player_next").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("mini_player_summary").assertExists()
     }
 }

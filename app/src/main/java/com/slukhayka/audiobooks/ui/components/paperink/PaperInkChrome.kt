@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.ui.components.paperink
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
@@ -32,8 +34,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -54,7 +58,19 @@ fun PaperInkMiniPlayerBar(
     progress: Float,
     isPlaying: Boolean,
     onPlayPauseClick: () -> Unit,
+    playContentDescription: String,
     modifier: Modifier = Modifier,
+    // The screen supplies the real artwork; null falls back to the paper cover.
+    cover: (@Composable () -> Unit)? = null,
+    onBarClick: (() -> Unit)? = null,
+    summaryStateDescription: String? = null,
+    // TalkBack cannot swipe: the close action rides the summary node.
+    closeActionDescription: String? = null,
+    onCloseAction: (() -> Unit)? = null,
+    offline: Boolean = false,
+    titleTestTag: String? = null,
+    summaryTestTag: String? = null,
+    playTestTag: String? = null,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     Surface(
@@ -68,23 +84,63 @@ fun PaperInkMiniPlayerBar(
             modifier = Modifier.fillMaxSize().padding(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PaperInkCoverFlat(
-                title = title,
-                modifier = Modifier
-                    .width(48.dp)
-                    .height(48.dp)
-                    .clearAndSetSemantics { },
-                radius = PaperInkDimens.RadiusSmall,
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = PaperInkType.RowTitle,
-                    color = colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+            if (cover != null) {
+                cover()
+            } else {
+                PaperInkCoverFlat(
+                    title = title,
+                    modifier = Modifier
+                        .width(48.dp)
+                        .height(48.dp)
+                        .clearAndSetSemantics { },
+                    radius = PaperInkDimens.RadiusSmall,
                 )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(PaperInkDimens.RadiusMicro))
+                    .then(if (onBarClick != null) Modifier.clickable(onClick = onBarClick) else Modifier)
+                    .then(if (summaryTestTag != null) Modifier.testTag(summaryTestTag) else Modifier)
+                    .then(
+                        if (summaryStateDescription != null || onCloseAction != null) {
+                            Modifier.semantics {
+                                if (summaryStateDescription != null) stateDescription = summaryStateDescription
+                                if (closeActionDescription != null && onCloseAction != null) {
+                                    customActions = listOf(
+                                        CustomAccessibilityAction(closeActionDescription) {
+                                            onCloseAction()
+                                            true
+                                        },
+                                    )
+                                }
+                            }
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .padding(vertical = 4.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = title,
+                        style = PaperInkType.RowTitle,
+                        color = colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = if (titleTestTag != null) Modifier.testTag(titleTestTag) else Modifier,
+                    )
+                    if (offline) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.Filled.CloudDone,
+                            contentDescription = null,
+                            tint = colorScheme.primary,
+                            modifier = Modifier.size(13.dp),
+                        )
+                    }
+                }
                 Text(
                     text = meta,
                     style = PaperInkType.Micro,
@@ -93,11 +149,14 @@ fun PaperInkMiniPlayerBar(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+            Spacer(modifier = Modifier.width(8.dp))
             Box(
                 modifier = Modifier
                     .size(48.dp)
                     .clip(CircleShape)
-                    .selectable(selected = false, role = Role.Button, onClick = onPlayPauseClick),
+                    .selectable(selected = false, role = Role.Button, onClick = onPlayPauseClick)
+                    .then(if (playTestTag != null) Modifier.testTag(playTestTag) else Modifier)
+                    .semantics { contentDescription = playContentDescription },
                 contentAlignment = Alignment.Center,
             ) {
                 CircularProgressIndicator(
@@ -109,7 +168,7 @@ fun PaperInkMiniPlayerBar(
                 )
                 Icon(
                     imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (isPlaying) "Пауза" else "Відтворити",
+                    contentDescription = null,
                     tint = colorScheme.onSurface,
                     modifier = Modifier.size(20.dp),
                 )

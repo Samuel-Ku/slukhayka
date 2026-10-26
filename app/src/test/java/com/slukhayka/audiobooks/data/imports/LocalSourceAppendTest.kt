@@ -205,6 +205,7 @@ class LocalSourceAppendTest {
         fun counted(name: String, byte: Int) = LocalAudioEntry(
             fileName = name,
             parentFolder = "Кобзар",
+            uri = "content://test/$name",
             sizeBytes = 16L,
             lastModifiedMs = 1_000L + byte
         ) {
@@ -235,6 +236,7 @@ class LocalSourceAppendTest {
         fun counted(name: String, byte: Int, size: Int, lastModified: Long) = LocalAudioEntry(
             fileName = name,
             parentFolder = "Кобзар",
+            uri = "content://test/$name",
             sizeBytes = size.toLong(),
             lastModifiedMs = lastModified
         ) {

@@ -18,6 +18,7 @@ class ImportPlannerTest {
     private fun entry(name: String, folder: String? = null) = LocalAudioEntry(
         fileName = name,
         parentFolder = folder,
+        uri = "content://test/$name",
         openStream = { ByteArrayInputStream(byteArrayOf(0)) }
     )
 

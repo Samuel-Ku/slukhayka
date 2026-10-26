@@ -151,6 +151,15 @@ object PaperInkType {
         letterSpacing = (-0.3).sp,
     )
 
+    /** The mini-player's one-line book title: 13/17, the bar's own density. */
+    val MiniTitle = TextStyle(
+        fontFamily = Ui,
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 13.sp,
+        lineHeight = 17.sp,
+        letterSpacing = 0.sp,
+    )
+
     /** A book name inside a dense row or a card. */
     val RowTitle = TextStyle(
         fontFamily = Ui,

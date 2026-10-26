@@ -128,7 +128,7 @@ fun PaperInkMiniPlayerBar(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = title,
-                        style = PaperInkType.RowTitle,
+                        style = PaperInkType.MiniTitle,
                         color = colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,

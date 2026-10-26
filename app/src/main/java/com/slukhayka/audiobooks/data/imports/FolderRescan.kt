@@ -15,8 +15,9 @@ package com.slukhayka.audiobooks.data.imports
  * the source tree — the library entry and its private copy stay untouched,
  * wayfinder #59), moved files (same bytes, different name — the private copy
  * is still valid, report only), duplicates (bytes already in another book —
- * never copied). Pure JVM, no Android, no I/O: the caller hashes the streams
- * and feeds [RescanFile]s.
+ * never copied). Pure JVM, no Android, no I/O: the caller decides which
+ * streams must be read (ADR-0061 §3 — a file with matching metadata and a
+ * known current hash keeps its remembered hash) and feeds [RescanFile]s.
  */
 object FolderRescan {
 

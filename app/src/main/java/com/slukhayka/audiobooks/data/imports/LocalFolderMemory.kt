@@ -98,6 +98,7 @@ internal class LocalFolderMemory(private val dao: AudiobookDao) {
                     } else {
                         LocalFileRecord(
                             hashes = previous.hashes + record.hashes,
+                            lastHash = agree(previous.lastHash, record.lastHash),
                             sizeBytes = agree(previous.sizeBytes, record.sizeBytes),
                             lastModifiedMs = agree(previous.lastModifiedMs, record.lastModifiedMs)
                         )
@@ -118,7 +119,7 @@ internal class LocalFolderMemory(private val dao: AudiobookDao) {
         }
     }
 
-    private fun agree(a: Long?, b: Long?): Long? = if (a != null && a == b) a else null
+    private fun <T> agree(a: T?, b: T?): T? = if (a != null && a == b) a else null
 
     private fun key(treeUri: String) = "local-folder:${sha256Hex(treeUri.toByteArray(Charsets.UTF_8))}"
 }

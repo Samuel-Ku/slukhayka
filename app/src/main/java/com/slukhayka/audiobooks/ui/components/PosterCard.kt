@@ -213,7 +213,7 @@ fun PosterCard(
                         )
                     }
                 }
-                if (onDownload != null && downloadIcon != null) {
+                if (!paperInk && onDownload != null && downloadIcon != null) {
                     val downloading = downloadProgress
                     if (downloading != null) {
                         // Downloading: a thin track along the cover's bottom edge,
@@ -260,7 +260,7 @@ fun PosterCard(
                     }
                 }
                 if (overlay != null) overlay()
-                if (onDismiss != null && dismissContentDescription != null) {
+                if (!paperInk && onDismiss != null && dismissContentDescription != null) {
                     // #372: the 48 dp touch target stays at the top-right corner
                     // while the visible «Не цікаво» indicator does not dominate
                     // the cover.

@@ -1216,14 +1216,19 @@ fun WorkFeedFilters(
     var sortExpanded by remember { mutableStateOf(false) }
     var showFilterSheet by rememberSaveable { mutableStateOf(false) }
 
+    val paperInk = LocalPaperInkDesign.current
     BoxWithConstraints {
         val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
         val compact = maxWidth < 400.dp * fontScale.coerceAtLeast(1f) || fontScale > 1.3f
         val sortLabel = stringResource(if (sortByTitle) R.string.feed_sort_title else R.string.feed_sort_newest)
         val filtersLabel = stringResource(R.string.feed_filters)
         Surface(
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 2.dp,
+            color = if (paperInk) {
+                MaterialTheme.colorScheme.background
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+            tonalElevation = if (paperInk) 0.dp else 2.dp,
             modifier = Modifier.fillMaxWidth().testTag("work_feed_toolbar")
         ) {
             Row(
@@ -1231,14 +1236,22 @@ fun WorkFeedFilters(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(
+                        horizontal = if (paperInk) PaperInkDimens.SpacePage else 16.dp,
+                        vertical = if (paperInk) 8.dp else 8.dp,
+                    )
             ) {
                 Box {
                     OutlinedButton(
                         onClick = { sortExpanded = true },
                         contentPadding = PaddingValues(horizontal = 12.dp),
+                        shape = RoundedCornerShape(percent = 50),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            MaterialTheme.colorScheme.outlineVariant,
+                        ),
                         modifier = Modifier
-                            .height(48.dp)
+                            .height(if (paperInk) 36.dp else 48.dp)
                             .then(if (compact) Modifier.width(56.dp) else Modifier)
                             .semantics { contentDescription = sortLabel }
                             .testTag("feed_sort")
@@ -1246,7 +1259,12 @@ fun WorkFeedFilters(
                         if (compact) {
                             Icon(Icons.Default.Sort, contentDescription = null)
                         } else {
-                            Text(sortLabel, maxLines = 1, modifier = Modifier.clearAndSetSemantics {})
+                            Text(
+                                sortLabel,
+                                style = if (paperInk) PaperInkType.Label else LocalTextStyle.current,
+                                maxLines = 1,
+                                modifier = Modifier.clearAndSetSemantics { }
+                            )
                             Spacer(modifier = Modifier.width(4.dp))
                             Icon(Icons.Default.ArrowDropDown, contentDescription = null)
                         }
@@ -1282,18 +1300,28 @@ fun WorkFeedFilters(
                         if (onOpenFilters != null) onOpenFilters() else showFilterSheet = true
                     },
                     label = {
-                        if (compact) Icon(Icons.Default.Tune, null, Modifier.size(24.dp))
-                        else Text(filtersLabel, maxLines = 1, modifier = Modifier.clearAndSetSemantics {})
+                        if (compact) {
+                            Icon(Icons.Default.Tune, null, Modifier.size(if (paperInk) 18.dp else 24.dp))
+                        } else {
+                            Text(
+                                filtersLabel,
+                                style = if (paperInk) PaperInkType.Label else LocalTextStyle.current,
+                                maxLines = 1,
+                                modifier = Modifier.clearAndSetSemantics { }
+                            )
+                        }
                     },
                     leadingIcon = if (compact) null else { {
                         Icon(
                             imageVector = Icons.Default.Tune,
                             contentDescription = null,
-                            modifier = Modifier.size(FilterChipDefaults.IconSize)
+                            modifier = Modifier.size(
+                                if (paperInk) 18.dp else FilterChipDefaults.IconSize
+                            )
                         )
                     } },
                     modifier = filterTriggerModifier
-                        .height(48.dp)
+                        .height(if (paperInk) 36.dp else 48.dp)
                         .then(if (compact) Modifier.width(56.dp) else Modifier)
                         .semantics { contentDescription = filtersLabel }
                         .testTag("feed_filters")

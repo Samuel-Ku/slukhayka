@@ -21,6 +21,12 @@ fresh copy with `scripts/new-lane.sh`: a file missing here may exist there, and
 a count taken here may be stale. This has already produced a wrong "the file
 does not exist" once.
 
+Two symptoms are worth recognizing instead of diagnosing again: a path that
+should exist is missing, or `git status` says the repository is bare.
+`scripts/whereami.sh` answers both in one read — branch, ahead/behind
+`origin/main`, the file-set difference (only-in-main / only-here) and the count
+of uncommitted changes; exit 1 means you are not on `main`.
+
 ## Continuity
 
 Do not stop early. A finished step is a reason to pick up the next one, not to

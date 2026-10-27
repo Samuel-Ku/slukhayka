@@ -229,7 +229,21 @@ if MODE == "pr":
     pr = load(ARGS[0]) or {}
     out_dir, label = ARGS[1], ARGS[2]
     fails, pending, cancels, untimed = [], [], [], []
+    # GitHub can keep MORE than one run with the same check name for one HEAD:
+    # a failed run stays in `statusCheckRollup` after the check is re-run to
+    # green (exactly the Review gate bootstrap: it fails without the label,
+    # then succeeds after `labeled`). Only the LATEST run per name decides the
+    # verdict — otherwise a superseded failure refuses the merge forever, and
+    # the gate can never accept a re-run it itself asked for (#1492).
+    latest = {}
     for context in pr.get("statusCheckRollup") or []:
+        name = context.get("name") or context.get("context") or "?"
+        when = moment(context.get("completedAt") or context.get("startedAt")
+                      or context.get("createdAt"))
+        current = latest.get(name)
+        if current is None or (when is not None and (current[0] is None or when > current[0])):
+            latest[name] = (when, context)
+    for context in [entry[1] for entry in latest.values()]:
         name = context.get("name") or context.get("context") or "?"
         url = context.get("detailsUrl") or context.get("targetUrl") or ""
         if context.get("__typename") == "StatusContext":

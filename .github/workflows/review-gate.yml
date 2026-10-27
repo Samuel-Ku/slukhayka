@@ -69,7 +69,7 @@ jobs:
           set -eu
           gate=base/scripts/review_gate.py
           if [ ! -f "$gate" ]; then
-            echo "::warning::base commit has no scripts/review_gate.py yet — bootstrap run from the PR copy; after this PR merges the base copy is used"
+            echo "::warning::base commit has no scripts/review_gate.py yet — bootstrap run from the PR copy; PRs whose frozen base predates the merge keep this fallback, which is why merge-pr.sh refuses gate-file edits unless the owner allows them"
             gate=pr/scripts/review_gate.py
           fi
           python3 "$gate" "$PR_NUMBER"

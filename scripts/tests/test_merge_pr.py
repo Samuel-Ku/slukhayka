@@ -459,6 +459,42 @@ class MergePrTest(unittest.TestCase):
         return [line for line in self.invocations() if line.startswith("pr merge")]
 
     # --- відмови на чеках ---------------------------------------------------
+    def test_a_superseded_failed_run_does_not_block_the_merge(self):
+        """One name, two runs on one HEAD: the LATEST run is the verdict.
+
+        The Review gate is the live case: it fails without a label, then a new
+        `labeled` run succeeds. GitHub keeps both runs in statusCheckRollup, and
+        counting the old failure refuses every correctly reviewed PR forever.
+        """
+        checks = [
+            check("Pure JVM"),
+            check("Review gate", "FAILURE",
+                  started="2026-10-10T19:10:00Z", completed="2026-10-10T19:10:12Z"),
+            check("Review gate", "SUCCESS",
+                  started="2026-10-10T19:44:31Z", completed="2026-10-10T19:44:42Z"),
+        ]
+
+        result = self.gate(pr=pr_payload(checks=checks))
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn("упали", result.stderr)
+
+    def test_the_latest_failed_run_still_refuses(self):
+        """The dedupe is by time, not by conclusion: latest fail stays fail."""
+        checks = [
+            check("Pure JVM"),
+            check("Review gate", "SUCCESS",
+                  started="2026-10-10T19:10:00Z", completed="2026-10-10T19:10:12Z"),
+            check("Review gate", "FAILURE",
+                  started="2026-10-10T19:44:31Z", completed="2026-10-10T19:44:42Z"),
+        ]
+
+        result = self.gate(pr=pr_payload(checks=checks))
+
+        self.assertEqual(1, result.returncode)
+        self.assertIn("упали", result.stderr)
+        self.assertIn("Review gate", result.stderr)
+
     def test_refuses_a_failing_check(self):
         checks = [check("Pure JVM"), check("Android Lint", "FAILURE")]
 

@@ -171,8 +171,10 @@ setsid nohup /tmp/run.sh >/dev/null 2>&1 &        # переживає розр�
 `local-environment.md`). Опитування — читання логу й exit-файлу, не повторний
 ssh.
 
-Обгортка `.worktrees/gt` є не в кожному свіжому клоні воркера (той самий файл
-вище описує, як її ставлять); якщо її немає, обхід — `flock` на
+Обгортка `.worktrees/gt` є не в кожному свіжому клоні воркера; скорочений
+вміст обгортки (що саме вона експортує) — `local-environment-measurements.md`,
+а `local-environment.md` описує лише вимогу запускати через неї, не те, як її
+поставити. Якщо обгортки немає, обхід — `flock` на
 `.worktrees/.build-slot` плюс `scripts/build-slot-guard.py`, як у
 `scripts/swarm/build-prompt.sh`, а рецепт вище — для смуги, де обгортка вже є.
 

@@ -1,0 +1,44 @@
+name: Review gate
+
+# The mechanical half of the merge gate (#1492).
+#
+# `scripts/merge-pr.sh` refuses to merge without a fresh `review:pass` label,
+# but it only runs when someone calls it. PR #1490 was merged with a plain
+# `gh pr merge` and no verdict, because branch protection required a single
+# unrelated check. This workflow publishes the same verdict as a check, so
+# once "Review gate" is required in branch protection, a PR cannot present a
+# green board without a fresh independent review.
+#
+# `labeled` / `unlabeled` are in the trigger list on purpose: the reviewer adds
+# the verdict after CI is green, and only a re-run can turn the check green on
+# the same HEAD. Earlier runs (opened/synchronize) correctly fail without it.
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review, converted_to_draft]
+
+concurrency:
+  group: review-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  review-gate:
+    name: Review gate
+    if: github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Check the verdict is fresh on this HEAD
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -eu
+          python3 scripts/review_gate.py "$PR_NUMBER"

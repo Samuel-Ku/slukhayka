@@ -19,7 +19,10 @@ branch with uncommitted edits. When the question is about the state of the
 repository rather than the tree in front of you, read `origin/main` or start a
 fresh copy with `scripts/new-lane.sh`: a file missing here may exist there, and
 a count taken here may be stale. This has already produced a wrong "the file
-does not exist" once.
+does not exist" once. Before trusting this file in a long-lived copy, run
+`scripts/check_guidance_freshness.py` — it names every guidance file that
+differs from `origin/main` in one line, because that drift is how a session
+merged a PR without ever reading the merge gate.
 
 When a path that should exist is missing, `scripts/whereami.sh` prints the
 branch, ahead/behind `origin/main`, the file-set difference (only-in-main /
@@ -78,6 +81,18 @@ Use the five canonical triage labels with their default names. See
 This is a single-context repository with root `CONTEXT.md` and `docs/adr/`.
 See `docs/agents/domain.md`.
 
+### UI and design
+
+Read `docs/CODEMAPS/ui-system.md` before any theming or cross-screen component
+work, and `docs/CODEMAPS/ui-screens.md` for screen-level fixes. The 2026
+direction «Папір і голос» has its own contract in
+`docs/specs/2026-10-26-ui-refresh-2027.md` (decisions, per-screen answers,
+accepted gaps) and its browsable prototype in
+`docs/prototypes/2026-ui-refresh/`; the implemented truth is the Roborazzi set
+in `app/src/test/snapshots/`. Two visual vocabularies coexist on purpose
+(legacy v1.4 and paper); shared components render the paper branch only behind
+`LocalPaperInkDesign`.
+
 ## The merge gate
 
 `scripts/merge-pr.sh` — green checks and a fresh `review:pass`, or no merge
@@ -86,6 +101,13 @@ verdict is re-issued with `scripts/review-pass.sh <PR>`, not `gh pr edit
 --add-label`: on a PR that already has the label the latter is a silent no-op,
 so the verdict keeps its old timestamp and the gate refuses (#1259). See
 `docs/agents/work-coordination.md` ("Вердикт огляду і мердж").
+
+The same verdict is published as the `Review gate` CI check
+(`.github/workflows/review-gate.yml`, logic in `scripts/review_gate.py`): it
+fails without a `review:pass` label, or when the label predates the PR head.
+Once that check is required in branch protection, a plain `gh pr merge` cannot
+even present a green board without the verdict — the script gate stays the
+final word, the check makes it visible where every tool looks.
 
 ## Remote worker
 
@@ -120,6 +142,12 @@ suite.
 - Run the full suite when the task asks for it, and before a release tag.
 - `./gradlew :app:lintDebug` is the static check: Android Lint against the
   checked-in `app/lint-baseline.xml`, so a new issue outside the baseline fails.
+- Changes under `app/src/main/java` also compile against `app/src/androidTest`
+  (the device accessibility suites, run only in CI). Before pushing a public
+  composable or a signature change there, run
+  `../gt ./gradlew --offline :app:compileDebugAndroidTestKotlin` — a
+  trailing-lambda break that the JVM tests cannot see otherwise costs a CI
+  round trip.
 - `scripts/mutate.sh` is the tool for the mutation check `CONTRIBUTING.md`
   requires of new logic: write a patch that breaks it and see whether its test
   goes red. `--class` reaches JVM test sources under `app/src/test/java`,

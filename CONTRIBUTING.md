@@ -9,6 +9,9 @@
   іншу базу можна передати через `--base`
 - `scripts/test-all.sh` — повний локальний набір JVM-тестів на JDK 21 і в чистому
   тимчасовому каталозі
+- `scripts/check_guidance_freshness.py` — порівнює `AGENTS.md`/`CONTRIBUTING.md`/
+  `docs/agents/**`/`docs/CODEMAPS/**` робочої копії з `origin/main`; запускай у
+  довгоживучій смузі, де правила могли відстати
 - `scripts/run-instrumented-suites.sh` — інструментовані accessibility/UI-сюїти
   на підключеному емуляторі чи пристрої; у CI біжить лише один клас, тож межа
   прогону й рецепт AVD — у `docs/runbooks/instrumented-suites.md`

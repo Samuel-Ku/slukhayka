@@ -432,6 +432,12 @@ CASES = (
         programs=(Program("FAKE_GH", "FAKE_GH_DIR"),),
     ),
     StandIn(
+        name="підставний gh фікстури test_review_gate",
+        where=("scripts/tests/test_review_gate.py",),
+        prefix="FAKE_",
+        programs=(Program("FAKE_GH", "simulated failure"),),
+    ),
+    StandIn(
         name="підставний gh фікстури test_issue_premise",
         where=("scripts/tests/test_issue_premise.py",),
         programs=(
@@ -871,6 +877,7 @@ class RegistryTest(unittest.TestCase):
              "scripts/tests/test_new_lane.py",
              "scripts/tests/test_pr_snapshot.py",
              "scripts/tests/test_review_clone.py",
+             "scripts/tests/test_review_gate.py",
              "scripts/tests/test_review_pass.py",
              "scripts/tests/test_test_wrappers.py",
              "scripts/tests/test_wide_window.py"],

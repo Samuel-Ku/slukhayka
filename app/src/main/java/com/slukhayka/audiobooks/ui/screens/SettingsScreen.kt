@@ -223,7 +223,7 @@ private fun DensityChoiceRow(
             text = stringResource(R.string.settings_density),
             style = PaperInkType.RowTitle,
             color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(bottom = 10.dp),
+            modifier = Modifier.padding(bottom = 10.dp).testTag("settings_density"),
         )
         Row(
             modifier = Modifier.selectableGroup(),

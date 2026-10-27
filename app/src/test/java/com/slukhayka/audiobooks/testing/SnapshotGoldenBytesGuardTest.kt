@@ -42,6 +42,12 @@ import java.security.MessageDigest
  * re-encoding a drifting and a non-drifting golden with this machine's JDK
  * ImageIO reproduces the committed bytes exactly, so the PNG encoder is out too.
  *
+ * **2026-10-26 — design refresh «Папір і голос»:** the nine images below were
+ * re-recorded ON PURPOSE by the plan (new header/search, library chrome and
+ * player surfaces), on `dragonborn`, and each pin was moved in the same commit
+ * with the reason in its body. The mechanism below is unchanged: a later blind
+ * re-record still cannot move them silently.
+ *
  * This guard does not bless those bytes — it pins them. They are exactly the
  * files a blind «оновили золота» commit touches, and nothing else in the
  * repository would notice: the compare step in `.github/workflows/ci.yml` runs
@@ -471,47 +477,47 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "collapsed.png",
-                "7d71d8e9f36a21b6df6a5c60b6873a2d" + "12d056828a409271b07711e8da6792a3"
+                "c236f7db34e7541ed7ca9a572381471e" + "30aa005143ec6feb2062128201bb3fbc"
             ),
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "expanded.png",
-                "fcba9e895e727c91737b5e792ad76e21" + "2fd96cf5586e3421a434efda5d26691f"
+                "62a7823ace0937c0c2da8200e805c219" + "99b4d23d7a0b9a1b2b206a94701fbe0e"
             ),
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",
                 "home_feed_" + "phone_fold.png",
-                "ffa80251f3db443a6b65307561d4efd6" + "445b79d5c874206010fe6c1608675952"
+                "114c47cb46b299d5877132340d088c4f" + "5238f5a215204a826524c7d9ea3bd7fa"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "2c0d094f174c715749b20cae3cc94882" + "d3c4055a43ae82a473e1e0fb5b3d7e56"
+                "c1a63e2022e24d03807fdef6d8995d8d" + "706d56e2ff55b9a91e009f6b64b3c29d"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "0db0ce84fac973a96536724b0fc2237d" + "faef4859cc546b2e046e81fb570334f4"
+                "006b781fe8760222a04bf350d92919a5" + "3739e1435d8d40dde102ffee37c94c72"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "26fd25f9e19596db54b1e9c8925c5e93" + "c0eb1b2aa084a62686739346f1813889"
+                "dce48dc6924a1e0891d2bd9852dc6b87" + "26232acb0a5ea288da5e60d1bc6e8f88"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_" + "no_narrator.png",
-                "74cc8649413aee187f363030e7e5c43e" + "be9d3b23384c390ae1cb734ff8fdd1c6"
+                "8e727f65b5d7c6678e02f55ac045361a" + "180933fc1e01b874491db2a1c9e208c3"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_redesign_" + "dark.png",
-                "328233261b4c1d4f0f6c937f7c3b773f" + "7025cb4a1cbf7952bb55ea531546b4cb"
+                "86f8be2e677a8bcd8b8b633a91ed8e5f" + "1b9f243878835edd787d5bf4eb6ac4c9"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_tight_" + "viewport.png",
-                "6fa28eb1d92d09c8e8526b8f8468bd14" + "f8daad92f622bf28cdbbc27d9ada5d32"
+                "d655644d2f3ad109c9be7ca4c1ac8c5c" + "9f6e6ad6e0fb580e14b418ca925e2aca"
             )
         )
     }

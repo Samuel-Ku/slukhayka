@@ -286,9 +286,7 @@ class LargeScreenSnapshotTest {
                             MiniPlayerBar(
                                 playerState = miniPlayerState,
                                 onPlayPauseClick = {},
-                                onPreviousClick = {},
-                                onSkipNextClick = {},
-                                onCloseClick = {},
+                                                onCloseClick = {},
                                 onBarClick = {}
                             )
                         }

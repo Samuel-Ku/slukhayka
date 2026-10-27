@@ -191,16 +191,39 @@ fun BookRow(
                     }
                 )
         ) {
+            val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
+            val dense = com.slukhayka.audiobooks.ui.theme.LocalContentDensity.current ==
+                com.slukhayka.audiobooks.ui.theme.ContentDensity.COMPACT
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 76.dp)
-                    .padding(horizontal = horizontalPadding, vertical = AppDimens.SpaceSm),
+                    .heightIn(
+                        min = when {
+                            paperInk && dense -> 88.dp
+                            paperInk -> 112.dp
+                            else -> 76.dp
+                        }
+                    )
+                    .padding(
+                        horizontal = if (paperInk) {
+                            com.slukhayka.audiobooks.ui.theme.PaperInkDimens.SpacePage
+                        } else {
+                            horizontalPadding
+                        },
+                        vertical = if (paperInk) 10.dp else AppDimens.SpaceSm,
+                    ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (!compact) leading?.invoke(this)
+                val paperCoverModifier = if (paperInk && dense) {
+                    Modifier.width(50.dp).height(75.dp)
+                } else if (paperInk) {
+                    Modifier.width(58.dp).height(87.dp)
+                } else {
+                    Modifier.size(RowCoverSize)
+                }
                 if (book != null) {
-                    Box(modifier = Modifier.size(RowCoverSize)) {
+                    Box(modifier = paperCoverModifier) {
                         BookCoverImage(
                             book = book,
                             semantics = BookCoverSemantics.Decorative,
@@ -212,10 +235,26 @@ fun BookRow(
                         coverBadge?.invoke(this)
                     }
                     Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
+                } else if (paperInk) {
+                    // A paper row always shows its cover slot: a catalogue row
+                    // without artwork gets the direction's paper tile instead of
+                    // an empty gap that made feed rows look like a different
+                    // component.
+                    Box(modifier = paperCoverModifier) {
+                        com.slukhayka.audiobooks.ui.components.paperink.PaperInkCoverFlat(
+                            title = title,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(com.slukhayka.audiobooks.ui.theme.PaperInkDimens.RadiusSmall)),
+                            radius = com.slukhayka.audiobooks.ui.theme.PaperInkDimens.RadiusSmall,
+                        )
+                        coverBadge?.invoke(this)
+                    }
+                    Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
                 } else if (!coverUrl.isNullOrBlank()) {
                     // Catalogue rows (search, work feed) carry a cover URL, not a
-                    // library entity — the same 64 dp slot, artwork or placeholder.
-                    Box(modifier = Modifier.size(RowCoverSize)) {
+                    // library entity — the same slot, artwork or placeholder.
+                    Box(modifier = paperCoverModifier) {
                         CatalogCoverImage(
                             coverImageUrl = coverUrl,
                             title = title,
@@ -232,7 +271,11 @@ fun BookRow(
                     if (!genre.isNullOrBlank()) {
                         Text(
                             text = genre,
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                            style = if (paperInk) {
+                                com.slukhayka.audiobooks.ui.theme.PaperInkType.TrackingLabel
+                            } else {
+                                MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
+                            },
                             color = MaterialTheme.colorScheme.primary
                         )
                     }
@@ -241,7 +284,11 @@ fun BookRow(
                         // badges and the play action are on the second line.
                         Text(
                             text = title,
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            style = if (paperInk) {
+                                com.slukhayka.audiobooks.ui.theme.PaperInkType.RowTitle
+                            } else {
+                                MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                            },
                             maxLines = titleMaxLines,
                             overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onSurface,
@@ -262,7 +309,11 @@ fun BookRow(
                             // squeezed «Очікує» into a one-letter-wide column (#843).
                             Text(
                                 text = title,
-                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                style = if (paperInk) {
+                                    com.slukhayka.audiobooks.ui.theme.PaperInkType.RowTitle
+                                } else {
+                                    MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                                },
                                 maxLines = titleMaxLines,
                                 overflow = TextOverflow.Ellipsis,
                                 color = MaterialTheme.colorScheme.onSurface,
@@ -282,7 +333,11 @@ fun BookRow(
                     if (!author.isNullOrBlank()) {
                         Text(
                             text = author,
-                            style = MaterialTheme.typography.bodySmall,
+                            style = if (paperInk) {
+                                com.slukhayka.audiobooks.ui.theme.PaperInkType.Meta
+                            } else {
+                                MaterialTheme.typography.bodySmall
+                            },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -291,7 +346,11 @@ fun BookRow(
                     if (!stats.isNullOrBlank()) {
                         Text(
                             text = stats,
-                            style = MaterialTheme.typography.labelSmall,
+                            style = if (paperInk) {
+                                com.slukhayka.audiobooks.ui.theme.PaperInkType.Micro
+                            } else {
+                                MaterialTheme.typography.labelSmall
+                            },
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -312,8 +371,15 @@ fun BookRow(
                                         Modifier
                                     }
                                 ),
-                            color = MaterialTheme.colorScheme.primary,
-                            trackColor = MaterialTheme.colorScheme.outlineVariant
+                            color = if (paperInk) {
+                                MaterialTheme.colorScheme.tertiary
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            },
+                            trackColor = MaterialTheme.colorScheme.outlineVariant,
+                            // An M3 dot at the track's end reads as a second,
+                            // unexplained marker on a paper row.
+                            drawStopIndicator = {},
                         )
                     }
                     if (footnoteInColumn) footnote?.invoke(this)

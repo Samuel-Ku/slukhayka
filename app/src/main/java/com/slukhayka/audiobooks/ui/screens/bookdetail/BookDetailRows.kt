@@ -141,19 +141,40 @@ fun ChapterRowItem(
         isPlaying -> onPauseClick
         else -> onPlayClick
     }
+    val paperInk = LocalPaperInkDesign.current
+    Column(modifier = Modifier.fillMaxWidth()) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(AppDimens.RadiusCard))
-            .border(
-                1.dp,
-                if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                RoundedCornerShape(AppDimens.RadiusCard)
+            .padding(
+                start = if (paperInk) PaperInkDimens.SpacePage else 16.dp,
+                end = if (paperInk) PaperInkDimens.SpacePage else 16.dp,
+                top = 0.dp,
+                bottom = 0.dp,
+            )
+            .then(if (paperInk) Modifier else Modifier.clip(RoundedCornerShape(AppDimens.RadiusCard)))
+            .then(
+                if (paperInk) {
+                    Modifier
+                } else {
+                    Modifier.border(
+                        1.dp,
+                        if (isCurrent) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outlineVariant
+                        },
+                        RoundedCornerShape(AppDimens.RadiusCard)
+                    )
+                }
             ),
+        shape = if (paperInk) RoundedCornerShape(0.dp) else RoundedCornerShape(AppDimens.RadiusCard),
         colors = CardDefaults.cardColors(
-            containerColor = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-            else MaterialTheme.colorScheme.surfaceContainer
+            containerColor = when {
+                paperInk -> MaterialTheme.colorScheme.background
+                isCurrent -> MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                else -> MaterialTheme.colorScheme.surfaceContainer
+            }
         )
     ) {
         Row(
@@ -173,22 +194,44 @@ fun ChapterRowItem(
                     stateDescription = chapterState
                     selected = isCurrent
                 }
-                .padding(14.dp),
+                .padding(if (paperInk) 14.dp else 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
                 shape = CircleShape,
-                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+                color = when {
+                    paperInk && isCurrent -> MaterialTheme.colorScheme.tertiary
+                    paperInk -> MaterialTheme.colorScheme.surfaceVariant
+                    isCurrent -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.surfaceContainerHigh
+                },
                 modifier = Modifier.size(36.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     if (isCurrent) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(20.dp))
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                            contentDescription = null,
+                            tint = if (paperInk) {
+                                MaterialTheme.colorScheme.onTertiary
+                            } else {
+                                MaterialTheme.colorScheme.onPrimary
+                            },
+                            modifier = Modifier.size(20.dp)
+                        )
                     } else {
                         Text(
                             text = "${index + 1}",
-                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface
+                            style = if (paperInk) {
+                                PaperInkType.Label
+                            } else {
+                                MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                            },
+                            color = if (paperInk) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            }
                         )
                     }
                 }
@@ -199,11 +242,21 @@ fun ChapterRowItem(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = chapter.title,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium
-                    ),
-                    color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
+                    style = if (paperInk) {
+                        PaperInkType.RowTitle
+                    } else {
+                        MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium
+                        )
+                    },
+                    color = if (!paperInk && isCurrent) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    // A paper row has room for two lines; the legacy card stays
+                    // single-line so its compact geometry does not move.
+                    maxLines = if (paperInk) 2 else 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 if (chapter.durationSeconds > 0L) {
@@ -212,7 +265,11 @@ fun ChapterRowItem(
                     Text(
                         text = MainViewModel.formatTime(chapter.durationSeconds),
                         // Spec-22 T2: tabular figures for duration counters.
-                        style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+                        style = if (paperInk) {
+                            PaperInkType.Micro.copy(fontFeatureSettings = "tnum")
+                        } else {
+                            MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum")
+                        },
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -251,13 +308,28 @@ fun ChapterRowItem(
                 }
 
                 Icon(
-                    imageVector = if (isPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
+                    imageVector = when {
+                        paperInk && isPlaying -> Icons.Default.Pause
+                        paperInk -> Icons.Default.PlayArrow
+                        isPlaying -> Icons.Default.PauseCircle
+                        else -> Icons.Default.PlayCircle
+                    },
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(32.dp)
+                    tint = if (paperInk) {
+                        MaterialTheme.colorScheme.tertiary
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                    modifier = Modifier.size(if (paperInk) 22.dp else 32.dp)
                 )
             }
         }
+    }
+    if (paperInk) {
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        )
+    }
     }
 }
 

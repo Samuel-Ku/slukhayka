@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import androidx.compose.foundation.shape.RoundedCornerShape
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
@@ -30,6 +32,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -130,7 +133,11 @@ private fun StarIcon(filled: Boolean, size: Int) {
     Icon(
         imageVector = if (filled) Icons.Default.Star else Icons.Default.StarBorder,
         contentDescription = null,
-        tint = MaterialTheme.colorScheme.secondary,
+        tint = if (com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current) {
+            MaterialTheme.colorScheme.tertiary
+        } else {
+            MaterialTheme.colorScheme.secondary
+        },
         modifier = Modifier.size(size.dp)
     )
 }
@@ -172,14 +179,28 @@ fun ReviewCard(
         R.string.book_detail_review_author_actions,
         review.authorName
     )
+    val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
+    Column(modifier = Modifier.fillMaxWidth()) {
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .padding(
+                start = if (paperInk) com.slukhayka.audiobooks.ui.theme.PaperInkDimens.SpacePage else 16.dp,
+                end = if (paperInk) com.slukhayka.audiobooks.ui.theme.PaperInkDimens.SpacePage else 16.dp,
+                top = if (paperInk) 0.dp else 6.dp,
+                bottom = if (paperInk) 0.dp else 6.dp,
+            )
             .testTag("review_card_${review.uid}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+        shape = if (paperInk) RoundedCornerShape(0.dp) else MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(
+            containerColor = if (paperInk) {
+                MaterialTheme.colorScheme.background
+            } else {
+                MaterialTheme.colorScheme.surfaceContainer
+            }
+        )
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(if (paperInk) 14.dp else 14.dp)) {
             // Stars ABOVE the text — the Google pattern the ticket pins.
             ReviewStarsRow(rating = review.rating)
 
@@ -188,7 +209,11 @@ fun ReviewCard(
             if (!review.body.isNullOrBlank()) {
                 Text(
                     text = review.body,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = if (paperInk) {
+                        com.slukhayka.audiobooks.ui.theme.PaperInkType.Body
+                    } else {
+                        MaterialTheme.typography.bodyMedium
+                    },
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -198,8 +223,12 @@ fun ReviewCard(
             // chip. An empty tag renders nothing (ADR-0014: no filler).
             if (!review.editionTag.isNullOrBlank()) {
                 Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shape = MaterialTheme.shapes.small,
+                    color = if (paperInk) {
+                        MaterialTheme.colorScheme.background
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHigh
+                    },
+                    shape = RoundedCornerShape(percent = 50),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
                     Text(
@@ -207,7 +236,11 @@ fun ReviewCard(
                             R.string.book_detail_review_narration_tag,
                             review.editionTag
                         ),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = if (paperInk) {
+                            com.slukhayka.audiobooks.ui.theme.PaperInkType.Micro
+                        } else {
+                            MaterialTheme.typography.labelSmall
+                        },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -241,14 +274,22 @@ fun ReviewCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = review.authorName,
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                        style = if (paperInk) {
+                            com.slukhayka.audiobooks.ui.theme.PaperInkType.Label
+                        } else {
+                            MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                        },
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = reviewDateLabel(review.createdAt),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = if (paperInk) {
+                            com.slukhayka.audiobooks.ui.theme.PaperInkType.Micro
+                        } else {
+                            MaterialTheme.typography.labelSmall
+                        },
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -328,6 +369,12 @@ fun ReviewCard(
                 }
             }
         }
+    }
+    if (paperInk) {
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        )
+    }
     }
 }
 

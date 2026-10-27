@@ -512,7 +512,7 @@ fun LibraryScreen(
             // ~150 dp of chrome before the first book. They live in the ⋮ menu
             // now (one tap, just as discoverable) and the screen became a
             // single scroll of books.
-            com.slukhayka.audiobooks.ui.components.AppTabHeader(
+            com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader(
                 // spec-54 T06 (#873) — the root's name is the ONE resource the
                 // bottom bar also uses; a hardcoded literal could drift from it.
                 title = if (activeTab == 0) stringResource(R.string.nav_library) else sectionTitle,
@@ -522,9 +522,8 @@ fun LibraryScreen(
                 headingTestTag = "library_heading",
                 returnFocusRequester = libraryHeadingFocusRequester,
                 compact = landscapePhone,
+                onSettingsClick = onOpenSettings,
                 actions = {
-                    // #860 — the gear sits in the SAME place on every root.
-                    com.slukhayka.audiobooks.ui.components.AppSettingsGear(onClick = onOpenSettings)
                     if (activeTab != 0) {
                         // A section is open: one explicit way back to the books
                         // (system back does the same).
@@ -1351,13 +1350,22 @@ internal fun LibrarySearchField(
 ) {
     // The IME owns the first system Back; only the next one clears the query.
     val keyboardVisible = WindowInsets.isImeVisible
+    val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
     BackHandler(enabled = query.isNotEmpty() && !keyboardVisible) { onQueryChange("") }
     OutlinedTextField(
         value = query,
         onValueChange = onQueryChange,
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceSm)
+            .padding(
+                horizontal = if (paperInk) {
+                    com.slukhayka.audiobooks.ui.theme.PaperInkDimens.SpacePage
+                } else {
+                    AppDimens.PageSides
+                },
+                vertical = AppDimens.SpaceSm,
+            )
+            .heightIn(min = if (paperInk) 52.dp else 56.dp)
             .testTag("library_search"),
         label = { Text(stringResource(R.string.a11y_library_search)) },
         placeholder = { Text(stringResource(R.string.lib_search_placeholder)) },
@@ -1392,9 +1400,16 @@ internal fun LibrarySearchField(
         // (the prototype draws no border) needs a decision about what replaces
         // it. So this change removes the drift without answering that.
         colors = OutlinedTextFieldDefaults.colors(
-            // MD3: input fills sit on the highest tonal container.
-            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            focusedContainerColor = if (paperInk) {
+                MaterialTheme.colorScheme.surface
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHighest
+            },
+            unfocusedContainerColor = if (paperInk) {
+                MaterialTheme.colorScheme.surface
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHighest
+            },
             focusedBorderColor = MaterialTheme.colorScheme.primary,
             unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
         ),
@@ -1407,7 +1422,11 @@ internal fun LibrarySearchField(
         // Still open from the same prototype rule (item 2 of Огляд): the field
         // should be FILLED with no border, and 54 px tall. This change fixes
         // the disagreement between the two fields, not yet the border.
-        shape = RoundedCornerShape(AppDimens.RadiusPill)
+        shape = if (paperInk) {
+            RoundedCornerShape(com.slukhayka.audiobooks.ui.theme.PaperInkDimens.RadiusMedium)
+        } else {
+            RoundedCornerShape(AppDimens.RadiusPill)
+        }
     )
 }
 
@@ -1451,17 +1470,15 @@ internal fun LibraryContinueCard(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("library_continue_card"),
-        shape = RoundedCornerShape(AppDimens.RadiusHero),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+        shape = RoundedCornerShape(PaperInkDimens.RadiusLarge),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(modifier = Modifier.padding(AppDimens.SpaceLg)) {
             Text(
-                text = stringResource(R.string.lib_continue_label),
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                ),
-                color = MaterialTheme.colorScheme.primary
+                text = stringResource(R.string.lib_continue_label).uppercase(),
+                style = PaperInkType.TrackingLabel,
+                color = MaterialTheme.colorScheme.tertiary
             )
             Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
             Row(
@@ -1494,14 +1511,14 @@ internal fun LibraryContinueCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = book.book.title,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        style = PaperInkType.BookTitleHero,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = book.book.displayAuthor,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = PaperInkType.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -1511,7 +1528,7 @@ internal fun LibraryContinueCard(
                         Spacer(modifier = Modifier.height(AppDimens.SpaceSm))
                         Text(
                             text = subtitle,
-                            style = MaterialTheme.typography.labelMedium,
+                            style = PaperInkType.Label,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -1532,7 +1549,7 @@ internal fun LibraryContinueCard(
                                 .fillMaxWidth()
                                 .height(6.dp)
                                 .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
-                            color = MaterialTheme.colorScheme.primary,
+                            color = MaterialTheme.colorScheme.tertiary,
                             trackColor = MaterialTheme.colorScheme.outlineVariant,
                             // #292: the M3 stop dot sat at the track's end like a
                             // second, unexplained marker (device review, 2026-09-16).
@@ -1547,7 +1564,7 @@ internal fun LibraryContinueCard(
                                 R.string.lib_progress_percent,
                                 knownPercent
                             ),
-                            style = MaterialTheme.typography.labelSmall,
+                            style = PaperInkType.Micro,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -1560,14 +1577,18 @@ internal fun LibraryContinueCard(
                 onClick = onPlay,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 52.dp)
+                    .heightIn(min = 56.dp)
                     .testTag("library_continue_play"),
-                shape = RoundedCornerShape(AppDimens.RadiusPanel)
+                shape = RoundedCornerShape(PaperInkDimens.RadiusLarge),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.tertiary,
+                    contentColor = MaterialTheme.colorScheme.onTertiary,
+                ),
             ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimary,
+                    tint = MaterialTheme.colorScheme.onTertiary,
                     modifier = Modifier.size(22.dp)
                 )
                 Spacer(modifier = Modifier.width(AppDimens.SpaceSm))
@@ -1577,8 +1598,8 @@ internal fun LibraryContinueCard(
                     } else {
                         stringResource(R.string.lib_listen_continue)
                     },
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onPrimary
+                    style = PaperInkType.Label,
+                    color = MaterialTheme.colorScheme.onTertiary
                 )
             }
         }
@@ -2261,11 +2282,21 @@ fun LibraryBookCard(
     // see the offline state — are real sibling nodes next to it, inside the
     // same surface. A card that swallowed its own play button would leave that
     // shortcut unreachable for TalkBack.
+    val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
     Card(
         modifier = (if (grid) modifier else Modifier)
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.medium),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+            .clip(if (paperInk && !grid) RoundedCornerShape(0.dp) else MaterialTheme.shapes.medium),
+        colors = CardDefaults.cardColors(
+            // List rows and grid tiles are paper surfaces in the direction;
+            // the legacy schemes keep their tonal container.
+            containerColor = if (paperInk) {
+                MaterialTheme.colorScheme.background
+            } else {
+                MaterialTheme.colorScheme.surfaceContainer
+            }
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         if (grid) {
             Box(
@@ -2460,6 +2491,7 @@ private fun LibraryBookGridContent(
     /** spec-52 US28 (#1174) — the live «Покинуто» mark of this book. */
     abandoned: Boolean = false
 ) {
+    val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
     Column {
         Box {
             BookCoverImage(
@@ -2467,7 +2499,7 @@ private fun LibraryBookGridContent(
                 semantics = BookCoverSemantics.Decorative,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(3f / 4f),
+                    .aspectRatio(if (paperInk) 2f / 3f else 3f / 4f),
                 contentScale = ContentScale.Crop
             )
             LibraryCoverOfflineBadge(
@@ -2493,10 +2525,14 @@ private fun LibraryBookGridContent(
         // shelf or a grid row has one height instead of a ragged staircase.
         // A tile shorter than its neighbour looked like a bug, not like a book
         // with less metadata. What varies now is only the text inside a slot.
-        Column(modifier = Modifier.padding(10.dp)) {
+        Column(modifier = Modifier.padding(if (paperInk) 12.dp else 10.dp)) {
             Text(
                 text = book.book.title,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                style = if (paperInk) {
+                    PaperInkType.Meta.copy(fontWeight = FontWeight.SemiBold)
+                } else {
+                    MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                },
                 color = MaterialTheme.colorScheme.onSurface,
                 minLines = 2,
                 maxLines = 2,
@@ -2505,14 +2541,14 @@ private fun LibraryBookGridContent(
             Text(
                 // An empty string still occupies its line — that is the point.
                 text = book.book.displayAuthor,
-                style = MaterialTheme.typography.bodySmall,
+                style = if (paperInk) PaperInkType.Micro else MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = librarySeriesLabel(book).orEmpty(),
-                style = MaterialTheme.typography.labelMedium,
+                style = if (paperInk) PaperInkType.Micro else MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -2541,7 +2577,11 @@ private fun LibraryBookGridContent(
                             .height(4.dp)
                             .clip(RoundedCornerShape(AppDimens.RadiusProgress))
                             .clearAndSetSemantics { },
-                        color = MaterialTheme.colorScheme.primary,
+                        color = if (paperInk) {
+                            MaterialTheme.colorScheme.tertiary
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
                         trackColor = MaterialTheme.colorScheme.outlineVariant,
                         // #292 carried to the shelf: the M3 stop dot read as a stray
                         // amber marker crowding the provenance chip right below it
@@ -2567,7 +2607,7 @@ private fun LibraryBookGridContent(
                 availabilityLabel(availability)?.let { label ->
                     Text(
                         text = label,
-                        style = MaterialTheme.typography.labelSmall,
+                        style = if (paperInk) PaperInkType.Micro else MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -4025,9 +4065,14 @@ internal fun LibrarySectionTabs(
                     .testTag(action.first)
                     .clickable(onClick = action.second)
             ) {
+                val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
                 Text(
                     text = label,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = if (paperInk) {
+                        com.slukhayka.audiobooks.ui.theme.PaperInkType.Tab
+                    } else {
+                        MaterialTheme.typography.titleSmall
+                    },
                     color = if (selected) {
                         MaterialTheme.colorScheme.onSurface
                     } else {
@@ -4044,8 +4089,12 @@ internal fun LibrarySectionTabs(
                             else Modifier.width(0.dp)
                         )
                         .background(
-                            if (selected) MaterialTheme.colorScheme.primary
-                            else Color.Transparent
+                            when {
+                                selected && com.slukhayka.audiobooks.ui.theme
+                                    .LocalPaperInkDesign.current -> MaterialTheme.colorScheme.tertiary
+                                selected -> MaterialTheme.colorScheme.primary
+                                else -> Color.Transparent
+                            }
                         )
                 )
             }

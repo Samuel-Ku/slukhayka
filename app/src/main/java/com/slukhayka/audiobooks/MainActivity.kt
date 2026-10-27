@@ -98,7 +98,14 @@ import com.slukhayka.audiobooks.ui.screens.DownloadManagerScreen
 import com.slukhayka.audiobooks.ui.screens.LibraryRatingScreen
 import com.slukhayka.audiobooks.ui.screens.WebSourceBrowserScreen
 import com.slukhayka.audiobooks.ui.screens.SourceWebViewSession
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkNavItem
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkNavigationBar
+import com.slukhayka.audiobooks.ui.theme.AppThemeMode
+import com.slukhayka.audiobooks.ui.theme.AppearancePreferencesStore
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
 
 internal enum class SecondaryBookParent {
     SERIES,
@@ -320,8 +327,24 @@ class MainActivity : FragmentActivity() {
         coil.Coil.setImageLoader(imageLoader)
 
         setContent {
-            AudiobookTheme {
-                AudiobookApp()
+            // Plan 2026-2027 — the visible theme follows the listener's choice;
+            // migrated screens resolve it to paper/ink, the rest to the legacy
+            // light/dark pair, so one switch moves the whole app.
+            val appearance = remember { AppearancePreferencesStore(this) }
+            val themeMode by appearance.themeMode.collectAsState()
+            val density by appearance.density.collectAsState()
+            val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+            val darkTheme = when (themeMode) {
+                AppThemeMode.AUTO -> systemDark
+                AppThemeMode.PAPER -> false
+                AppThemeMode.INK -> true
+            }
+            androidx.compose.runtime.CompositionLocalProvider(
+                com.slukhayka.audiobooks.ui.theme.LocalContentDensity provides density
+            ) {
+                AudiobookTheme(darkTheme = darkTheme) {
+                    AudiobookApp(appearance = appearance)
+                }
             }
         }
     }
@@ -338,8 +361,15 @@ class MainActivity : FragmentActivity() {
 }
 
 @Composable
-fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
+fun AudiobookApp(
+    viewModel: MainViewModel = viewModel(),
+    // Optional for tests and previews: the app passes the one store it created
+    // before the theme, so the switch and the rendered scheme cannot drift.
+    appearance: AppearancePreferencesStore? = null,
+) {
     val context = LocalContext.current
+    val appearanceStore = appearance ?: remember { AppearancePreferencesStore(context) }
+    val playerAlwaysInk by appearanceStore.playerAlwaysInk.collectAsState()
     // #900 — the window's own width decides the navigation surface and (from
     // here on) which screens show a list with its detail beside it.
     val windowLayout = rememberWindowLayout()
@@ -742,6 +772,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     // screens: the wide branch places them side by side, the phone branches
     // place them one at a time, and both get the identical callbacks.
     val libraryRootContent: @Composable () -> Unit = {
+        // Plan 2026-2027 — Медіатека is the direction's screen now: the whole
+        // root (list, chrome and the wide pane) lives in one paper/ink scheme.
+        PaperInkThemedContent {
         LibraryScreen(
             // #860 — the gear opens Settings from THIS root.
             onOpenSettings = {
@@ -781,6 +814,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                 }
             }
         )
+        }
     }
 
     // #1230 — the book page's local-access recovery doors. The SAF launchers
@@ -871,6 +905,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val playerContent: @Composable () -> Unit = {
         PlayerScreen(
             viewModel = viewModel,
+            alwaysInk = playerAlwaysInk,
             // ADR-0008 batch 4 (#159): the module comes in as a parameter from
             // the composition root.
             libraryEntries = viewModel.libraryEntries,
@@ -903,10 +938,6 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     )
                 }
             },
-            onSkipNextClick = { viewModel.playerManager.nextChapter() },
-            // Issue #808: the bar carries the full transport —
-            // previous chapter sits where cast used to be.
-            onPreviousClick = { viewModel.playerManager.previousChapter() },
             onCloseClick = { viewModel.dismissMiniPlayer() },
             onBarClick = { viewModel.setShowFullPlayer(true) }
         )
@@ -1455,7 +1486,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             tabKey = selectedTab.name
                         ) { when (selectedTab) {
                             // Spec-9: first tab is the listening panel, not the storefront.
-                            SelectedTab.LISTEN -> ListenScreen(
+                            // Plan 2026-2027, step 3: the Слухати tab is the first
+                            // screen moved onto «Папір і голос». The other roots
+                            // keep the legacy theme until their own migration, so a
+                            // half-migrated screen cannot leak into another tab.
+                            SelectedTab.LISTEN -> PaperInkTheme { ListenScreen(
                                 // #958 — the gear opens Settings from THIS root,
                                 // wired exactly as EXPLORE, LIBRARY and FRIENDS
                                 // already are (ADR-0049: the gear sits in the SAME
@@ -1479,8 +1514,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                 },
                                 onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
                                 onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) }
-                            )
-                            SelectedTab.EXPLORE ->                        HomeScreen(
+                            ) }
+                            // Plan 2026-2027: «Огляд» is the next screen on the
+                            // direction. The header/search/chips are migrated;
+                            // the rails follow while they keep their layout.
+                            SelectedTab.EXPLORE -> PaperInkTheme { HomeScreen(
                                 // #860 — the gear opens Settings from THIS root.
                                 onOpenSettings = {
                                     settingsReturnTab = SelectedTab.EXPLORE
@@ -1518,7 +1556,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                 } else {
                                     null
                                 }
-                            )
+                            ) }
                             SelectedTab.LIBRARY -> libraryRootContent()
                             SelectedTab.FRIENDS -> FriendsScreen(
                                 // #916 — the state that EXISTS: the friendship and
@@ -1546,6 +1584,13 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             )
                             SelectedTab.SETTINGS -> SettingsScreen(
                                 returnDestination = settingsReturnDestination,
+                                themeMode = appearanceStore.themeMode.collectAsState().value,
+                                onThemeModeChange = appearanceStore::setThemeMode,
+                                playerAlwaysInk = playerAlwaysInk,
+                                onPlayerAlwaysInkChange = appearanceStore::setPlayerAlwaysInk,
+                                density = appearanceStore.density.collectAsState().value,
+                                onDensityChange = appearanceStore::setDensity,
+                                onBackClick = { viewModel.selectTab(settingsReturnTab) },
                                 onOpen = { destination ->
                                     settingsReturnDestination = destination
                                     when (destination) {
@@ -1692,79 +1737,50 @@ fun AppBottomBar(
     bookDetailOpen: Boolean = false,
     onSelect: (SelectedTab) -> Unit
 ) {
-    BoxWithConstraints {
-        val labelWidth = (maxWidth / 4 - 4.dp).coerceAtLeast(1.dp)
-        val minimumHeight = (80 * LocalDensity.current.fontScale.coerceAtLeast(1f)).dp
-        NavigationBar(
-            // MD3: the navigation bar is a tonal container (surfaceContainer),
-            // one step above the screen surface.
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            contentColor = MaterialTheme.colorScheme.primary,
-            modifier = Modifier
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .heightIn(min = minimumHeight)
-                .testTag("bottom_navigation_bar")
-        ) {
-            // #547: Слухати · Огляд · Медіатека · Налаштування (listening
-            // first). Test tags stay stable for the screens that moved (tab_explore
-            // / tab_library) so existing UI tests keep working.
-            NavigationBarItem(
-                selected = selectedTab == SelectedTab.LISTEN && !bookDetailOpen,
-                onClick = { onSelect(SelectedTab.LISTEN) },
-                icon = { Icon(imageVector = Icons.Default.Headphones, contentDescription = null) },
-                label = { Text(stringResource(R.string.nav_listen), modifier = Modifier.requiredWidth(labelWidth), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                    indicatorColor = MaterialTheme.colorScheme.outlineVariant
-                ),
-                modifier = Modifier.testTag("tab_listen")
+    val tabs = listOf(
+        SelectedTab.LISTEN,
+        SelectedTab.EXPLORE,
+        SelectedTab.LIBRARY,
+        SelectedTab.FRIENDS,
+    )
+    // A full-screen book page is not one of the root destinations; nothing is
+    // selected there, exactly as the old bar behaved.
+    val selectedIndex = if (bookDetailOpen) -1 else tabs.indexOf(selectedTab)
+    val items = listOf(
+        PaperInkNavItem(
+            label = stringResource(R.string.nav_listen),
+            icon = Icons.Default.Headphones,
+            testTag = "tab_listen",
+        ),
+        PaperInkNavItem(
+            label = stringResource(R.string.nav_explore),
+            icon = Icons.Default.Explore,
+            testTag = "tab_explore",
+        ),
+        PaperInkNavItem(
+            label = stringResource(R.string.nav_library),
+            icon = Icons.Default.LibraryMusic,
+            testTag = "tab_library",
+        ),
+        PaperInkNavItem(
+            label = stringResource(R.string.nav_friends),
+            icon = Icons.Default.Group,
+            testTag = "tab_friends",
+        ),
+    )
+    Box(
+        modifier = Modifier
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .testTag("bottom_navigation_bar")
+    ) {
+        // The bar follows whichever scheme the window shows (it is chrome, not
+        // a night surface), and the pill/typography come from the direction.
+        PaperInkThemedContent {
+            PaperInkNavigationBar(
+                items = items,
+                selectedIndex = selectedIndex,
+                onSelect = { index -> onSelect(tabs[index]) },
             )
-
-            NavigationBarItem(
-                selected = selectedTab == SelectedTab.EXPLORE && !bookDetailOpen,
-                onClick = { onSelect(SelectedTab.EXPLORE) },
-                icon = { Icon(imageVector = Icons.Default.Explore, contentDescription = null) },
-                label = { Text(stringResource(R.string.nav_explore), modifier = Modifier.requiredWidth(labelWidth), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                    indicatorColor = MaterialTheme.colorScheme.outlineVariant
-                ),
-                modifier = Modifier.testTag("tab_explore")
-            )
-
-            NavigationBarItem(
-                selected = selectedTab == SelectedTab.LIBRARY && !bookDetailOpen,
-                onClick = { onSelect(SelectedTab.LIBRARY) },
-                icon = { Icon(imageVector = Icons.Default.LibraryMusic, contentDescription = null) },
-                label = { Text(stringResource(R.string.nav_library), modifier = Modifier.requiredWidth(labelWidth), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                    indicatorColor = MaterialTheme.colorScheme.outlineVariant
-                ),
-                modifier = Modifier.testTag("tab_library")
-            )
-
-            // #898 / ADR-0049 — the fourth working section. «Друзі» takes the
-            // slot the settings tab used to hold; settings is a gear in every
-            // root header now, so no working destination was displaced.
-            NavigationBarItem(
-                selected = selectedTab == SelectedTab.FRIENDS && !bookDetailOpen,
-                onClick = { onSelect(SelectedTab.FRIENDS) },
-                icon = { Icon(imageVector = Icons.Default.Group, contentDescription = null) },
-                label = { Text(stringResource(R.string.nav_friends), modifier = Modifier.requiredWidth(labelWidth), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                    indicatorColor = MaterialTheme.colorScheme.outlineVariant
-                ),
-                modifier = Modifier.testTag("tab_friends")
-            )
-
-            // #860 / ADR-0049 — «Налаштування» left the bar: the gear in every
-            // root header opens them, so the bar keeps only working sections.
         }
     }
 }

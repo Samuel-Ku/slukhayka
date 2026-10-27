@@ -191,7 +191,7 @@
     <string name="source_audio_refusal_title">Аудіо джерел</string>
     <string name="source_audio_refusal_description">Позначені джерела більше не пропонуються для прослуховування й завантаження — метадані, каталог і підбірки лишаються. Зніміть прапорець, щоб повернути джерело без повторного імпорту.</string>
     <!-- v1.4 (ADR-0033): player and timer chrome rides resources. -->
-    <string name="player_now_playing">ЗАРАЗ ЗВУЧИТЬ</string>
+    <string name="player_now_playing">Зараз звучить</string>
     <string name="player_favorite_add">Додати в обране</string>
     <string name="player_favorite_remove">Прибрати з обраного</string>
     <string name="timer_off">Вимкнено</string>
@@ -868,4 +868,16 @@
         <item quantity="few">Прослухано %1$d години</item>
         <item quantity="other">Прослухано %1$d годин</item>
     </plurals>
+    <!-- Plan 2026-2027: the appearance group on the Settings root. -->
+    <string name="settings_group_appearance">Вигляд</string>
+    <string name="settings_theme">Тема</string>
+    <string name="settings_theme_auto">Авто</string>
+    <string name="settings_theme_paper">Папір</string>
+    <string name="settings_theme_ink">Чорнило</string>
+    <string name="settings_player_always_ink">Плеєр завжди темний</string>
+    <string name="settings_player_always_ink_desc">Плеєр лишається «Чорнилом», навіть коли застосунок світлий.</string>
+    <string name="settings_density">Щільність</string>
+    <string name="settings_density_comfortable">Зручно</string>
+    <string name="settings_density_compact">Компактно</string>
+    <string name="settings_density_desc">Компактно зменшує рядки й плакати, не тач-цілі.</string>
 </resources>

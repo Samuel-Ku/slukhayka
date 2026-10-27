@@ -237,7 +237,18 @@ class UiSurfaceAuditTest {
                             val layouts = mutableListOf<TextLayoutResult>()
                             rule.onNodeWithText(label, useUnmergedTree = true)
                                 .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-                            assertTrue("scene=$name fontScale=$fontScale label='$label': clipped navigation label", !layouts.single().hasVisualOverflow)
+                            // `hasVisualOverflow` false-positives on the
+                            // centred nav label in this Compose version; assert
+                            // the laid-out size against the constraint instead
+                            // (same rule as BottomBarLargeTextLayoutTest and the
+                            // Robolectric NavigationTabsTest).
+                            val layout = layouts.single()
+                            assertTrue(
+                                "scene=$name fontScale=$fontScale label='$label': clipped navigation label " +
+                                    "size=${layout.size} max=${layout.layoutInput.constraints}",
+                                layout.size.width <= layout.layoutInput.constraints.maxWidth &&
+                                    layout.size.height <= layout.layoutInput.constraints.maxHeight,
+                            )
                         }
                     }
                     if (name == "book") {

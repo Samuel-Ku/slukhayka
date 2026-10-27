@@ -66,10 +66,14 @@ fun EmptyState(
     stateDescription: String? = null,
     actions: (@Composable ColumnScope.() -> Unit)? = null
 ) {
+    val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = AppDimens.SpaceXl, vertical = AppDimens.SpaceSection),
+            .padding(
+                horizontal = if (paperInk) com.slukhayka.audiobooks.ui.theme.PaperInkDimens.SpaceXl else AppDimens.SpaceXl,
+                vertical = if (paperInk) com.slukhayka.audiobooks.ui.theme.PaperInkDimens.SpaceSection else AppDimens.SpaceSection,
+            ),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // #885 (wave 3) — the prototype's empty state is a bare muted glyph:
@@ -86,7 +90,7 @@ fun EmptyState(
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                tint = if (paperInk) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(EmptyStateIconSize)
             )
         }
@@ -95,7 +99,11 @@ fun EmptyState(
         // itself politely (screen readers) the moment it appears.
         Text(
             text = title,
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            style = if (paperInk) {
+                com.slukhayka.audiobooks.ui.theme.PaperInkType.EmptyTitle
+            } else {
+                MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+            },
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.semantics {
                 liveRegion = LiveRegionMode.Polite
@@ -106,7 +114,11 @@ fun EmptyState(
             Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
             Text(
                 text = body,
-                style = MaterialTheme.typography.bodyMedium,
+                style = if (paperInk) {
+                    com.slukhayka.audiobooks.ui.theme.PaperInkType.Meta
+                } else {
+                    MaterialTheme.typography.bodyMedium
+                },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )

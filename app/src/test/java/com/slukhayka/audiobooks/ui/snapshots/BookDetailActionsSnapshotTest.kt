@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.ui.snapshots
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -12,9 +13,12 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.ui.screens.bookdetail.BookUniverseLine
+import com.slukhayka.audiobooks.ui.screens.bookdetail.BookDetailDownloadAction
+import com.slukhayka.audiobooks.ui.screens.bookdetail.BookDetailPrimaryActions
 import com.slukhayka.audiobooks.ui.screens.bookdetail.FavoriteButton
 import com.slukhayka.audiobooks.ui.screens.bookdetail.SeriesPill
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Assert.assertTrue
@@ -104,6 +108,38 @@ class BookDetailActionsSnapshotTest {
         }
         composeTestRule.onNodeWithTag("book_detail_series_pill").performClick()
         assertTrue("tapping the pill must fire the series navigation", clicked)
+    }
+
+    /**
+     * Plan 2026-2027 — the primary actions on the direction's paper: the play
+     * CTA is the lamp (the sound accent), the quiet download button keeps its
+     * 56 dp target. The page's full chrome is covered by a11y/interaction
+     * tests; this pins the one row a listener touches first.
+     */
+    @Test
+    fun primary_actions_on_paper() {
+        composeTestRule.setContent {
+            PaperInkTheme(darkTheme = false) {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        BookDetailPrimaryActions(
+                            workTitle = "Трохи ненависті",
+                            playLabel = "Слухати",
+                            streamOnly = false,
+                            downloadAction = BookDetailDownloadAction.Start,
+                            downloadProgress = 0f,
+                            onPlay = {},
+                            onDownload = {},
+                            onAddBookmark = {}
+                        )
+                    }
+                }
+            }
+        }
+        composeTestRule.onNodeWithTag("play_book_button").assertExists()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/book_detail_actions_paper.png"
+        )
     }
 
     @Test

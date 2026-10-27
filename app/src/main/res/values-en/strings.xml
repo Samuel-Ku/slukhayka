@@ -193,7 +193,7 @@
     <string name="source_audio_refusal_title">Source audio</string>
     <string name="source_audio_refusal_description">Ticked sources stop supplying audio for playback and downloads — metadata, catalog and collections stay. Untick a source to bring it back without re-importing.</string>
     <!-- v1.4 (ADR-0033): player and timer chrome rides resources. -->
-    <string name="player_now_playing">NOW PLAYING</string>
+    <string name="player_now_playing">Now playing</string>
     <string name="player_favorite_add">Add to favourites</string>
     <string name="player_favorite_remove">Remove from favourites</string>
     <string name="timer_off">Off</string>
@@ -800,4 +800,16 @@
         <item quantity="one">%1$d hour listened</item>
         <item quantity="other">%1$d hours listened</item>
     </plurals>
+    <!-- Plan 2026-2027: the appearance group on the Settings root. -->
+    <string name="settings_group_appearance">Appearance</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_theme_auto">Auto</string>
+    <string name="settings_theme_paper">Paper</string>
+    <string name="settings_theme_ink">Ink</string>
+    <string name="settings_player_always_ink">Player is always dark</string>
+    <string name="settings_player_always_ink_desc">The player stays Ink even when the app is light.</string>
+    <string name="settings_density">Density</string>
+    <string name="settings_density_comfortable">Comfortable</string>
+    <string name="settings_density_compact">Compact</string>
+    <string name="settings_density_desc">Compact shrinks rows and posters, never touch targets.</string>
 </resources>

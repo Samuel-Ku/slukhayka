@@ -123,6 +123,7 @@ internal fun SettingsDestinationScaffold(
     val title = stringResource(destination.titleRes)
     val headingFocusRequester = remember { FocusRequester() }
     val largeText = LocalDensity.current.fontScale >= 2f
+    val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
 
     LaunchedEffect(title) {
         withFrameNanos { }
@@ -137,15 +138,24 @@ internal fun SettingsDestinationScaffold(
         topBar = {
             TopAppBar(
                 windowInsets = WindowInsets(0, 0, 0, 0),
-                expandedHeight = if (largeText) 112.dp else 64.dp,
+                expandedHeight = when {
+                    paperInk && largeText -> 112.dp
+                    paperInk -> 56.dp
+                    largeText -> 112.dp
+                    else -> 64.dp
+                },
                 title = {
                     Text(
                         text = title,
                         maxLines = if (largeText) 2 else 1,
                         overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.Bold
-                        ),
+                        style = if (paperInk) {
+                            com.slukhayka.audiobooks.ui.theme.PaperInkType.SectionTitle
+                        } else {
+                            MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold
+                            )
+                        },
                         modifier = Modifier
                             .focusRequester(headingFocusRequester)
                             .focusable()

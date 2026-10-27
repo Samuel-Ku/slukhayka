@@ -86,6 +86,10 @@ import com.slukhayka.audiobooks.data.listening.knownBookTotalSeconds
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.displayNarrator
 import com.slukhayka.audiobooks.ui.theme.AppDimens
+import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
+import com.slukhayka.audiobooks.ui.theme.PaperInkType
 import com.slukhayka.audiobooks.ui.theme.TabularTimerStyle
 
 /** Values shared by the visual progress treatment and its unit tests. */
@@ -265,7 +269,10 @@ fun PlayerScreen(
     // settled by #154. Player state is read from the player manager directly
     // (already a public field); bookmark creation stays on the ViewModel.
     libraryEntries: LibraryEntries,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    // Plan 2026-2027 — decision A: the player is ink by default. The listener
+    // may turn the exception off in Settings; then the surface follows the app.
+    alwaysInk: Boolean = true,
 ) {
     val playerState by viewModel.playerState.collectAsState()
     // ADR-0008: module flows are read directly — no forwarding StateFlow on
@@ -350,12 +357,14 @@ fun PlayerScreen(
     // above it), so LocalContentColor would otherwise stay at its framework
     // default (BLACK) and every IconButton/Icon without an explicit tint
     // would render near-invisible black glyphs on the dark backdrop.
+    PlayerInkSurface(alwaysInk = alwaysInk) {
     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
         PlayerModalUnderlay(
             activeTool = activeTool,
             modifier = Modifier.fillMaxSize()
         ) {
             PlayerScreenContent(
+            alwaysInk = alwaysInk,
             playerState = playerState,
             book = book,
             currentChapterTitle = currentChapterTitle,
@@ -472,7 +481,9 @@ fun PlayerScreen(
         }
         }
     }
+    }
 
+    PlayerInkSurface(alwaysInk = alwaysInk) {
     when (activeTool) {
         PlayerQuickTool.Timer -> SleepTimerSheet(
             currentTimerMinutes = playerState.sleepTimerMinutes,
@@ -550,6 +561,7 @@ fun PlayerScreen(
         )
         null -> Unit
     }
+    }
 }
 
 /**
@@ -571,9 +583,103 @@ internal fun PlayerModalUnderlay(
     )
 }
 
+/**
+ * The player's ONE scheme boundary: always ink (decision A), or the app's own
+ * scheme when the listener turned the exception off in Settings.
+ */
+@Composable
+private fun PlayerInkSurface(alwaysInk: Boolean, content: @Composable () -> Unit) {
+    if (alwaysInk) {
+        PaperInkTheme(darkTheme = true, content = content)
+    } else {
+        PaperInkThemedContent(content)
+    }
+}
+
 /** Pure player surface, separated from the ViewModel for snapshot and interaction tests. */
+/**
+ * The player is the ONE always-ink surface of the product (decision A): it is
+ * wrapped in [PaperInkTheme] no matter which scheme the rest of the app shows,
+ * and every call site — the app, the wide pane and the tests — gets that for
+ * free from this boundary.
+ */
 @Composable
 fun PlayerScreenContent(
+    playerState: PlayerState,
+    book: AudiobookEntity,
+    currentChapterTitle: String,
+    progress: PlayerProgressUi,
+    artworkAccent: Color?,
+    artworkAspect: Float = 2f / 3f,
+    onArtworkLoaded: (Drawable) -> Unit,
+    onDismiss: () -> Unit,
+    onToggleFavorite: () -> Unit,
+    onToggleDebug: () -> Unit,
+    onSeek: (Float) -> Unit,
+    onBookSeek: (Float) -> Unit,
+    onPreviousChapter: () -> Unit,
+    onBack: () -> Unit,
+    onPlayPause: () -> Unit,
+    onForward: () -> Unit,
+    onNextChapter: () -> Unit,
+    onUndoSeek: () -> Unit,
+    onSpeed: () -> Unit,
+    onTimer: () -> Unit,
+    onBookmark: () -> Unit,
+    onChapters: () -> Unit,
+    modifier: Modifier = Modifier,
+    activeTool: PlayerQuickTool? = null,
+    castReady: Boolean = false,
+    lastBookmarkTarget: BookmarkEntity? = null,
+    onJumpToBookmark: (BookmarkEntity) -> Unit = {},
+    onShowAllBookmarks: () -> Unit = {},
+    onRetryPlayback: () -> Unit = {},
+    onFindAnotherSource: () -> Unit = {},
+    // #530 — the ordered fallback offer of #519's action; empty renders nothing.
+    fallbackCandidates: List<com.slukhayka.audiobooks.data.editions.FallbackCandidate> = emptyList(),
+    onSelectFallback: (com.slukhayka.audiobooks.data.editions.FallbackCandidate) -> Unit = {},
+    alwaysInk: Boolean = true,
+) {
+    PlayerInkSurface(alwaysInk = alwaysInk) {
+        PlayerScreenContentBody(
+            playerState = playerState,
+            book = book,
+            currentChapterTitle = currentChapterTitle,
+            progress = progress,
+            artworkAccent = artworkAccent,
+            artworkAspect = artworkAspect,
+            onArtworkLoaded = onArtworkLoaded,
+            onDismiss = onDismiss,
+            onToggleFavorite = onToggleFavorite,
+            onToggleDebug = onToggleDebug,
+            onSeek = onSeek,
+            onBookSeek = onBookSeek,
+            onPreviousChapter = onPreviousChapter,
+            onBack = onBack,
+            onPlayPause = onPlayPause,
+            onForward = onForward,
+            onNextChapter = onNextChapter,
+            onUndoSeek = onUndoSeek,
+            onSpeed = onSpeed,
+            onTimer = onTimer,
+            onBookmark = onBookmark,
+            onChapters = onChapters,
+            modifier = modifier,
+            activeTool = activeTool,
+            castReady = castReady,
+            lastBookmarkTarget = lastBookmarkTarget,
+            onJumpToBookmark = onJumpToBookmark,
+            onShowAllBookmarks = onShowAllBookmarks,
+            onRetryPlayback = onRetryPlayback,
+            onFindAnotherSource = onFindAnotherSource,
+            fallbackCandidates = fallbackCandidates,
+            onSelectFallback = onSelectFallback,
+        )
+    }
+}
+
+@Composable
+private fun PlayerScreenContentBody(
     playerState: PlayerState,
     book: AudiobookEntity,
     currentChapterTitle: String,
@@ -609,7 +715,8 @@ fun PlayerScreenContent(
     onSelectFallback: (com.slukhayka.audiobooks.data.editions.FallbackCandidate) -> Unit = {}
 ) {
     val background = MaterialTheme.colorScheme.background
-    val tint = artworkAccent ?: MaterialTheme.colorScheme.primary
+    // One saturated accent for sound; verdigris stays for quiet actions.
+    val tint = artworkAccent ?: MaterialTheme.colorScheme.tertiary
     val largeFont = LocalDensity.current.fontScale >= 2f
     // #962 — a wide-but-SHORT window (a phone in landscape: 905 × 411 dp on
     // the device this was found on) cannot fit the portrait column. The cover
@@ -1115,10 +1222,10 @@ private fun ColumnScope.PlayerArtworkPane(
         // The responsive contract from spec-24 T6 / #385 is preserved: the
         // cover still shrinks with the container and stays inside its slot
         // (`player_tight_viewport` pins it).
-        val coverWidth = (maxWidth * 0.67f).coerceAtMost(215.dp)
+        val coverWidth = (maxWidth * 0.67f).coerceAtMost(PaperInkDimens.CoverPlayerWidth)
         val coverHeight = (coverWidth / coverAspect).coerceAtMost(maxHeight)
         Surface(
-            shape = RoundedCornerShape(AppDimens.RadiusHero),
+            shape = RoundedCornerShape(PaperInkDimens.RadiusLarge),
             // #885 (wave 3) — the prototype gives the art ONE shadow:
             // `box-shadow: 0 12px 34px #0002` (`:1194`). The app had two
             // effects (a 1 dp tonal tint plus a 6 dp drop shadow), which is a
@@ -1143,7 +1250,12 @@ private fun ColumnScope.PlayerArtworkPane(
                 semantics = BookCoverSemantics.Decorative,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop,
-                onImageLoaded = onArtworkLoaded
+                onImageLoaded = onArtworkLoaded,
+                // The player is always ink: a missing cover is a paper/ink
+                // block with the book's letter, never the genre's neon tile
+                // that fights the whole screen.
+                placeholderAccentOverride = MaterialTheme.colorScheme.surfaceVariant,
+                placeholderContentColorOverride = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -1293,14 +1405,16 @@ private fun PlayerTopBar(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DualProgress(
     progress: PlayerProgressUi,
     chapterPositionSeconds: Long,
     chapterDurationSeconds: Long,
     onSeek: (Float) -> Unit,
-    onBookSeek: (Float) -> Unit,
+    // Kept in the signature for the wide-pane contract and callers; the book
+    // line is READ-ONLY in the reference design (one seek: the chapter).
+    @Suppress("UNUSED_PARAMETER") onBookSeek: (Float) -> Unit,
     bookmarkTarget: BookmarkEntity? = null,
     bookmarkFocusRequester: FocusRequester,
     onJumpToBookmark: (BookmarkEntity) -> Unit = {},
@@ -1308,6 +1422,7 @@ private fun DualProgress(
 ) {
     val chapterPositionLabel = stringResource(R.string.a11y_player_chapter_position)
     val bookPositionLabel = stringResource(R.string.a11y_player_book_position)
+    val unknownDuration = stringResource(R.string.a11y_player_duration_unknown)
     val chapterTimeDescription = if (chapterDurationSeconds > 0L) {
         stringResource(
             R.string.a11y_player_time_of,
@@ -1315,7 +1430,7 @@ private fun DualProgress(
             MainViewModel.formatTime(chapterDurationSeconds)
         )
     } else {
-        stringResource(R.string.a11y_player_duration_unknown)
+        unknownDuration
     }
     val bookTimeDescription = if (progress.bookDurationSeconds > 0L) {
         stringResource(
@@ -1324,129 +1439,196 @@ private fun DualProgress(
             MainViewModel.formatTime(progress.bookDurationSeconds)
         )
     } else {
-        stringResource(R.string.a11y_player_duration_unknown)
+        unknownDuration
     }
+    val hasBookDuration = progress.bookDurationSeconds > 0L
+    val hasChapterDuration = chapterDurationSeconds > 0L
+    // One seek (chapter) 6 dp with a 44 dp interaction zone; the book is a
+    // 2 dp read-only line whose parts carry the chapter/bookmark marks.
+    val chapterSliderColors = SliderDefaults.colors(
+        thumbColor = MaterialTheme.colorScheme.tertiary,
+        activeTrackColor = MaterialTheme.colorScheme.tertiary,
+        inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
+    )
     Column(modifier = Modifier.fillMaxWidth()) {
-        // #293: «Книга» зверху, «Розділ» знизу — спочатку загальний прогрес
-        // книги (де мітки глав і закладок), під ним поточна глава.
         Row(
             Modifier
                 .fillMaxWidth()
                 .testTag("book_progress_visual_row")
                 .semantics { hideFromAccessibility() },
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalAlignment = Alignment.Bottom,
         ) {
-            Text(stringResource(R.string.listen_book), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(
-                if (progress.bookDurationSeconds > 0L) {
-                    "${MainViewModel.formatTime(progress.bookPositionSeconds)}  /  ${MainViewModel.formatTime(progress.bookDurationSeconds)}"
-                } else {
-                    stringResource(R.string.a11y_player_duration_unknown)
-                },
-                style = TabularTimerStyle,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (hasBookDuration) {
+                Text(
+                    text = MainViewModel.formatTime(progress.bookPositionSeconds),
+                    style = PaperInkType.TimerXL,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = " / ${MainViewModel.formatTime(progress.bookDurationSeconds)}",
+                    style = PaperInkType.Meta,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 5.dp),
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = "${(progress.bookFraction.coerceIn(0f, 1f) * 100).toInt()} %",
+                    style = PaperInkType.Timer,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Text(
+                    text = unknownDuration,
+                    style = PaperInkType.Meta,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
-        BookProgressTrack(
+        BookProgressLine(
             progress = progress,
             positionLabel = bookPositionLabel,
             timeDescription = bookTimeDescription,
-            onSeek = onBookSeek,
             bookmarkTarget = bookmarkTarget,
             bookmarkFocusRequester = bookmarkFocusRequester,
             onJumpToBookmark = onJumpToBookmark,
-            onShowAllBookmarks = onShowAllBookmarks
+            onShowAllBookmarks = onShowAllBookmarks,
         )
+        Spacer(modifier = Modifier.height(10.dp))
         Row(
             Modifier
                 .fillMaxWidth()
                 .testTag("chapter_progress_visual_row")
                 .semantics { hideFromAccessibility() },
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalAlignment = Alignment.Bottom,
         ) {
-            Text(stringResource(R.string.listen_chapter), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            // Spec-22 T2: tabular (monospace) digits — the timer ticks without
-            // shifting its advance width, so the layout never jitters.
-            Text(
-                if (chapterDurationSeconds > 0L) {
-                    "${MainViewModel.formatTime(chapterPositionSeconds)}  /  ${MainViewModel.formatTime(chapterDurationSeconds)}"
-                } else {
-                    stringResource(R.string.a11y_player_duration_unknown)
-                },
-                style = TabularTimerStyle,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        // #292: drawStopIndicator = {} removes the M3 stop dot that users
-        // confused with a bookmark marker.
-        Slider(
-            value = progress.chapterFraction,
-            onValueChange = onSeek,
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics {
-                    contentDescription = chapterPositionLabel
-                    stateDescription = chapterTimeDescription
-                }
-                .testTag("player_progress_slider"),
-            colors = SliderDefaults.colors(
-                thumbColor = MaterialTheme.colorScheme.primary,
-                activeTrackColor = MaterialTheme.colorScheme.primary,
-                inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
-            ),
-            track = { sliderState ->
-                SliderDefaults.Track(
-                    sliderState = sliderState,
-                    drawStopIndicator = {}
+            if (hasChapterDuration) {
+                Text(
+                    text = MainViewModel.formatTime(chapterPositionSeconds),
+                    style = PaperInkType.TimerXL,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = " / ${MainViewModel.formatTime(chapterDurationSeconds)}",
+                    style = PaperInkType.Meta,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = 5.dp),
+                )
+            } else {
+                Text(
+                    text = unknownDuration,
+                    style = PaperInkType.Meta,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            Spacer(modifier = Modifier.weight(1f))
+            Text(
+                text = stringResource(R.string.listen_chapter),
+                style = PaperInkType.Label,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        SilentlySeekChapter(
+            value = progress.chapterFraction,
+            onSeek = onSeek,
+            positionLabel = chapterPositionLabel,
+            timeDescription = chapterTimeDescription,
+            colors = chapterSliderColors,
+            hasDuration = hasChapterDuration,
         )
     }
 }
 
+/**
+ * The chapter seek: a 6 dp track whose touch zone is at least 44 dp, and the
+ * only adjustable progress control in the reference player.
+ */
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
-private fun BookProgressTrack(
+private fun SilentlySeekChapter(
+    value: Float,
+    onSeek: (Float) -> Unit,
+    positionLabel: String,
+    timeDescription: String,
+    colors: SliderColors,
+    hasDuration: Boolean,
+) {
+    Slider(
+        value = value,
+        onValueChange = onSeek,
+        enabled = hasDuration,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(PaperInkDimens.PlayerSeekHeight)
+            .semantics {
+                contentDescription = positionLabel
+                stateDescription = timeDescription
+            }
+            .testTag("player_progress_slider"),
+        colors = colors,
+        track = { sliderState ->
+            SliderDefaults.Track(
+                sliderState = sliderState,
+                colors = colors,
+                drawStopIndicator = {},
+            )
+        },
+    )
+}
+
+/**
+ * The book ruler: 2 dp, read-only (the chapter slider is the one seek), with
+ * the chapter boundaries as part dividers and the bookmarks as dots. It keeps
+ * its own accessible description/state, so TalkBack can still read the book
+ * position even though the line is not adjustable.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun BookProgressLine(
     progress: PlayerProgressUi,
     positionLabel: String,
     timeDescription: String,
-    onSeek: (Float) -> Unit,
     bookmarkTarget: BookmarkEntity?,
     bookmarkFocusRequester: FocusRequester,
     onJumpToBookmark: (BookmarkEntity) -> Unit,
-    onShowAllBookmarks: () -> Unit
+    onShowAllBookmarks: () -> Unit,
 ) {
-    val active = MaterialTheme.colorScheme.primary
-    val activeMarker = MaterialTheme.colorScheme.onPrimary
+    val active = MaterialTheme.colorScheme.tertiary
+    val activeMarker = MaterialTheme.colorScheme.onTertiary
     val inactiveMarker = MaterialTheme.colorScheme.onSurfaceVariant
     val bookmarkColor = MaterialTheme.colorScheme.tertiary
-    Box(modifier = Modifier.fillMaxWidth().testTag("book_progress_track")) {
-        // #292: drawStopIndicator = {} removes the M3 stop dot that users
-        // confused with a bookmark marker.
-        Slider(
-            value = progress.bookFraction,
-            onValueChange = onSeek,
-            enabled = progress.bookDurationSeconds > 0L,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(end = if (bookmarkTarget != null) 56.dp else 0.dp)
-                .semantics {
-                    contentDescription = positionLabel
-                    stateDescription = timeDescription
-                }
-                .testTag("book_progress_slider"),
-            colors = SliderDefaults.colors(
-                thumbColor = active,
-                activeTrackColor = active,
-                inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
-            ),
-            track = { sliderState ->
-                SliderDefaults.Track(
-                    sliderState = sliderState,
-                    drawStopIndicator = {}
-                )
+    val trackColor = MaterialTheme.colorScheme.outlineVariant
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .semantics {
+                contentDescription = positionLabel
+                stateDescription = timeDescription
             }
-        )
+            .testTag("book_progress_line"),
+    ) {
+        Canvas(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .height(2.dp)
+        ) {
+            drawLine(
+                color = trackColor,
+                start = androidx.compose.ui.geometry.Offset(0f, size.height / 2f),
+                end = androidx.compose.ui.geometry.Offset(size.width, size.height / 2f),
+                strokeWidth = size.height,
+                cap = StrokeCap.Round,
+            )
+            val filled = (size.width * progress.bookFraction.coerceIn(0f, 1f))
+            drawLine(
+                color = active,
+                start = androidx.compose.ui.geometry.Offset(0f, size.height / 2f),
+                end = androidx.compose.ui.geometry.Offset(filled, size.height / 2f),
+                strokeWidth = size.height,
+                cap = StrokeCap.Round,
+            )
+        }
         Canvas(
             modifier = Modifier
                 .align(Alignment.Center)
@@ -1454,16 +1636,22 @@ private fun BookProgressTrack(
                 .height(24.dp)
                 .padding(horizontal = 10.dp, vertical = 6.dp)
                 .testTag("book_progress_markers")
-                .semantics { hideFromAccessibility() }
+                .semantics { hideFromAccessibility() },
         ) {
             val centerY = size.height / 2f
             progress.chapterMarkers.forEach { marker ->
-                val color = if (marker <= progress.bookFraction) activeMarker.copy(alpha = 0.72f) else inactiveMarker
+                val color = if (marker <= progress.bookFraction) {
+                    activeMarker.copy(alpha = 0.72f)
+                } else {
+                    inactiveMarker
+                }
                 drawMarker(marker, color, size.height, 1.5.dp.toPx())
             }
             progress.bookmarkMarkers.forEach { marker ->
                 val color = if (marker <= progress.bookFraction) bookmarkColor else bookmarkColor.copy(alpha = 0.55f)
-                drawCircle(color, radius = 5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(size.width * marker, centerY))
+                // A read-only ruler must not offer a slider-looking dot: the
+                // bookmark is a small tick on the line, not a thumb.
+                drawCircle(color, radius = 2.dp.toPx(), center = androidx.compose.ui.geometry.Offset(size.width * marker, centerY))
             }
         }
         if (bookmarkTarget != null) {
@@ -1472,13 +1660,13 @@ private fun BookProgressTrack(
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
-                    .size(AppDimens.TouchTarget)
+                    .size(PaperInkDimens.TouchTarget)
                     .focusRequester(bookmarkFocusRequester)
                     .focusable()
                     .clip(CircleShape)
                     .combinedClickable(
                         onClick = { onJumpToBookmark(bookmarkTarget) },
-                        onLongClick = onShowAllBookmarks
+                        onLongClick = onShowAllBookmarks,
                     )
                     .clearAndSetSemantics {
                         contentDescription = jumpDescription
@@ -1492,9 +1680,9 @@ private fun BookProgressTrack(
                         }
                     }
                     .testTag("jump_to_last_bookmark"),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
             }
         }
     }
@@ -1576,16 +1764,18 @@ private fun TransportControls(
             // inventing a size for it would be the "new variation without
             // collapsing the old" ADR-0033 calls a defect. Same reasoning as
             // the player title's 28 sp against the prototype's 29 px.
-            shape = RoundedCornerShape(AppDimens.RadiusPanel),
+            shape = RoundedCornerShape(PaperInkDimens.RadiusLarge),
             modifier = Modifier
-                .width(80.dp)
-                .height(72.dp)
+                .size(PaperInkDimens.PlayerPlayButton)
                 .semantics {
                     contentDescription = playDescription
                     stateDescription = playbackStateDescription
                 }
                 .testTag("player_play_pause_button"),
-            colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary)
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = MaterialTheme.colorScheme.tertiary,
+                contentColor = MaterialTheme.colorScheme.onTertiary,
+            )
         ) {
             Icon(
                 if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -1609,7 +1799,7 @@ private fun TransportIcon(icon: androidx.compose.ui.graphics.vector.ImageVector,
     IconButton(
         onClick = onClick,
         modifier = Modifier
-            .size(AppDimens.TouchTarget)
+            .size(PaperInkDimens.PlayerTransportTarget)
             .semantics { contentDescription = description }
     ) {
         Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
@@ -1628,14 +1818,14 @@ private fun SeekButton(
         IconButton(
             onClick = onClick,
             modifier = Modifier
-                .size(AppDimens.TouchTarget)
+                .size(PaperInkDimens.PlayerTransportTarget)
                 .semantics { contentDescription = description }
         ) {
             Icon(
                 icon,
                 contentDescription = null,
                 modifier = Modifier
-                    .size(28.dp)
+                    .size(26.dp)
                     .then(if (mirrorIcon) Modifier.scale(scaleX = -1f, scaleY = 1f) else Modifier)
             )
         }
@@ -1870,7 +2060,7 @@ internal fun BookmarksListSheet(
                         .padding(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceSm),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
                     Spacer(Modifier.width(AppDimens.SpaceSm))
                     Column(Modifier.weight(1f)) {
                         Text(bookmark.chapterTitle, style = MaterialTheme.typography.bodyMedium)

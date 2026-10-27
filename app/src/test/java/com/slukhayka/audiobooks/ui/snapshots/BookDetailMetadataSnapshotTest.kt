@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.ui.snapshots
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import com.slukhayka.audiobooks.ui.screens.bookdetail.SeriesPill
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
@@ -27,11 +29,13 @@ import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.ui.screens.bookdetail.BookDetailCanonicalSummary
+import com.slukhayka.audiobooks.ui.screens.bookdetail.BookDetailIdentityHeader
 import com.slukhayka.audiobooks.ui.screens.bookdetail.BookDetailDescription
 import com.slukhayka.audiobooks.ui.screens.BookDetailPresentation
 import com.slukhayka.audiobooks.ui.screens.bookdetail.BookDetailSourceSection
 import com.slukhayka.audiobooks.ui.screens.bookDetailPresentation
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -106,6 +110,35 @@ class BookDetailMetadataSnapshotTest {
             .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
         assertTrue("long cycle name should wrap", layouts.single().lineCount > 1)
         assertTrue("cycle name should remain readable", !layouts.single().hasVisualOverflow)
+    }
+
+    /**
+     * Plan 2026-2027 — the compact paper hero: a 132×198 cover on the page's
+     * ground, the canonical summary below. The old full-bleed 72 % art is gone;
+     * this pins the replacement so a future edit cannot quietly bring the
+     * scrims back.
+     */
+    @Test
+    fun compact_hero_renders_on_paper() {
+        val presentation = bookDetailPresentation(book, listOf(profile), listOf(source))
+        composeTestRule.setContent {
+            PaperInkTheme(darkTheme = false) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    BookDetailIdentityHeader(
+                        book = book,
+                        presentation = presentation,
+                        requestInitialFocus = false
+                    )
+                }
+            }
+        }
+        composeTestRule.onNodeWithTag("book_detail_cover").assertExists()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/book_detail_hero_compact.png"
+        )
     }
 
     @Test

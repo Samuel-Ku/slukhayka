@@ -1,7 +1,12 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,6 +15,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material3.Card
@@ -19,21 +26,28 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.social.Audience
 import com.slukhayka.audiobooks.data.social.BlockState
 import com.slukhayka.audiobooks.data.social.FriendsFeedPolicy
-import com.slukhayka.audiobooks.ui.components.AppSettingsGear
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkCoverFlat
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
 import com.slukhayka.audiobooks.ui.components.AppTabHeader
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.theme.AppDimens
+import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
+import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
+import com.slukhayka.audiobooks.ui.theme.PaperInkType
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -115,6 +129,7 @@ fun FriendsScreen(
         audienceOf = { it.audience }
     )
 
+    PaperInkThemedContent {
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -123,13 +138,12 @@ fun FriendsScreen(
         contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
     ) {
         item {
-            AppTabHeader(
+            PaperInkTabHeader(
                 // The root's name is the ONE resource the bottom bar also uses
                 // (spec-54 T06 / #873): a literal here could drift from the tab.
                 title = stringResource(R.string.nav_friends),
-                showBrandMark = true,
                 headingTestTag = "friends_heading",
-                actions = { AppSettingsGear(onClick = onOpenSettings) }
+                onSettingsClick = onOpenSettings,
             )
         }
 
@@ -166,6 +180,7 @@ fun FriendsScreen(
             }
         }
     }
+    }
 }
 
 /**
@@ -185,17 +200,15 @@ private fun FriendsPostCard(
     val time = formatFriendsPostTime(post.postedAtMs)
     val sourceId = post.sourceId
     val openable = sourceId != null && bookTitle != null
+    val colorScheme = MaterialTheme.colorScheme
+    val initial = post.authorPseudonym.trim().take(1).uppercase()
 
-    // #885 (wave 3) — a post is a FLAT block with a bottom rule, not an
-    // elevated card: `.sl-social-post { padding:20px 0; border-bottom:1px
-    // solid var(--sl-line) }` (`:1259`). A feed of raised cards reads as a
-    // stack of separate objects; a rule-separated list reads as one stream,
-    // which is what a feed is. Same "less elevation, more structure" line as
-    // the chips (#1088, #1090).
+    // A post is a FLAT block with a bottom rule, not an elevated card: a feed
+    // reads as one stream, not as a stack of separate objects.
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = AppDimens.SpaceLg)
+            .padding(horizontal = PaperInkDimens.SpacePage)
             .testTag("friends_post_${post.id}")
             .then(
                 if (openable) {
@@ -209,51 +222,80 @@ private fun FriendsPostCard(
                 }
             )
     ) {
-        // The prototype's `padding:20px 0` — the horizontal inset comes from
-        // the block itself, so the rule below spans the full post width.
         Column(modifier = Modifier.padding(vertical = 20.dp)) {
-            Text(
-                text = post.authorPseudonym,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.testTag("friends_post_author_${post.id}")
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // The pseudonym's avatar: 36 dp paper disc with the initial.
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = initial,
+                        style = PaperInkType.Meta,
+                        color = colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = post.authorPseudonym,
+                    style = PaperInkType.RowTitle,
+                    color = colorScheme.onSurface,
+                    modifier = Modifier.testTag("friends_post_author_${post.id}")
+                )
+            }
 
             if (post.text.isNotBlank()) {
-                Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
                     text = post.text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface
+                    style = PaperInkType.Body,
+                    color = colorScheme.onSurface,
                 )
             }
 
             if (bookTitle != null) {
-                Spacer(modifier = Modifier.height(AppDimens.SpaceSm))
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shape = MaterialTheme.shapes.small,
-                    modifier = Modifier.testTag("friends_post_book_${post.id}")
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(PaperInkDimens.RadiusMedium))
+                        .background(colorScheme.surfaceVariant)
+                        .padding(10.dp)
+                        .testTag("friends_post_book_${post.id}"),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    PaperInkCoverFlat(
+                        title = bookTitle,
+                        modifier = Modifier
+                            .width(44.dp)
+                            .height(66.dp)
+                            .clearAndSetSemantics { },
+                        radius = PaperInkDimens.RadiusMicro,
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
                     Text(
                         text = bookTitle,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        style = PaperInkType.RowTitle,
+                        color = colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
 
             if (time.isNotBlank()) {
-                Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
                     text = time,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = PaperInkType.Micro,
+                    color = colorScheme.onSurfaceVariant,
                 )
             }
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        HorizontalDivider(color = colorScheme.outlineVariant)
     }
 }
 

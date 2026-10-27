@@ -14,8 +14,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.EmojiEvents
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -32,6 +31,9 @@ import com.slukhayka.audiobooks.data.achievements.AchievementBoard
 import com.slukhayka.audiobooks.data.achievements.ListenerTitle
 import com.slukhayka.audiobooks.ui.achievements.achievementNotice
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
+import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
+import com.slukhayka.audiobooks.ui.theme.PaperInkType
 
 /**
  * #704 (T6) — the «Досягнення» screen.
@@ -62,6 +64,7 @@ fun AchievementsScreen(
     onPublishShowcase: () -> Unit = {},
     onWithdrawShowcase: () -> Unit = {}
 ) {
+    PaperInkThemedContent {
     SettingsDestinationScaffold(
         destination = SettingsDestination.Achievements,
         onBackClick = onBackClick
@@ -71,7 +74,7 @@ fun AchievementsScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp)
+                .padding(PaperInkDimens.SpacePage)
                 .testTag("achievements_screen")
         ) {
             if (board.isEmpty) {
@@ -86,7 +89,8 @@ fun AchievementsScreen(
 
             Text(
                 text = stringResource(R.string.achievements_tier, title.label),
-                style = MaterialTheme.typography.titleMedium,
+                style = PaperInkType.Label,
+                color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.testTag("achievements_tier")
             )
 
@@ -101,7 +105,7 @@ fun AchievementsScreen(
                 when {
                     !showcasePublishable -> Text(
                         text = stringResource(R.string.showcase_publish_unavailable),
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = PaperInkType.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
                             .padding(top = 4.dp)
@@ -140,18 +144,19 @@ fun AchievementsScreen(
             }
         }
     }
+    }
 }
 
 @Composable
 private fun SectionHeading(text: String, tag: String) {
-    Spacer(modifier = Modifier.height(16.dp))
+    Spacer(modifier = Modifier.height(PaperInkDimens.SpaceSection))
     Text(
         text = text,
-        style = MaterialTheme.typography.titleSmall,
+        style = PaperInkType.SectionTitle,
         // A heading is what a screen reader needs to move between sections.
         modifier = Modifier.semantics { heading() }.testTag(tag)
     )
-    Spacer(modifier = Modifier.height(8.dp))
+    Spacer(modifier = Modifier.height(PaperInkDimens.SpaceSm))
 }
 
 /**
@@ -174,19 +179,18 @@ private fun AchievementList(
             // The SAME name the notice uses, so the button cannot describe the
             // award differently from the card it sits on.
             val name = achievementNotice(context, id)
-            Card(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("${tagPrefix}_$id"),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+                    .testTag("${tagPrefix}_$id")
             ) {
                 Row(
-                    modifier = Modifier.padding(start = 16.dp, top = 8.dp, end = 8.dp, bottom = 8.dp),
+                    modifier = Modifier.padding(vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = name,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = PaperInkType.Body,
                         modifier = Modifier.weight(1f)
                     )
                     if (onTogglePin != null) {
@@ -198,6 +202,7 @@ private fun AchievementList(
                         )
                     }
                 }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
         }
     }

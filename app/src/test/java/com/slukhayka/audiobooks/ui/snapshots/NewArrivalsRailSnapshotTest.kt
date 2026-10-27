@@ -12,7 +12,7 @@ import androidx.compose.ui.test.onRoot
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.entries.LibraryNewArrival
 import com.slukhayka.audiobooks.ui.screens.NewArrivalsRail
-import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Assert.assertEquals
@@ -69,7 +69,7 @@ class NewArrivalsRailSnapshotTest {
     @Test
     fun new_arrivals_rail_with_source_badges() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 RailSurface {
                     NewArrivalsRail(arrivals = arrivals, onBookClick = {})
                 }

@@ -6,7 +6,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
@@ -56,7 +60,7 @@ class SettingsScreenSnapshotTest {
             }
         }
 
-        assertGroupHeadersAreMutedCaps()
+        assertAppearanceAndGroups()
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/settings_screen_dark.png"
         )
@@ -72,23 +76,36 @@ class SettingsScreenSnapshotTest {
             }
         }
 
-        assertGroupHeadersAreMutedCaps()
+        assertAppearanceAndGroups()
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/settings_screen_light.png"
         )
     }
 
     /**
-     * The prototype's own values, asserted rather than assumed: a group name is
-     * UPPERCASE (so `onNodeWithText` finds the transformed form, not the
-     * resource) and it is present on screen. A future edit that drops the caps
-     * — or moves the header out of the viewport — fails here.
+     * Plan 2026-2027 — the appearance group leads the screen, and the group
+     * names are sentence case (the direction's rule; the old forced caps are
+     * gone). Asserted by VALUE, not by screenshot, so a layout that drops the
+     * group or the theme choices fails here.
      */
-    private fun assertGroupHeadersAreMutedCaps() {
-        // `settings_group_profile` is «Профіль»; the header must render it as
-        // «ПРОФІЛЬ», which is the prototype's `text-transform:uppercase`.
-        composeTestRule.onNodeWithText("ПРОФІЛЬ").assertIsDisplayed()
-        composeTestRule.onNodeWithText("ДАНІ ТА ПАМʼЯТЬ").assertIsDisplayed()
+    private fun assertAppearanceAndGroups() {
+        // Settings is a pushed screen: the visible way back must exist too.
+        composeTestRule.onNodeWithTag("settings_back").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Вигляд").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("settings_theme_auto").assertExists()
+        composeTestRule.onNodeWithTag("settings_theme_paper").assertExists()
+        composeTestRule.onNodeWithTag("settings_theme_ink").assertExists()
+        composeTestRule.onNodeWithTag("settings_density").assertExists()
+        composeTestRule.onNodeWithTag("settings_density_comfortable").assertExists()
+        composeTestRule.onNodeWithTag("settings_density_compact").assertExists()
+        composeTestRule.onNodeWithTag("settings_player_always_ink_row")
+            .assertIsDisplayed()
+            .assertIsOn()
+        // The group label and the Profile row share the word «Профіль»; both
+        // being on screen is the correct state, so the assertion is on the
+        // collection rather than on a single ambiguous node.
+        composeTestRule.onAllNodesWithText("Профіль").onFirst().assertIsDisplayed()
+        composeTestRule.onAllNodesWithText("Дані та памʼять").onFirst().assertIsDisplayed()
     }
 
     /**

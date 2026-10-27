@@ -28,7 +28,7 @@ import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
 import com.slukhayka.audiobooks.ui.library.libraryWorkKeysAt
 import com.slukhayka.audiobooks.ui.library.projectLibraryBooks
 import com.slukhayka.audiobooks.ui.screens.LibraryBookGrid
-import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -210,7 +210,7 @@ class LibraryGridBreakpointTest {
         lateinit var gridState: LazyGridState
         composeTestRule.setContent {
             gridState = rememberLazyGridState()
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     LibraryBookGrid(
                         entries = entries,
@@ -269,7 +269,7 @@ class LibraryGridBreakpointTest {
             denseTitle = "Усі"
         )
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     WideDetailPane(
                         list = {

@@ -125,6 +125,14 @@ class CastPlaybackController(
             abortTakeover(session, NO_STREAM_EXPLANATION)
             return
         }
+        // ADR-0043 §5 / #1185 T6 — a local book (or a mixed one with local
+        // chapters) has no address the receiver could fetch: refuse honestly,
+        // before a proxy is raised or a session pretends to start.
+        val chapterAddresses = playable.map { it.track?.url }
+        CastAvailability.refusal(chapterAddresses)?.let { refusal ->
+            abortTakeover(session, refusal)
+            return
+        }
         val wifiAddress = PlaybackProxy(PlaybackProxy.Upstream { _, _ -> null }).wifiBindAddress()
         if (wifiAddress == null) {
             abortTakeover(session, NO_WIFI_EXPLANATION)

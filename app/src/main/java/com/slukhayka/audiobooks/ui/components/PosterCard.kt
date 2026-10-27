@@ -122,7 +122,10 @@ fun PosterCard(
     if (onPreflight != null) {
         LaunchedEffect(preflightKey) { onPreflight() }
     }
-    Column(modifier = modifier.width(PosterWidth)) {
+    val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
+    val posterWidth = if (paperInk) 132.dp else PosterWidth
+    val posterHeight = if (paperInk) 198.dp else PosterHeight
+    Column(modifier = modifier.width(posterWidth)) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -155,8 +158,8 @@ fun PosterCard(
                     // poster sat outside the written design. `RadiusCardLg`
                     // stays for the larger list rows it was named for.
                     modifier = Modifier
-                        .width(PosterWidth)
-                        .height(PosterHeight)
+                        .width(posterWidth)
+                        .height(posterHeight)
                         // #885 (wave 3) — no ring. The prototype defines a
                         // poster's edge with an INSET highlight, not a border
                         // (`box-shadow: inset 3px 0 0 #FFFFFF12`): a ring around
@@ -200,7 +203,13 @@ fun PosterCard(
                             modifier = Modifier
                                 .fillMaxWidth(progress.coerceIn(0f, 1f))
                                 .fillMaxHeight()
-                                .background(MaterialTheme.colorScheme.primary)
+                                .background(
+                                    if (paperInk) {
+                                        MaterialTheme.colorScheme.tertiary
+                                    } else {
+                                        MaterialTheme.colorScheme.primary
+                                    }
+                                )
                         )
                     }
                 }
@@ -316,7 +325,13 @@ fun PosterCard(
             }
             Text(
                 text = title,
-                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                style = if (paperInk) {
+                    com.slukhayka.audiobooks.ui.theme.PaperInkType.Meta.copy(
+                        fontWeight = FontWeight.SemiBold
+                    )
+                } else {
+                    MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
+                },
                 color = MaterialTheme.colorScheme.onSurface,
                 // UI: minLines = 2 — назва завжди займає два рядки. Без цього
                 // картка з короткою назвою нижча за сусідню, ряд виходить
@@ -332,7 +347,11 @@ fun PosterCard(
             // рваним, і відстані між поличками виглядають різними.
             Text(
                 text = author.orEmpty(),
-                style = MaterialTheme.typography.labelSmall,
+                style = if (paperInk) {
+                    com.slukhayka.audiobooks.ui.theme.PaperInkType.Micro
+                } else {
+                    MaterialTheme.typography.labelSmall
+                },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 minLines = 1,
                 maxLines = 1,
@@ -343,7 +362,11 @@ fun PosterCard(
             if (duration != null) {
                 Text(
                     text = duration,
-                    style = MaterialTheme.typography.labelSmall,
+                    style = if (paperInk) {
+                        com.slukhayka.audiobooks.ui.theme.PaperInkType.Micro
+                    } else {
+                        MaterialTheme.typography.labelSmall
+                    },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     textAlign = TextAlign.Center,

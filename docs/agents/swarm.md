@@ -159,7 +159,7 @@ cd "$HOME/swarm/slukhayka/.worktrees/<смуга>" || exit 1
 export GRADLE_USER_HOME="$HOME/swarm/gradle-home" JAVA_HOME="$HOME/swarm/jdk-21"
 export PATH="$JAVA_HOME/bin:$PATH"
 ../gt scripts/test-changed.sh > /tmp/<смуга>-changed.log 2>&1
-echo "CHANGED_EXIT:$?" >> /tmp/<смуга>-changed.log
+echo "$?" > /tmp/<смуга>-changed.exit
 EOS
 chmod +x /tmp/run.sh
 setsid nohup /tmp/run.sh >/dev/null 2>&1 &        # переживає розрив ssh
@@ -170,6 +170,11 @@ setsid nohup /tmp/run.sh >/dev/null 2>&1 &        # переживає розр�
 `BUILD FAILED` — це не суперечність, а пастка (той самий рецепт у
 `local-environment.md`). Опитування — читання логу й exit-файлу, не повторний
 ssh.
+
+Обгортка `.worktrees/gt` є не в кожному свіжому клоні воркера (той самий файл
+вище описує, як її ставлять); якщо її немає, обхід — `flock` на
+`.worktrees/.build-slot` плюс `scripts/build-slot-guard.py`, як у
+`scripts/swarm/build-prompt.sh`, а рецепт вище — для смуги, де обгортка вже є.
 
 Названа межа: відв'язаний прогін не зникає, коли смугу прибирають, тож перед
 `git worktree remove` його треба або дочекатися, або вбити явно (`pkill -f

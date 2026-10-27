@@ -12,8 +12,8 @@
 ## Evidence
 
 <!-- Before/After: вивід команди чи тесту (текст, не переказ).
-     Нову логіку — мутацією: `scripts/mutate.sh --class …` / `--python …`,
-     run-id можна взяти з `scripts/mutate.sh status …`. -->
+     Нову логіку — мутацією: `scripts/mutate.sh --patch <файл> --class <FQCN>`
+     (або `--python <ціль>`), run-id — з `scripts/mutate.sh status …`. -->
 
 ## Merge Danger
 

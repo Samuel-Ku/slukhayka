@@ -53,8 +53,10 @@ uncommitted change on someone else's machine cannot pass for the repository —
 Before starting or delegating issue work, read `docs/agents/work-coordination.md`
 and check the shared issue reservations, including the latest issue comments.
 `scripts/pr-snapshot.py` answers that in one read — open PRs with base/head and
-pending/failed checks, who reserved which issue, and the last comment on it —
-instead of a round of `gh pr view` / `gh pr checks` per question.
+pending/failed checks, the reservations of the issues each PR closes, and the
+last comment on them — instead of a round of `gh pr view` / `gh pr checks` per
+question. A reservation outside that set is not shown: the whole registry is
+`python3 scripts/agent-work-claim.py status`.
 
 ### Triage labels
 

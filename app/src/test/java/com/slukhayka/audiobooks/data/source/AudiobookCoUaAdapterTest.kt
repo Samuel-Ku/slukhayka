@@ -588,4 +588,3 @@ class AudiobookCoUaAdapterTest {
         assertEquals(2, fetcher.requestedUrls.count { it == tagSitemapUrl })
     }
 }
-}

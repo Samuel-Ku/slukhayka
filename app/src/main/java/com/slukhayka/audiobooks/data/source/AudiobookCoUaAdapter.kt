@@ -25,8 +25,11 @@ import kotlinx.coroutines.delay
  *
  * Measured absences (ADR-0014 — never fabricated):
  * - **Search:** the post-grid keyword form does not filter server-side
- *   (T1 spike: 18 items on plain and `?keyword=` pages alike) → [search] is
- *   an honest empty list; discovery rides [fetchNew]/[fetchCatalog].
+ *   (T1 spike: 18 items on plain and `?keyword=` pages alike) AND robots.txt
+ *   disallows `*?s=`, `/search/` and `/?`. Since #1486 [search] therefore
+ *   rides the ALLOWED taxonomy — `post_tag-sitemap.xml` + `/tag/<slug>/`
+ *   pages, transliterated slugs matched through [SlugMatch] — while a
+ *   title-only lookup still falls back to [fetchNew]/[fetchCatalog].
  * - **Series, duration, rating, blurb:** the book page carries none of them
  *   in the captured shape — series pages (`/seria/…`) are taxonomy-level,
  *   not per-book links, and og:description is site boilerplate («…скачать,

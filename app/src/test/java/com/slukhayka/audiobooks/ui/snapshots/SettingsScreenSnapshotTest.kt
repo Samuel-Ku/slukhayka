@@ -8,6 +8,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -94,8 +96,11 @@ class SettingsScreenSnapshotTest {
         composeTestRule.onNodeWithTag("settings_player_always_ink_row")
             .assertIsDisplayed()
             .assertIsOn()
-        composeTestRule.onNodeWithText("Профіль").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Дані та памʼять").assertIsDisplayed()
+        // The group label and the Profile row share the word «Профіль»; both
+        // being on screen is the correct state, so the assertion is on the
+        // collection rather than on a single ambiguous node.
+        composeTestRule.onAllNodesWithText("Профіль").onFirst().assertIsDisplayed()
+        composeTestRule.onAllNodesWithText("Дані та памʼять").onFirst().assertIsDisplayed()
     }
 
     /**

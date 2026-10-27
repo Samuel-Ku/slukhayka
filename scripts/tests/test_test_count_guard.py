@@ -175,8 +175,11 @@ class TestCountGuardTest(unittest.TestCase):
         self.assertIn("third", result.stdout)
 
     def test_renaming_the_file_keeps_its_tests(self):
-        # Pins `--find-renames`: without it git reports D+A, every test of the
-        # old file counts as removed, and this green case would be a false red.
+        # Pins `--find-renames`: the fixture disables rename detection in its
+        # LOCAL config (`diff.renames=false`), so only the guard's explicit flag
+        # keeps the rename a rename. Without it git reports D+A, every test of
+        # the old file counts as removed, and this green case becomes a false red.
+        self.git("config", "diff.renames", "false")
         moved = self.git("mv", "app/src/test/java/com/example/AlphaTest.kt", "app/src/test/java/com/example/BetaTest.kt")
         self.assertEqual(0, moved.returncode, moved.stderr)
         self.commit("rename the test file")

@@ -800,4 +800,12 @@
         <item quantity="one">%1$d hour listened</item>
         <item quantity="other">%1$d hours listened</item>
     </plurals>
+    <!-- Plan 2026-2027: the appearance group on the Settings root. -->
+    <string name="settings_group_appearance">Appearance</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_theme_auto">Auto</string>
+    <string name="settings_theme_paper">Paper</string>
+    <string name="settings_theme_ink">Ink</string>
+    <string name="settings_player_always_ink">Player is always dark</string>
+    <string name="settings_player_always_ink_desc">The player stays Ink even when the app is light.</string>
 </resources>

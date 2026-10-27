@@ -81,6 +81,20 @@ changes, no test results. `pgrep -af 'gradlew --offline'` says whose run holds
 the slot, and the waiting lane's own command line names the worktree it belongs
 to.
 
+One read answers both halves — free or busy, and everyone naming the slot:
+
+```sh
+python3 scripts/build-slot-status.py          # build slot: … — free|busy
+python3 scripts/build-slot-status.py --json   # the same shape for tooling
+```
+
+`free|busy` is the lock probed non-blockingly, not inferred from a file; each
+listed process carries its pid, elapsed time and `running`/`waiting` role (a
+waiter has no children yet). Named limit: `flock` does not expose the owner, so
+"who holds it" is derived from that process list, and a process that rewrote its
+own command line is invisible — the command reports what it can see, and says
+"no process names the slot" rather than guessing.
+
 ### The measured ceiling
 
 The ceiling and the memory guard are chosen by measurement, not by taste. The

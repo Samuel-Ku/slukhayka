@@ -1,45 +1,45 @@
 name: Bug report
-description: Повідомити про помилку в застосунку
+description: Report a bug in the app
 title: "[Bug] "
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        Дякуємо за повідомлення! Коротко: що сталося, коли, на якій версії.
+        Thanks for reporting! Briefly: what happened, when, and on which version.
   - type: input
     id: version
     attributes:
-      label: Версія застосунку
-      description: З якого релізу встановлена апка (напр. v1.0)
+      label: App version
+      description: Which release the app was installed from (e.g. v1.0)
       placeholder: "v1.0"
     validations:
       required: true
   - type: input
     id: device
     attributes:
-      label: Пристрій і Android
-      description: Модель телефону та версія Android (Налаштування → Про телефон)
+      label: Device and Android
+      description: Phone model and Android version (Settings → About phone)
       placeholder: "Pixel 8, Android 15"
     validations:
       required: true
   - type: textarea
     id: what
     attributes:
-      label: Що сталося
-      description: Симптоми — що ти робив(ла) і що пішло не так
+      label: What happened
+      description: Symptoms — what you did and what went wrong
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Очікувана поведінка
-      description: Що мало статися натомість
+      label: Expected behavior
+      description: What should have happened instead
   - type: textarea
     id: steps
     attributes:
-      label: Кроки відтворення
-      description: Точна послідовність дій, яка призводить до помилки
-      placeholder: "1. Відкрити Медіатеку\n2. Натиснути …\n3. …"
+      label: Steps to reproduce
+      description: The exact sequence of actions that leads to the bug
+      placeholder: "1. Open My books\n2. Tap …\n3. …"
     validations:
       required: true

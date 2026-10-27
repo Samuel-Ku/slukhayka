@@ -46,7 +46,11 @@ ticket names is either in `origin/main` or marked `NEW:` as something that
 ticket will create. `scripts/issue_premise.py` decides that with `git`, so an
 uncommitted change on someone else's machine cannot pass for the repository —
 #1261 was filed that way and had to be closed. See the same document,
-"Премиса тікета мусить існувати в `main`".
+"A ticket's premise must exist in `main`".
+
+**Language.** Issues, their comments, pull requests and commit messages are
+written in English. The Ukrainian voice in `docs/voice.md` covers social posts
+and release notes, not the tracker.
 
 ### Work coordination
 
@@ -75,7 +79,7 @@ See `docs/agents/domain.md`.
 verdict is re-issued with `scripts/review-pass.sh <PR>`, not `gh pr edit
 --add-label`: on a PR that already has the label the latter is a silent no-op,
 so the verdict keeps its old timestamp and the gate refuses (#1259). See
-`docs/agents/work-coordination.md` ("Вердикт огляду і мердж").
+`docs/agents/work-coordination.md` ("Review verdict and merge").
 
 ## Remote worker
 

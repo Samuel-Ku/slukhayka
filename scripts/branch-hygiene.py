@@ -45,7 +45,7 @@ PROTECTED_EXACT = ("main", "master", "HEAD")
 PROTECTED_PREFIXES = ("legal/", "backup/")
 RELEASE_PREFIX = "release/"
 
-ISSUE_TITLE = "Порядок у гілках — нічний звіт"
+ISSUE_TITLE = "Branch hygiene — nightly report"
 ISSUE_LABEL = "branch-hygiene"
 ISSUE_MARKER = "<!-- branch-hygiene-report -->"
 
@@ -55,18 +55,19 @@ DEFAULT_LLM_SESSION = "branch-hygiene-github-actions"
 LLM_MAX_TOKENS = 1200
 
 RULE_TEXT = {
-    "ancestor": "tip — предок main",
-    "pr-merged-sha": "злитий PR із тим самим tip, merge-коміт у графі main",
-    "patch-absorbed": "нуль унікальних патчів щодо main",
+    "ancestor": "tip is an ancestor of main",
+    "pr-merged-sha": "merged PR with the same tip, merge commit in the main graph",
+    "patch-absorbed": "zero unique patches against main",
 }
 
 LLM_SYSTEM_PROMPT = (
-    "Ти — сторож порядку в гілках репозиторію «Слухайка». Тобі дають факти про "
-    "віддалені гілки та їхні PR. Напиши розділ «Що варто зробити» українською: "
-    "3-8 пунктів, кожен — «гілка або PR → дія і причина». Спирайся ЛИШЕ на надані "
-    "факти, нічого не вигадуй. Не пропонуй видаляти захищені гілки, релізні гілки "
-    "без тега v* або гілки з відкритим PR. Тон — спокійний і сухий, без маркетингу "
-    "й канцеляриту (docs/voice.md). Без вступів і без заголовка: одразу пункти."
+    "You are the branch-hygiene warden for the «Слухайка» repository. You are given facts "
+    "about remote branches and their PRs. Write the \"What is worth doing\" section in "
+    "English: 3-8 bullets, each one \"branch or PR → action and reason\". Use ONLY the "
+    "given facts, invent nothing. Do not suggest deleting protected branches, release "
+    "branches without a v* tag, or branches with an open PR. Tone — calm and dry, no "
+    "marketing and no bureaucratese (docs/voice.md). No preamble and no heading: bullets "
+    "right away."
 )
 
 
@@ -406,7 +407,7 @@ def decide(branch, *, protect=(), main=DEFAULT_MAIN, now=None):
         return ", ".join(f"#{p['number']}" for p in items)
 
     if is_protected(name, protect):
-        return verdict("keep", None, "захищена назва")
+        return verdict("keep", None, "protected branch name")
 
     absorbed = None
     if branch["ancestor"]:
@@ -425,17 +426,17 @@ def decide(branch, *, protect=(), main=DEFAULT_MAIN, now=None):
         absorbed = "patch-absorbed"
 
     if base["open_prs"]:
-        return verdict("keep", None, f"відкритий PR {numbers_of(base['open_prs'])}")
+        return verdict("keep", None, f"open PR {numbers_of(base['open_prs'])}")
 
     if name.startswith(RELEASE_PREFIX):
         # Релізну лінію видаляємо лише з тегом v* — жодна непроанонсована не зникає.
         if absorbed is None:
-            return verdict("keep", None, "релізна гілка з унікальними комітами")
+            return verdict("keep", None, "release branch with unique commits")
         if not branch.get("tagged_release"):
-            return verdict("keep", None, "релізна гілка без тега v*")
+            return verdict("keep", None, "release branch without a v* tag")
         return verdict(
             "delete", absorbed,
-            f"поглинуто main ({RULE_TEXT[absorbed]}), тег {branch['tagged_release']}",
+            f"absorbed into main ({RULE_TEXT[absorbed]}), tag {branch['tagged_release']}",
         )
 
     if absorbed is None:
@@ -443,18 +444,21 @@ def decide(branch, *, protect=(), main=DEFAULT_MAIN, now=None):
         if base["merged_into_main"]:
             return verdict(
                 "keep", None,
-                f"PR {numbers_of(base['merged_into_main'])} злито в main, але гілка рухалася далі",
+                f"PR {numbers_of(base['merged_into_main'])} merged into main, but the branch kept moving",
             )
         if other_lines:
             lines = ", ".join(
                 f"#{p['number']} → {p.get('baseRefName') or '?'}" for p in other_lines
             )
-            return verdict("keep", None, f"PR злито не в main ({lines}), у main цих змін немає")
+            return verdict(
+                "keep", None,
+                f"PR merged outside main ({lines}), those changes are not in main",
+            )
         if base["closed_prs"]:
-            return verdict("keep", None, "PR закрито без злиття")
-        return verdict("keep", None, "має унікальні коміти, PR немає")
+            return verdict("keep", None, "PR closed without merging")
+        return verdict("keep", None, "has unique commits, no PR")
 
-    return verdict("delete", absorbed, f"поглинуто main ({RULE_TEXT[absorbed]})")
+    return verdict("delete", absorbed, f"absorbed into main ({RULE_TEXT[absorbed]})")
 
 
 def decide_all(facts, *, protect=(), now=None):
@@ -548,8 +552,8 @@ def cmd_cleanup(args):
         # обіцяє його як «ніколи». Тому краще не видалити нічого й сказати це
         # вголос, ніж видалити наосліп.
         refused = (
-            "Даних про PR немає (ні gh, ні GitHub API) — чистка нічого не видаляє, "
-            "бо без них гілка з відкритим PR не відрізняється від закинутої."
+            "No PR data (neither gh nor the GitHub API) — the cleanup deletes nothing, "
+            "because without it a branch with an open PR is indistinguishable from an abandoned one."
         )
         print(refused, file=sys.stderr)
     elif args.apply:
@@ -591,8 +595,8 @@ def branch_label(item):
 
 def age_text(days):
     if days is None:
-        return "невідомо"
-    return f"{days} дн."
+        return "unknown"
+    return f"{days} day" if days == 1 else f"{days} days"
 
 
 def deterministic_actions(decisions, stale_days):
@@ -605,33 +609,33 @@ def deterministic_actions(decisions, stale_days):
             # Релізну лінію тримає тег v*, а не PR: радити їй PR безглуздо.
             if stale and not item["open_prs"]:
                 lines.append(
-                    f"- {branch_label(item)} — релізна лінія без тега v*, тому чистка її не чіпає. "
-                    "Або тег, або свідоме закриття."
+                    f"- {branch_label(item)} — a release line without a v* tag, so the cleanup does not touch it. "
+                    "Either a tag or a deliberate closing."
                 )
             continue
         if not item["prs"] and stale:
             lines.append(
-                f"- {branch_label(item)} — PR немає, останній коміт {age_text(item['age_days'])} тому. "
-                "Відкрити PR або видалити гілку."
+                f"- {branch_label(item)} — no PR, last commit {age_text(item['age_days'])} ago. "
+                "Open a PR or delete the branch."
             )
         elif item["merged_prs"] and not item["open_prs"]:
             lines.append(
                 f"- {branch_label(item)} — {item['reason']}. "
-                "Перевірити, чи не загубилася робота."
+                "Check whether work was lost."
             )
     stale_drafts = [d for d in decisions if d.get("stale_draft")]
     for item in stale_drafts:
         numbers = ", ".join(f"#{p['number']}" for p in item["open_prs"])
         lines.append(
-            f"- PR {numbers} ({item['name']}) — драфт без руху {age_text(item.get('pr_stale_days'))}. "
-            "Оновити або закрити."
+            f"- PR {numbers} ({item['name']}) — draft with no movement for {age_text(item.get('pr_stale_days'))}. "
+            "Update or close."
         )
     stale_open = [d for d in decisions if d.get("stale_open") and not d.get("stale_draft")]
     for item in stale_open:
         numbers = ", ".join(f"#{p['number']}" for p in item["open_prs"])
         lines.append(
-            f"- PR {numbers} ({item['name']}) — без руху {age_text(item.get('pr_stale_days'))}. "
-            "Дотиснути або закрити."
+            f"- PR {numbers} ({item['name']}) — no movement for {age_text(item.get('pr_stale_days'))}. "
+            "Push it through or close."
         )
     return lines
 
@@ -655,72 +659,72 @@ def with_pr_freshness(decisions, stale_days, now):
 
 
 def render_report(facts, decisions, deleted_payload, *, stale_days, narrative, now,
-                  run_url=None, narrative_note="наратив LLM не використано"):
+                  run_url=None, narrative_note="the LLM narrative was not used"):
     branches = decisions
     lines = [
         ISSUE_MARKER,
         "# " + ISSUE_TITLE,
         "",
-        f"Оновлено: {now.strftime('%Y-%m-%d %H:%M')} UTC · гілок на origin: {len(branches)} "
-        f"· з них із PR: {sum(1 for b in branches if b['prs'])}",
+        f"Updated: {now.strftime('%Y-%m-%d %H:%M')} UTC · branches on origin: {len(branches)} "
+        f"· of them with a PR: {sum(1 for b in branches if b['prs'])}",
         "",
     ]
     if not facts.get("pr_data"):
-        lines += ["> Даних про PR немає (gh недоступний) — зіставлення з PR неповне.", ""]
+        lines += ["> No PR data (gh unavailable) — the match against PRs is incomplete.", ""]
 
     dry_run = (deleted_payload or {}).get("dry_run")
     applied = (deleted_payload or {}).get("applied") or []
     refused = (deleted_payload or {}).get("refused")
     deletions = [d for d in branches if d["action"] == "delete"]
-    lines.append("## Що зроблено цієї ночі")
+    lines.append("## What was done tonight")
     lines.append("")
     if deleted_payload is None:
         lines.append(
-            "Чистку не запускали в цьому прогоні, або вона впала — дивись лог прогону."
+            "The cleanup did not run in this pass, or it failed — see the run log."
         )
     elif refused:
-        lines.append(f"Чистку відкладено: {refused}")
+        lines.append(f"Cleanup was postponed: {refused}")
     elif dry_run:
         if deletions:
-            lines.append("Сухий прогін. Буде видалено:")
+            lines.append("Dry run. Would delete:")
             lines += [f"- {branch_label(d)} — {d['reason']}" for d in deletions]
         else:
-            lines.append("Сухий прогін: поглинутих гілок немає.")
+            lines.append("Dry run: no absorbed branches.")
     else:
         ok = [a for a in applied if a["ok"]]
         ok_names = {a["name"] for a in ok}
         if ok:
             lines += [
-                f"- {branch_label(d)} — видалено ({d['reason']})"
+                f"- {branch_label(d)} — deleted ({d['reason']})"
                 for d in deletions
                 if d["name"] in ok_names
             ]
         else:
-            lines.append("Поглинутих гілок не було — видаляти нічого.")
+            lines.append("No absorbed branches — nothing to delete.")
         for item in applied:
             if not item["ok"]:
-                lines.append(f"- {branch_label(item)} — видалити не вдалося: {item['error']}")
+                lines.append(f"- {branch_label(item)} — could not be deleted: {item['error']}")
     lines.append("")
 
     no_pr = [b for b in branches if not b["prs"]]
-    lines += ["## Гілки без PR", ""]
+    lines += ["## Branches without a PR", ""]
     if no_pr:
-        lines += ["| гілка | вік | останній коміт |", "|---|---|---|"]
+        lines += ["| branch | age | last commit |", "|---|---|---|"]
         for item in sorted(no_pr, key=lambda b: -(b["age_days"] or 0))[:20]:
             lines.append(
                 f"| `{item['name']}` | {age_text(item['age_days'])} | {item['tip_subject'][:70]} |"
             )
         if len(no_pr) > 20:
-            lines.append(f"\n…і ще {len(no_pr) - 20}.")
+            lines.append(f"\n…and {len(no_pr) - 20} more.")
     else:
-        lines.append("Немає.")
+        lines.append("None.")
     lines.append("")
 
     leftover = [
         b for b in branches
         if b["merged_prs"] and b["action"] == "keep" and not b["open_prs"]
     ]
-    lines += ["## Злиті PR, чиї гілки лишилися", ""]
+    lines += ["## Merged PRs whose branches remain", ""]
     if leftover:
         for item in leftover:
             numbers = ", ".join(
@@ -728,10 +732,10 @@ def render_report(facts, decisions, deleted_payload, *, stale_days, narrative, n
             )
             lines.append(f"- {branch_label(item)} — PR {numbers}: {item['reason']}.")
     else:
-        lines.append("Немає.")
+        lines.append("None.")
     lines.append("")
 
-    lines += [f"## Драфти без руху (≥ {stale_days} днів)", ""]
+    lines += [f"## Drafts with no movement (≥ {stale_days} days)", ""]
     stale_drafts = [b for b in branches if b.get("stale_draft")]
     if stale_drafts:
         for item in stale_drafts:
@@ -741,10 +745,10 @@ def render_report(facts, decisions, deleted_payload, *, stale_days, narrative, n
                 f"- {numbers} {branch_label(item)} — {age_text(item.get('pr_stale_days'))}: {titles}"
             )
     else:
-        lines.append("Немає.")
+        lines.append("None.")
     lines.append("")
 
-    lines += [f"## Відкриті PR без руху (≥ {stale_days} днів)", ""]
+    lines += [f"## Open PRs with no movement (≥ {stale_days} days)", ""]
     stale_open = [b for b in branches if b.get("stale_open")]
     if stale_open:
         for item in stale_open:
@@ -754,10 +758,10 @@ def render_report(facts, decisions, deleted_payload, *, stale_days, narrative, n
                 f"- {numbers} {branch_label(item)} — {age_text(item.get('pr_stale_days'))}: {titles}"
             )
     else:
-        lines.append("Немає.")
+        lines.append("None.")
     lines.append("")
 
-    lines += ["## Що варто зробити", ""]
+    lines += ["## What is worth doing", ""]
     if narrative:
         lines += [narrative.strip(), ""]
     else:
@@ -765,17 +769,17 @@ def render_report(facts, decisions, deleted_payload, *, stale_days, narrative, n
         if fallback:
             lines += fallback
         else:
-            lines.append("Усе в межах правил: нічого не застрягло.")
+            lines.append("Everything is within the rules: nothing is stuck.")
         lines.append("")
-        lines.append(f"_({narrative_note} — це детермінований перелік)_")
+        lines.append(f"_({narrative_note} — this is a deterministic list)_")
     lines += [
         "",
         "---",
-        "Правила й пороги: `docs/runbooks/branch-hygiene.md`. "
-        "Видаляються лише гілки, чий вміст доведено вже в `main`.",
+        "Rules and thresholds: `docs/runbooks/branch-hygiene.md`. "
+        "Only branches whose content is already proven to be in `main` are deleted.",
     ]
     if run_url:
-        lines.append(f"Прогін: {run_url}")
+        lines.append(f"Run: {run_url}")
     return "\n".join(lines) + "\n"
 
 
@@ -831,7 +835,7 @@ def find_issue():
 def ensure_label():
     run(
         ["gh", "label", "create", ISSUE_LABEL, "--force", "--color", "5319e7",
-         "--description", "Нічний звіт про порядок у гілках"],
+         "--description", "Nightly report on branch hygiene"],
         check=False,
     )
 
@@ -871,16 +875,16 @@ def cmd_report(args):
         deleted_payload = json.loads(Path(args.deleted).read_text(encoding="utf-8"))
 
     narrative = None
-    narrative_note = "наратив LLM не використано"
+    narrative_note = "the LLM narrative was not used"
     token = (
         args.llm_token
         or os.environ.get("BRANCH_HYGIENE_LLM_TOKEN")
         or os.environ.get("OCR_LLM_TOKEN")
     )
     if args.no_llm:
-        narrative_note = "наратив LLM вимкнено"
+        narrative_note = "the LLM narrative is disabled"
     elif not token:
-        narrative_note = "LLM-токена немає"
+        narrative_note = "no LLM token"
         print("LLM-токена немає — звіт буде детермінований", file=sys.stderr)
     else:
         payload = {
@@ -913,7 +917,7 @@ def cmd_report(args):
             args.llm_session, args.llm_timeout,
         )
         if narrative is None:
-            narrative_note = "LLM не відповів"
+            narrative_note = "the LLM did not answer"
 
     body = render_report(
         facts, decisions, deleted_payload,

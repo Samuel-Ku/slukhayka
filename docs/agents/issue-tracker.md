@@ -11,236 +11,240 @@ for all operations and infer the repository from `git remote -v`.
 - Comment: `gh issue comment <number> --body "..."`.
 - Label: `gh issue edit <number> --add-label "..."`.
 - Close: `gh issue close <number> --comment "..."`.
+- Language: issues, their comments, pull requests and commit messages are
+  written in English. The Ukrainian voice in `docs/voice.md` covers social
+  posts and release notes, not the tracker.
 
-## Премиса тікета мусить існувати в `main`
+## A ticket's premise must exist in `main`
 
-Тікет заводиться зі стану `main`, а не з робочої копії. Ціна вже сплачена:
-**#1261** стверджував, що `AGENTS.md` посилається на `CODING_STANDARDS.md`. У
-`main` того посилання немає (`git grep -l CODING_STANDARDS origin/main` —
-порожньо), а файл і посилання з'явилися **разом із незакоміченою правкою іншої
-машини**. Тікет довелося закрити як недійсний — і не тому, що автор був
-неуважний, а тому, що стан робочої копії виглядає як стан репозиторію.
+A ticket is filed from the state of `main`, not from the working copy. The price
+has already been paid: **#1261** claimed that `AGENTS.md` referenced `CODING_STANDARDS.md`. In
+`main` that reference does not exist (`git grep -l CODING_STANDARDS origin/main` —
+empty), while the file and the reference appeared **together with an uncommitted edit from another
+machine**. The ticket had to be closed as invalid — and not because the author was
+careless, but because the working copy's state looks like the repository's state.
 
-Правило одне, і воно машинне: **кожен шлях, названий у тілі issue, або є в
-`origin/main`, або позначений як такий, що цей тікет його створить.** Перевіряє
-`scripts/issue_premise.py` — до створення issue, по чернетці тіла:
+The rule is single and machine-checked: **every path named in the issue body is either in
+`origin/main` or marked as one this ticket will create.** The check is run by
+`scripts/issue_premise.py` — before the issue is created, against the body draft:
 
 ```sh
-git fetch origin main                                              # ref мусить бути свіжий
-python3 scripts/issue_premise.py --body-file .scratch/1264.md      # чернетка
-python3 scripts/issue_premise.py --body-file -                     # те саме з stdin
-python3 scripts/issue_premise.py --issue 1261                      # уже заведений
+git fetch origin main                                              # ref must be fresh
+python3 scripts/issue_premise.py --body-file .scratch/1264.md      # draft
+python3 scripts/issue_premise.py --body-file -                     # same from stdin
+python3 scripts/issue_premise.py --issue 1261                      # already filed
 ```
 
-Прогін перед смугою — не порада, а крок: `scripts/new-lane.sh` кличе цей самий
-механізм (`--issue`) на копії смуги й друкує його вердикт у фактах для брифа.
-Він закриває третій різновид хибного числа — «число, яке БУЛО правдою» — **але
-лише в ШЛЯХАХ**: шлях із тіла зник з `origin/main`, або стоїть `NEW:` на тому,
-що вже є. **Чисел у ПРОЗІ тікета крок не бачить:** #1315 і сьогодні зелений
-(`python3 scripts/issue_premise.py --quiet --issue 1315` → «ПРЕМИСА Є»), хоч
-три його числа застаріли між написанням тікета й створенням смуги. Ця межа
-названа і в коді кроку, щоб документ не обіцяв більше за механізм. Її ціна
-**виміряна, а не обіцяна**:
+Running it before the lane is not advice but a step: `scripts/new-lane.sh` calls this same
+mechanism (`--issue`) on the lane copy and prints its verdict in the facts for the brief.
+It closes the third kind of wrong number — "a number that USED TO be true" — **but only
+in PATHS**: a path from the body disappeared from `origin/main`, or `NEW:` sits on
+something that already exists. **Numbers in the ticket's PROSE are invisible to the step:** #1315 is still
+green today (`python3 scripts/issue_premise.py --quiet --issue 1315` → «ПРЕМИСА Є» ("premise holds")), even though
+three of its numbers went stale between writing the ticket and creating the lane. That limit
+is named in the step's code too, so the document does not promise more than the mechanism. Its price
+is **measured, not promised**:
 
 ```sh
 python3 scripts/issue_premise.py --measure-prose-numbers
 ```
 
-На 200 останніх тікетах (`584dda73`, 2026-10-15) це дає
-**чотири** тікети з числом перед іменником **реєстру** («N сторожів», «N
-записів») — #814 (інвентар локальних звітів, не дерево), #1312, #1315, #1321;
-три з чотирьох справді стверджують стан реєстру дерева й **пливуть**. Число
-перед звичайним іменником-одиницею («N шляхів», «N тікетів») є в **17** тікетах із
-200 (перша версія виміру давала тут 172 — хибна фігура: список альтернатив без
-групи ловив голий іменник без числа, і сторож метрики того не бачив; знахідка
-огляду). Вимога «перевіряй кожне число в прозі» перетворилася б на розбір прози й
-здогад про те, що число стверджує; тому це **названа межа з числом**, а не тиха
-діра. Знахідка (код 1) і невідомість вердикту (код 2) — попередження зі
-збереженням смуги; код 2 від самої смуги лишається за станом, коли тікет не
-прочитано і вердикту немає взагалі.
+On the last 200 tickets (`584dda73`, 2026-10-15) this yields
+**four** tickets with a number before a **registry** noun ("N guards", "N
+records") — #814 (an inventory of local reports, not the tree), #1312, #1315, #1321;
+three of the four really do assert the tree registry's state and **drift**. A number
+before an ordinary unit noun ("N paths", "N tickets") appears in **17** of the
+200 tickets (the first version of the measurement gave 172 here — a wrong figure: the alternatives
+list without a group caught a bare noun without a number, and the metric check did not see that;
+a review finding). The requirement "check every number in prose" would turn into parsing prose and
+guessing what the number asserts; so this is **a named limit with a number**, not a silent
+hole. A finding (code 1) and an unknown verdict (code 2) are warnings that
+leave the lane in place; code 2 from the lane itself remains for the state when the ticket is not
+read and there is no verdict at all.
 
-Позначка «створить цей тікет» — `NEW:` **усередині** інтервалу в бектиках,
-перед шляхом:
+The "this ticket will create it" mark is `NEW:` **inside** the backticked span,
+before the path:
 
 ```markdown
-- [ ] `NEW:docs/agents/premise.md` отримує правило перевірки премиси.
+- [ ] `NEW:docs/agents/premise.md` gets the premise check rule.
 ```
 
-Чому це не «перевіряйте уважніше»:
+Why this is not "check more carefully":
 
-- **Вердикт дає `git`, не судження.** Питання до кожного шляху одне: чи є в
-  `origin/main` запис із такою назвою (`git cat-file -e`). Однакове тіло issue
-  дає однаковий вердикт на кожній машині з тим самим `origin/main`; робоча
-  копія у вердикті не бере участі взагалі.
-- **Механізм не галасливий.** Тікет, який згадує файл, що **буде** створений
-  цим же тікетом, не валиться: `NEW:` знімає вимогу «є в `main`» — і натомість
-  вимагає протилежного: такого шляху в `main` бути **не повинно**. Позначка не
-  лазівка, а друге плече тієї самої перевірки: вона ловить і «оголосив новим
-  те, що вже є».
-- **Промовчати можна лише письмово.** Замовкнути вдається одним способом —
-  поставити `NEW:` там, де шлях не створюється. Це не забудькуватість, а
-  твердження в тілі тікета, яке видно й автору, й оглядові; невиконаний шлях
-  без позначки — відмова (код 1), а невідомість (код 2) зеленою не вважається.
-- **Коротка форма не валиться.** `ci.yml` замість `.github/workflows/ci.yml`,
-  `ui/adaptive/WindowLayout.kt` замість повного шляху під `app/src/main/java/…`,
-  `web/README` замість `web/README.md` — звичайна річ у тілах; такий хвіст
-  шукається в дереві `main` на межі сегмента, **разом із теками** (`ls-tree -r
-  -t`). Одне входження — проходить, кілька — невідомість із підказкою назвати
-  повний шлях. Точний шлях питається першим.
-- **Не шлях — не відмова.** Назви гілок (`feat/…`, `release/v1.3.9`,
-  `spec-53/wave-1`), шляхи пристрою (`filesDir/local_imports`), еліпсис
-  (`app/src/androidTest/...`), проза зі слешем (`try/catch`), саме розширення
-  (`.png`) і голе ім'я вкладення (`live-book-2f-screencap.png`) — не премиса про
-  дерево, і ґард на них не падає.
+- **The verdict comes from `git`, not from judgement.** There is one question per path:
+  does `origin/main` have an entry with this name (`git cat-file -e`). The same issue body
+  gives the same verdict on every machine with the same `origin/main`; the working
+  copy takes no part in the verdict at all.
+- **The mechanism is not noisy.** A ticket that mentions a file **to be** created
+  by the same ticket does not fail: `NEW:` lifts the "is in `main`" requirement — and instead
+  demands the opposite: that path must **not** be in `main`. The mark is not a
+  loophole but the second arm of the same check: it also catches "declared
+  something new that already exists".
+- **Silence is possible only in writing.** There is one way to stay silent — put
+  `NEW:` where the path is not created. That is not forgetfulness, but an assertion in the
+  ticket body, visible to both the author and the reviewer; a path that does not
+  exist, without the mark, is a refusal (code 1), and an unknown (code 2) does not count as green.
+- **A short form does not fail.** `ci.yml` instead of `.github/workflows/ci.yml`,
+  `ui/adaptive/WindowLayout.kt` instead of the full path under `app/src/main/java/…`,
+  `web/README` instead of `web/README.md` — an ordinary thing in bodies; such a tail
+  is looked up in the `main` tree at a segment boundary, **directories included** (`ls-tree -r
+  -t`). One occurrence — it passes; several — an unknown with a hint to name the full
+  path. The exact path is asked first.
+- **Not a path — not a refusal.** Branch names (`feat/…`, `release/v1.3.9`,
+  `spec-53/wave-1`), device paths (`filesDir/local_imports`), an ellipsis
+  (`app/src/androidTest/...`), slash prose (`try/catch`), an extension on its own
+  (`.png`) and a bare attachment name (`live-book-2f-screencap.png`) — not a premise about
+  the tree, and the check does not fail on them.
 
-Межі, названі прямо, щоб ґард не вдавав, що вміє більше:
+Limits, stated plainly so the check does not pretend to know more:
 
-- Перевіряються **шляхи**, не твердження про їхній вміст. «`AGENTS.md` обіцяє
-  X» цей ґард не перевірить; #1261 упав на іншому — файлу, на який тікет
-  посилався, не існувало. Твердження про вміст ловить огляд, і ґард його не
-  замінює.
-- Вердикт — про **локальний** `origin/main`. Ґард не робить мережевих запитів і
-  не підтягує ref потай: застарілий ref дає вердикт про старе дерево. Ліки —
-  `git fetch origin main` перед прогоном; невідомий ref — код 2, не «зелено».
-- Шлях **без бектиків** (у посиланні Markdown, у прозі) не перевіряється. Це
-  межа вибору премиси, а не перевірки: що автор назвав шляхом, те й перевірено.
-  Тікет без жодного шляху в бектиках — **невідомість** (код 2), не зелене
-  світло: «нічого не перевірено» не дорівнює «все гаразд».
-- Цитата чужого хибного твердження («у робочій копії згадано
-  `CODING_STANDARDS.md`») теж дає відмову — ґард не читає контекст і не
-  відрізняє «шлях є» від «шляху немає, і це і є проблема». Ліки дешеві: прибрати
-  бектики зі згадки-контрприкладу або позначити її `NEW:`. Читати контекст
-  означало б гадати, а здогад у ґарді дорожчий за рідкісну хибну відмову.
-- Голе ім'я **у форматі вкладення** (`.png`, `.jpg`, `.mp4`) шляхом не
-  вважається: доказ лежить поруч із тікетом, а не в дереві. Голе ім'я з
-  розширенням документа чи коду (`REPORT-continuation.md`,
-  `2851-temna-materiia.html`) — вважається й дає відмову: відрізнити локальний
-  звіт від файлу репозиторію формою неможливо.
-- Проза зі слешем ловиться **неповно**: `try/catch` — так,
-  `works.title/author/seriesTitle` — ні (крапка в першому сегменті робить його
-  невідрізненним від `ui/adaptive/WindowLayout.kt`).
-- Гілка розпізнається за головою зі списку (`feat`, `fix`, `release`, `spec`,
-  `test`, `backup`, `chore`, …), а хвіст-число відкидається: `spec-53/wave-1` —
-  та сама голова `spec`. Гілка з голови поза списком (`my-branch/x`) лишиться
-  кандидатом і дасть відмову. Голова, яка є ще й записом верхнього
-  рівня `main`, у списку стояти не може — вона проковтнула б усі шляхи під
-  собою. Саме тому `docs`/`doc` прибрано, а `test`/`tests` лишаються; вимір —
-  команда: `python3 scripts/issue_premise.py --measure-head docs` (78 шляхів у
-  68 тікетах на вікні 2026-10-13), `--measure-head test` (0). Вікно — 200
-  останніх тікетів, тож **число пливе разом зі списком issue**, а не з ref-ом:
-  у шапці #1281 стояло «83 шляхи / 72 тікети», і воно не відтворюється на
-  жодному коді — вікно зсунулося.
-- Односегментне ім'я **без розширення**, чия коротка форма збіглася лише з
-  **текою**, дає неоднозначність (код 2), а не «премиса є»: `main/` у тілі #982
-  означало теку Kotlin-джерел, а ґард знаходив `app/src/main` на довільній
-  глибині. Вердикт розрізняє **блоб** і **дерево** — тип віддає `git ls-tree`,
-  і тека в вердикті названа текою. Форма правила **вужча** за «будь-яка тека за
-  хвостом — неоднозначність» навмисно, і межі названі в коді: точний шлях
-  питається першим; тека, знайдена за хвостом **багатосегментного** імені
-  (`ui/components`), лишається премисою; позначка `NEW:` не слабшає; ім'я з
-  розширенням, знайдене лише як тека, лишається «є».
-- **Асиметрія ВИВОДУ названа, і вона не про глибину, а про ДОКАЗ:** ім'я зі
-  слешем, що зійшлося з текою **в корені**, лишається премисою (`docs/`, `web/`,
-  `app/src/main/` — точний шлях питається першим), а тека **вглиб** —
-  неоднозначністю (`drawable/`, `generator/`, `workflows/`, `mipmap-hdpi/` —
-  чотири справжні теки, і всі чотири дають код 2 на справжньому дереві).
-  Дискримінатор — **точний запис дерева** (`main_has_path`), а не глибина.
-  **Прибрати асиметрію без ціни не можна, і кожна ціна названа:** розширити
-  форму (гола тека за єдиним збігом-деревом — премиса) означає зробити премисою
-  й `main/` із #982, а його тіло пише `main/` **з тим самим хвостовим слешем**,
-  що й `drawable/`; читати тіло як ціле (розв'язати `drawable/` через названий у
-  тому ж тілі `…/drawable/img_…jpg`) — це здогад, і він навіть не прибирає
-  асиметрію, а маскує її там, де тіло назвало повний шлях; симетрія вниз
-  (код 2 і для кореня) асиметрію виходу **прибирає** — обидва кінці дають 2, —
-  але подвоює **хибну неоднозначність** на найчастішій формі посилання; на рівні
-  імен цю ціну режим друкує числом, а **на рівні тікетів виміру немає** — і число
-  там не названо. Ціна того, що є, названа **числом, яке виводить сам механізм**:
-  `python3 scripts/issue_premise.py --measure-bare-trees` (на `origin/main` =
-  `07194d4d`, 2026-10-24; реєстр перезаписано того дня, бо з'явилася тека
-  `.husky/` і три числа, які її бачать, виросли рівно на одне імʼя — означення не
-  змінювалося; перед тим 2026-10-19 #1352 додав `scripts/swarm`, 2026-10-18
-  #1303 — `scripts/systemd`, ріст був такий самий). Означення живе в `bare_tree_names` — тими самими
-  предикатами, що й вердикт, і сусідні означення друкує **той самий режим**.
-  Числа ці — **дані, а не проза**: шапка мусить дорівнювати реєстру `PRICES` у
-  `scripts/issue_premise.py`, і звіряє їх `scripts/doc_numbers.py` — і цей файл,
-  і шапка `issue_premise.py` стоять у його `SCANNED`, а рядки нижче — у
-  `FIGURES` (джерело `("record", "prices", ключ)`), тож розходження шапки з
-  реєстром — знахідка, а не тиша (тікет #1308):
+- **Paths** are checked, not claims about their content. This check will not verify
+  a claim that "`AGENTS.md` promises X"; #1261 failed on something else — the file the ticket
+  referenced did not exist. Content claims are caught by review, and the check does not
+  replace it.
+- The verdict is about the **local** `origin/main`. The check makes no network requests and
+  does not pull the ref secretly: a stale ref gives a verdict about an old tree. The remedy is
+  `git fetch origin main` before the run; an unknown ref is code 2, not "green".
+- A path **without backticks** (in a Markdown link, in prose) is not checked. This is
+  a limit of premise selection, not of the check: what the author named as a path is what was checked.
+  A ticket with no path in backticks at all — an **unknown** (code 2), not a green
+  light: "nothing checked" does not equal "everything is fine".
+- Quoting someone else's wrong claim ("the working copy mentions
+  `CODING_STANDARDS.md`") also gives a refusal — the check does not read context and does not
+  tell "the path exists" from "the path is absent, and that is the problem". The remedy is cheap: remove
+  the backticks from the counterexample mention or mark it `NEW:`. Reading context
+  would mean guessing, and a guess in the check costs more than a rare false refusal.
+- A bare name **in an attachment format** (`.png`, `.jpg`, `.mp4`) is not
+  considered a path: the evidence sits next to the ticket, not in the tree. A bare name with
+  a document or code extension (`REPORT-continuation.md`,
+  `2851-temna-materiia.html`) is considered and gives a refusal: there is no way to tell
+  a local report from a repository file by its form.
+- Slash prose is caught **incompletely**: `try/catch` — yes,
+  `works.title/author/seriesTitle` — no (the dot in the first segment makes it
+  indistinguishable from `ui/adaptive/WindowLayout.kt`).
+- A branch is recognized by a head from the list (`feat`, `fix`, `release`, `spec`,
+  `test`, `backup`, `chore`, …), and the numeric tail is dropped: `spec-53/wave-1` —
+  the same head `spec`. A branch with a head outside the list (`my-branch/x`) stays a
+  candidate and gives a refusal. A head that is also a top-level entry of
+  `main` cannot be in the list — it would swallow every path beneath it. That is
+  why `docs`/`doc` were removed and `test`/`tests` remain; the measurement is a
+  command: `python3 scripts/issue_premise.py --measure-head docs` (78 paths in
+  68 tickets in the 2026-10-13 window), `--measure-head test` (0). The window is the last
+  200 tickets, so **the number drifts with the issue list**, not with the ref:
+  the header of #1281 said "83 paths / 72 tickets", and it does not reproduce on
+  any code — the window moved.
+- A single-segment name **without an extension** whose short form matched only a
+  **directory** gives an ambiguity (code 2), not "the premise holds": `main/` in the body of #982
+  meant the Kotlin sources directory, while the check found `app/src/main` at an arbitrary
+  depth. The verdict distinguishes a **blob** from a **tree** — the type is returned by `git ls-tree`,
+  and a directory in the verdict is named as a directory. The rule's shape is **narrower** than "any directory past
+  the tail is an ambiguity" on purpose, and the limits are named in the code: the exact path
+  is asked first; a directory found past the tail of a **multi-segment** name
+  (`ui/components`) stays a premise; the `NEW:` mark does not weaken; a name with an
+  extension that is found only as a directory stays "exists".
+- **The asymmetry of the OUTPUT is named, and it is not about depth but about PROOF:** a
+  name with a slash that matched a directory **at the root** stays a premise (`docs/`, `web/`,
+  `app/src/main/` — the exact path is asked first), while a directory **deeper** is an
+  ambiguity (`drawable/`, `generator/`, `workflows/`, `mipmap-hdpi/` —
+  four real directories, and all four give code 2 on the real tree).
+  The discriminator is the **exact tree entry** (`main_has_path`), not depth.
+  **The asymmetry cannot be removed without a cost, and every cost is named:** widening the
+  shape (a bare directory matched by a single tree — a premise) means making `main/` from #982 a premise
+  too, and its body writes `main/` **with the same trailing slash** as `drawable/`;
+  reading the body as a whole (resolving `drawable/` through `…/drawable/img_…jpg` named in
+  the same body) is a guess, and it does not even remove the asymmetry — it hides it where the body named the full path; symmetry
+  downward (code 2 for the root too) **removes** the output asymmetry — both ends give 2 —
+  but doubles the **false ambiguity** on the most frequent form of reference; at the level of
+  names the mode prints that cost as a number, while **at the level of tickets there is no measurement** — and the number
+  is not named there. The cost of what exists is named by **a number the mechanism itself derives**:
+  `python3 scripts/issue_premise.py --measure-bare-trees` (on `origin/main` =
+  `07194d4d`, 2026-10-24; the registry was rewritten that day because the `.husky/` directory appeared
+  and the three numbers that see it grew by exactly one name — the definition did not
+  change; before that, 2026-10-19 #1352 added `scripts/swarm`, 2026-10-18
+  #1303 — `scripts/systemd`, the growth was the same). The definition lives in `bare_tree_names` — with the same
+  predicates as the verdict, and neighbouring definitions are printed by **the same mode**.
+  These numbers are **data, not prose**: the header must equal the `PRICES` registry in
+  `scripts/issue_premise.py`, and it is reconciled by `scripts/doc_numbers.py` — both this file
+  and the header of `issue_premise.py` are in its `SCANNED`, and the lines below are in
+  `FIGURES` (source `("record", "prices", key)`), so a header that diverges from the
+  registry is a finding, not silence (ticket #1308):
 
-  - «ціна правила про теку» — 78 (односегментних імен-тек без розширення, не
-    кореневих, чия єдина коротка форма — дерево)
-  - «без крапки в імені» — 76 (різниця рівно `.aistudio`)
-  - «разом із кореневими» — 83 (кореневі `.github`, `app`, `docs`, `gradle`,
-    `web` сьогодні **не платять** — точний шлях знаходить їх першим)
+  - «ціна правила про теку» — 78 (single-segment directory names without an
+    extension, not root, whose only short form is a tree)
+  - «без крапки в імені» — 76 (the difference is exactly `.aistudio`)
+  - «разом із кореневими» — 83 (root `.github`, `app`, `docs`, `gradle`,
+    `web` **do not pay** today — the exact path finds them first)
   - «без крапки, разом із кореневими» — 80
   - «будь-який збіг-дерево» — 135
-  - «без крапки, будь-який збіг-дерево» — 133 (різниця знову рівно `.aistudio`)
+  - «без крапки, будь-який збіг-дерево» — 133 (the difference is again exactly `.aistudio`)
 
-  **Що з цього тримає гейт, а що ні.** Шапка проти реєстру — машинно; сам
-  реєстр — **дані**: чи він правдивий, показує прогоном
-  `test_issue_premise.PriceRecordTest` там, де ref читається, а в CI, де
-  `origin/main` немає (раннер фетчить merge-ref), — ні, і це названо, а не
-  видано за перевірене. Числа `gh`-вікна (`--scan 200`: 91/90/10/9 на
-  `f0fbc576`, 93/87/11/9 на `f81c724f`) у `FIGURES` не входять — це знімки
-  ІНШИХ ревізій, а джерело `record` читає по одному голому числу на рядок, тож
-  вони лишаються прозою. Знімок самої смуги (`102/78/11/9` у кроці премиси
-  `new-lane.sh`) зарахований від #1328 джерелом `("record", "scan_window", …)`
-  із реєстру `SCAN_WINDOW`, як `PRICES`: у гейта немає ні `gh`, ні мережі, тож
-  джерелом стає ЗАПИС, а не прогін. Межа запису — це ЗНІМОК рухомого вікна, і
-  оновлює його руками той, хто переміряв `--scan 200`.
-  Частина цих імен-тек — **хибні неоднозначності**, як три названі вище хибні
-  відмови: із тікетів, що рушили, хибний саме **#997** — він пише «інші файли в
-  `drawable/`», а `drawable` є тека `app/src/main/res/drawable`. Ліки дешеві —
-  назви повний шлях. Кінці піновані тестами
+  **What the gate enforces here, and what it does not.** Header against
+  registry — machine-checked; the registry itself is **data**: whether it is true is shown
+  by a run of `test_issue_premise.PriceRecordTest` where the ref is readable, while in CI, where
+  there is no `origin/main` (the runner fetches the merge-ref), it is not — and that is named, not
+  passed off as checked. The `gh` window numbers (`--scan 200`: 91/90/10/9 on
+  `f0fbc576`, 93/87/11/9 on `f81c724f`) are not in `FIGURES` — they are snapshots
+  of OTHER revisions, and the `record` source reads one bare number per line, so
+  they remain prose. The snapshot of the lane itself (`102/78/11/9` in the premise step of
+  `new-lane.sh`) has been enrolled since #1328 with the source `("record", "scan_window", …)`
+  from the `SCAN_WINDOW` registry, like `PRICES`: the gate has neither `gh` nor network, so
+  the source is a RECORD, not a run. The limit of the record is that it is a SNAPSHOT of a moving window, and
+  it is updated by hand by whoever re-measured `--scan 200`.
+  Some of these directory names are **false ambiguities**, like the three false
+  refusals named above: of the tickets that moved, the false one is **#997** — it writes "other files in
+  `drawable/`", while `drawable` is the directory `app/src/main/res/drawable`. The remedy is cheap —
+  name the full path. The ends are pinned by the tests
   `test_an_exact_tree_path_is_still_the_premise`,
-  `test_a_bare_directory_name_is_ambiguous_through_real_git` і
-  `test_the_same_trailing_slash_is_premise_at_the_root_and_ambiguous_deep`, а
-  число —
+  `test_a_bare_directory_name_is_ambiguous_through_real_git` and
+  `test_the_same_trailing_slash_is_premise_at_the_root_and_ambiguous_deep`, and the
+  number by
   `test_the_documented_command_counts_the_same_class_the_verdict_makes_ambiguous`.
-- Механізм лишається **кроком процесу**: його треба викликати. Він не біжить у
-  CI, бо issue живе не в дереві репозиторію, і не замінює огляд.
+- The mechanism remains a **process step**: it has to be invoked. It does not run in
+  CI, because an issue does not live in the repository tree, and it does not replace
+  review.
 
-### Шум: число, яке можна переміряти
+### Noise: a number you can re-measure
 
-Числа тут не твердження, якому вірять на слово — їх дає сам механізм:
+The numbers here are not claims taken on faith — the mechanism itself produces them:
 
 ```sh
 python3 scripts/issue_premise.py --scan 200
 ```
 
-На 200 останніх тікетах (ref `origin/main` = `f0fbc576`, 2026-10-13): **91** —
-«премиса є», **90** — невідомість «шляхів у бектиках немає», **10** —
-неоднозначне ім'я (`mutate.sh` ×3 — у дереві є ще дві фікстурні копії;
+On the last 200 tickets (ref `origin/main` = `f0fbc576`, 2026-10-13): **91** —
+«премиса є» ("premise holds"), **90** — «шляхів у бектиках немає» ("no paths in backticks"), **10** —
+an ambiguous name (`mutate.sh` ×3 — the tree holds two more fixture copies;
 `ui/components`, `ui/adaptive`, `data/ingest`+`data/source`,
-`AndroidManifest.xml` ×2 — ліки однакові: назвати повний шлях; і три нові за
-правилом про теку: `main` у #982 і #1281 та `drawable` у #997, причому #997 —
-**хибна** неоднозначність, і причина названа в межі про асиметрію вище),
-**9** — відмова:
+`AndroidManifest.xml` ×2 — the remedy is the same: name the full path; and three new ones under
+the directory rule: `main` in #982 and #1281, and `drawable` in #997, where #997 is
+a **false** ambiguity, and the reason is named in the asymmetry limit above),
+**9** — a refusal:
 
-- **#1185** і **#828** — справжня ціль ґарда: тікети посилаються на ADR і план
-  (`docs/adr/0061-…`, `docs/plans/2026-10-07-…`, `docs/adr/0042-…`), яких у
-  `main` немає — вони живуть лише в **незамердженому** PR. Той самий клас, що
+- **#1185** and **#828** — the check's real target: the tickets reference an ADR and a plan
+  (`docs/adr/0061-…`, `docs/plans/2026-10-07-…`, `docs/adr/0042-…`) that are not in
+  `main` — they live only in an **unmerged** PR. The same class as
   #1261;
-- **#784** — `docs/licensing.md` у списку «оновлено», хоч файлу в `main` немає;
-- **#1261** — тікет, з якого цей ґард народився;
-- **#1272** — `NEW:docs/adr/0062-one-heavy-build-slot.md`, а ADR уже в `main`:
-  друге плече позначки спрацювало, і відмова чесна — застарів тікет, не ґард;
-- **#816** — `web/prototype`, про який тікет **сам пише**, що в `main` він не
-  йде: відмова чесна, ліки — бектики або `NEW:`;
-- **#962**, **#1029**, **#822** — хибні відмови, і кожна названа з причиною:
-  голе ім'я локального звіту, ім'я фікстури в чужому тесті, проза з крапкою.
+- **#784** — `docs/licensing.md` in the "updated" list, though the file is not in `main`;
+- **#1261** — the ticket this check was born from;
+- **#1272** — `NEW:docs/adr/0062-one-heavy-build-slot.md`, but the ADR is already in `main`:
+  the mark's second arm fired, and the refusal is honest — the ticket went stale, not the check;
+- **#816** — `web/prototype`, which the ticket **itself says** will not go into `main`:
+  the refusal is honest, the remedy is backticks or `NEW:`;
+- **#962**, **#1029**, **#822** — false refusals, and each is named with its reason:
+  a bare local report name, a fixture name in someone else's test, prose with a dot.
 
-Тобто хибних відмов — **три з дев'яти**, і всі три видно у виводі `--scan`.
-Ціна правила про теку теж виміряна: воно перенесло з «премиса є» в
-неоднозначність рівно **три** тікети з 200 — #982, #997 і сам #1281 (тіло
-якого наводить `main/` як приклад межі).
+So false refusals are **three out of nine**, and all three are visible in the `--scan` output.
+The price of the directory rule is measured too: it moved exactly **three** tickets out of 200 from
+«премиса є» to an ambiguity — #982, #997 and #1281 itself (whose body
+cites `main/` as an example of the limit).
 
-Вікно з того часу зрушило, і #1329 додав своє: на `584dda73` (2026-10-15) той
-самий `--scan 200` дає **102** «премиса є», **75** «шляхів у бектиках немає»,
-**15** неоднозначних і **8** відмов. Чотири нові неоднозначні — #1264, #1270,
-#1271, #1276 — це той самий `mutate.sh` у формі `mutate.sh --python`, яку
-механізм до #1329 не бачив узагалі; ліки ті самі (назви `scripts/mutate.sh`), і
-відмов не побільшало. Числа відтворює команда, а не цей абзац.
+The window has moved since then, and #1329 added its own: on `584dda73` (2026-10-15) the
+same `--scan 200` gives **102** «премиса є», **75** «шляхів у бектиках немає», **15**
+ambiguous and **8** refusals. The four new ambiguous ones — #1264, #1270,
+#1271, #1276 — are the same `mutate.sh` in the `mutate.sh --python` form, which
+the mechanism did not see at all before #1329; the remedy is the same (name
+`scripts/mutate.sh`), and refusals did not increase. The command reproduces the
+numbers, not this paragraph.
 
 ## Pull requests as a triage surface
 

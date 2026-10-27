@@ -70,20 +70,29 @@ class LocalCopyMigration(
         for (book in localBooks) {
             val localSource = dao.getSourcesForBookSync(book.id).firstOrNull { it.type == "local" }
                 ?: continue
-            val copied = dao.getTracksForSourceSync(localSource.id).filter { track ->
+            val allTracks = dao.getTracksForSourceSync(localSource.id)
+            // Only the private copy dir this pass owns is a candidate: a path
+            // anywhere else is not ours to relink or delete. Every other track
+            // that still carries a copied file is kept and reported, never
+            // silently skipped.
+            val copied = allTracks.filter { track ->
                 val path = track.localFilePath
-                // Only the private copy dir this pass owns is a candidate: a
-                // path anywhere else is not ours to relink or delete.
                 !path.isNullOrBlank() && !track.contentHash.isNullOrBlank() &&
                     File(path).startsWith(copyRoot) && File(path).isFile
             }
-            if (copied.isEmpty()) continue
+            val keptByPolicy = allTracks.count { track ->
+                !track.localFilePath.isNullOrBlank() && track !in copied
+            }
+            if (copied.isEmpty()) {
+                kept += keptByPolicy
+                continue
+            }
 
             val tree = book.sourceTreeUri?.takeIf { it.isNotBlank() }
             if (tree == null) {
                 // A single-file import never stored its document URI: no address
                 // to move to, so the copy stays and is reported, not guessed.
-                kept += copied.size
+                kept += keptByPolicy + copied.size
                 continue
             }
 
@@ -94,7 +103,7 @@ class LocalCopyMigration(
             } catch (e: Exception) {
                 Log.w(TAG, "copy migration could not open $tree", e)
                 unavailable++
-                kept += copied.size
+                kept += keptByPolicy + copied.size
                 continue
             }
 
@@ -103,7 +112,7 @@ class LocalCopyMigration(
                 addressByHash[track.contentHash]?.let { address -> track to address }
             }
             if (migratable.isEmpty()) {
-                kept += copied.size
+                kept += keptByPolicy + copied.size
                 continue
             }
 
@@ -121,13 +130,13 @@ class LocalCopyMigration(
                 // The rows did not commit: every file of THIS book stays, and a
                 // retry is possible only through a future pass.
                 Log.w(TAG, "copy migration rolled back for ${book.id}", e)
-                kept += copied.size
+                kept += keptByPolicy + copied.size
                 continue
             }
 
             books++
             relinked += migratable.size
-            kept += copied.size - migratable.size
+            kept += keptByPolicy + (copied.size - migratable.size)
             migratable.forEach { (track, _) ->
                 val path = track.localFilePath ?: return@forEach
                 val file = File(path)

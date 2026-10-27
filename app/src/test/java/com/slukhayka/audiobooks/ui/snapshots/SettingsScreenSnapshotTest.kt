@@ -89,6 +89,8 @@ class SettingsScreenSnapshotTest {
      * group or the theme choices fails here.
      */
     private fun assertAppearanceAndGroups() {
+        // Settings is a pushed screen: the visible way back must exist too.
+        composeTestRule.onNodeWithTag("settings_back").assertIsDisplayed()
         composeTestRule.onNodeWithText("Вигляд").assertIsDisplayed()
         composeTestRule.onNodeWithTag("settings_theme_auto").assertExists()
         composeTestRule.onNodeWithTag("settings_theme_paper").assertExists()

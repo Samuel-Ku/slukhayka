@@ -1372,7 +1372,7 @@ class MainViewModel @JvmOverloads constructor(
                         _importMessage.value = OutcomeMessages.localCopyMigration(report)
                     }
                 }
-                .onFailure { Log.w("MainViewModel", "local copy migration failed", it) }
+                .onFailure { android.util.Log.w("MainViewModel", "local copy migration failed", it) }
         }
         // #916 — the local social facts feed the «Друзі» screen directly. The
         // collector starts here, before any screen exists, so the feed is

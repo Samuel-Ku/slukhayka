@@ -40,10 +40,15 @@ jobs:
     steps:
       # The gate itself is read from the BASE commit, not from the PR: a PR
       # that can rewrite the script which judges it turns a process signal into
-      # a self-signed note. The PR copy is checked out only for the one
-      # bootstrap case — the PR that introduces this workflow, when the base
-      # has no scripts/review_gate.py yet. After that PR merges, every later
-      # run uses the immutable base copy and the fallback is never taken.
+      # a self-signed note. The PR copy is checked out only as a bootstrap
+      # fallback when the base commit predates scripts/review_gate.py — that is
+      # the PR which introduces this workflow, but also any PR whose base commit
+      # is older than that merge (`pull_request.base.sha` is frozen at PR
+      # creation). So the fallback is not "never taken after the first merge";
+      # the guarantee comes from `scripts/merge-pr.sh`, which refuses PRs that
+      # edit gate files (this workflow, review_gate.py) unless the owner passes
+      # MERGE_PR_ALLOW_GATE_EDITS=1, and from the reviewer treating a workflow
+      # edit as a gate edit.
       - name: Checkout base (the gate under test)
         uses: actions/checkout@v5
         with:

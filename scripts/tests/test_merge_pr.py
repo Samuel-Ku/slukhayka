@@ -285,6 +285,27 @@ class MergePrTest(unittest.TestCase):
         result = self.gate(pr=pr_payload(files=("app/src/main/java/X.kt",)))
         self.assertNotIn("переписувати те, що його перевіряє", result.stderr)
 
+    def test_a_pr_that_rewrites_the_verdict_check_is_refused(self):
+        """#1492: скрипт, що публікує вердикт, — частина гейта, не «звичайний код».
+
+        Інакше PR міг би переписати `review_gate.py` так, щоб чек зеленів без
+        мітки; base-checkout у workflow закриває лише скриптову логіку, але не
+        сам факт правки. Явний дозвіл власника лишається: він і є межею.
+        """
+        result = self.gate(pr=pr_payload(files=("scripts/review_gate.py",)))
+        self.assertEqual(1, result.returncode)
+        self.assertIn("переписувати те, що його перевіряє", result.stderr)
+        self.assertEqual([], self.merge_calls())
+
+    def test_the_owner_can_allow_gate_edits_explicitly(self):
+        """Вихід є, але він названий вголос (MERGE_PR_ALLOW_GATE_EDITS=1)."""
+        result = self.gate(
+            pr=pr_payload(files=("scripts/review_gate.py",)),
+            env_extra={"MERGE_PR_ALLOW_GATE_EDITS": "1"},
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn("переписувати те, що його перевіряє", result.stderr)
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)

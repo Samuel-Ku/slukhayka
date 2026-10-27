@@ -63,8 +63,8 @@ class LocalCopyMigrationTest {
     }
 
     private fun migration(
-        scan: suspend (String) -> List<LocalAudioEntry>,
-        runner: (suspend (suspend () -> Unit) -> Unit)? = null
+        runner: (suspend (suspend () -> Unit) -> Unit)? = null,
+        scan: suspend (String) -> List<LocalAudioEntry>
     ) = LocalCopyMigration(
         dao = dao,
         copyRoot = copyRoot,

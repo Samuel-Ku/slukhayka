@@ -10,8 +10,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.ui.theme.AppDimens
 import com.slukhayka.audiobooks.ui.theme.PaperInkType
 
 /**
@@ -32,22 +34,42 @@ fun NavigationChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(percent = 50),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        modifier = modifier
-            .height(36.dp)
-            .testTag("navigation_chip_$title")
-    ) {
-        Box(
-            modifier = Modifier.padding(horizontal = 14.dp),
-            contentAlignment = Alignment.Center,
+    val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
+    if (paperInk) {
+        // The direction: 36 dp pill, Label 12 — a navigation affordance, not a
+        // small button.
+        Surface(
+            onClick = onClick,
+            shape = RoundedCornerShape(percent = 50),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = modifier
+                .height(36.dp)
+                .testTag("navigation_chip_$title")
+        ) {
+            Box(
+                modifier = Modifier.padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = title,
+                    style = PaperInkType.Label,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+        }
+    } else {
+        // Un-migrated screens keep the legacy chip until their own step.
+        Surface(
+            onClick = onClick,
+            shape = RoundedCornerShape(AppDimens.RadiusCardLg),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            modifier = modifier.testTag("navigation_chip_$title")
         ) {
             Text(
                 text = title,
-                style = PaperInkType.Label,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
                 color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
             )
         }
     }

@@ -49,7 +49,6 @@ import com.slukhayka.audiobooks.ui.theme.PaperInkType
 @Composable
 internal fun SettingsScreen(
     returnDestination: SettingsDestination? = null,
-    onOpen: (SettingsDestination) -> Unit,
     themeMode: AppThemeMode = AppThemeMode.AUTO,
     onThemeModeChange: (AppThemeMode) -> Unit = {},
     playerAlwaysInk: Boolean = true,
@@ -59,6 +58,8 @@ internal fun SettingsScreen(
     // The same destination the system Back returns to; a visible door for the
     // listener who does not know/use gestures.
     onBackClick: () -> Unit = {},
+    // LAST on purpose: the trailing lambda is the navigation callback.
+    onOpen: (SettingsDestination) -> Unit,
 ) {
     val title = stringResource(R.string.nav_settings)
     // spec-54 T05 (#866) — the SAME seven destinations, grouped so the listener

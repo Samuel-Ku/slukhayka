@@ -1583,6 +1583,7 @@ fun AudiobookApp(
                                 onThemeModeChange = appearanceStore::setThemeMode,
                                 playerAlwaysInk = playerAlwaysInk,
                                 onPlayerAlwaysInkChange = appearanceStore::setPlayerAlwaysInk,
+                                onBackClick = { viewModel.selectTab(settingsReturnTab) },
                                 onOpen = { destination ->
                                     settingsReturnDestination = destination
                                     when (destination) {

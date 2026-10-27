@@ -7,6 +7,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -14,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -63,6 +66,8 @@ fun PaperInkTabHeader(
     // Focus contract: a screen that left for a sub-screen returns focus to its
     // own title, exactly as the legacy header did.
     returnFocusRequester: FocusRequester? = null,
+    // A pushed screen (Settings) needs a visible way back, not only system Back.
+    onBackClick: (() -> Unit)? = null,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     Row(
@@ -75,6 +80,26 @@ fun PaperInkTabHeader(
             ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (onBackClick != null) {
+            val backDescription = stringResource(R.string.action_back)
+            Box(
+                modifier = Modifier
+                    .size(PaperInkDimens.TouchTarget)
+                    .clip(CircleShape)
+                    .clickable(onClick = onBackClick)
+                    .testTag("settings_back")
+                    .semantics { contentDescription = backDescription },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = null,
+                    tint = colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+            Spacer(modifier = Modifier.width(4.dp))
+        }
         Column(
             modifier = Modifier
                 .weight(1f)

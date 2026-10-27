@@ -350,7 +350,10 @@ fun BookRow(
                             } else {
                                 MaterialTheme.colorScheme.primary
                             },
-                            trackColor = MaterialTheme.colorScheme.outlineVariant
+                            trackColor = MaterialTheme.colorScheme.outlineVariant,
+                            // An M3 dot at the track's end reads as a second,
+                            // unexplained marker on a paper row.
+                            drawStopIndicator = {},
                         )
                     }
                     if (footnoteInColumn) footnote?.invoke(this)

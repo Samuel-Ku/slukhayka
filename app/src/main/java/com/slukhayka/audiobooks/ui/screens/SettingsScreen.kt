@@ -53,6 +53,9 @@ internal fun SettingsScreen(
     onThemeModeChange: (AppThemeMode) -> Unit = {},
     playerAlwaysInk: Boolean = true,
     onPlayerAlwaysInkChange: (Boolean) -> Unit = {},
+    // The same destination the system Back returns to; a visible door for the
+    // listener who does not know/use gestures.
+    onBackClick: () -> Unit = {},
 ) {
     val title = stringResource(R.string.nav_settings)
     // spec-54 T05 (#866) — the SAME seven destinations, grouped so the listener
@@ -98,6 +101,7 @@ internal fun SettingsScreen(
                 // Settings is not a root: no gear, the system Back returns.
                 headingTestTag = "settings_heading",
                 returnFocusRequester = headingFocus,
+                onBackClick = onBackClick,
             )
             Column(Modifier.padding(horizontal = PaperInkDimens.SpacePage)) {
                 GroupLabel(R.string.settings_group_appearance)

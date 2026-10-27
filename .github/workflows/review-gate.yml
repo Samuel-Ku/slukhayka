@@ -12,6 +12,13 @@ name: Review gate
 # `labeled` / `unlabeled` are in the trigger list on purpose: the reviewer adds
 # the verdict after CI is green, and only a re-run can turn the check green on
 # the same HEAD. Earlier runs (opened/synchronize) correctly fail without it.
+#
+# Boundary, named rather than implied: GitHub takes the workflow YAML itself
+# from the PR branch for `pull_request`, so a PR can rewrite THIS file and fake
+# its own check. The base checkout below protects the script logic, not the
+# YAML transport. The backstops are `scripts/merge-pr.sh`, which refuses a PR
+# that rewrites the gate files, and the reviewer, who must treat an edit to
+# this workflow as an edit of the gate itself.
 on:
   pull_request:
     types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review, converted_to_draft]

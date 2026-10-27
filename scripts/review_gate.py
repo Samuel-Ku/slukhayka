@@ -139,14 +139,19 @@ def _timeline_moments(
     verdicts: list[datetime] = []
     rewrites: list[datetime] = []
     for event in _tl_events(gh, repo, pr):
-        when = _iso(str(event.get("created_at", "")), "подія стрічки PR")
-        if event.get("event") == "labeled":
+        kind = event.get("event")
+        # A real PR timeline carries events that are not ours and have no
+        # `created_at` at all (`committed` has only author/committer dates).
+        # Parse the timestamp ONLY for the two events this check reads; doing
+        # it for every event made a healthy PR fail with "empty time" — the
+        # class of bug that a fixture without such events cannot see.
+        if kind == "labeled":
             event_label = event.get("label")
             name = event_label.get("name") if isinstance(event_label, dict) else None
             if name == label:
-                verdicts.append(when)
-        elif event.get("event") == "head_ref_force_pushed":
-            rewrites.append(when)
+                verdicts.append(_iso(str(event.get("created_at", "")), f"подія {label}"))
+        elif kind == "head_ref_force_pushed":
+            rewrites.append(_iso(str(event.get("created_at", "")), "подія force-push"))
     if not verdicts:
         raise LookupError(label)
     return max(verdicts), (max(rewrites) if rewrites else None)

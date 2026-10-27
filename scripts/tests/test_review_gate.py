@@ -182,6 +182,40 @@ class ReviewGateTest(unittest.TestCase):
         )
         self.assertEqual(0, code, out)
 
+    def test_events_without_created_at_are_ignored(self):
+        """A real timeline has `committed` events with no `created_at` at all.
+
+        GitHub's PR timeline (verified on #1490 and #1499) includes `committed`
+        events whose payload has no `created_at` — only the commit's own dates.
+        Parsing a timestamp for EVERY event made a healthy PR fail with «порожній
+        час»; the check must read only the two kinds of events it cares about.
+        """
+        timeline_json = json.dumps([
+            {"event": "committed", "sha": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"},
+            {"event": "committed", "sha": "feedfacefeedfacefeedfacefeedfacefeedface"},
+            {"event": "labeled", "created_at": "2026-10-27T11:00:00Z",
+             "label": {"name": "review:pass"}},
+        ])
+        code, out, _ = self.run_gate(
+            "1492",
+            FAKE_PR_JSON=pr_json(labels=["review:pass"]),
+            FAKE_TIMELINE_JSON=timeline_json,
+        )
+        self.assertEqual(0, code, out)
+        self.assertIn("PASS", out)
+
+    def test_a_verdict_event_without_created_at_is_unknown(self):
+        timeline_json = json.dumps([
+            {"event": "labeled", "label": {"name": "review:pass"}},
+        ])
+        code, out, err = self.run_gate(
+            "1492",
+            FAKE_PR_JSON=pr_json(labels=["review:pass"]),
+            FAKE_TIMELINE_JSON=timeline_json,
+        )
+        self.assertEqual(2, code, out + err)
+        self.assertNotIn("PASS", out + err)
+
     def test_a_label_older_than_head_refuses(self):
         code, out, _ = self.run_gate(
             "1492",

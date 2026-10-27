@@ -8,10 +8,12 @@ import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
  * Spec-10 T4 — the global-search result model (pure JVM).
  *
  * A [GlobalSearchResult] is one search card: a Work with every source that
- * matched the query. Sources come from each adapter's `search()` (4read) or —
- * where the source has no usable search endpoint — from its recent feed
- * filtered by the query (spec-10 T1 verdicts: soundbooks/audiobookmp3/lihtar
- * return empty from `search`; discovery goes through `fetchNew`).
+ * matched the query. Sources come from each adapter's `search()` (a site
+ * endpoint where one is allowed: 4read, and since #1486 soundbooks' own tag
+ * taxonomy) or — where the source has no usable search endpoint — from its
+ * recent feed filtered by the query (spec-10 T1 verdicts:
+ * audiobookmp3/lihtar return empty from `search`; discovery goes through
+ * `fetchNew`).
  *
  * The merge rule reuses the Work-level [MergeKey] (normalized
  * title|author|narrator) so the same book found on two sources collapses into

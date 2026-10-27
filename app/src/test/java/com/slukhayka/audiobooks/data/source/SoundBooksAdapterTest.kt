@@ -868,14 +868,237 @@ class SoundBooksAdapterTest {
         assertEquals(0, fetcher.requestedUrls.size)
     }
 
+    // --- #1486: search through the ALLOWED tags taxonomy --------------------
+
+    private val sitemapUrl = "https://sound-books.net/tags_pages.xml"
+    private val stephenKingTag = "https://sound-books.net/tags/%D1%81%D1%82%D1%96%D0%B2%D0%B5%D0%BD%20%D0%BA%D1%96%D0%BD%D0%B3/"
+    private val williamKingTag = "https://sound-books.net/tags/%D1%83%D1%96%D0%BB%D1%8C%D1%8F%D0%BC%20%D0%BA%D1%96%D0%BD%D0%B3/"
+    private val horrorTag = "https://sound-books.net/tags/%D0%B6%D0%B0%D1%85%D0%B8/"
+
+    private fun tagsSitemap(vararg urls: String): String = buildString {
+        append("""<?xml version="1.0" encoding="UTF-8"?><urlset template="sitemap">""")
+        urls.forEach { append("<url><loc>").append(it).append("</loc></url>") }
+        // A non-tag loc must never enter the tag index.
+        append("""<url><loc>https://sound-books.net/povisti-i-opovidannia/</loc></url></urlset>""")
+    }
+
+    private fun tile(slug: String, line: String): String =
+        """<div class="short-item"><a class="short-img" href="https://sound-books.net/knygy/$slug.html">""" +
+            """<img data-src="/uploads/posts/2026-07/$slug.webp" alt="$line"></a>""" +
+            """<a class="short-title" href="https://sound-books.net/knygy/$slug.html">$line</a></div>"""
+
+    /**
+     * A listing page as the site renders it: the book tiles, the
+     * «останні коментарі» sidebar (book links OUTSIDE the tiles) and the
+     * pagination links of the same tag.
+     */
+    private fun tagPage(
+        tagUrl: String,
+        vararg lines: Pair<String, String>,
+        noise: List<Pair<String, String>> = emptyList(),
+        nextPages: List<Int> = emptyList()
+    ): String = buildString {
+        lines.forEach { (slug, line) -> append(tile(slug, line)) }
+        if (noise.isNotEmpty()) {
+            append("""<div class="lcomm js-comm">""")
+            noise.forEach { (slug, line) ->
+                append("""<a class="ltitle nowrap" href="https://sound-books.net/knygy/$slug.html">$line</a>""")
+            }
+            append("</div>")
+        }
+        nextPages.forEach { page ->
+            append("""<a href="${tagUrl}page/$page/">$page</a>""")
+        }
+    }
+
     @Test
-    fun `site search is refused so discovery never touches the disallowed route`() = runBlocking {
-        // robots.txt disallows the DLE `do=search` route, so the adapter must not
-        // discover through it: `search` is a hard no-op, and an EMPTY fetcher map
-        // means any fetch attempt would fail loudly instead of succeeding.
+    fun `search reads the author's books from the allowed tag pages`() = runBlocking {
+        val fetcher = FakeFetcher(
+            mapOf(
+                sitemapUrl to tagsSitemap(stephenKingTag, williamKingTag, horrorTag),
+                stephenKingTag to tagPage(
+                    stephenKingTag,
+                    "doktor-son" to "Доктор Сон - Стівен Кінг",
+                    "ur" to "Ур - Стівен Кінг",
+                    noise = listOf("duna" to "Діти Дюни - Франк Герберт")
+                ),
+                williamKingTag to tagPage(williamKingTag, "richard-bach" to "Ричард Бах - Уільям Кінг"),
+                horrorTag to tagPage(horrorTag, "zhakhy" to "Жахи - Різні")
+            )
+        )
+        val adapter = SoundBooksAdapter(fetcher = fetcher, pauseMillis = {})
+
+        val books = adapter.search("кінг")
+
+        assertEquals(setOf("Доктор Сон", "Ур", "Ричард Бах"), books.map { it.title }.toSet())
+        assertEquals("Стівен Кінг", books.first { it.title == "Ур" }.author)
+        assertEquals("https://sound-books.net/knygy/ur.html", books.first { it.title == "Ур" }.url)
+        assertTrue("тег автора відкрито", fetcher.requestedUrls.contains(stephenKingTag))
+        assertTrue("другий тег автора відкрито", fetcher.requestedUrls.contains(williamKingTag))
+        assertTrue(
+            "рядок сайдбара «останні коментарі» не став результатом пошуку",
+            books.none { it.title == "Діти Дюни" }
+        )
+    }
+
+    @Test
+    fun `a genre tag is reachable only by its own query`() = runBlocking {
+        val fetcher = FakeFetcher(
+            mapOf(
+                sitemapUrl to tagsSitemap(horrorTag),
+                horrorTag to tagPage(horrorTag, "zhakhy" to "Жахи - Різні")
+            )
+        )
+        val adapter = SoundBooksAdapter(fetcher = fetcher, pauseMillis = {})
+
+        assertEquals(listOf("Жахи"), adapter.search("жахи").map { it.title })
+        assertTrue(adapter.search("кінг").isEmpty())
+    }
+
+    @Test
+    fun `a non-tag sitemap loc never becomes a tag`() = runBlocking {
+        // «повісті» would match a tag NAMED povisti-i-opovidannia if the
+        // TAG_URL_PREFIX filter were dropped; the loc must never be a tag.
+        val fetcher = FakeFetcher(mapOf(sitemapUrl to tagsSitemap(stephenKingTag)))
+        val adapter = SoundBooksAdapter(fetcher = fetcher, pauseMillis = {})
+
+        assertTrue(adapter.search("povisti").isEmpty())
+        assertEquals(listOf(sitemapUrl), fetcher.requestedUrls.toList())
+    }
+
+    @Test
+    fun `a query without a matching tag opens no page`() = runBlocking {
+        val fetcher = FakeFetcher(mapOf(sitemapUrl to tagsSitemap(stephenKingTag)))
+        val adapter = SoundBooksAdapter(fetcher = fetcher, pauseMillis = {})
+
+        assertTrue(adapter.search("шевченко").isEmpty())
+        assertEquals(listOf(sitemapUrl), fetcher.requestedUrls.toList())
+    }
+
+    @Test
+    fun `the disallowed site search route is never used and an empty sitemap is an honest miss`() = runBlocking {
+        // robots.txt disallows the DLE `do=search` route; discovery goes through
+        // the allowed tags sitemap instead. An EMPTY fetcher map means any
+        // attempt at the old search door would fail loudly.
         val adapter = SoundBooksAdapter(FakeFetcher(emptyMap()))
 
         assertTrue(adapter.search("шевченко").isEmpty())
         assertTrue(adapter.search("").isEmpty())
+    }
+
+    @Test
+    fun `one query spends at most the configured tag-page requests`() = runBlocking {
+        val fetcher = FakeFetcher(
+            mapOf(
+                sitemapUrl to tagsSitemap(stephenKingTag, williamKingTag),
+                stephenKingTag to tagPage(
+                    stephenKingTag,
+                    "doktor-son" to "Доктор Сон - Стівен Кінг",
+                    "ur" to "Ур - Стівен Кінг"
+                ),
+                williamKingTag to tagPage(williamKingTag, "richard-bach" to "Ричард Бах - Уільям Кінг")
+            )
+        )
+        val adapter = SoundBooksAdapter(fetcher = fetcher, pauseMillis = {}, searchPageLimit = 1)
+
+        val books = adapter.search("кінг")
+
+        assertEquals(2, books.size)
+        assertEquals("sitemap + одна сторінка", 2, fetcher.requestedUrls.size)
+    }
+
+    @Test
+    fun `search follows a tag's next page within the page bound`() = runBlocking {
+        val page2 = stephenKingTag + "page/2/"
+        val fetcher = FakeFetcher(
+            mapOf(
+                sitemapUrl to tagsSitemap(stephenKingTag),
+                stephenKingTag to tagPage(
+                    stephenKingTag,
+                    "doktor-son" to "Доктор Сон - Стівен Кінг",
+                    nextPages = listOf(2)
+                ),
+                page2 to tagPage(page2, "ur" to "Ур - Стівен Кінг")
+            )
+        )
+        val pauses = mutableListOf<Long>()
+        val adapter = SoundBooksAdapter(
+            fetcher = fetcher,
+            pauseMillis = { pauses += it },
+            searchPageLimit = 2
+        )
+
+        val books = adapter.search("кінг")
+
+        assertEquals(setOf("Доктор Сон", "Ур"), books.map { it.title }.toSet())
+        assertTrue("другу сторінку тега відкрито", fetcher.requestedUrls.contains(page2))
+        assertTrue("продовження йде з ритмічною паузою", pauses.isNotEmpty())
+    }
+
+    @Test
+    fun `the page budget covers every matched tag before going deeper`() = runBlocking {
+        val stephenPage2 = stephenKingTag + "page/2/"
+        val fetcher = FakeFetcher(
+            mapOf(
+                sitemapUrl to tagsSitemap(stephenKingTag, williamKingTag),
+                stephenKingTag to tagPage(
+                    stephenKingTag,
+                    "doktor-son" to "Доктор Сон - Стівен Кінг",
+                    nextPages = listOf(2)
+                ),
+                williamKingTag to tagPage(williamKingTag, "richard-bach" to "Ричард Бах - Уільям Кінг"),
+                stephenPage2 to tagPage(stephenPage2, "ur" to "Ур - Стівен Кінг")
+            )
+        )
+        val adapter = SoundBooksAdapter(fetcher = fetcher, pauseMillis = {}, searchPageLimit = 3)
+
+        val books = adapter.search("кінг")
+
+        assertEquals(
+            setOf("Доктор Сон", "Ур", "Ричард Бах"),
+            books.map { it.title }.toSet()
+        )
+        assertTrue("другий тег відкрито ПЕРШ ніж заглиблюватись", fetcher.requestedUrls.contains(williamKingTag))
+        assertTrue(fetcher.requestedUrls.contains(stephenPage2))
+        assertEquals("sitemap + 3 сторінки", 4, fetcher.requestedUrls.size)
+    }
+
+    @Test
+    fun `the tag index is read once while the catalogue TTL holds`() = runBlocking {
+        val fetcher = FakeFetcher(
+            mapOf(
+                sitemapUrl to tagsSitemap(stephenKingTag),
+                stephenKingTag to tagPage(stephenKingTag, "ur" to "Ур - Стівен Кінг")
+            )
+        )
+        var clock = 1_000_000L
+        val adapter = SoundBooksAdapter(fetcher = fetcher, pauseMillis = {}, now = { clock })
+
+        adapter.search("кінг")
+        clock += 60_000L
+        adapter.search("уільям")
+
+        assertEquals(1, fetcher.requestedUrls.count { it == sitemapUrl })
+    }
+
+    @Test
+    fun `a future stamp never freezes the tag index`() = runBlocking {
+        // #622 convention: a clock that ran ahead must not keep a snapshot
+        // fresh — the inverted stamp is treated as stale and the sitemap is
+        // read again, never trusted until the real clock catches up.
+        val fetcher = FakeFetcher(
+            mapOf(
+                sitemapUrl to tagsSitemap(stephenKingTag),
+                stephenKingTag to tagPage(stephenKingTag, "ur" to "Ур - Стівен Кінг")
+            )
+        )
+        var clock = 9_000_000L
+        val adapter = SoundBooksAdapter(fetcher = fetcher, pauseMillis = {}, now = { clock })
+
+        adapter.search("кінг")
+        clock = 1_000L
+        adapter.search("кінг")
+
+        assertEquals(2, fetcher.requestedUrls.count { it == sitemapUrl })
     }
 }

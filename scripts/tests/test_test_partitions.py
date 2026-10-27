@@ -235,6 +235,14 @@ class TestPartitionsCliTest(unittest.TestCase):
             ("AGENTS.md", "CONTRIBUTING.md"),
             ("README.md",),
             ("docs/adr/0039-source-request-gate.md", "docs/agents/swarm.md"),
+            # A non-markdown file under docs/ is still documentation: the
+            # prefix branch, not the suffix one (#1493, review of #1494 — the
+            # prefix alone was unpinned, a mutation removing it survived).
+            ("docs/screenshots/01-listen.webp",),
+            ("docs/agents/fixtures/report.xml", "docs/adr/0001-recording.md"),
+            # A markdown file under a code tree is documentation too: it cannot
+            # change the web build, and the web check is reserved for the tree.
+            ("web/README.md",),
         ):
             with self.subTest(changed_files=changed_files):
                 arguments = ["select"]

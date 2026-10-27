@@ -49,6 +49,7 @@ import com.slukhayka.audiobooks.ui.components.NavigationChip
 import com.slukhayka.audiobooks.ui.components.OpenWebSourceRow
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.theme.AppDimens
+import com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign
 
 /**
  * spec-28 (#203) — the Огляд feed body, extracted from HomeScreen as a
@@ -609,8 +610,12 @@ fun LazyListScope.homeFeedContent(
                             Icon(
                                 imageVector = Icons.Default.PlayArrow,
                                 contentDescription = listenDescription,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(28.dp)
+                                tint = if (LocalPaperInkDesign.current) {
+                                    MaterialTheme.colorScheme.tertiary
+                                } else {
+                                    MaterialTheme.colorScheme.primary
+                                },
+                                modifier = Modifier.size(if (LocalPaperInkDesign.current) 22.dp else 28.dp)
                             )
                         }
                     }

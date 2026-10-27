@@ -225,6 +225,22 @@ fun BookRow(
                         coverBadge?.invoke(this)
                     }
                     Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
+                } else if (paperInk) {
+                    // A paper row always shows its cover slot: a catalogue row
+                    // without artwork gets the direction's paper tile instead of
+                    // an empty gap that made feed rows look like a different
+                    // component.
+                    Box(modifier = paperCoverModifier) {
+                        com.slukhayka.audiobooks.ui.components.paperink.PaperInkCoverFlat(
+                            title = title,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(com.slukhayka.audiobooks.ui.theme.PaperInkDimens.RadiusSmall)),
+                            radius = com.slukhayka.audiobooks.ui.theme.PaperInkDimens.RadiusSmall,
+                        )
+                        coverBadge?.invoke(this)
+                    }
+                    Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
                 } else if (!coverUrl.isNullOrBlank()) {
                     // Catalogue rows (search, work feed) carry a cover URL, not a
                     // library entity — the same slot, artwork or placeholder.

@@ -15,9 +15,15 @@ import kotlinx.coroutines.delay
  * (`https://arch.sound-books.net/<id>/<Title>-NN.mp3`). Parsing = page → m3u →
  * mp3 lines.
  *
- * Search: the DLE search endpoint is robots-discouraged (robots.txt disallows
- * the `do=search` route), so [search] returns empty and discovery goes through
- * [fetchNew] (homepage recent) and category pages (T4's job).
+ * Search (#1486): the DLE search endpoint is robots-discouraged (robots.txt
+ * disallows the `do=search` route), so [search] goes through the site's OWN
+ * allowed taxonomy instead: `tags_pages.xml` lists the author/narrator/genre
+ * tags (1828 at the 2026-10-27 spike), and a tag page (`/tags/<name>/`,
+ * paginated like a category) lists that author's books with the same tiles as
+ * the feed. The book page's «Переглянути всі книги цього автора» link is the
+ * same listing. One sitemap read (cached for the catalogue TTL) plus at most
+ * [searchTagLimit] paced requests; discovery otherwise goes through [fetchNew]
+ * (homepage recent) and category pages (T4's job).
  *
  * ## True profile completeness (spec-35 T5, inventory #237)
  *
@@ -41,7 +47,11 @@ class SoundBooksAdapter(
     /** Spec #462 ID5 (#468) — the human-rhythm pause source between pages. */
     private val pacing: PacingPolicy = PacingPolicy(),
     /** Injectable pause so tests pin the rhythm without sleeping (spec-38). */
-    private val pauseMillis: suspend (Long) -> Unit = { delay(it) }
+    private val pauseMillis: suspend (Long) -> Unit = { delay(it) },
+    /** #1486 — how many matched tag pages one query may open. */
+    private val searchTagLimit: Int = SEARCH_TAG_LIMIT,
+    /** #1486 — how many books one query returns at most. */
+    private val searchResultLimit: Int = SEARCH_RESULT_LIMIT
 ) : SourceAdapter {
     // Page + playlist may each wait for a token; Player's eight seconds are
     // for starting resolved media, not for acquiring these signed URLs.
@@ -52,7 +62,68 @@ class SoundBooksAdapter(
 
     override val sourceId: String = "soundbooks"
 
-    override suspend fun search(query: String): List<SourceBook> = emptyList()
+    override suspend fun search(query: String): List<SourceBook> {
+        val clean = query.trim().lowercase()
+        if (clean.isBlank()) return emptyList()
+        val matched = tagIndex()
+            .mapNotNull { tag -> tagRank(tag.name, clean)?.let { rank -> tag to rank } }
+            .sortedWith(compareBy({ it.second }, { it.first.name.length }))
+            .map { it.first }
+            .take(searchTagLimit)
+        if (matched.isEmpty()) return emptyList()
+        val books = LinkedHashMap<String, SourceBook>()
+        matched.forEachIndexed { index, tag ->
+            if (books.size >= searchResultLimit) return@forEachIndexed
+            if (index > 0) pauseMillis(pacing.nextPauseMillis())
+            val html = fetcher.getText(tag.url, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
+            if (html.isEmpty()) return@forEachIndexed
+            for (book in parseTiles(html, searchResultLimit - books.size)) {
+                books.putIfAbsent(book.url, book)
+            }
+        }
+        return books.values.toList()
+    }
+
+    /**
+     * The site's author/narrator/genre tags from `tags_pages.xml`. The sitemap
+     * is metadata under the catalogue TTL; the parsed index is kept in memory
+     * so a keystroke never re-reads 428 KB.
+     */
+    private suspend fun tagIndex(): List<Tag> {
+        val now = System.currentTimeMillis()
+        val cached = tagIndexCache
+        if (cached != null && now - cached.first < TAG_INDEX_TTL_MS) return cached.second
+        val xml = fetcher.getText(TAG_SITEMAP_URL, emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.CATALOG_TTL_MS)
+        if (xml.isEmpty()) return cached?.second.orEmpty()
+        val tags = TAG_LOC.findAll(xml).mapNotNull { match ->
+            val url = match.groupValues[1].trim()
+            if (!url.startsWith(TAG_URL_PREFIX)) return@mapNotNull null
+            val name = tagName(url) ?: return@mapNotNull null
+            Tag(name, url)
+        }.distinctBy { it.url }.toList()
+        if (tags.isNotEmpty()) tagIndexCache = now to tags
+        return tags.ifEmpty { cached?.second.orEmpty() }
+    }
+
+    /** `…/tags/стівен%20кінг/` → «стівен кінг»; a malformed sequence is a miss, never a crash. */
+    private fun tagName(url: String): String? {
+        val segment = url.removeSuffix("/").substringAfterLast('/')
+        if (segment.isBlank()) return null
+        return runCatching {
+            java.net.URLDecoder.decode(segment.replace("+", "%2B"), Charsets.UTF_8.name())
+        }.getOrNull()?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+    }
+
+    /** Exact tag first, then a prefix, then a substring — the smallest set wins. */
+    private fun tagRank(name: String, query: String): Int? = when {
+        name == query -> 0
+        name.startsWith(query) -> 1
+        name.contains(query) -> 2
+        else -> null
+    }
+
+    /** One book-list tag: its display name and the allowed page url. */
+    private data class Tag(val name: String, val url: String)
 
     override suspend fun fetchBookPage(url: String): SourceBookDetail {
         // #558: a promo article stored by an older build fails hydration
@@ -402,7 +473,23 @@ class SoundBooksAdapter(
         }.getOrDefault("")
     }
 
+    /** In-memory tag index: the sitemap moves slowly, a keystroke must stay cheap. */
+    @Volatile
+    private var tagIndexCache: Pair<Long, List<Tag>>? = null
+
     private companion object {
+        /** #1486 — the site's own taxonomy sitemap (allowed by robots). */
+        const val TAG_SITEMAP_URL: String = "https://sound-books.net/tags_pages.xml"
+        const val TAG_URL_PREFIX: String = "https://sound-books.net/tags/"
+        /** Keep the in-memory tag index for the same day the catalogue keeps. */
+        const val TAG_INDEX_TTL_MS: Long = FeedSnapshotPolicy.CATALOG_TTL_MS
+        /** #1486 — matched tag pages one query may open; the rest wait for the next query. */
+        const val SEARCH_TAG_LIMIT: Int = 3
+        /** #1486 — bounded result: one page of a tag is ten books, plus the merge. */
+        const val SEARCH_RESULT_LIMIT: Int = 60
+        /** One `<loc>` of the sitemap index. */
+        val TAG_LOC = Regex("""<loc>\s*([^<\s]+)\s*</loc>""", RegexOption.IGNORE_CASE)
+
         /**
          * Spec #462 ID5 (#468) — the named (and per-instance configurable,
          * via [categoryPageLimit]) category limit that replaced the old magic

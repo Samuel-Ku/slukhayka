@@ -479,6 +479,43 @@ class MergePrTest(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertNotIn("упали", result.stderr)
 
+    def test_a_pending_run_with_the_zero_completed_sentinel_still_blocks(self):
+        """In-progress runs carry `completedAt: "0001-01-01T00:00:00Z"`, not null.
+
+        Parsing that sentinel as a real year-1 moment made the latest-run dedupe
+        keep an older green run and discard the newer pending one — the gate
+        would report CI green while it was still running. Zero means "not
+        completed"; recency falls back to startedAt.
+        """
+        checks = [
+            check("Pure JVM"),
+            check("Room native SDK 36", conclusion="",
+                  started="2026-10-10T19:40:00Z",
+                  completed="0001-01-01T00:00:00Z", status="IN_PROGRESS"),
+        ]
+
+        result = self.gate(pr=pr_payload(checks=checks))
+
+        self.assertEqual(1, result.returncode, result.stderr)
+        self.assertIn("не завершився", result.stderr)
+        self.assertIn("Room native SDK 36", result.stderr)
+
+    def test_a_pending_verdict_check_is_not_hidden_by_an_old_success(self):
+        """Same sentinel on a re-run of the verdict check after `labeled`."""
+        checks = [
+            check("Pure JVM"),
+            check("Review gate", "SUCCESS",
+                  started="2026-10-10T19:30:00Z", completed="2026-10-10T19:30:12Z"),
+            check("Review gate", conclusion="",
+                  started="2026-10-10T19:45:00Z",
+                  completed="0001-01-01T00:00:00Z", status="IN_PROGRESS"),
+        ]
+
+        result = self.gate(pr=pr_payload(checks=checks))
+
+        self.assertEqual(1, result.returncode, result.stderr)
+        self.assertIn("не завершився", result.stderr)
+
     def test_the_latest_failed_run_still_refuses(self):
         """The dedupe is by time, not by conclusion: latest fail stays fail."""
         checks = [

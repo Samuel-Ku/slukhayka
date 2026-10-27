@@ -166,7 +166,7 @@ json_facts() {
 import json
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 MODE, *ARGS = sys.argv[1:]
 
@@ -235,13 +235,28 @@ if MODE == "pr":
     # then succeeds after `labeled`). Only the LATEST run per name decides the
     # verdict — otherwise a superseded failure refuses the merge forever, and
     # the gate can never accept a re-run it itself asked for (#1492).
+    # In-progress runs come with `completedAt = "0001-01-01T00:00:00Z"`, not
+    # null. Parsing that sentinel as a real year-1 moment made the dedupe keep
+    # an older completed success and DISCARD the newer pending run — a
+    # fail-open that would merge while CI is still running. A zero-time
+    # completion means "not completed": fall back to startedAt, and a run with
+    # no usable time at all is treated as the newest (unknown recency must not
+    # silently pick an older green run).
+    sentinel = datetime.max.replace(tzinfo=timezone.utc)
+
+    def run_recency(context):
+        for key in ("completedAt", "startedAt"):
+            stamp = moment(context.get(key))
+            if stamp is not None and stamp.year > 1970:
+                return stamp
+        return sentinel
+
     latest = {}
     for context in pr.get("statusCheckRollup") or []:
         name = context.get("name") or context.get("context") or "?"
-        when = moment(context.get("completedAt") or context.get("startedAt")
-                      or context.get("createdAt"))
+        when = run_recency(context)
         current = latest.get(name)
-        if current is None or (when is not None and (current[0] is None or when > current[0])):
+        if current is None or when > current[0]:
             latest[name] = (when, context)
     for context in [entry[1] for entry in latest.values()]:
         name = context.get("name") or context.get("context") or "?"

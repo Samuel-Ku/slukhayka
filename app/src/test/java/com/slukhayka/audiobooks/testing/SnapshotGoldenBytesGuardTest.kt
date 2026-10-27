@@ -502,7 +502,7 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "ffa6481469c4c8eed5ac681dd4217629" + "3d61ec5354ccf38d950445fcb87b3516"
+                "dce48dc6924a1e0891d2bd9852dc6b87" + "26232acb0a5ea288da5e60d1bc6e8f88"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

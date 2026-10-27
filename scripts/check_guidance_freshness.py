@@ -14,7 +14,14 @@ what the agent reads. This command makes the drift visible in one line, before
 the guidance is trusted:
 
     scripts/check_guidance_freshness.py            # 0 = fresh, 1 = drift
+    scripts/check_guidance_freshness.py --no-fetch # offline lane, may be stale
     git show origin/main:AGENTS.md                  # the version that matters
+
+When the base is a remote-tracking ref (`origin/main`), the command fetches it
+first: comparing against a stale `origin/main` is exactly the false PASS this
+tool exists to prevent. An unreadable remote is an unknown state (exit 2), not
+freshness; `--no-fetch` is the explicit offline opt-out, and then the answer is
+only as fresh as the local ref.
 
 It only READS. It never edits or restores guidance: a lane may legitimately
 change AGENTS.md in its own PR, and that is drift against `origin/main` until
@@ -146,11 +153,27 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--base", default="origin/main", help="git-ревізія для порівняння")
     parser.add_argument("--root", default=".", help="тека робочої копії (типово поточна)")
     parser.add_argument("--quiet", action="store_true", help="друкувати лише підсумок")
+    parser.add_argument(
+        "--no-fetch",
+        dest="fetch",
+        action="store_false",
+        help="не робити git fetch (офлайн); відповідь буде настільки свіжою, наскільки свіжий локальний ref",
+    )
     arguments = parser.parse_args(argv[1:])
 
     git = Git(os.environ.get("GUIDANCE_GIT", "git"))
     try:
         root = repository_root(git, Path(arguments.root).resolve())
+        if arguments.fetch and arguments.base.startswith("origin/"):
+            branch = arguments.base.split("/", 1)[1]
+            fetched = git("fetch", "--quiet", "origin", branch, cwd=root, check=False)
+            if fetched.returncode != 0:
+                detail = (fetched.stderr or fetched.stdout).strip().splitlines()
+                raise CannotVerify(
+                    "git fetch origin %s: %s — потрібна мережа або --no-fetch "
+                    "(тоді відповідь лише настільки свіжа, наскільки локальний ref)"
+                    % (branch, detail[-1] if detail else fetched.returncode)
+                )
         drift = compare(git, root, arguments.base)
     except CannotVerify as error:
         print(f"FAIL  перевірити свіжість guidance не вдалося: {error}", file=sys.stderr)

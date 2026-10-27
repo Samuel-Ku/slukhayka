@@ -11,7 +11,8 @@ parameters from the composition root, not through the ViewModel.
 
 **Since #1490 the eight listener-facing surfaces have a «Папір і голос»
 branch:** «Слухати», «Огляд», «Медіатека», «Друзі», «Досягнення»,
-«Налаштування», сторінка книги і плеєр (always ink). A screen file usually has
+«Налаштування», сторінка книги; плеєр завжди в «Чорнилі» (рішення A, не
+паперова гілка). A screen file usually has
 both branches; the paper one is chosen by `LocalPaperInkDesign`, so keep the
 legacy branch compiling and its test tags stable. The design contract, tokens
 and accepted gaps: `docs/specs/2026-10-26-ui-refresh-2027.md`; component

@@ -111,7 +111,7 @@ and the seam is explicit.
   Micro 11, Timer/TimerXL tnum).
 - `PaperInkDimens` / `PaperInkShapes` — SpacePage 20, SpaceSection 32,
   covers 48/58/84/104/132/272, row 112, mini player 64, seek 44, play 72.
-- `AppearancePreferences` — persisted `АВТО/ПАПІР/ЧОРНИЛО`, «Зручно/Компактно»
+- `AppearancePreferences` — persisted «Авто / Папір / Чорнило», «Зручно / Компактно»
   and the player-always-ink exception (decision A: the player is always ink).
 - `paperink/` primitives are the preferred names for new screens; the legacy
   host components (`BookRow`, `PosterCard`, `NavigationChip`, `SectionHeaders`,

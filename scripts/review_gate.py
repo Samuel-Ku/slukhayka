@@ -14,12 +14,15 @@ What it checks, in this order:
 1. the PR is open and not a draft;
 2. the verdict label (default `review:pass`) is present on the PR;
 3. the LATEST `labeled` event for that label is not older than the PR head
-   commit — a verdict given before the last push does not cover what would be
-   merged.
+   commit, and not older than the last `head_ref_force_pushed` event — a verdict
+   given before the last push (or a force-push back to an older commit) does
+   not cover what would be merged.
 
-Freshness against a re-run of CI comes for free: this check is itself part of
-the checks on a commit, and a new push starts a new run, so a stale label fails
-until the reviewer re-issues it.
+Freshness against a re-run of CI is deliberately left to `scripts/merge-pr.sh`:
+it counts every check-run after the verdict, and that is the final gate before
+the merge. This check only publishes the verdict as a status so a plain
+`gh pr merge` cannot present a green board without one; it does not pretend to
+replace the final gate's re-run proof.
 
 Exit codes: 0 — gate passes; 1 — gate refuses; 2 — cannot verify (arguments,
 `gh`, network, unreadable timeline). A refusal is a verdict; an unknown state is
@@ -108,7 +111,7 @@ def _head_committed_at(gh: str, repo: str, sha: str) -> datetime:
     return _iso(raw, f"head {sha[:12]}")
 
 
-def _latest_verdict_at(gh: str, repo: str, pr: str, label: str) -> datetime:
+def _tl_events(gh: str, repo: str, pr: str) -> list[dict]:
     # `--slurp` wraps the pages into one array of arrays; flatten it because a
     # long PR timeline is paginated and bare `--paginate` would return several
     # concatenated JSON arrays that `json.loads` cannot read.
@@ -124,17 +127,29 @@ def _latest_verdict_at(gh: str, repo: str, pr: str, label: str) -> datetime:
         for page in pages
         for event in (page if isinstance(page, list) else [page])
     ]
-    moments: list[datetime] = []
-    for event in events:
-        if not isinstance(event, dict):
-            continue
-        event_label = event.get("label")
-        name = event_label.get("name") if isinstance(event_label, dict) else None
-        if event.get("event") == "labeled" and name == label:
-            moments.append(_iso(str(event.get("created_at", "")), f"подія {label}"))
-    if not moments:
+    if not isinstance(events, list):
+        raise CannotVerify("стрічка подій PR: неочікувана відповідь")
+    return [event for event in events if isinstance(event, dict)]
+
+
+def _timeline_moments(
+    gh: str, repo: str, pr: str, label: str
+) -> tuple[datetime, datetime | None]:
+    """Latest label event and latest force-push event, in one timeline pass."""
+    verdicts: list[datetime] = []
+    rewrites: list[datetime] = []
+    for event in _tl_events(gh, repo, pr):
+        when = _iso(str(event.get("created_at", "")), "подія стрічки PR")
+        if event.get("event") == "labeled":
+            event_label = event.get("label")
+            name = event_label.get("name") if isinstance(event_label, dict) else None
+            if name == label:
+                verdicts.append(when)
+        elif event.get("event") == "head_ref_force_pushed":
+            rewrites.append(when)
+    if not verdicts:
         raise LookupError(label)
-    return max(moments)
+    return max(verdicts), (max(rewrites) if rewrites else None)
 
 
 def verdict(gh: str, pr: str, label: str, repo: str) -> str:
@@ -153,7 +168,7 @@ def verdict(gh: str, pr: str, label: str, repo: str) -> str:
             "(мітку ставить оглядач, не автор PR)"
         )
     try:
-        label_at = _latest_verdict_at(gh, repo, pr, label)
+        label_at, force_push_at = _timeline_moments(gh, repo, pr, label)
     except LookupError:
         raise CannotVerify(f"мітка '{label}' є в PR, але події labeled у стрічці немає")
     head_at = _head_committed_at(gh, repo, head_sha)
@@ -161,6 +176,12 @@ def verdict(gh: str, pr: str, label: str, repo: str) -> str:
         return (
             f"FAIL  вердикт '{label}' старіший за HEAD ({label_at.isoformat()} < "
             f"{head_at.isoformat()}) — після останнього коміту огляду не було"
+        )
+    if force_push_at is not None and label_at < force_push_at:
+        return (
+            f"FAIL  після вердикту '{label}' ({label_at.isoformat()}) гілку "
+            f"перезаписали ({force_push_at.isoformat()}) — огляд був для іншої "
+            "ревізії"
         )
     return (
         f"PASS  свіжий вердикт '{label}': {label_at.isoformat()} ≥ HEAD "

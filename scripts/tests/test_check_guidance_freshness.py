@@ -105,6 +105,52 @@ class GuidanceFreshnessTest(unittest.TestCase):
         code, out, _ = self.run_check("--base", "HEAD~1")
         self.assertEqual(1, code, out)
 
+    def test_a_stale_origin_main_is_fetched_before_comparing(self):
+        """PASS проти застарілого origin/main — саме та хибна зелень, яку ловимо."""
+        remote = self.temp / "remote.git"
+        subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True,
+                       env=clean_git_environment())
+        self.run_git("remote", "add", "origin", str(remote))
+        self.run_git("push", "-q", "origin", "HEAD:main")
+        self.run_git("update-ref", "refs/remotes/origin/main", "HEAD")
+
+        other = self.temp / "other"
+        subprocess.run(["git", "clone", "-q", str(remote), str(other)], check=True,
+                       env=clean_git_environment())
+        self.git_at(other, "checkout", "-q", "-B", "main", "origin/main")
+        self.git_at(other, "config", "user.email", "tests@example.invalid")
+        self.git_at(other, "config", "user.name", "Guidance tests")
+        (other / "AGENTS.md").write_text("# Guidance\n\nAdvanced on main.\n", encoding="utf-8")
+        self.git_at(other, "add", "-A")
+        self.git_at(other, "commit", "-q", "-m", "guidance advanced")
+        self.git_at(other, "push", "-q", "origin", "HEAD:main")
+
+        # This copy still equals the OLD origin/main; without a fetch it looks
+        # fresh. Run that first — a default run would update the ref and hide
+        # the difference this test exists to prove.
+        code_offline, out_offline, _ = self.run_check("--base", "origin/main", "--no-fetch")
+        self.assertEqual(0, code_offline, out_offline)
+
+        # The default fetches first, so it must see the drift.
+        code, out, err = self.run_check("--base", "origin/main")
+        self.assertEqual(1, code, out + err)
+        self.assertIn("AGENTS.md", out)
+
+    def test_an_unreadable_remote_is_unknown_not_fresh(self):
+        self.run_git("remote", "add", "origin", str(self.temp / "no-such-remote.git"))
+        self.run_git("update-ref", "refs/remotes/origin/main", "HEAD")
+        code, out, err = self.run_check("--base", "origin/main")
+        self.assertEqual(2, code, out + err)
+        self.assertIn("--no-fetch", err)
+
+    def git_at(self, cwd, *arguments):
+        completed = subprocess.run(
+            ["git", "-C", str(cwd), *arguments], capture_output=True, text=True,
+            env=clean_git_environment(), check=False,
+        )
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        return completed.stdout
+
     def test_an_unreadable_base_is_unknown_not_fresh(self):
         code, out, err = self.run_check("--base", "no-such-ref")
         self.assertEqual(2, code, out + err)

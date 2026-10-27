@@ -17,7 +17,7 @@ each links to the section that explains it.
 | compile anything | a lane **inherits** `local.properties` from the copy that created it — a stale `sdk.dir` (this machine has seen `/opt/android-sdk`, which does not exist) makes Gradle answer `SDK location not found`. The SDK here is `/home/stealth/android-sdk`, or set `ANDROID_HOME` | [Worktrees](#worktrees) |
 | trust a mutation | `outcome: killed` is caught; `no-verdict` and `interrupted` are **not** verdicts | [Mutations](#mutations) |
 | run Gradle | only through `.worktrees/gt` — **a file**, not a directory, not on `PATH` | [The build slot](#the-build-slot) |
-| trust `AGENTS.md` / `docs/agents/` in this copy | run `scripts/check_guidance_freshness.py` — it names every guidance file that differs from `origin/main` | [Guidance freshness](#guidance-freshness) |
+| trust `AGENTS.md` / `docs/agents/` in this copy | run `scripts/check_guidance_freshness.py` — it fetches `origin/main` and names every covered guidance file that differs | [Guidance freshness](#guidance-freshness) |
 
 ## Worktrees
 
@@ -74,10 +74,13 @@ the always-loaded file described a repository that did not exist.
 
 ```sh
 scripts/check_guidance_freshness.py            # 0 = matches origin/main, 1 = drift
+scripts/check_guidance_freshness.py --no-fetch # offline: only as fresh as the local ref
 git show origin/main:AGENTS.md                  # the version that matters
 ```
 
-It covers `AGENTS.md`, `CONTRIBUTING.md`, `docs/agents/**` and
+It fetches `origin/main` first (comparing against a stale remote-tracking ref is
+the false PASS the tool exists to prevent; an unreadable remote is exit 2, not
+freshness). It covers `AGENTS.md`, `CONTRIBUTING.md`, `docs/agents/**` and
 `docs/CODEMAPS/**`, and it only reads: a lane may legitimately change guidance
 in its own PR, and that is drift until the PR merges. Run it at the start of a
 session in a copy you did not create from fresh `origin/main`, and whenever a

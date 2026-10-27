@@ -31,8 +31,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Checkout
+      # The gate itself is read from the BASE commit, not from the PR: a PR
+      # that can rewrite the script which judges it turns a process signal into
+      # a self-signed note. The PR copy is checked out only for the one
+      # bootstrap case — the PR that introduces this workflow, when the base
+      # has no scripts/review_gate.py yet. After that PR merges, every later
+      # run uses the immutable base copy and the fallback is never taken.
+      - name: Checkout base (the gate under test)
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+
+      - name: Checkout PR (bootstrap fallback only)
+        uses: actions/checkout@v5
+        with:
+          path: pr
 
       - name: Check the verdict is fresh on this HEAD
         env:
@@ -41,4 +55,9 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -eu
-          python3 scripts/review_gate.py "$PR_NUMBER"
+          gate=base/scripts/review_gate.py
+          if [ ! -f "$gate" ]; then
+            echo "::warning::base commit has no scripts/review_gate.py yet — bootstrap run from the PR copy; after this PR merges the base copy is used"
+            gate=pr/scripts/review_gate.py
+          fi
+          python3 "$gate" "$PR_NUMBER"

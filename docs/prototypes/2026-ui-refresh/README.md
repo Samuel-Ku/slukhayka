@@ -16,7 +16,7 @@
 | `index.html` | дошка: діагноз, напрям, палітри, типографіка, 8 екранів, «було → стало», компоненти, таблиця розмірів, план, ревізія |
 | `assets/app.css` | токени й компоненти застосунку (обидві теми, 412×915 dp) |
 | `assets/board.css` | оформлення самої дошки (не частина застосунку) |
-| `assets/fonts/` | Onest + Literata, woff2, сабсети кирилиця/латиниця, OFL — див. `fonts/fonts.css` |
+| `assets/fonts/` | Onest + Literata, woff2, сабсети кирилиця/латиниця; повні тексти OFL — `app/src/main/assets/licenses/ofl-onest.txt` і `ofl-literata.txt`, а не в `fonts.css` |
 | `assets/covers/` | демонстраційні обкладинки з тестових наборів репозиторію |
 | `assets/0*.webp` | поточний стан застосунку (старі знімки) |
 | `assets/after-*.png` | зменшені рендери нових екранів для пари «було → стало» |
@@ -35,7 +35,7 @@ chromium --headless --disable-gpu --hide-scrollbars \
   "file://$PWD/index.html?only=player"
 ```
 
-Усі розміри на макетах — у dp (1 px = 1 dp при рендері з `--force-device-scale-factor=2`).
+Усі розміри на макетах — у dp. При `--force-device-scale-factor=2` зображення 2×: 2 px = 1 dp.
 
 ## Обмеження
 

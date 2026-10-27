@@ -579,6 +579,48 @@ class MergePrTest(unittest.TestCase):
         self.assertIn("старіший за останній прогін CI", result.stderr)
         self.assertIn("Pure JVM", result.stderr)
 
+    def test_the_verdict_check_created_by_the_label_is_not_a_late_run(self):
+        """#1492: `Review gate` стартує ПІСЛЯ мітки — інакше гейт вічно червоний.
+
+        Чек публікує вердикт, тож подія `labeled` запускає його вже після часу
+        мітки. Якщо вважати його «пізнім прогоном CI», кожен правильно
+        оглянутий PR отримує вічну відмову. Виключення не послаблює гейт:
+        без свіжої мітки цей чек сам червоний (див. test_review_gate), а
+        решта чеків і комітів перевіряються як раніше.
+        """
+        check_runs = check_runs_page(
+            *history(),
+            run("Review gate", "success", "2026-10-10T19:50:05Z", "2026-10-10T19:50:20Z"),
+        )
+
+        result = self.gate(check_runs=check_runs)
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn("старіший за останній прогін CI", result.stderr)
+        self.assertEqual(
+            ["pr merge 1215 --squash --match-head-commit %s" % HEAD],
+            self.merge_calls(),
+        )
+
+    def test_another_check_created_after_the_label_is_still_late(self):
+        """Межа виключення — рівно один названий чек, а не «будь-який новий».
+
+        Цей тест падає, якщо майбутня правка почне виключати «схожі» чеки або
+        весь клас success-прогонів: саме так гейт став би зеленим на CI, який
+        перезапустили після огляду.
+        """
+        check_runs = check_runs_page(
+            *history(),
+            run("Review gate", "success", "2026-10-10T19:50:05Z", "2026-10-10T19:50:20Z"),
+            run("Android Lint", "success", "2026-10-10T19:51:00Z", "2026-10-10T19:52:00Z"),
+        )
+
+        result = self.gate(check_runs=check_runs)
+
+        self.assertEqual(1, result.returncode)
+        self.assertIn("старіший за останній прогін CI", result.stderr)
+        self.assertIn("Android Lint", result.stderr)
+
     def test_refuses_when_the_repository_would_delete_the_branch(self):
         result = self.gate(repo={"delete_branch_on_merge": True})
 

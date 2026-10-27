@@ -47,10 +47,18 @@ if arguments[:1] == ["api"] and "/commits/" in arguments[1]:
         print(raw)
     sys.exit(0)
 if arguments[:1] == ["api"] and arguments[1].endswith("/timeline"):
-    events = json.loads(os.environ.get("FAKE_TIMELINE_JSON", "[]"))
-    # The real `gh api --paginate --slurp` wraps pages into an array of arrays;
-    # one page is enough to exercise both the parser and the flattening.
-    print(json.dumps([events]) if "--slurp" in arguments else json.dumps(events))
+    # The real call is `gh api --paginate --slurp`; without --slurp the pages
+    # are concatenated arrays that json.loads cannot read. Fail loudly so a
+    # future edit that drops the flag reddens the suite instead of silently
+    # passing on one-page fixtures.
+    if "--slurp" not in arguments:
+        print("fake gh: timeline must be read with --paginate --slurp", file=sys.stderr)
+        sys.exit(4)
+    if os.environ.get("FAKE_TIMELINE_PAGES"):
+        print(os.environ["FAKE_TIMELINE_PAGES"])
+    else:
+        events = json.loads(os.environ.get("FAKE_TIMELINE_JSON", "[]"))
+        print(json.dumps([events]))
     sys.exit(0)
 print(f"fake gh: unexpected arguments {arguments}", file=sys.stderr)
 sys.exit(2)
@@ -129,6 +137,50 @@ class ReviewGateTest(unittest.TestCase):
         self.assertEqual(1, code, out)
         self.assertIn("FAIL", out)
         self.assertIn("review:pass", out)
+
+    def test_a_label_that_predates_a_force_push_refuses(self):
+        # The fake emits the same shape as the API; keep the after_commit key
+        # on the event so the fixture stays honest.
+        timeline_json = json.dumps([
+            {"event": "labeled", "created_at": "2026-10-27T11:00:00Z",
+             "label": {"name": "review:pass"}},
+            {"event": "head_ref_force_pushed", "created_at": "2026-10-27T11:20:00Z",
+             "after_commit": "fedcba9876543210fedcba9876543210fedcba98"},
+        ])
+        code, out, _ = self.run_gate(
+            "1492",
+            FAKE_PR_JSON=pr_json(labels=["review:pass"]),
+            FAKE_TIMELINE_JSON=timeline_json,
+        )
+        self.assertEqual(1, code, out)
+        self.assertIn("перезаписали", out)
+
+    def test_a_force_push_before_the_label_passes(self):
+        code, out, _ = self.run_gate(
+            "1492",
+            FAKE_PR_JSON=pr_json(labels=["review:pass"]),
+            FAKE_TIMELINE_JSON=json.dumps([
+                {"event": "head_ref_force_pushed", "created_at": "2026-10-27T09:00:00Z",
+                 "after_commit": "fedcba9876543210fedcba9876543210fedcba98"},
+                {"event": "labeled", "created_at": "2026-10-27T11:00:00Z",
+                 "label": {"name": "review:pass"}},
+            ]),
+        )
+        self.assertEqual(0, code, out)
+
+    def test_a_label_on_a_later_timeline_page_is_found(self):
+        """A long timeline is paginated; the verdict may live on page two."""
+        pages = json.dumps([
+            [{"event": "commented", "created_at": "2026-10-27T09:00:00Z"}],
+            [{"event": "labeled", "created_at": "2026-10-27T11:00:00Z",
+              "label": {"name": "review:pass"}}],
+        ])
+        code, out, _ = self.run_gate(
+            "1492",
+            FAKE_PR_JSON=pr_json(labels=["review:pass"]),
+            FAKE_TIMELINE_PAGES=pages,
+        )
+        self.assertEqual(0, code, out)
 
     def test_a_label_older_than_head_refuses(self):
         code, out, _ = self.run_gate(

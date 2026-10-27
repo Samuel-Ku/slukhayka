@@ -36,7 +36,10 @@
 #      (committedDate), за кожен прогін чеків HEAD-ревізії (filter=all, тож
 #      видно й перезапущені спроби) і за будь-який force-push гілки PR.
 #      Вердикт, старіший за новий коміт, новий прогін чи новий fail, не
-#      покриває те, що зливається, — і гейт відмовляє;
+#      покриває те, що зливається, — і гейт відмовляє. Власний чек вердикту
+#      (`MERGE_PR_VERDICT_CHECK`, типово `Review gate`) із цього списку
+#      виключений: його запускає сама мітка, тож «пізній» він завжди; його
+#      чесність тримає власна логіка (без свіжої мітки він червоний);
 #   7) у репозиторії вимкнено auto-delete гілок: увімкнений
 #      `delete_branch_on_merge` знищив би гілку PR так само, як колись
 #      `gh pr merge --delete-branch` зніс worktree.
@@ -69,6 +72,9 @@
 # Виклик: scripts/merge-pr.sh <номер-PR> [--dry-run]
 # Змінні: MERGE_PR_GH — шлях до gh (типово `gh`; потрібен для тестів),
 #         MERGE_PR_LABEL — назва мітки вердикту (типово `review:pass`),
+#         MERGE_PR_VERDICT_CHECK — назва CI-чека, що публікує вердикт (типово
+#         `Review gate`); його власний прогін не вважається «пізнім», бо його
+#         створює сама мітка,
 #         MERGE_PR_REPO — робоча копія для перевірок 2 і 3 (типово — git-корінь
 #         поточного каталогу; потрібен для тестів),
 #         MERGE_PR_GIT — шлях до git (типово `git`; теж для тестів: їм треба
@@ -81,6 +87,13 @@ set -euo pipefail
 
 GH="${MERGE_PR_GH:-gh}"
 LABEL="${MERGE_PR_LABEL:-review:pass}"
+# The CI check that publishes this verdict. It is triggered BY the label, so it
+# necessarily starts after the verdict and must not be counted as a "late CI
+# run" — otherwise every correctly reviewed PR would be refused forever. Its
+# own freshness logic (no label / label older than HEAD) is what keeps it
+# honest; a failing or pending gate still blocks through check 4 above.
+VERDICT_CHECK="${MERGE_PR_VERDICT_CHECK:-Review gate}"
+export MERGE_PR_VERDICT_CHECK="$VERDICT_CHECK"
 GIT="${MERGE_PR_GIT:-git}"
 
 usage() {
@@ -151,6 +164,7 @@ refuse() { printf 'FAIL  %s\n' "$1" >&2; printf 'Далі: %s\n' "$2" >&2; exit 
 json_facts() {
   python3 - "$@" <<'PY'
 import json
+import os
 import sys
 from datetime import datetime
 
@@ -298,7 +312,14 @@ elif MODE == "commits":
 elif MODE == "runs":
     verdict = moment(ARGS[1])
     late_runs, late_fails = [], []
+    self_check = os.environ.get("MERGE_PR_VERDICT_CHECK", "")
     for run in pages(ARGS[0], "check_runs"):
+        # The verdict check is created by the label itself, so it is always
+        # "late" by construction. Excluding it is not a loophole: its script
+        # fails without a fresh label, and checks 4/5/6 still see it fail or
+        # the label missing.
+        if self_check and (run.get("name") or "") == self_check:
+            continue
         started, completed = moment(run.get("started_at")), moment(run.get("completed_at"))
         late_start = bool(started and verdict and started > verdict)
         late_end = bool(completed and verdict and completed > verdict)

@@ -20,9 +20,11 @@ repository rather than the tree in front of you, read `origin/main` or start a
 fresh copy with `scripts/new-lane.sh`: a file missing here may exist there, and
 a count taken here may be stale. This has already produced a wrong "the file
 does not exist" once. Before trusting this file in a long-lived copy, run
-`scripts/check_guidance_freshness.py` — it names every guidance file that
-differs from `origin/main` in one line, because that drift is how a session
-merged a PR without ever reading the merge gate.
+`scripts/check_guidance_freshness.py` — it fetches `origin/main` and names every
+guidance file in its set (`AGENTS.md`, `CONTRIBUTING.md`, `docs/agents/**`,
+`docs/CODEMAPS/**`) that differs, in one line. That drift is how a session
+merged a PR without ever reading the merge gate; `--no-fetch` is the explicit
+offline opt-out and is only as fresh as the local ref.
 
 When a path that should exist is missing, `scripts/whereami.sh` prints the
 branch, ahead/behind `origin/main`, the file-set difference (only-in-main /
@@ -142,12 +144,6 @@ suite.
 - Run the full suite when the task asks for it, and before a release tag.
 - `./gradlew :app:lintDebug` is the static check: Android Lint against the
   checked-in `app/lint-baseline.xml`, so a new issue outside the baseline fails.
-- Changes under `app/src/main/java` also compile against `app/src/androidTest`
-  (the device accessibility suites, run only in CI). Before pushing a public
-  composable or a signature change there, run
-  `../gt ./gradlew --offline :app:compileDebugAndroidTestKotlin` — a
-  trailing-lambda break that the JVM tests cannot see otherwise costs a CI
-  round trip.
 - `scripts/mutate.sh` is the tool for the mutation check `CONTRIBUTING.md`
   requires of new logic: write a patch that breaks it and see whether its test
   goes red. `--class` reaches JVM test sources under `app/src/test/java`,

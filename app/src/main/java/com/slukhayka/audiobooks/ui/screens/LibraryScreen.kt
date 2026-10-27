@@ -512,7 +512,7 @@ fun LibraryScreen(
             // ~150 dp of chrome before the first book. They live in the ⋮ menu
             // now (one tap, just as discoverable) and the screen became a
             // single scroll of books.
-            com.slukhayka.audiobooks.ui.components.AppTabHeader(
+            com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader(
                 // spec-54 T06 (#873) — the root's name is the ONE resource the
                 // bottom bar also uses; a hardcoded literal could drift from it.
                 title = if (activeTab == 0) stringResource(R.string.nav_library) else sectionTitle,
@@ -522,9 +522,8 @@ fun LibraryScreen(
                 headingTestTag = "library_heading",
                 returnFocusRequester = libraryHeadingFocusRequester,
                 compact = landscapePhone,
+                onSettingsClick = onOpenSettings,
                 actions = {
-                    // #860 — the gear sits in the SAME place on every root.
-                    com.slukhayka.audiobooks.ui.components.AppSettingsGear(onClick = onOpenSettings)
                     if (activeTab != 0) {
                         // A section is open: one explicit way back to the books
                         // (system back does the same).
@@ -1351,13 +1350,22 @@ internal fun LibrarySearchField(
 ) {
     // The IME owns the first system Back; only the next one clears the query.
     val keyboardVisible = WindowInsets.isImeVisible
+    val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
     BackHandler(enabled = query.isNotEmpty() && !keyboardVisible) { onQueryChange("") }
     OutlinedTextField(
         value = query,
         onValueChange = onQueryChange,
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceSm)
+            .padding(
+                horizontal = if (paperInk) {
+                    com.slukhayka.audiobooks.ui.theme.PaperInkDimens.SpacePage
+                } else {
+                    AppDimens.PageSides
+                },
+                vertical = AppDimens.SpaceSm,
+            )
+            .heightIn(min = if (paperInk) 52.dp else 56.dp)
             .testTag("library_search"),
         label = { Text(stringResource(R.string.a11y_library_search)) },
         placeholder = { Text(stringResource(R.string.lib_search_placeholder)) },
@@ -1392,9 +1400,16 @@ internal fun LibrarySearchField(
         // (the prototype draws no border) needs a decision about what replaces
         // it. So this change removes the drift without answering that.
         colors = OutlinedTextFieldDefaults.colors(
-            // MD3: input fills sit on the highest tonal container.
-            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            focusedContainerColor = if (paperInk) {
+                MaterialTheme.colorScheme.surface
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHighest
+            },
+            unfocusedContainerColor = if (paperInk) {
+                MaterialTheme.colorScheme.surface
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerHighest
+            },
             focusedBorderColor = MaterialTheme.colorScheme.primary,
             unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
         ),
@@ -1407,7 +1422,11 @@ internal fun LibrarySearchField(
         // Still open from the same prototype rule (item 2 of Огляд): the field
         // should be FILLED with no border, and 54 px tall. This change fixes
         // the disagreement between the two fields, not yet the border.
-        shape = RoundedCornerShape(AppDimens.RadiusPill)
+        shape = if (paperInk) {
+            RoundedCornerShape(com.slukhayka.audiobooks.ui.theme.PaperInkDimens.RadiusMedium)
+        } else {
+            RoundedCornerShape(AppDimens.RadiusPill)
+        }
     )
 }
 
@@ -4025,9 +4044,14 @@ internal fun LibrarySectionTabs(
                     .testTag(action.first)
                     .clickable(onClick = action.second)
             ) {
+                val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
                 Text(
                     text = label,
-                    style = MaterialTheme.typography.titleSmall,
+                    style = if (paperInk) {
+                        com.slukhayka.audiobooks.ui.theme.PaperInkType.Tab
+                    } else {
+                        MaterialTheme.typography.titleSmall
+                    },
                     color = if (selected) {
                         MaterialTheme.colorScheme.onSurface
                     } else {
@@ -4044,8 +4068,12 @@ internal fun LibrarySectionTabs(
                             else Modifier.width(0.dp)
                         )
                         .background(
-                            if (selected) MaterialTheme.colorScheme.primary
-                            else Color.Transparent
+                            when {
+                                selected && com.slukhayka.audiobooks.ui.theme
+                                    .LocalPaperInkDesign.current -> MaterialTheme.colorScheme.tertiary
+                                selected -> MaterialTheme.colorScheme.primary
+                                else -> Color.Transparent
+                            }
                         )
                 )
             }

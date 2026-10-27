@@ -53,6 +53,10 @@ fun PaperInkTabHeader(
     modifier: Modifier = Modifier,
     headingTestTag: String? = null,
     compact: Boolean = false,
+    // A root may name what the screen holds («12 книг · 3 год 20 хв») instead
+    // of leaving the space under the title empty; sections hide the wordmark.
+    subtitle: String? = null,
+    showBrandMark: Boolean = true,
     // Optional root actions (refresh, search…) rendered before the gear. The
     // gear stays the LAST control on every root, so its place never moves.
     actions: (@Composable RowScope.() -> Unit)? = null,
@@ -77,7 +81,7 @@ fun PaperInkTabHeader(
                 .then(if (headingTestTag != null) Modifier.testTag(headingTestTag) else Modifier)
                 .semantics { heading() },
         ) {
-            if (!compact) {
+            if (!compact && showBrandMark) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -99,12 +103,21 @@ fun PaperInkTabHeader(
                 text = title,
                 style = if (compact) PaperInkType.SectionTitle else PaperInkType.ScreenTitle,
                 color = colorScheme.onSurface,
+                maxLines = if (compact) 1 else 2,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 modifier = if (returnFocusRequester != null) {
                     Modifier.focusRequester(returnFocusRequester).focusable()
                 } else {
                     Modifier
                 },
             )
+            if (!compact && subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = PaperInkType.Meta,
+                    color = colorScheme.onSurfaceVariant,
+                )
+            }
         }
         if (actions != null) actions()
         if (onSettingsClick != null) {

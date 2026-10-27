@@ -103,6 +103,7 @@ import com.slukhayka.audiobooks.ui.components.paperink.PaperInkNavigationBar
 import com.slukhayka.audiobooks.ui.theme.AppThemeMode
 import com.slukhayka.audiobooks.ui.theme.AppearancePreferencesStore
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
 import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
 
@@ -766,6 +767,9 @@ fun AudiobookApp(
     // screens: the wide branch places them side by side, the phone branches
     // place them one at a time, and both get the identical callbacks.
     val libraryRootContent: @Composable () -> Unit = {
+        // Plan 2026-2027 — Медіатека is the direction's screen now: the whole
+        // root (list, chrome and the wide pane) lives in one paper/ink scheme.
+        PaperInkThemedContent {
         LibraryScreen(
             // #860 — the gear opens Settings from THIS root.
             onOpenSettings = {
@@ -805,6 +809,7 @@ fun AudiobookApp(
                 }
             }
         )
+        }
     }
 
     // #1230 — the book page's local-access recovery doors. The SAF launchers

@@ -36,14 +36,14 @@ import com.slukhayka.audiobooks.ui.library.UK_REMAINING_TIME_UNITS
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
 import com.slukhayka.audiobooks.ui.library.libraryGridEntries
-import com.slukhayka.audiobooks.ui.components.AppTabHeader
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
 import com.slukhayka.audiobooks.ui.screens.LibraryHeaderActions
 import com.slukhayka.audiobooks.ui.screens.LibrarySearchField
 import com.slukhayka.audiobooks.ui.screens.LibraryStatusRow
 import com.slukhayka.audiobooks.ui.screens.libraryGridColumns
 import com.slukhayka.audiobooks.ui.screens.libraryGridContent
 import com.slukhayka.audiobooks.ui.theme.AppDimens
-import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -74,7 +74,7 @@ class LibraryRedesignSnapshotTest {
     @Test
     fun browsing_sections_hero_and_shelf() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 LibraryRedesignScreen(
                     entries = libraryGridEntries(
                         browsing = true,
@@ -95,7 +95,7 @@ class LibraryRedesignSnapshotTest {
     fun narrowed_down_dense_rows() {
         val listening = previewLibrary.filter { it.isListening }
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 LibraryRedesignScreen(
                     selected = LibraryFilter.LISTENING,
                     subtitle = "Фільтр: Слухаю · ${listening.size}",
@@ -122,7 +122,7 @@ class LibraryRedesignSnapshotTest {
     @Test
     fun grid_view_sections() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 LibraryRedesignScreen(
                     entries = libraryGridEntries(
                         browsing = true,
@@ -155,10 +155,11 @@ private fun LibraryRedesignScreen(
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.fillMaxSize()) {
             // The real header, including the «+ Додати» corner and the ⋮ menu.
-            AppTabHeader(
+            PaperInkTabHeader(
                 title = "Мої книги",
                 subtitle = subtitle,
                 headingTestTag = "library_heading",
+                onSettingsClick = {},
                 actions = {
                     LibraryHeaderActions(
                         bookmarksCount = 0,

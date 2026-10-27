@@ -1040,7 +1040,7 @@ class SoundBooksAdapterTest {
         val fetcher = FakeFetcher(
             mapOf(
                 sitemapUrl to tagsSitemap(stephenKingTag),
-                stephenKingTag to tagPage("ur" to "Ур - Стівен Кінг")
+                stephenKingTag to tagPage(stephenKingTag, "ur" to "Ур - Стівен Кінг")
             )
         )
         var clock = 1_000_000L
@@ -1061,7 +1061,7 @@ class SoundBooksAdapterTest {
         val fetcher = FakeFetcher(
             mapOf(
                 sitemapUrl to tagsSitemap(stephenKingTag),
-                stephenKingTag to tagPage("ur" to "Ур - Стівен Кінг")
+                stephenKingTag to tagPage(stephenKingTag, "ur" to "Ур - Стівен Кінг")
             )
         )
         var clock = 9_000_000L

@@ -15,7 +15,7 @@ import com.github.takahirom.roborazzi.captureRoboImage
 import com.slukhayka.audiobooks.data.reviews.ListenerReview
 import com.slukhayka.audiobooks.ui.screens.ListenerReviewFormSheet
 import com.slukhayka.audiobooks.ui.screens.ReviewCard
-import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -51,7 +51,7 @@ class ReviewsBlockSnapshotTest {
     @Test
     fun review_card_full_with_edition_tag() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 ReviewsSurface {
                     ReviewCard(
                         review = review,
@@ -70,7 +70,7 @@ class ReviewsBlockSnapshotTest {
     @Test
     fun review_card_minimal_empty_tag_renders_nothing() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 ReviewsSurface {
                     ReviewCard(
                         review = review.copy(uid = "uid-2", body = null, editionTag = null),
@@ -91,7 +91,7 @@ class ReviewsBlockSnapshotTest {
         // #280 — the honest state of an offline-written review: visible,
         // but never pretending to be published.
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 ReviewsSurface {
                     ReviewCard(
                         review = review.copy(uid = "uid-3"),
@@ -110,7 +110,7 @@ class ReviewsBlockSnapshotTest {
     @Test
     fun review_form_sheet_with_counter_and_dropdown() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     ListenerReviewFormSheet(
                         bookTitle = "Собор Паризької Богоматері",

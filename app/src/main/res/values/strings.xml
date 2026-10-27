@@ -879,4 +879,5 @@
     <string name="settings_density">Щільність</string>
     <string name="settings_density_comfortable">Зручно</string>
     <string name="settings_density_compact">Компактно</string>
+    <string name="settings_density_desc">Компактно зменшує рядки й плакати, не тач-цілі.</string>
 </resources>

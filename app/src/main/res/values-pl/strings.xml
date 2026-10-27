@@ -38,4 +38,5 @@
     <string name="settings_density">Gęstość</string>
     <string name="settings_density_comfortable">Wygodnie</string>
     <string name="settings_density_compact">Kompaktowo</string>
+    <string name="settings_density_desc">Kompaktowo zmniejsza wiersze i plakaty, nigdy cele dotykowe.</string>
 </resources>

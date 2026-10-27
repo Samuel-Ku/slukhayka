@@ -254,7 +254,9 @@ fun ChapterRowItem(
                     } else {
                         MaterialTheme.colorScheme.onSurface
                     },
-                    maxLines = 1,
+                    // A paper row has room for two lines; the legacy card stays
+                    // single-line so its compact geometry does not move.
+                    maxLines = if (paperInk) 2 else 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 if (chapter.durationSeconds > 0L) {

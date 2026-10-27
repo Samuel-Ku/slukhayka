@@ -96,18 +96,8 @@ object OutcomeMessages {
      * rolled-back transaction), so the message never guesses the cause.
      */
     fun localCopyMigration(report: LocalCopyMigration.Report): String = buildString {
-        append("Звільнено ${formatFreedBytes(report.freedBytes)}: копії локальних книг переїхали на оригінальні теки")
+        append("Звільнено ${formatBytes(report.freedBytes)}: копії локальних книг переїхали на оригінальні теки")
         if (report.keptTracks > 0) append(" · ${report.keptTracks} копій лишено")
-    }
-
-    private fun formatFreedBytes(bytes: Long): String = when {
-        bytes <= 0L -> "0 МБ"
-        bytes >= 1024L * 1024L -> java.lang.String.format(
-            java.util.Locale.UK,
-            "%.1f МБ",
-            bytes / 1024.0 / 1024.0
-        )
-        else -> "${(bytes / 1024.0).toInt()} КБ"
     }
 
     /** #1230 — the recovery door itself failed (no report was produced). */

@@ -88,7 +88,8 @@ class SoundBooksAdapter(
         // Breadth first: every matched tag gets its FIRST page before any tag
         // gets a second one. A global page budget must not starve the second
         // author when the first one alone could fill it.
-        val nextPage = matched.associateWith { it.url as String? }.toMutableMap()
+        val nextPage = mutableMapOf<Tag, String?>()
+        matched.forEach { nextPage[it] = it.url }
         var pagesOpened = 0
         var requests = 0
         var pending = true

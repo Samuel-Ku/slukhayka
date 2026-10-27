@@ -1037,17 +1037,22 @@ class SoundBooksAdapterTest {
 
     @Test
     fun `the page budget covers every matched tag before going deeper`() = runBlocking {
+        // The FIRST tag has TWO continuation pages, so a depth-first walk would
+        // spend the whole three-page budget on it and never reach the second
+        // author. Only breadth-first keeps «Ричард Бах» AND stays within 3 pages.
         val stephenPage2 = stephenKingTag + "page/2/"
+        val stephenPage3 = stephenKingTag + "page/3/"
         val fetcher = FakeFetcher(
             mapOf(
                 sitemapUrl to tagsSitemap(stephenKingTag, williamKingTag),
                 stephenKingTag to tagPage(
                     stephenKingTag,
                     "doktor-son" to "Доктор Сон - Стівен Кінг",
-                    nextPages = listOf(2)
+                    nextPages = listOf(2, 3)
                 ),
                 williamKingTag to tagPage(williamKingTag, "richard-bach" to "Ричард Бах - Уільям Кінг"),
-                stephenPage2 to tagPage(stephenPage2, "ur" to "Ур - Стівен Кінг")
+                stephenPage2 to tagPage(stephenPage2, "ur" to "Ур - Стівен Кінг", nextPages = listOf(3)),
+                stephenPage3 to tagPage(stephenPage3, "kyn-palyty" to "Кинь палити! - Стівен Кінг")
             )
         )
         val adapter = SoundBooksAdapter(fetcher = fetcher, pauseMillis = {}, searchPageLimit = 3)
@@ -1058,8 +1063,12 @@ class SoundBooksAdapterTest {
             setOf("Доктор Сон", "Ур", "Ричард Бах"),
             books.map { it.title }.toSet()
         )
-        assertTrue("другий тег відкрито ПЕРШ ніж заглиблюватись", fetcher.requestedUrls.contains(williamKingTag))
+        assertTrue(
+            "другий тег відкрито ПЕРШ ніж заглиблюватись",
+            fetcher.requestedUrls.contains(williamKingTag)
+        )
         assertTrue(fetcher.requestedUrls.contains(stephenPage2))
+        assertTrue("третя сторінка не влізла в бюджет", !fetcher.requestedUrls.contains(stephenPage3))
         assertEquals("sitemap + 3 сторінки", 4, fetcher.requestedUrls.size)
     }
 

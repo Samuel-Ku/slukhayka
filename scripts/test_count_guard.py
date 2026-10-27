@@ -9,12 +9,17 @@ CI цього не бачив — видалений тест просто не 
 обіцянка в прозі; тут воно стає перевіркою: набір тестових функцій зміненого
 файлу звіряється з базою, і КОЖНЕ зникнення мусить бути назване в історії.
 
-Що читається: `git diff --name-status <base> <head>`; для кожного зміненого,
-перейменованого чи видаленого `app/src/test/java/**/*Test.kt` — множина імен
-функцій під `@Test`, `@ParameterizedTest` і `@RepeatedTest` у base і в head.
-Ім'я, яке було в base і зникло з head, — це видалення. Воно проходить лише
-тоді, коли в тілі якогось коміту діапазону `base..head` є рядок
-`test-removal: <ім'я>` (голе ім'я або крапковий суфікс, що ним закінчується).
+Що читається. `gem merge-base <base> <head>` — це і є та база, з якою гілку
+порівнюють: `git diff` від верхівки base-гілки показав би тести, додані в main
+після відгалуження, «видаленими» (і дав би червоне на PR, що взагалі не чіпав
+тестів). Далі `git diff --name-status -z --find-renames <merge-base> <head>`:
+`-z` тому, що інакше git цитує non-ASCII шляхи, і файл `…/ЛокальTest.kt` мовчки
+випав би з перевірки. Для кожного зміненого, перейменованого чи видаленого
+`app/src/test/java/**/*Test.kt` — множини імен функцій під `@Test`,
+`@ParameterizedTest` і `@RepeatedTest` у merge-base і в head. Ім'я, яке було в
+базі й зникло з head, — видалення. Воно проходить лише тоді, коли в тілі якогось
+коміту діапазону `merge-base..head` є рядок `test-removal: <ім'я>` (голе ім'я або
+крапковий суфікс, що ним закінчується).
 
 Названі межі (кожна — відмова, а не зелений, у місці, де це можливо):
 
@@ -22,12 +27,15 @@ CI цього не бачив — видалений тест просто не 
     не бачиться, і це межа знання, а не мовчазна згода;
   * git — джерело істини: незакомічені зміни робочого дерева невидимі (сторож
     задуманий на PR-диф; локально спершу комітьте);
+  * будь-який нечитний об'єкт — база, файл у базі чи head, тіло коміту — це
+    НЕВІДОМІСТЬ (код 2), а не «тестів не було»: fail-open тут означав би зелене
+    свідоцтво про втрату, яку не прочитали (review #1495, знахідка 1);
   * `test-removal:` — слово автора, а не доказ, що покриття переїхало: рядок
     може бути неправдивим, тож око оглядача все одно читає диф; перейменування
     тесту мусить бути назване як видалення;
   * на push у main базового PR немає, тож джоба CI мовчить там свідомо; коди
     виходу 0 — видалень без заяви немає, 1 — є, 2 — перевірити не вдалося
-    (немає git, немає бази, немає дерева).
+    (немає git, немає бази/merge-base, нечитний об'єкт).
 """
 
 from __future__ import annotations
@@ -46,6 +54,10 @@ DECLARATION = re.compile(r"test-removal:\s*(.+)$", re.IGNORECASE)
 # The scan window is generous enough to cross `@Suppress`/`@Throws` lines between
 # the annotation and `fun`, and still short of the next declaration.
 SCAN_WINDOW = 400
+
+
+class Unknown(Exception):
+    """The guard could not read the facts; a green answer here would be a lie."""
 
 
 def test_names(source: str) -> list[str]:
@@ -74,71 +86,104 @@ def covers(declared: str, name: str) -> bool:
 
 
 def git(repo: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", "-C", str(repo), *arguments],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        return subprocess.run(
+            ["git", "-C", str(repo), *arguments],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError as error:
+        raise Unknown(f"cannot run git: {error}") from error
+
+
+def revision(repo: Path, ref: str) -> str:
+    result = git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
+    if result.returncode != 0:
+        raise Unknown(f"cannot read {ref!r} — {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def merge_base(repo: Path, base: str, head: str) -> str:
+    result = git(repo, "merge-base", base, head)
+    if result.returncode != 0 or not result.stdout.strip():
+        raise Unknown(f"cannot find merge-base of {base!r} and {head!r} — {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def show(repo: Path, revision_id: str, path: str) -> str:
+    """The file's content at a revision; an unreadable object is an unknown."""
+    result = git(repo, "show", f"{revision_id}:{path}")
+    if result.returncode != 0:
+        raise Unknown(
+            f"cannot read {path!r} at {revision_id[:12]} — {result.stderr.strip()}"
+        )
+    return result.stdout
 
 
 def changed_files(repo: Path, base: str, head: str) -> list[tuple[str, str, str]]:
     """`(status, old_path, new_path)` for every path the range touches."""
-    result = git(repo, "diff", "--name-status", "--find-renames", base, head)
+    result = git(repo, "diff", "--name-status", "-z", "--find-renames", base, head)
     if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "git diff failed")
+        raise Unknown(result.stderr.strip() or "git diff failed")
+    # With -z the output is NUL-separated: `M\0path\0`, `R100\0old\0new\0`. A
+    # quoted non-ASCII path would silently miss TEST_ROOT — the reason for -z.
+    fields = result.stdout.split("\0")
     changes: list[tuple[str, str, str]] = []
-    for line in result.stdout.splitlines():
-        parts = line.split("\t")
-        if len(parts) == 2:
-            status, path = parts
-            changes.append((status, path, path))
-        elif len(parts) == 3:
-            status, old, new = parts
+    index = 0
+    while index + 1 < len(fields):
+        status = fields[index]
+        if not status:
+            index += 1
+            continue
+        if status[0] in "RC":
+            if index + 2 >= len(fields):
+                break
+            old, new = fields[index + 1], fields[index + 2]
             changes.append((status, old, new))
+            index += 3
+        else:
+            changes.append((status, fields[index + 1], fields[index + 1]))
+            index += 2
     return changes
 
 
 def guard(repo: Path, base: str, head: str) -> int:
-    for ref in (base, head):
-        verified = git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}")
-        if verified.returncode != 0:
-            print(
-                f"test count guard: cannot read {ref!r} — {verified.stderr.strip()}",
-                file=sys.stderr,
-            )
-            return 2
     try:
-        changes = changed_files(repo, base, head)
-    except RuntimeError as error:
+        revision(repo, base)
+        revision(repo, head)
+        root = merge_base(repo, base, head)
+        bodies = git(repo, "log", "--format=%B", f"{root}..{head}")
+        if bodies.returncode != 0:
+            raise Unknown(f"cannot read the commit bodies — {bodies.stderr.strip()}")
+        declared = declared_removals(bodies.stdout)
+        changes = changed_files(repo, root, head)
+        touched = 0
+        undeclared: list[tuple[str, str]] = []
+        for status, old_path, new_path in changes:
+            candidates = [path for path in (old_path, new_path) if path.startswith(TEST_ROOT) and path.endswith(TEST_SUFFIX)]
+            if not candidates:
+                continue
+            touched += 1
+            # An added file has no previous side; treating a missing base blob
+            # as "no tests" is exactly the fail-open this guard refuses — but a
+            # genuinely added path is not a read failure.
+            before = [] if status.startswith("A") else test_names(show(repo, root, old_path))
+            after: list[str] = []
+            if not status.startswith("D"):
+                # An added file has nothing before it; a rename/modify must be
+                # readable on both sides, which show() enforces.
+                after = test_names(show(repo, head, new_path)) if not status.startswith("A") else []
+            still_there = set(after)
+            for name in before:
+                if name in still_there:
+                    continue
+                if any(covers(entry, name) for entry in declared):
+                    continue
+                undeclared.append((old_path, name))
+    except Unknown as error:
         print(f"test count guard: {error}", file=sys.stderr)
         return 2
-
-    bodies = git(repo, "log", "--format=%B", f"{base}..{head}")
-    if bodies.returncode != 0:
-        print(f"test count guard: cannot read the commit bodies — {bodies.stderr.strip()}", file=sys.stderr)
-        return 2
-    declared = declared_removals(bodies.stdout)
-
-    undeclared: list[tuple[str, str]] = []
-    touched = 0
-    for status, old_path, new_path in changes:
-        removed_path = old_path if status.startswith(("D", "R", "C")) else None
-        changed = [path for path in (old_path, new_path) if path.startswith(TEST_ROOT) and path.endswith(TEST_SUFFIX)]
-        if not changed:
-            continue
-        touched += 1
-        before = test_names(git(repo, "show", f"{base}:{old_path}").stdout)
-        after: list[str] = []
-        if not status.startswith("D"):
-            after = test_names(git(repo, "show", f"{head}:{new_path}").stdout)
-        still_there = set(after)
-        for name in before:
-            if name in still_there:
-                continue
-            if any(covers(entry, name) for entry in declared):
-                continue
-            undeclared.append((removed_path or new_path, name))
 
     if undeclared:
         for path, name in undeclared:

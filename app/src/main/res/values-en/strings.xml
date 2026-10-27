@@ -808,4 +808,7 @@
     <string name="settings_theme_ink">Ink</string>
     <string name="settings_player_always_ink">Player is always dark</string>
     <string name="settings_player_always_ink_desc">The player stays Ink even when the app is light.</string>
+    <string name="settings_density">Density</string>
+    <string name="settings_density_comfortable">Comfortable</string>
+    <string name="settings_density_compact">Compact</string>
 </resources>

@@ -31,6 +31,7 @@ import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
 import com.slukhayka.audiobooks.ui.theme.AppThemeMode
+import com.slukhayka.audiobooks.ui.theme.ContentDensity
 import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
 import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
 import com.slukhayka.audiobooks.ui.theme.PaperInkType
@@ -53,6 +54,8 @@ internal fun SettingsScreen(
     onThemeModeChange: (AppThemeMode) -> Unit = {},
     playerAlwaysInk: Boolean = true,
     onPlayerAlwaysInkChange: (Boolean) -> Unit = {},
+    density: ContentDensity = ContentDensity.COMFORTABLE,
+    onDensityChange: (ContentDensity) -> Unit = {},
     // The same destination the system Back returns to; a visible door for the
     // listener who does not know/use gestures.
     onBackClick: () -> Unit = {},
@@ -106,6 +109,8 @@ internal fun SettingsScreen(
             Column(Modifier.padding(horizontal = PaperInkDimens.SpacePage)) {
                 GroupLabel(R.string.settings_group_appearance)
                 ThemeChoiceRow(themeMode = themeMode, onThemeModeChange = onThemeModeChange)
+                PaperDivider()
+                DensityChoiceRow(density = density, onDensityChange = onDensityChange)
                 PaperDivider()
                 PlayerInkRow(
                     playerAlwaysInk = playerAlwaysInk,
@@ -192,6 +197,65 @@ private fun ThemeChoiceRow(
                                 AppThemeMode.AUTO -> R.string.settings_theme_auto
                                 AppThemeMode.PAPER -> R.string.settings_theme_paper
                                 AppThemeMode.INK -> R.string.settings_theme_ink
+                            }
+                        ),
+                        style = PaperInkType.Label,
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** «Зручно / Компактно»: a layout preference, never a smaller touch target. */
+@Composable
+private fun DensityChoiceRow(
+    density: ContentDensity,
+    onDensityChange: (ContentDensity) -> Unit,
+) {
+    Column(modifier = Modifier.padding(top = 14.dp, bottom = 14.dp)) {
+        Text(
+            text = stringResource(R.string.settings_density),
+            style = PaperInkType.RowTitle,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(bottom = 10.dp),
+        )
+        Row(
+            modifier = Modifier.selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ContentDensity.entries.forEach { value ->
+                val selected = value == density
+                Box(
+                    modifier = Modifier
+                        .height(36.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (selected) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            }
+                        )
+                        .selectable(
+                            selected = selected,
+                            role = Role.RadioButton,
+                            onClick = { onDensityChange(value) },
+                        )
+                        .testTag("settings_density_${value.name.lowercase()}")
+                        .padding(horizontal = 16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = stringResource(
+                            when (value) {
+                                ContentDensity.COMFORTABLE -> R.string.settings_density_comfortable
+                                ContentDensity.COMPACT -> R.string.settings_density_compact
                             }
                         ),
                         style = PaperInkType.Label,

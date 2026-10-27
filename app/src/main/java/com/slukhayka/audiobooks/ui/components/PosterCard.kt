@@ -123,8 +123,18 @@ fun PosterCard(
         LaunchedEffect(preflightKey) { onPreflight() }
     }
     val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
-    val posterWidth = if (paperInk) 132.dp else PosterWidth
-    val posterHeight = if (paperInk) 198.dp else PosterHeight
+    val dense = com.slukhayka.audiobooks.ui.theme.LocalContentDensity.current ==
+        com.slukhayka.audiobooks.ui.theme.ContentDensity.COMPACT
+    val posterWidth = when {
+        paperInk && dense -> 104.dp
+        paperInk -> 132.dp
+        else -> PosterWidth
+    }
+    val posterHeight = when {
+        paperInk && dense -> 156.dp
+        paperInk -> 198.dp
+        else -> PosterHeight
+    }
     Column(modifier = modifier.width(posterWidth)) {
         Column(
             modifier = Modifier

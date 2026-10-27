@@ -876,4 +876,7 @@
     <string name="settings_theme_ink">Чорнило</string>
     <string name="settings_player_always_ink">Плеєр завжди темний</string>
     <string name="settings_player_always_ink_desc">Плеєр лишається «Чорнилом», навіть коли застосунок світлий.</string>
+    <string name="settings_density">Щільність</string>
+    <string name="settings_density_comfortable">Зручно</string>
+    <string name="settings_density_compact">Компактно</string>
 </resources>

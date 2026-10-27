@@ -35,4 +35,7 @@
     <string name="settings_theme_ink">Atrament</string>
     <string name="settings_player_always_ink">Odtwarzacz zawsze ciemny</string>
     <string name="settings_player_always_ink_desc">Odtwarzacz pozostaje w motywie Atrament, nawet gdy aplikacja jest jasna.</string>
+    <string name="settings_density">Gęstość</string>
+    <string name="settings_density_comfortable">Wygodnie</string>
+    <string name="settings_density_compact">Kompaktowo</string>
 </resources>

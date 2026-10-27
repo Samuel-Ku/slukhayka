@@ -332,14 +332,19 @@ class MainActivity : FragmentActivity() {
             // light/dark pair, so one switch moves the whole app.
             val appearance = remember { AppearancePreferencesStore(this) }
             val themeMode by appearance.themeMode.collectAsState()
+            val density by appearance.density.collectAsState()
             val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
             val darkTheme = when (themeMode) {
                 AppThemeMode.AUTO -> systemDark
                 AppThemeMode.PAPER -> false
                 AppThemeMode.INK -> true
             }
-            AudiobookTheme(darkTheme = darkTheme) {
-                AudiobookApp(appearance = appearance)
+            androidx.compose.runtime.CompositionLocalProvider(
+                com.slukhayka.audiobooks.ui.theme.LocalContentDensity provides density
+            ) {
+                AudiobookTheme(darkTheme = darkTheme) {
+                    AudiobookApp(appearance = appearance)
+                }
             }
         }
     }
@@ -1583,6 +1588,8 @@ fun AudiobookApp(
                                 onThemeModeChange = appearanceStore::setThemeMode,
                                 playerAlwaysInk = playerAlwaysInk,
                                 onPlayerAlwaysInkChange = appearanceStore::setPlayerAlwaysInk,
+                                density = appearanceStore.density.collectAsState().value,
+                                onDensityChange = appearanceStore::setDensity,
                                 onBackClick = { viewModel.selectTab(settingsReturnTab) },
                                 onOpen = { destination ->
                                     settingsReturnDestination = destination

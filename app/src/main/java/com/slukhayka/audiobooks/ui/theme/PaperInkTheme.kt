@@ -32,6 +32,12 @@ import androidx.compose.runtime.staticCompositionLocalOf
  */
 val LocalPaperInkDesign = staticCompositionLocalOf { false }
 
+/**
+ * The listener's density choice. A layout preference read by the row/poster
+ * primitives; it never shrinks a touch target below 48 dp.
+ */
+val LocalContentDensity = staticCompositionLocalOf { ContentDensity.COMFORTABLE }
+
 @Composable
 fun PaperInkTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),

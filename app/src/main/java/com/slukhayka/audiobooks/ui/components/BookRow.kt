@@ -192,10 +192,18 @@ fun BookRow(
                 )
         ) {
             val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
+            val dense = com.slukhayka.audiobooks.ui.theme.LocalContentDensity.current ==
+                com.slukhayka.audiobooks.ui.theme.ContentDensity.COMPACT
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = if (paperInk) 112.dp else 76.dp)
+                    .heightIn(
+                        min = when {
+                            paperInk && dense -> 88.dp
+                            paperInk -> 112.dp
+                            else -> 76.dp
+                        }
+                    )
                     .padding(
                         horizontal = if (paperInk) {
                             com.slukhayka.audiobooks.ui.theme.PaperInkDimens.SpacePage
@@ -207,7 +215,9 @@ fun BookRow(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (!compact) leading?.invoke(this)
-                val paperCoverModifier = if (paperInk) {
+                val paperCoverModifier = if (paperInk && dense) {
+                    Modifier.width(50.dp).height(75.dp)
+                } else if (paperInk) {
                     Modifier.width(58.dp).height(87.dp)
                 } else {
                     Modifier.size(RowCoverSize)

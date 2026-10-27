@@ -18,6 +18,14 @@ import kotlinx.coroutines.flow.asStateFlow
 enum class AppThemeMode { AUTO, PAPER, INK }
 
 /**
+ * The direction's second appearance choice: «Зручно» (the measured defaults)
+ * or «Компактно» (denser rows and posters for a listener who scans more).
+ * It is a LAYOUT preference, not a scale: tap targets stay 48 dp, only the
+ * vertical rhythm and cover sizes shrink.
+ */
+enum class ContentDensity { COMFORTABLE, COMPACT }
+
+/**
  * Small persisted appearance state (SharedPreferences — the same idiom as the
  * other lightweight stores; no new DataStore dependency for two booleans and an
  * enum).
@@ -40,6 +48,12 @@ class AppearancePreferencesStore(context: Context) {
     private val _playerAlwaysInk = MutableStateFlow(prefs.getBoolean(KEY_PLAYER_INK, true))
     val playerAlwaysInk: StateFlow<Boolean> = _playerAlwaysInk.asStateFlow()
 
+    private val _density = MutableStateFlow(
+        runCatching { ContentDensity.valueOf(prefs.getString(KEY_DENSITY, null).orEmpty()) }
+            .getOrDefault(ContentDensity.COMFORTABLE)
+    )
+    val density: StateFlow<ContentDensity> = _density.asStateFlow()
+
     fun setThemeMode(mode: AppThemeMode) {
         if (_themeMode.value == mode) return
         _themeMode.value = mode
@@ -52,9 +66,16 @@ class AppearancePreferencesStore(context: Context) {
         prefs.edit().putBoolean(KEY_PLAYER_INK, alwaysInk).apply()
     }
 
+    fun setDensity(density: ContentDensity) {
+        if (_density.value == density) return
+        _density.value = density
+        prefs.edit().putString(KEY_DENSITY, density.name).apply()
+    }
+
     private companion object {
         const val PREFS_NAME = "appearance"
         const val KEY_THEME = "theme_mode"
         const val KEY_PLAYER_INK = "player_always_ink"
+        const val KEY_DENSITY = "content_density"
     }
 }

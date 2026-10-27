@@ -504,22 +504,27 @@ class AudiobookCoUaAdapterTest {
 
     @Test
     fun `the page budget covers every matched tag before going deeper`() = runBlocking {
-        // The FIRST tag has TWO continuation pages, so a depth-first walk would
-        // spend the whole three-page budget on it and never reach the second
-        // author. Only breadth-first keeps king-dejli AND stays within 3 pages.
-        val page2 = kingTag + "page/2/"
-        val page3 = kingTag + "page/3/"
+        // `king-oven` (9 chars) sorts BEFORE `king-stiven` (11) at the same
+        // score, and it owns TWO continuation pages. A depth-first walk would
+        // spend all three page requests on king-oven and never reach
+        // king-stiven; only breadth-first keeps both authors in budget.
+        val ovenPage2 = kingOvenTag + "page/2/"
+        val ovenPage3 = kingOvenTag + "page/3/"
         val fetcher = FakeFetcher(
             mapOf(
-                tagSitemapUrl to tagsSitemap(kingTag, kingDejliTag),
-                kingTag to tagPage(
-                    kingTag,
-                    "doktor-son-stiven-king" to "Доктор Сон &#8212; Стівен Кінг",
+                tagSitemapUrl to tagsSitemap(kingOvenTag, kingTag),
+                kingOvenTag to tagPage(
+                    kingOvenTag,
+                    "deiaki-knyhy-king-oven" to "Деякі книги &#8212; Кінг Овен",
                     nextPages = listOf(2, 3)
                 ),
-                kingDejliTag to tagPage(kingDejliTag, "deiaki-knyhy-king-dejli" to "Деякі книги &#8212; Кінг Делі"),
-                page2 to tagPage(page2, "pid-kupolom-stiven-king" to "Під куполом &#8212; Стівен Кінг", nextPages = listOf(3)),
-                page3 to tagPage(page3, "shchos-inshe" to "Щось інше &#8212; Стівен Кінг")
+                kingTag to tagPage(kingTag, "doktor-son-stiven-king" to "Доктор Сон &#8212; Стівен Кінг"),
+                ovenPage2 to tagPage(
+                    ovenPage2,
+                    "shchos-inshe-king-oven" to "Щось інше &#8212; Кінг Овен",
+                    nextPages = listOf(3)
+                ),
+                ovenPage3 to tagPage(ovenPage3, "tretye-king-oven" to "Третє &#8212; Кінг Овен")
             )
         )
         val adapter = AudiobookCoUaAdapter(fetcher = fetcher, pauseMillis = {}, searchPageLimit = 3)
@@ -527,12 +532,15 @@ class AudiobookCoUaAdapterTest {
         val books = adapter.search("кінг")
 
         assertEquals(
-            setOf("Доктор Сон", "Під куполом", "Деякі книги"),
+            setOf("Деякі книги", "Щось інше", "Доктор Сон"),
             books.map { it.title }.toSet()
         )
-        assertTrue("другий тег відкрито ПЕРШ ніж заглиблюватись", fetcher.requestedUrls.contains(kingDejliTag))
-        assertTrue(fetcher.requestedUrls.contains(page2))
-        assertTrue("третя сторінка не влізла в бюджет", !fetcher.requestedUrls.contains(page3))
+        assertTrue(
+            "другий тег відкрито ПЕРШ ніж заглиблюватись",
+            fetcher.requestedUrls.contains(kingTag)
+        )
+        assertTrue(fetcher.requestedUrls.contains(ovenPage2))
+        assertTrue("третя сторінка не влізла в бюджет", !fetcher.requestedUrls.contains(ovenPage3))
         assertEquals("sitemap + 3 сторінки", 4, fetcher.requestedUrls.size)
     }
 

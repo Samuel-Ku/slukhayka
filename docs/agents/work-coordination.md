@@ -1,70 +1,71 @@
-# Резервування роботи агентів
+# Agent work reservations
 
-Перед реалізацією, делегуванням або продовженням будь-якого тікета:
+Before implementing, delegating or continuing any ticket:
 
-Кроки 2–4 нижче робить одна команда — і саме вона, а не три руки:
-`scripts/new-lane.sh <номер> <slug>`. Вона бере свіжий `origin/main`, резервує
-тікет наявним `agent-work-claim.py` (зайнятий — код 2 і копії не створено),
-відмовляє, якщо копія смуги вже існує, перевіряє премису тікета наявним
-`scripts/issue_premise.py` (застарілий тікет названо у фактах, і смугу все одно
-створено — але не мовчки) і друкує факти для брифа командами, а не
-пам'яттю. Прибирає копію після мерджу `scripts/new-lane.sh --release <номер>` —
-гілку не видаляє ніколи. Прочитати кроки варто все одно: команда їх виконує, а
-не скасовує.
+Steps 2–4 below are done by one command — and by it, not by three hands:
+`scripts/new-lane.sh <number> <slug>`. It takes a fresh `origin/main`, reserves
+the ticket with the existing `agent-work-claim.py` (if it is taken — code 2 and no copy
+created), refuses if a lane copy already exists, checks the ticket premise with
+the existing `scripts/issue_premise.py` (a stale ticket is named in the facts,
+and the lane is still created — but not silently) and prints the facts for the
+brief from commands, not from memory. It removes the copy after the merge with
+`scripts/new-lane.sh --release <number>` — it never deletes the branch. The
+steps are still worth reading: the command executes them, it does not cancel
+them.
 
-1. Прочитай актуальний issue з коментарями й перевір відкриті PR.
-2. Виконай `python3 scripts/agent-work-claim.py status <номер>`.
-   Якщо скрипта немає у старому worktree, перевір `agent-work-claims/`
-   у спільному каталозі з `git rev-parse --path-format=absolute --git-common-dir`.
-3. Якщо є резервування іншого чату або коментар про поточну роботу,
-   не починай цей тікет і не передавай його іншому виконавцю. Звернися до
-   координатора в межах дозволеної користувачем координації.
-4. Якщо тікет вільний, атомарно зарезервуй його перед першою зміною:
-   `python3 scripts/agent-work-claim.py acquire <номер> --owner <thread-id> --reservation <назва> [--plan <шлях-до-наявного-плану>]`.
-   Код виходу 2 означає, що резервування вже існує. `--plan` необов'язковий:
-   без нього запис містить `null`, і це чесніше за вигаданий шлях — плану
-   смуги на момент її створення ще немає (`scripts/new-lane.sh` робить саме
-   так, #1337). Не обходь резервування навіть
-   для того самого owner: перечитай запис і отримай конкретне доручення.
-5. До початку кодування познач резервування коментарем у GitHub у межах
-   дозволеної користувачем координації. Якщо локальний запис і GitHub
-   суперечать один одному, спочатку розв'яжи суперечність.
+1. Read the current issue with its comments and check the open PRs.
+2. Run `python3 scripts/agent-work-claim.py status <number>`.
+   If the script is missing in an old worktree, check `agent-work-claims/`
+   in the shared directory from `git rev-parse --path-format=absolute --git-common-dir`.
+3. If there is another chat's reservation or a comment about current work,
+   do not start this ticket and do not hand it to another implementer. Contact the
+   coordinator within the coordination the user allows.
+4. If the ticket is free, reserve it atomically before the first change:
+   `python3 scripts/agent-work-claim.py acquire <number> --owner <thread-id> --reservation <name> [--plan <path-to-existing-plan>]`.
+   Exit code 2 means a reservation already exists. `--plan` is optional:
+   without it the record holds `null`, and that is more honest than an invented path — the
+   lane's plan does not exist yet when the lane is created (`scripts/new-lane.sh` does exactly
+   that, #1337). Do not bypass the reservation even
+   for the same owner: reread the record and get a concrete assignment.
+5. Before coding starts, mark the reservation with a comment on GitHub within
+   the coordination the user allows. If the local record and GitHub
+   contradict each other, resolve the contradiction first.
 
-Усі локальні worktree цього Git-репозиторію читають один реєстр у спільному
-Git-каталозі. Окремі клони й віддалені агенти мають перевіряти GitHub:
-локальний файловий реєстр між комп'ютерами не синхронізується.
+All local worktrees of this Git repository read one registry in the shared
+Git directory. Separate clones and remote agents must check GitHub:
+the local file registry does not sync between machines.
 
-Резервування не має автоматичного строку завершення. Зупинений процес або
-підготовлений план не означають, що тікет звільнився. Лише чат-координатор
-може передати чи зняти резервування, перевіривши завершення роботи,
-оновивши план і коментар у GitHub. Скрипт навмисно не має команди примусового
-звільнення. Не видаляй записи, зайняті іншими чатами, або пошкоджені записи.
+A reservation has no automatic expiry. A stopped process or a
+prepared plan does not mean the ticket has been released. Only the chat coordinator
+can hand over or drop a reservation, having verified that the work is finished,
+updated the plan and the comment on GitHub. The script deliberately has no
+force-release command. Do not delete records taken by other chats, or corrupted records.
 
-Стан `prepared-reserved` означає: власник визначений, реалізація ще не
-запущена. Стан `implementing` містить призначеного виконавця, гілку,
-worktree та базовий commit; резервування лишається за координатором.
-Підлеглі виконавці працюють лише за конкретним дорученням
-координатора; один тікет має одного виконавця реалізації. Те саме чинне для
-`subagent`: повторний диспетч у ту саму смугу — порушення, тож спершу
-підтверди, що попередній виконавець неактивний. Незалежні рецензії
-можна делегувати окремо, з явно вказаним режимом читання без змін.
+The `prepared-reserved` state means: the owner is set, implementation is not
+started yet. The `implementing` state carries the assigned implementer, branch,
+worktree and base commit; the reservation stays with the coordinator.
+Subordinate implementers work only on a concrete assignment from the
+coordinator; one ticket has one implementation owner. The same holds for
+`subagent`: a repeated dispatch into the same lane is a violation, so first
+confirm that the previous implementer is inactive. Independent reviews
+can be delegated separately, with an explicitly stated read-only mode.
 
-Підготовлена група #699 / #487 / #934:
+Prepared group #699 / #487 / #934:
 `docs/plans/2026-10-04-parallel-699-487-934.md`.
 
-## Знімок відкритих PR (#1228)
+## Open PR snapshot (#1228)
 
-Перед вибором роботи один read-only виклик показує всі відкриті PR, їхні точні
-base/head SHA, стан checks, пов'язані issue, локальні резервування й останній
-коментар:
+Before choosing work, one read-only call shows all open PRs, their exact
+base/head SHAs, checks state, linked issues, local reservations and the latest
+comment:
 
 ```
-python3 scripts/pr-snapshot.py                       # компактний вивід
-python3 scripts/pr-snapshot.py --full-json /tmp/prs.json   # повні API-дані окремо
-python3 scripts/pr-snapshot.py --expect-head 1415=<sha>    # чи не зрушив кандидат
+python3 scripts/pr-snapshot.py                       # compact output
+python3 scripts/pr-snapshot.py --full-json /tmp/prs.json   # full API data separately
+python3 scripts/pr-snapshot.py --expect-head 1415=<sha>    # whether the candidate moved
 ```
 
-Приклад:
+Example:
 
 ```
 snapshot: 2026-10-24T11:00:00+00:00 repo=Samuel-Ku/slukhayka prs=2
@@ -72,176 +73,176 @@ snapshot: 2026-10-24T11:00:00+00:00 repo=Samuel-Ku/slukhayka prs=2
 #1415 draft base=main@85da0577… head=ab169264… checks=17ok/0fail/1pend issues=#1242 reservation=alice:prepared-reserved last-comment=#1242:alice@2026-10-24 divergence=both flags=changes-requested
 ```
 
-(SHA у прикладі скорочено для читабельності; скрипт друкує повні 40 символів.)
+(The SHA in the example is shortened for readability; the script prints the full 40 characters.)
 
-- `checks=unknown` означає, що GitHub не віддав checks — це не «все зелене».
-- `reservation=absent` означає «локального запису немає», а не «тікет вільний»:
-  перед стартом однаково перевір GitHub-коментарі (див. вище).
-- `divergence=comment-only` — GitHub уже має будь-який коментар на пов'язаному
-  issue, а локальний реєстр мовчить; `local-only` — навпаки; `both` — обидва
-  боки знають; `unknown` — GitHub не дав прочитати коментар.
-- `truncated:` — `gh` повернув рівно ліміт (1000) PR, список може бути неповним.
-- `head-drift:` і код виходу 4 — кандидат зрушив після вашого рішення.
-- Код 2 — невалідний `--expect-head`; код 3 — GitHub недоступний; порожній
-  стан ніколи не видається за «PR немає».
-- Скрипт нічого не змінює: ні git, ні індекс, ні worktree, ні резервування,
-  ні issue/PR. Єдиний запис — явно вказаний `--full-json`.
+- `checks=unknown` means GitHub returned no checks — that is not "all green".
+- `reservation=absent` means "there is no local record", not "the ticket is free":
+  check the GitHub comments before starting anyway (see above).
+- `divergence=comment-only` — GitHub already has some comment on the linked
+  issue while the local registry is silent; `local-only` — the opposite; `both` — both
+  sides know; `unknown` — GitHub would not let the comment be read.
+- `truncated:` — `gh` returned exactly the limit (1000) PRs, so the list may be incomplete.
+- `head-drift:` and exit code 4 — the candidate moved after your decision.
+- Code 2 — invalid `--expect-head`; code 3 — GitHub unreachable; an empty
+  state is never passed off as "no PR".
+- The script changes nothing: neither git, nor the index, nor the worktree, nor reservations,
+  nor issues/PRs. The only write is an explicitly passed `--full-json`.
 
-## Збірки в паралельній групі
+## Builds in the parallel group
 
-Важкі локальні Gradle-збірки мають одного власника слота. Координатор
-пише `agent-build-slot.json` у Git common dir; перед кожним запуском або
-повтором перевір цей запис і конкретне доручення. Завершення невдалої
-збірки не дає автоматичного права повтору: слот уже міг перейти іншому
-виконавцю. Координатор передає його після перевірки terminal результату.
-Чисті невеликі host-тести можна виконувати паралельно зі збіркою.
+Heavy local Gradle builds have a single slot owner. The coordinator writes
+`agent-build-slot.json` into the Git common dir; before every run or
+retry, check that record and the concrete assignment. When a failed build
+finishes, that does not grant an automatic right to retry: the slot may already have passed to
+another implementer. The coordinator hands it over after checking the terminal
+result. Clean small host tests can run in parallel with a build.
 
-## Вердикт огляду і мердж
+## Review verdict and merge
 
-Мердж — не «усі чеки не fail», а `scripts/merge-pr.sh <номер>`. Скрипт
-відмовляє, якщо хоч один чек fail, скасовано або висить, якщо в PR немає
-**машиночитного вердикту огляду**, і якщо вердикт старіший за новий коміт,
-новий прогін CI чи force-push гілки. Злиття — тільки `--squash`; гілку
-скрипт не видаляє ніколи.
+A merge is not "no check fails" but `scripts/merge-pr.sh <number>`. The script
+refuses if at least one check has failed, been cancelled or is pending, if the PR has no
+**machine-readable review verdict**, and if the verdict is older than a new commit,
+a new CI run or a branch force-push. Merging is `--squash` only; the script
+never deletes the branch.
 
-Гейт дивиться й на робочу копію, з якої його запущено, і відмовляє, якщо в ній
-лишився **незавершений ребаз гілки, яку зливають** (`rebase-merge` /
-`rebase-apply` — у спільному `.git` чи в будь-якому worktree; гілку гейт читає з
-`head-name`), або якщо **вершина гілки PR не містить патчів усієї локальної
-гілки** того самого імені: коміт, чийого патча у вершині немає, — це те, що
-рецензували, але не злили. Саме так злився #1239 — ребаз упав на конфлікті, на
-remote поїхав один пік із чотирьох комітів, і в `main` потрапила оригінальна
-версія скрипта; лікував окремий PR #1245.
+The gate also looks at the working copy it is run from, and refuses if that copy
+still holds an **unfinished rebase of the branch being merged** (`rebase-merge` /
+`rebase-apply` — in the shared `.git` or in any worktree; the gate reads the branch from
+`head-name`), or if the **PR branch tip does not contain the patches of the whole local branch**
+of the same name: a commit whose patch is missing from the tip is something that was
+reviewed but not merged. That is exactly how #1239 was merged — the rebase failed
+on a conflict, one pick out of four commits reached the remote, and the
+original version of the script landed in `main`; it was repaired by a separate PR #1245.
 
-Межі названі прямо, і кожна з них — WARN, а не відмова, бо відмова тут коштувала
-б дорожче за саму перевірку: ребаз **чужої** гілки (у репозиторії паралельні
-смуги, і чужа копія — не наша справа: операцію завершує або скасовує її автор);
-локальна гілка, чиї патчі вже у вершині за `git cherry` (її перебазували й
-запушили з іншого клона — відмова з порадою `force-push` повернула б доребазову
-історію поверх доребазованої), і взагалі відсутня локальна гілка (PR із чужого
-клона чи з форка) — «немає гілки» не доказ обрізання. Межа самого порівняння:
-воно йде за патчами **не-мердж** комітів, тож вміст, що живе лише в
-merge-коміті (розв'язання конфлікту), лишається невидимим — тому WARN і каже
-звірити вміст, перш ніж вірити зеленому.
+The limits are stated plainly, and each of them is a WARN, not a refusal, because a refusal here would
+cost more than the check itself: a rebase of **someone else's** branch (the repository has parallel
+lanes, and another copy is not our business: its author either finishes or cancels the
+operation); a local branch whose patches are already in the tip per `git cherry` (it was rebased and
+pushed from another clone — a refusal advising `force-push` would bring pre-rebase
+history back on top of the rebased one); and a local branch that is missing altogether
+(a PR from another clone or a fork) — "no branch" is not proof of truncation. A limit of the
+comparison itself: it follows the patches of **non-merge** commits, so content that lives only in a
+merge commit (a conflict resolution) stays invisible — which is why the WARN says to
+check the content before trusting green.
 
-Вердикт огляду — мітка `review:pass` на PR. Її ставить **агент-оглядач** —
-той, кому делегували незалежний огляд (Spec + Standards) у режимі читання без
-змін, — і **ніколи автор PR**: вердикт, поставлений собі, не є незалежним.
-Координатор лише запускає гейт і читає його відмову.
+The review verdict is a `review:pass` label on the PR. It is set by the **review agent** —
+whoever was delegated the independent review (Spec + Standards) in read-only mode
+— and **never by the PR author**: a verdict given to oneself is not independent.
+The coordinator only runs the gate and reads its refusal.
 
-Ставить він мітку **після** того, як обидва боки огляду дали pass і CI на
-поточному HEAD повністю зелений. Порядок не косметичний: гейт порівнює час
-мітки з часом останнього коміту й останнього прогону чеків, тож мітка,
-поставлена до кінця CI, змусить перепроставляти її ще раз.
+It sets the label **after** both sides of the review have passed and CI on the
+current HEAD is fully green. The order is not cosmetic: the gate compares the label's
+timestamp with the time of the last commit and the last check run, so a label
+set before the end of CI will force it to be set again.
 
-Копію для огляду й **ревізію бази** дає `scripts/review-clone.sh <гілка>`: вона
-бере `origin/<гілка>`, робить копію для читання без змін і друкує базу
-(`merge-base` з `origin/main`, повним sha) разом із готовою командою дифу.
-Без неї огляд з'їжджає на `HEAD` координатора, а `git diff origin/main...HEAD`
-тихо показує чужі файли: саме так #1323 дістав диф на чужу гілку. Невідомість
-(немає гілки, немає merge-base, немає мережі) команда називає кодом 2 і копії по
-собі не лишає.
+A review copy and an **explicit base revision** come from `scripts/review-clone.sh <branch>`: it
+takes `origin/<branch>`, makes a read-only copy and prints the base
+(`merge-base` with `origin/main`, full sha) together with a ready diff command.
+Without it, the review slides onto the coordinator's `HEAD`, and `git diff origin/main...HEAD`
+silently shows someone else's files: that is exactly how #1323 got a diff against another branch. An
+unknown (no branch, no merge-base, no network) the command names as code 2 and leaves no copy
+behind.
 
 ```sh
-scripts/review-clone.sh <гілка>          # копія для огляду + НАЗВАНА ревізія бази
-gh label create 'review:pass' --description 'Незалежний огляд пройдено (Spec + Standards)' --color 0E8A16  # один раз
-scripts/review-pass.sh <номер>   # вердикт: і перший, і перепроставлення — не `gh pr edit --add-label`
+scripts/review-clone.sh <branch>          # review copy + NAMED base revision
+gh label create 'review:pass' --description 'Independent review passed (Spec + Standards)' --color 0E8A16  # once
+scripts/review-pass.sh <number>   # verdict: both the first one and a re-issue — not `gh pr edit --add-label`
 
-scripts/merge-pr.sh <номер>            # злити (лише squash, гілку не чіпає)
-scripts/merge-pr.sh <номер> --dry-run  # побачити вердикт гейта, нічого не зливаючи
+scripts/merge-pr.sh <number>            # merge (squash only, does not touch the branch)
+scripts/merge-pr.sh <number> --dry-run  # see the gate verdict without merging anything
 ```
 
-Перепроставляє вердикт `scripts/review-pass.sh <номер>`: знімає мітку й ставить
-назад **однією операцією**, тож подія `labeled` створюється завжди, і друкує нову
-позначку часу разом із HEAD-ревізією, яку вона засвідчує. Це не косметика:
-`gh pr edit --add-label` на PR, який **уже** має цю мітку, — тиха ні-операція,
-події не створюється, час вердикту лишається старим, і гейт слушно відмовляє
-(«після вердикту огляду з'явилися нові коміти»). Саме так #1259 коштував
-координатору цілого кола. Скрипт не вірить, що подія створилася: він читає
-таймлайн **до і після** і відмовляє, якщо `labeled`-подій не побільшало, — а
-якщо мітки немає в репозиторії, каже це й показує `gh label create`.
+`scripts/review-pass.sh <number>` re-sets the verdict: it removes the label and sets it
+back **in one operation**, so the `labeled` event is always created, and it prints the new
+timestamp together with the HEAD revision it attests. This is not cosmetic:
+`gh pr edit --add-label` on a PR that **already** has this label is a silent no-op,
+no event is created, the verdict time stays old, and the gate rightly refuses
+("«після вердикту огляду з'явилися нові коміти»" — "new commits appeared after the review verdict"). That is exactly how #1259 cost the
+coordinator a whole round. The script does not trust that the event was created: it reads the
+timeline **before and after** and refuses if `labeled` events did not increase, and
+if the label does not exist in the repository, it says so and shows `gh label create`.
 
-Чому мітка, а не схвалення GitHub-рев'ю: `Approve` автор PR поставити собі не
-може, а всі PR цього репозиторію відкриває той самий акаунт, тож
-`reviewDecision` ніколи не стане `APPROVED`. Мітка — процесний сигнал, не
-криптографічний доказ; саме тому гейт перевіряє її **час**, а не саму
-наявність, і вимагає, щоб вона була новішою за все, що засвідчує.
+Why a label and not a GitHub review approval: the PR author cannot set `Approve`
+on themselves, and every PR in this repository is opened by the same account, so
+`reviewDecision` will never become `APPROVED`. The label is a process signal, not a
+cryptographic proof; that is why the gate checks its **time**, not the mere
+presence, and requires it to be newer than everything it attests.
 
-Мітка не замінює огляд: знахідки, як і раніше, живуть коментарем у PR чи
-тікеті, а мітка лише засвідчує, що на цій ревізії їх немає. Відмова гейта
-завжди називає причину й наступний крок; перепроставляти мітку «про всяк
-випадок» не треба — гейт сам скаже, коли вона застаріла, а перепроставляє її
-`scripts/review-pass.sh`, не `gh pr edit --add-label`.
+The label does not replace the review: findings, as before, live as a comment in the PR or
+ticket, and the label only attests that they are absent on this revision. A gate refusal
+always names the reason and the next step; there is no need to re-set the label "just in
+case" — the gate itself says when it is stale, and it is re-set by
+`scripts/review-pass.sh`, not `gh pr edit --add-label`.
 
-Привести гілку до `main` — ребазом або мерджем `main` у неї, не злиттям PR —
-робить **автор гілки**: він знає, що гілка мусить нести, і помітить втрачене.
-Готову гілку координатор лише пушить; історію він не переписує.
+Bringing a branch up to `main` — by rebase or by merging `main` into it, not by merging the PR —
+is done by the **branch author**: they know what the branch must carry, and they will notice what was lost.
+The coordinator only pushes a finished branch; they do not rewrite history.
 
-Виняток — автор уже завершив роботу. Тоді ребазить координатор, але перед
-пушем **зобов'язаний** перевірити, що ребаз завершився. Умови: чисте дерево
-(конфлікт лишає шляхи незакоміченими, тож його ловить ця ж умова), жодного
-`rebase-merge` чи `rebase-apply` у Git-каталозі дерева, жодного `MERGE_HEAD`
-від перерваного мерджу `main`. Перевірка чинна лише в тому самому worktree, де
-робили ребаз: `--git-path` веде до Git-каталогу цього дерева, тож із чужого
-вона мовчить. І хеші в тілі PR після ребазу інші — оновлює їх той, хто ребазив
-(`docs/agents/local-environment.md`, «Worktrees»).
+The exception is when the author has already finished the work. Then the coordinator
+does the rebase, but before pushing they **must** verify that the rebase finished. The
+conditions: a clean tree (a conflict leaves paths uncommitted, so the same condition
+catches it), no `rebase-merge` or `rebase-apply` in the tree's Git directory, no `MERGE_HEAD`
+from an interrupted merge of `main`. The check is valid only in the same worktree where
+the rebase was done: `--git-path` points to this tree's Git directory, so from another
+one it stays silent. And the hashes in the PR body are different after a rebase — they are
+updated by whoever did the rebase (`docs/agents/local-environment.md`, "Worktrees").
 
 ```sh
 [ -z "$(git status --porcelain)" ] \
   && test ! -e "$(git rev-parse --git-path rebase-merge)" \
   && test ! -e "$(git rev-parse --git-path rebase-apply)" \
   && test ! -e "$(git rev-parse --git-path MERGE_HEAD)" \
-  && echo 'ребаз завершився — можна пушити' \
-  || { echo 'СТОП: ребаз не завершився — не пушити'; false; }
+  && echo 'rebase finished — safe to push' \
+  || { echo 'STOP: rebase did not finish — do not push'; false; }
 ```
 
-Ціна вже сплачена: PR #1239 (веб-щуп розкладки) злився не тим вмістом.
-Координатор ребазнув гілку, ребаз упав на конфлікті в
-`docs/agents/local-environment.md`, і на remote пішло обрізане дерево; CI на
-ньому пройшов (перевіряти не було чого), і в `main` потрапив сам скрипт без
-правок огляду. Відновлення коштувало окремий PR #1245.
+The price has already been paid: PR #1239 (the web layout probe) merged with the wrong
+content. The coordinator rebased the branch, the rebase failed on a conflict in
+`docs/agents/local-environment.md`, and a truncated tree went to the remote; CI on
+it passed (there was nothing to check), and the script itself, without the review
+fixes, landed in `main`. Recovery cost a separate PR #1245.
 
-Ручна перевірка вище й машинний гейт — не суперечність, а два моменти: автор
-перевіряє себе **перед пушем**, і його `--git-path` чинний лише в тому дереві,
-де робили ребаз; гейт дивиться **перед мерджем** і сканує **всі** worktree
-копії (розділ «Вердикт огляду і мердж») — саме тому він і ловить ребаз, який
-автор лишив у своєму.
+The manual check above and the machine gate are not a contradiction but two moments: the author
+checks themselves **before pushing**, and their `--git-path` is valid only in the tree
+where the rebase was done; the gate looks **before merging** and scans **all** worktree
+copies (the "Review verdict and merge" section) — which is exactly why it catches a rebase the
+author left in their own.
 
-## Гілки після злитого PR
+## Branches after a merged PR
 
-`scripts/merge-pr.sh` гілку не видаляє — і не мусить: локальна копія може нести
-ще не запушені страхові патчі. Порядок у віддалених гілках тримає нічний
-воркфлоу `branch-hygiene` (`docs/runbooks/branch-hygiene.md`). Він видаляє
-гілку лише тоді, коли її вміст доведено вже в `main`: tip — предок `main`, PR
-злито в `main` із тим самим tip, або нуль унікальних патчів щодо `main`. Гілки
-з відкритим PR, `main`, `legal/*`, `backup/*` і релізні лінії без тега `v*` не
-чіпаються ніколи. Виконавцю не треба прибирати свою гілку руками, але й не
-можна покладатися на те, що гілка з відкритим PR зникне.
+`scripts/merge-pr.sh` does not delete the branch — and must not: the local copy may carry
+safety patches that are not pushed yet. Order in remote branches is kept by the nightly
+`branch-hygiene` workflow (`docs/runbooks/branch-hygiene.md`). It deletes a
+branch only when its content is proven to be in `main` already: the tip is an ancestor of `main`, the PR
+was merged into `main` with the same tip, or there are zero unique patches against `main`. Branches
+with an open PR, `main`, `legal/*`, `backup/*` and release lines without a `v*` tag are
+never touched. An implementer does not need to clean up their branch by hand, but
+must not rely on a branch with an open PR disappearing.
 
-## Бриф оглядача
+## Reviewer brief
 
-Огляд — не «прочитати диф і сказати ok». Він має обсяг, і цей обсяг названий,
-бо без нього оглядач або повторює CI, або не перевіряє нічого:
+A review is not "read the diff and say ok". It has a scope, and that scope is
+named, because without it the reviewer either repeats CI or checks nothing:
 
-- **Копія й база.** `scripts/review-clone.sh <гілка>` — копія без змін і
-  **названа** ревізія бази (`merge-base` з `origin/main`). Диф будується від неї,
-  не від `HEAD` координатора: інакше в диф тихо потрапляють чужі файли (#1323).
-- **Локальні докази.** Цільовий клас або партиція, яку зміна зачіпає, і
-  **дві-три мутації** через `scripts/mutate.sh` з run-id із `.mutations/runs.jsonl`
-  (у KV-пітоні — `--python`, у JVM — `--class`). Повний набір партицій локально
-  не жене — це робота CI («Testing and verification» в `AGENTS.md`); оглядач
-  перевіряє те, що CI **не** доводить: свідки, межі й твердження.
-- **Твердження.** Кожне число або обіцянка в тілі PR відтворюються командою чи
-  тестом. «Обхід шириною» без свідка, де depth-first падає, — не твердження, а
-  побажання; саме так огляд PR #1491 знайшов чотири розбіжності між тілом
-  PR і кодом.
-- **CI зелений до вердикту.** Мітка `review:pass` ставиться лише на HEAD, де всі
-  non-skipped чеки зелені, і лише через `scripts/review-pass.sh` (не
-  `gh pr edit --add-label`). Червону інфраструктуру (adb/емулятор) не
-  перефарбовують у «майже зелене»: спершу rerun.
-- **Знахідки — коментарем у PR**, з файлом і рядком; вердикт засвідчує, що їх
-  немає на цій ревізії, а не замінює їх.
+- **The copy and the base.** `scripts/review-clone.sh <branch>` — a read-only copy and a
+  **named** base revision (`merge-base` with `origin/main`). The diff is built from it,
+  not from the coordinator's `HEAD`: otherwise someone else's files land in the diff silently (#1323).
+- **Local evidence.** The target class or partition the change touches, and
+  **two or three mutations** through `scripts/mutate.sh` with a run-id from `.mutations/runs.jsonl`
+  (the Python half — `--python`, the JVM half — `--class`). The full partition set is not
+  run locally — that is CI's job ("Testing and verification" in `AGENTS.md`); the reviewer
+  checks what CI does **not** prove: witnesses, limits and claims.
+- **Claims.** Every number or promise in the PR body is reproduced by a command or a
+  test. A breadth-first walk without a witness where depth-first fails is not a claim but a
+  wish; that is exactly how the review of PR #1491 found four discrepancies between the
+  PR body and the code.
+- **CI green before the verdict.** The `review:pass` label is set only on a HEAD where all
+  non-skipped checks are green, and only through `scripts/review-pass.sh` (not
+  `gh pr edit --add-label`). Red infrastructure (adb/emulator) is not
+  repainted as "almost green": rerun first.
+- **Findings — as a comment in the PR**, with file and line; the verdict attests that they are
+  absent on this revision, and does not replace them.
 
-Це не замінює судження: які мутації писати і що вважати межею — вирішує оглядач.
-Бриф звужує те, що можна перевірити механічно, і лишає оглядачеві те, що
-механічно не перевіряється.
+This does not replace judgement: which mutations to write and what counts as a limit is decided by the
+reviewer. The brief narrows what can be checked mechanically, and leaves the reviewer what
+is not mechanically checked.

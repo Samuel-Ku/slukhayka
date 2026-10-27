@@ -679,7 +679,7 @@ class BoundaryTest(FixtureMixin):
         кілька на рядок (межа — у шапці `doc_numbers.py`). Тест стверджує це
         прогоном, а не замовчує: правка такого числа проходить зеленим.
         """
-        self.edit("docs/agents/issue-tracker.md", "91/90/10/9 на", "92/90/10/9 на")
+        self.edit("docs/agents/issue-tracker.md", "91/90/10/9 on", "92/90/10/9 on")
         code, out, err = self.check()
         self.assertEqual(0, code, "stdout=%r stderr=%r" % (out, err))
 

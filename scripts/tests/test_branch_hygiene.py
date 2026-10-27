@@ -162,7 +162,7 @@ class DecideTest(unittest.TestCase):
             )
         )
         self.assertEqual(verdict["action"], "keep")
-        self.assertIn("рухалася далі", verdict["reason"])
+        self.assertIn("kept moving", verdict["reason"])
 
     def test_merged_pr_with_moved_branch_is_kept(self):
         verdict = decide(
@@ -174,7 +174,7 @@ class DecideTest(unittest.TestCase):
             )
         )
         self.assertEqual(verdict["action"], "keep")
-        self.assertIn("рухалася далі", verdict["reason"])
+        self.assertIn("kept moving", verdict["reason"])
 
     def test_pr_merged_into_a_release_lane_is_not_proof(self):
         # PR, злитий у release/*, не означає, що зміни вже в main: таку гілку
@@ -188,7 +188,7 @@ class DecideTest(unittest.TestCase):
             )
         )
         self.assertEqual(verdict["action"], "keep")
-        self.assertIn("не в main", verdict["reason"])
+        self.assertIn("outside main", verdict["reason"])
         self.assertIn("release/v1.5", verdict["reason"])
 
     def test_open_pr_blocks_deletion_even_when_absorbed(self):
@@ -204,12 +204,12 @@ class DecideTest(unittest.TestCase):
             make_branch("t1", unique_patches=4, prs=[make_pr(13, "CLOSED")])
         )
         self.assertEqual(verdict["action"], "keep")
-        self.assertIn("без злиття", verdict["reason"])
+        self.assertIn("without merging", verdict["reason"])
 
     def test_branch_without_pr_and_unique_commits_is_kept(self):
         verdict = decide(make_branch("t1", age_days=30))
         self.assertEqual(verdict["action"], "keep")
-        self.assertIn("PR немає", verdict["reason"])
+        self.assertIn("no PR", verdict["reason"])
 
     def test_protected_names_are_never_touched(self):
         for name in ("main", "master", "legal/bsl-1.1", "backup/pre-rewrite"):
@@ -228,7 +228,7 @@ class DecideTest(unittest.TestCase):
     def test_release_branch_needs_a_tag_even_when_absorbed(self):
         verdict = decide(make_branch("release/v1.5", ancestor=True))
         self.assertEqual(verdict["action"], "keep")
-        self.assertIn("без тега v*", verdict["reason"])
+        self.assertIn("without a v* tag", verdict["reason"])
 
     def test_tagged_release_branch_is_deleted(self):
         verdict = decide(
@@ -268,7 +268,7 @@ class ReportTest(unittest.TestCase):
 
     def test_stale_orphan_branch_is_recommended(self):
         body, _ = self.build([make_branch("codex/old", age_days=30)])
-        self.assertIn("PR немає", body)
+        self.assertIn("no PR", body)
         self.assertIn("codex/old", body)
 
     def test_protected_and_release_branches_are_not_advised_to_open_pr(self):
@@ -278,8 +278,8 @@ class ReportTest(unittest.TestCase):
                 make_branch("release/v1.3.9", age_days=60, unique_patches=7),
             ]
         )
-        self.assertNotIn("`legal/bsl-1.1` — PR немає", body)
-        self.assertIn("релізна лінія без тега v*", body)
+        self.assertNotIn("`legal/bsl-1.1` — no PR", body)
+        self.assertIn("release line without a v* tag", body)
 
     def test_stale_draft_is_reported(self):
         body, decisions = self.build(
@@ -293,7 +293,7 @@ class ReportTest(unittest.TestCase):
             ]
         )
         self.assertTrue(decisions[0]["stale_draft"])
-        self.assertIn("драфт без руху", body)
+        self.assertIn("draft with no movement", body)
         self.assertIn("#700", body)
 
     def test_a_fresh_pr_on_a_branch_with_an_old_one_is_not_stale(self):
@@ -335,7 +335,7 @@ class ReportTest(unittest.TestCase):
             },
         )
         self.assertEqual(decisions[0]["action"], "delete")
-        self.assertIn("`t1` — видалено (поглинуто main", body)
+        self.assertIn("`t1` — deleted (absorbed into main", body)
 
     def test_failed_deletion_is_reported(self):
         body, _ = self.build(
@@ -345,11 +345,11 @@ class ReportTest(unittest.TestCase):
                 "applied": [{"name": "t1", "ok": False, "error": "remote rejected"}],
             },
         )
-        self.assertIn("видалити не вдалося: remote rejected", body)
+        self.assertIn("could not be deleted: remote rejected", body)
 
     def test_missing_pr_data_is_disclosed(self):
         body, _ = self.build([make_branch("t1", unique_patches=2)])
-        self.assertNotIn("Даних про PR немає", body)
+        self.assertNotIn("No PR data", body)
         facts = {
             "collected_at": NOW.isoformat(),
             "main": "main",
@@ -361,7 +361,7 @@ class ReportTest(unittest.TestCase):
         body = branch_hygiene.render_report(
             facts, decisions, None, stale_days=14, narrative=None, now=NOW
         )
-        self.assertIn("Даних про PR немає", body)
+        self.assertIn("No PR data", body)
 
 
 class CollectIntegrationTest(unittest.TestCase):
@@ -713,7 +713,7 @@ class CollectIntegrationTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("branch-hygiene-report", result.stdout)
-        self.assertIn("## Що зроблено", result.stdout)
+        self.assertIn("## What was done tonight", result.stdout)
 
     def test_cleanup_refuses_when_there_is_no_pr_data(self):
         """Відмова без PR-даних стосується й віддаленої половини, не лише локальної."""
@@ -929,7 +929,7 @@ class LocalDecideTest(unittest.TestCase):
         branch["worktree"] = None
         verdict = decide_local(branch)
         self.assertEqual(verdict["action"], "keep")
-        self.assertIn("PR немає", verdict["reason"])
+        self.assertIn("no PR", verdict["reason"])
 
     def test_open_pr_still_blocks_local_deletion(self):
         branch = make_branch("t9", ancestor=True, prs=[make_pr(5, "OPEN")])
@@ -1023,7 +1023,7 @@ class LocalReportTest(unittest.TestCase):
             "t9", unique_patches=4, prs=[make_pr(1147, "MERGED", sha="b" * 40)]
         )
         body, _ = self.render([branch])
-        self.assertIn("PR #1147 злито в main, але гілка рухалася далі", body)
+        self.assertIn("PR #1147 merged into main, but the branch kept moving", body)
         self.assertIn("git log origin/main..t9", body)
 
     def test_dirty_worktree_is_listed_with_a_command(self):

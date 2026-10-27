@@ -1,26 +1,26 @@
 ## Summary
 
-<!-- Що змінилося і чому — два-три речення. Схема, дерево файлів або псевдокод,
-     якщо вони коротші за прозу. -->
+<!-- What changed and why — two or three sentences. A diagram, file tree or
+     pseudocode, if they are shorter than prose. -->
 
 ## Claims
 
-<!-- Кожне число й кожна обіцянка цього тіла мусить мати доказ нижче: тест,
-     команда з виводом або run-id мутації. Неперевірене твердження — не
-     твердження; огляд його спростує, а не перекаже. -->
+<!-- Every number and every promise in this body must have proof below: a test,
+     a command with its output or a mutation run-id. An unverified claim is
+     not a claim; review will refute it, not repeat it. -->
 
 ## Evidence
 
-<!-- Before/After: вивід команди чи тесту (текст, не переказ).
-     Нову логіку — мутацією: `scripts/mutate.sh --patch <файл> --class <FQCN>`
-     (або `--python <ціль>`), run-id — з `scripts/mutate.sh status …`. -->
+<!-- Before/After: the output of a command or a test (text, not a retelling).
+     New logic — by mutation: `scripts/mutate.sh --patch <file> --class <FQCN>`
+     (or `--python <target>`); run-id — from `scripts/mutate.sh status …`. -->
 
 ## Merge Danger
 
-**Door:** <!-- one-way (важко відкотити) чи two-way -->
+**Door:** <!-- one-way (hard to roll back) or two-way -->
 
-**Blast Radius:** <!-- що зачепить: екран, джерело, CI, смуги… -->
+**Blast Radius:** <!-- what it will touch: screen, source, CI, lanes… -->
 
 ## Related
 
-<!-- Тікет, план, ADR. -->
+<!-- Ticket, plan, ADR. -->

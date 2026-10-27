@@ -85,11 +85,19 @@ class SoundBooksAdapter(
         if (matched.isEmpty()) return emptyList()
 
         val books = LinkedHashMap<String, SourceBook>()
+        // Breadth first: every matched tag gets its FIRST page before any tag
+        // gets a second one. A global page budget must not starve the second
+        // author when the first one alone could fill it.
+        val nextPage = matched.associateWith { it.url as String? }.toMutableMap()
         var pagesOpened = 0
         var requests = 0
-        for (tag in matched) {
-            var pageUrl: String? = tag.url
-            while (pageUrl != null && pagesOpened < searchPageLimit && books.size < searchResultLimit) {
+        var pending = true
+        while (pending && pagesOpened < searchPageLimit && books.size < searchResultLimit) {
+            pending = false
+            for (tag in matched) {
+                if (pagesOpened >= searchPageLimit || books.size >= searchResultLimit) break
+                val pageUrl = nextPage[tag] ?: continue
+                pending = true
                 if (requests > 0) pauseMillis(pacing.nextPauseMillis())
                 requests++
                 val html = fetcher.getText(
@@ -99,10 +107,13 @@ class SoundBooksAdapter(
                     FeedSnapshotPolicy.CATALOG_TTL_MS
                 )
                 pagesOpened++
-                if (html.isEmpty()) break
+                if (html.isEmpty()) {
+                    nextPage[tag] = null
+                    continue
+                }
                 parseSearchTiles(html, searchResultLimit - books.size)
                     .forEach { books.putIfAbsent(it.url, it) }
-                pageUrl = nextTagPage(pageUrl, html)
+                nextPage[tag] = nextTagPage(pageUrl, html)
             }
         }
         return books.values.toList()
@@ -116,6 +127,9 @@ class SoundBooksAdapter(
     private fun parseSearchTiles(html: String, limit: Int): List<SourceBook> {
         if (limit <= 0) return emptyList()
         val books = mutableListOf<SourceBook>()
+        // The tile carries «Триває:» and the genre links — the same extras the
+        // catalogue tile parser reads; a search card must not lose them.
+        val extras = cardExtras(html)
         val blocks = html.split(TILE_START).drop(1)
         for (block in blocks) {
             if (books.size >= limit) break
@@ -132,12 +146,15 @@ class SoundBooksAdapter(
             val anchor = titleLink?.groupValues?.get(2)?.trim()?.takeIf { it.length >= 3 }
                 ?: coverMatch?.groupValues?.get(3)?.trim()?.takeIf { it.length >= 3 }
             val (title, author) = titleAuthorOf(anchor, url)
+            val extra = extras[url] ?: CardExtras()
             books += SourceBook(
                 title = title,
                 author = author,
                 url = url,
                 sourceId = sourceId,
-                coverImageUrl = cover
+                coverImageUrl = cover,
+                totalDurationSeconds = extra.durationSeconds,
+                genre = extra.genre
             )
         }
         return books
@@ -160,17 +177,15 @@ class SoundBooksAdapter(
      */
     private fun nextTagPage(current: String, html: String): String? {
         val path = current.removePrefix("https://sound-books.net")
-        val base = path.substringBefore("/page/")
+        // The sitemap url ends with '/', the pagination path does not: compare
+        // both sides WITHOUT the trailing slash or every link is rejected.
+        val base = path.substringBefore("/page/").trimEnd('/')
         if (base.isBlank()) return null
         val currentPage = PAGE_NUMBER.find(path)?.groupValues?.get(1)?.toIntOrNull() ?: 1
         val next = TAG_PAGE_LINK.findAll(html).mapNotNull { match ->
-            val linkedPath = match.groupValues[1]
+            val linkedBase = match.groupValues[1].substringBefore("/page/").trimEnd('/')
             val linkedPage = match.groupValues[2].toIntOrNull()
-            if (linkedPage != null && linkedPath.substringBefore("/page/") == base && linkedPage > currentPage) {
-                linkedPage
-            } else {
-                null
-            }
+            if (linkedPage != null && linkedBase == base && linkedPage > currentPage) linkedPage else null
         }.minOrNull() ?: return null
         return "https://sound-books.net$base/page/$next/"
     }

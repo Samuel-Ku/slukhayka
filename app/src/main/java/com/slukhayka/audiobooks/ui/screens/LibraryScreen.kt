@@ -2288,9 +2288,9 @@ fun LibraryBookCard(
             .fillMaxWidth()
             .clip(if (paperInk && !grid) RoundedCornerShape(0.dp) else MaterialTheme.shapes.medium),
         colors = CardDefaults.cardColors(
-            // A list row is a stream of paper rows, not a stack of raised
-            // tiles; the grid keeps a contained tile.
-            containerColor = if (paperInk && !grid) {
+            // List rows and grid tiles are paper surfaces in the direction;
+            // the legacy schemes keep their tonal container.
+            containerColor = if (paperInk) {
                 MaterialTheme.colorScheme.background
             } else {
                 MaterialTheme.colorScheme.surfaceContainer
@@ -2491,6 +2491,7 @@ private fun LibraryBookGridContent(
     /** spec-52 US28 (#1174) — the live «Покинуто» mark of this book. */
     abandoned: Boolean = false
 ) {
+    val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
     Column {
         Box {
             BookCoverImage(
@@ -2498,7 +2499,7 @@ private fun LibraryBookGridContent(
                 semantics = BookCoverSemantics.Decorative,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(3f / 4f),
+                    .aspectRatio(if (paperInk) 2f / 3f else 3f / 4f),
                 contentScale = ContentScale.Crop
             )
             LibraryCoverOfflineBadge(
@@ -2524,10 +2525,14 @@ private fun LibraryBookGridContent(
         // shelf or a grid row has one height instead of a ragged staircase.
         // A tile shorter than its neighbour looked like a bug, not like a book
         // with less metadata. What varies now is only the text inside a slot.
-        Column(modifier = Modifier.padding(10.dp)) {
+        Column(modifier = Modifier.padding(if (paperInk) 12.dp else 10.dp)) {
             Text(
                 text = book.book.title,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                style = if (paperInk) {
+                    PaperInkType.Meta.copy(fontWeight = FontWeight.SemiBold)
+                } else {
+                    MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                },
                 color = MaterialTheme.colorScheme.onSurface,
                 minLines = 2,
                 maxLines = 2,
@@ -2536,14 +2541,14 @@ private fun LibraryBookGridContent(
             Text(
                 // An empty string still occupies its line — that is the point.
                 text = book.book.displayAuthor,
-                style = MaterialTheme.typography.bodySmall,
+                style = if (paperInk) PaperInkType.Micro else MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = librarySeriesLabel(book).orEmpty(),
-                style = MaterialTheme.typography.labelMedium,
+                style = if (paperInk) PaperInkType.Micro else MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -2572,7 +2577,11 @@ private fun LibraryBookGridContent(
                             .height(4.dp)
                             .clip(RoundedCornerShape(AppDimens.RadiusProgress))
                             .clearAndSetSemantics { },
-                        color = MaterialTheme.colorScheme.primary,
+                        color = if (paperInk) {
+                            MaterialTheme.colorScheme.tertiary
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
                         trackColor = MaterialTheme.colorScheme.outlineVariant,
                         // #292 carried to the shelf: the M3 stop dot read as a stray
                         // amber marker crowding the provenance chip right below it
@@ -2598,7 +2607,7 @@ private fun LibraryBookGridContent(
                 availabilityLabel(availability)?.let { label ->
                     Text(
                         text = label,
-                        style = MaterialTheme.typography.labelSmall,
+                        style = if (paperInk) PaperInkType.Micro else MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,

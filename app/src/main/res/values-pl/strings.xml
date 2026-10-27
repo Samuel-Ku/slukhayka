@@ -27,16 +27,4 @@
     <string name="m3c_bottom_sheet_drag_handle_description">Uchwyt do przeciągania</string>
     <string name="m3c_bottom_sheet_expand_description">Rozwiń planszę dolną</string>
     <string name="m3c_bottom_sheet_pane_title">Plansza dolna</string>
-    <!-- Plan 2026-2027: the appearance group on the Settings root. -->
-    <string name="settings_group_appearance">Wygląd</string>
-    <string name="settings_theme">Motyw</string>
-    <string name="settings_theme_auto">Auto</string>
-    <string name="settings_theme_paper">Papier</string>
-    <string name="settings_theme_ink">Atrament</string>
-    <string name="settings_player_always_ink">Odtwarzacz zawsze ciemny</string>
-    <string name="settings_player_always_ink_desc">Odtwarzacz pozostaje w motywie Atrament, nawet gdy aplikacja jest jasna.</string>
-    <string name="settings_density">Gęstość</string>
-    <string name="settings_density_comfortable">Wygodnie</string>
-    <string name="settings_density_compact">Kompaktowo</string>
-    <string name="settings_density_desc">Kompaktowo zmniejsza wiersze i plakaty, nigdy cele dotykowe.</string>
 </resources>

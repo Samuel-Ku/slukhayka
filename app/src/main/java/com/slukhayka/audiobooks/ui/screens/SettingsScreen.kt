@@ -1,20 +1,26 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.layout.size
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -22,14 +28,31 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
-import com.slukhayka.audiobooks.ui.components.AppTabHeader
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
+import com.slukhayka.audiobooks.ui.theme.AppThemeMode
+import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
+import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
+import com.slukhayka.audiobooks.ui.theme.PaperInkType
 
-/** One home for the existing settings destinations; preferences stay in their modules. */
+/**
+ * One home for the existing settings destinations; preferences stay in their
+ * modules.
+ *
+ * Plan 2026-2027: the root now leads with the appearance group the direction
+ * asks for — theme «Авто / Папір / Чорнило» and the player's ink exception —
+ * then the same seven destinations, unchanged and still never more than two
+ * taps from anywhere. Groups are sentence case now (the direction's rule), and
+ * the row is a paper list row: icon, title, one-line description, chevron.
+ */
 @Composable
 internal fun SettingsScreen(
     returnDestination: SettingsDestination? = null,
-    onOpen: (SettingsDestination) -> Unit
+    onOpen: (SettingsDestination) -> Unit,
+    themeMode: AppThemeMode = AppThemeMode.AUTO,
+    onThemeModeChange: (AppThemeMode) -> Unit = {},
+    playerAlwaysInk: Boolean = true,
+    onPlayerAlwaysInkChange: (Boolean) -> Unit = {},
 ) {
     val title = stringResource(R.string.nav_settings)
     // spec-54 T05 (#866) — the SAME seven destinations, grouped so the listener
@@ -55,76 +78,213 @@ internal fun SettingsScreen(
     }
     val destinations = remember(groups) { groups.flatMap { it.destinations } }
     val headingFocus = remember { FocusRequester() }
-    val rowFocus = remember { destinations.associateWith { FocusRequester() } }
+    val rowFocus = remember(destinations) { destinations.associateWith { FocusRequester() } }
     LaunchedEffect(returnDestination) {
         withFrameNanos { }
         (rowFocus[returnDestination] ?: headingFocus).requestFocus()
     }
-    Column(
-        Modifier.fillMaxSize().testTag("settings_screen").accessibilityPane(title)
-            .verticalScroll(rememberScrollState())
-    ) {
-        // v1.4 C5 (ADR-0033): the same tab header as Огляд/Медіатека —
-        // one headline model across the tabs; the return-focus contract
-        // rides the header's title.
-        AppTabHeader(
-            title = title,
-            returnFocusRequester = headingFocus
-        )
-        Column(Modifier.padding(horizontal = 16.dp)) {
-            groups.forEach { group ->
-                // #885 (wave 3) — the prototype's settings group is a small
-                // MUTED CAPS label (`.sl-setting-group > h2`: 12 px,
-                // `text-transform:uppercase`, `.8px` tracking, `--sl-muted`),
-                // not a 14 sp primary-coloured title. A settings list is an
-                // index, so its group names label rather than announce; the
-                // primary colour made every group compete with the rows.
-                Text(
-                    text = stringResource(group.titleRes).uppercase(),
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = 12.sp,
-                        letterSpacing = 0.8.sp
-                    ),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .padding(top = 16.dp, bottom = 8.dp)
-                        .testTag("settings_group_${group.titleRes}")
-                        .semantics { heading() }
+
+    PaperInkThemedContent {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .testTag("settings_screen")
+                .accessibilityPane(title)
+                .verticalScroll(rememberScrollState())
+        ) {
+            PaperInkTabHeader(
+                title = title,
+                // Settings is not a root: no gear, the system Back returns.
+                headingTestTag = "settings_heading",
+                returnFocusRequester = headingFocus,
+            )
+            Column(Modifier.padding(horizontal = PaperInkDimens.SpacePage)) {
+                GroupLabel(R.string.settings_group_appearance)
+                ThemeChoiceRow(themeMode = themeMode, onThemeModeChange = onThemeModeChange)
+                PaperDivider()
+                PlayerInkRow(
+                    playerAlwaysInk = playerAlwaysInk,
+                    onPlayerAlwaysInkChange = onPlayerAlwaysInkChange,
                 )
-                group.destinations.forEach { destination ->
-                    ListItem(
-                        // #885 (wave 3) — the prototype's row has a leading
-                        // icon (`.sl-list-row > svg`, 21 px, muted). It is
-                        // what makes seven rows scannable: the eye finds
-                        // «Мова» by shape before it reads the word.
-                        leadingContent = {
-                            Icon(
-                                imageVector = destination.icon,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(21.dp)
-                            )
-                        },
-                        headlineContent = { Text(stringResource(destination.titleRes)) },
-                        supportingContent = {
-                            Text(
-                                text = stringResource(destination.descriptionRes),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        },
-                        trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null) },
-                        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.background),
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)
-                            .testTag("settings_${destination.name}")
-                            .focusRequester(rowFocus.getValue(destination))
-                            .focusProperties { canFocus = true }
-                            .clickable(role = Role.Button) { onOpen(destination) }
-                    )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                PaperDivider()
+
+                groups.forEach { group ->
+                    GroupLabel(group.titleRes)
+                    group.destinations.forEach { destination ->
+                        SettingsRow(
+                            destination = destination,
+                            focusRequester = rowFocus.getValue(destination),
+                            onClick = { onOpen(destination) },
+                        )
+                        PaperDivider()
+                    }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun GroupLabel(titleRes: Int) {
+    Text(
+        text = stringResource(titleRes),
+        style = PaperInkType.Label,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier
+            .padding(top = 24.dp, bottom = 6.dp)
+            .testTag("settings_group_$titleRes")
+            .semantics { heading() }
+    )
+}
+
+@Composable
+private fun PaperDivider() {
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+}
+
+/** The theme choice: three pills, one selected; each pill is a radio option. */
+@Composable
+private fun ThemeChoiceRow(
+    themeMode: AppThemeMode,
+    onThemeModeChange: (AppThemeMode) -> Unit,
+) {
+    Column(modifier = Modifier.padding(bottom = 14.dp)) {
+        Text(
+            text = stringResource(R.string.settings_theme),
+            style = PaperInkType.RowTitle,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(bottom = 10.dp),
+        )
+        Row(
+            modifier = Modifier.selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            AppThemeMode.entries.forEach { mode ->
+                val selected = mode == themeMode
+                Box(
+                    modifier = Modifier
+                        .height(36.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (selected) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            }
+                        )
+                        .selectable(
+                            selected = selected,
+                            role = Role.RadioButton,
+                            onClick = { onThemeModeChange(mode) },
+                        )
+                        .testTag("settings_theme_${mode.name.lowercase()}")
+                        .padding(horizontal = 16.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = stringResource(
+                            when (mode) {
+                                AppThemeMode.AUTO -> R.string.settings_theme_auto
+                                AppThemeMode.PAPER -> R.string.settings_theme_paper
+                                AppThemeMode.INK -> R.string.settings_theme_ink
+                            }
+                        ),
+                        style = PaperInkType.Label,
+                        color = if (selected) {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Decision A made visible: the player is ink unless the listener says otherwise. */
+@Composable
+private fun PlayerInkRow(
+    playerAlwaysInk: Boolean,
+    onPlayerAlwaysInkChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .toggleable(
+                value = playerAlwaysInk,
+                role = Role.Switch,
+                onValueChange = onPlayerAlwaysInkChange,
+            )
+            .testTag("settings_player_always_ink_row")
+            .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.settings_player_always_ink),
+                style = PaperInkType.RowTitle,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = stringResource(R.string.settings_player_always_ink_desc),
+                style = PaperInkType.Micro,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Switch(
+            checked = playerAlwaysInk,
+            onCheckedChange = null,
+            modifier = Modifier.testTag("settings_player_always_ink"),
+        )
+    }
+}
+
+@Composable
+private fun SettingsRow(
+    destination: SettingsDestination,
+    focusRequester: FocusRequester,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .focusRequester(focusRequester)
+            .focusProperties { canFocus = true }
+            .clickable(role = Role.Button, onClick = onClick)
+            .testTag("settings_${destination.name}")
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = destination.icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(21.dp),
+        )
+        Spacer(modifier = Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(destination.titleRes),
+                style = PaperInkType.RowTitle,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Text(
+                text = stringResource(destination.descriptionRes),
+                style = PaperInkType.Micro,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(18.dp),
+        )
     }
 }
 

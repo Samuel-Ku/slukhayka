@@ -268,7 +268,10 @@ fun PlayerScreen(
     // settled by #154. Player state is read from the player manager directly
     // (already a public field); bookmark creation stays on the ViewModel.
     libraryEntries: LibraryEntries,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    // Plan 2026-2027 — decision A: the player is ink by default. The listener
+    // may turn the exception off in Settings; then the surface follows the app.
+    alwaysInk: Boolean = true,
 ) {
     val playerState by viewModel.playerState.collectAsState()
     // ADR-0008: module flows are read directly — no forwarding StateFlow on
@@ -353,13 +356,14 @@ fun PlayerScreen(
     // above it), so LocalContentColor would otherwise stay at its framework
     // default (BLACK) and every IconButton/Icon without an explicit tint
     // would render near-invisible black glyphs on the dark backdrop.
-    PaperInkTheme(darkTheme = true) {
+    PlayerInkSurface(alwaysInk = alwaysInk) {
     CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onBackground) {
         PlayerModalUnderlay(
             activeTool = activeTool,
             modifier = Modifier.fillMaxSize()
         ) {
             PlayerScreenContent(
+            alwaysInk = alwaysInk,
             playerState = playerState,
             book = book,
             currentChapterTitle = currentChapterTitle,
@@ -478,7 +482,7 @@ fun PlayerScreen(
     }
     }
 
-    PaperInkTheme(darkTheme = true) {
+    PlayerInkSurface(alwaysInk = alwaysInk) {
     when (activeTool) {
         PlayerQuickTool.Timer -> SleepTimerSheet(
             currentTimerMinutes = playerState.sleepTimerMinutes,
@@ -578,6 +582,19 @@ internal fun PlayerModalUnderlay(
     )
 }
 
+/**
+ * The player's ONE scheme boundary: always ink (decision A), or the app's own
+ * scheme when the listener turned the exception off in Settings.
+ */
+@Composable
+private fun PlayerInkSurface(alwaysInk: Boolean, content: @Composable () -> Unit) {
+    if (alwaysInk) {
+        PaperInkTheme(darkTheme = true, content = content)
+    } else {
+        PaperInkThemedContent(content)
+    }
+}
+
 /** Pure player surface, separated from the ViewModel for snapshot and interaction tests. */
 /**
  * The player is the ONE always-ink surface of the product (decision A): it is
@@ -619,9 +636,10 @@ fun PlayerScreenContent(
     onFindAnotherSource: () -> Unit = {},
     // #530 — the ordered fallback offer of #519's action; empty renders nothing.
     fallbackCandidates: List<com.slukhayka.audiobooks.data.editions.FallbackCandidate> = emptyList(),
-    onSelectFallback: (com.slukhayka.audiobooks.data.editions.FallbackCandidate) -> Unit = {}
+    onSelectFallback: (com.slukhayka.audiobooks.data.editions.FallbackCandidate) -> Unit = {},
+    alwaysInk: Boolean = true,
 ) {
-    PaperInkTheme(darkTheme = true) {
+    PlayerInkSurface(alwaysInk = alwaysInk) {
         PlayerScreenContentBody(
             playerState = playerState,
             book = book,

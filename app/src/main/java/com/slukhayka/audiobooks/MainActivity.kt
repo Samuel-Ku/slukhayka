@@ -100,6 +100,8 @@ import com.slukhayka.audiobooks.ui.screens.WebSourceBrowserScreen
 import com.slukhayka.audiobooks.ui.screens.SourceWebViewSession
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkNavItem
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkNavigationBar
+import com.slukhayka.audiobooks.ui.theme.AppThemeMode
+import com.slukhayka.audiobooks.ui.theme.AppearancePreferencesStore
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
@@ -324,8 +326,19 @@ class MainActivity : FragmentActivity() {
         coil.Coil.setImageLoader(imageLoader)
 
         setContent {
-            AudiobookTheme {
-                AudiobookApp()
+            // Plan 2026-2027 — the visible theme follows the listener's choice;
+            // migrated screens resolve it to paper/ink, the rest to the legacy
+            // light/dark pair, so one switch moves the whole app.
+            val appearance = remember { AppearancePreferencesStore(this) }
+            val themeMode by appearance.themeMode.collectAsState()
+            val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+            val darkTheme = when (themeMode) {
+                AppThemeMode.AUTO -> systemDark
+                AppThemeMode.PAPER -> false
+                AppThemeMode.INK -> true
+            }
+            AudiobookTheme(darkTheme = darkTheme) {
+                AudiobookApp(appearance = appearance)
             }
         }
     }
@@ -342,8 +355,15 @@ class MainActivity : FragmentActivity() {
 }
 
 @Composable
-fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
+fun AudiobookApp(
+    viewModel: MainViewModel = viewModel(),
+    // Optional for tests and previews: the app passes the one store it created
+    // before the theme, so the switch and the rendered scheme cannot drift.
+    appearance: AppearancePreferencesStore? = null,
+) {
     val context = LocalContext.current
+    val appearanceStore = appearance ?: remember { AppearancePreferencesStore(context) }
+    val playerAlwaysInk by appearanceStore.playerAlwaysInk.collectAsState()
     // #900 — the window's own width decides the navigation surface and (from
     // here on) which screens show a list with its detail beside it.
     val windowLayout = rememberWindowLayout()
@@ -875,6 +895,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val playerContent: @Composable () -> Unit = {
         PlayerScreen(
             viewModel = viewModel,
+            alwaysInk = playerAlwaysInk,
             // ADR-0008 batch 4 (#159): the module comes in as a parameter from
             // the composition root.
             libraryEntries = viewModel.libraryEntries,
@@ -1553,6 +1574,10 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             )
                             SelectedTab.SETTINGS -> SettingsScreen(
                                 returnDestination = settingsReturnDestination,
+                                themeMode = appearanceStore.themeMode.collectAsState().value,
+                                onThemeModeChange = appearanceStore::setThemeMode,
+                                playerAlwaysInk = playerAlwaysInk,
+                                onPlayerAlwaysInkChange = appearanceStore::setPlayerAlwaysInk,
                                 onOpen = { destination ->
                                     settingsReturnDestination = destination
                                     when (destination) {

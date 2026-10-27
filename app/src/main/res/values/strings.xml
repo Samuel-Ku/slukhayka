@@ -868,4 +868,12 @@
         <item quantity="few">Прослухано %1$d години</item>
         <item quantity="other">Прослухано %1$d годин</item>
     </plurals>
+    <!-- Plan 2026-2027: the appearance group on the Settings root. -->
+    <string name="settings_group_appearance">Вигляд</string>
+    <string name="settings_theme">Тема</string>
+    <string name="settings_theme_auto">Авто</string>
+    <string name="settings_theme_paper">Папір</string>
+    <string name="settings_theme_ink">Чорнило</string>
+    <string name="settings_player_always_ink">Плеєр завжди темний</string>
+    <string name="settings_player_always_ink_desc">Плеєр лишається «Чорнилом», навіть коли застосунок світлий.</string>
 </resources>

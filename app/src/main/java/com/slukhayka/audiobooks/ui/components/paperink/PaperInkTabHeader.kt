@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.ui.components.paperink
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -44,13 +47,18 @@ import com.slukhayka.audiobooks.ui.theme.PaperInkType
 @Composable
 fun PaperInkTabHeader(
     title: String,
-    onSettingsClick: () -> Unit,
+    // Null on screens that are not a root (Settings): the gear is a root
+    // affordance, not a decorative mark.
+    onSettingsClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     headingTestTag: String? = null,
     compact: Boolean = false,
     // Optional root actions (refresh, search…) rendered before the gear. The
     // gear stays the LAST control on every root, so its place never moves.
     actions: (@Composable RowScope.() -> Unit)? = null,
+    // Focus contract: a screen that left for a sub-screen returns focus to its
+    // own title, exactly as the legacy header did.
+    returnFocusRequester: FocusRequester? = null,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     Row(
@@ -91,9 +99,15 @@ fun PaperInkTabHeader(
                 text = title,
                 style = if (compact) PaperInkType.SectionTitle else PaperInkType.ScreenTitle,
                 color = colorScheme.onSurface,
+                modifier = if (returnFocusRequester != null) {
+                    Modifier.focusRequester(returnFocusRequester).focusable()
+                } else {
+                    Modifier
+                },
             )
         }
         if (actions != null) actions()
+        if (onSettingsClick != null) {
         val settingsDescription = stringResource(R.string.a11y_open_settings)
         Box(
             modifier = Modifier

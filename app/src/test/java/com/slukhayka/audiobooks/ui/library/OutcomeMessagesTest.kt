@@ -41,7 +41,7 @@ class OutcomeMessagesTest {
     @Test
     fun `copy migration report names the freed space and the copies kept`() {
         assertEquals(
-            "Звільнено 1.5 МБ: копії локальних книг переїхали на оригінальні теки · 2 копій лишено",
+            "Звільнено 1 МБ: копії локальних книг переїхали на оригінальні теки · 2 копій лишено",
             OutcomeMessages.localCopyMigration(
                 LocalCopyMigration.Report(freedBytes = 1_572_864L, keptTracks = 2)
             )

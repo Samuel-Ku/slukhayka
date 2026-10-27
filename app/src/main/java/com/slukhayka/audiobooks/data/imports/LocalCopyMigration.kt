@@ -16,7 +16,7 @@ import java.io.File
  * For every local book whose tracks still carry a copied file AND whose
  * remembered tree grant is alive, the original document is proven by content
  * hash — the folder memory's current hash is used where the SAF metadata still
- * matches (#1183/T3), and only a miss reads the stream — and the track moves
+ * matches (T3, #1475), and only a miss reads the stream — and the track moves
  * onto the SAF document URI. The copy is deleted only AFTER the rows commit.
  *
  * A dead or unavailable grant keeps its copies exactly as they are (ADR-0061
@@ -78,9 +78,11 @@ class LocalCopyMigration(
         var freed = 0L
         var books = 0
         var kept = 0
-        var unavailable = 0
 
-        val localBooks = dao.getAllAudiobooksOnce().filter { it.sourceUrl.isBlank() }
+        // The migration walks the LOCAL SOURCE, not just books with a blank
+        // sourceUrl: a legacy local source merged into a networked book still
+        // owns copied files, and skipping it silently would hide them forever.
+        val localBooks = dao.getAllAudiobooksOnce()
         // One walk and one hash pass per TREE: every book of the same import
         // shares the tree, and on the legacy (v2) memory a miss would otherwise
         // re-read the whole folder once per book.

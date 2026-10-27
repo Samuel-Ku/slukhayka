@@ -75,7 +75,12 @@ class LocalCopyMigrationTest {
     private fun copy(name: String, bytes: Int = 16): File =
         File(copyRoot, name).apply { writeBytes(ByteArray(bytes) { 1 }) }
 
-    private suspend fun seedBook(bookId: String, sourceTreeUri: String?, tracks: List<Pair<String, File>>) {
+    private suspend fun seedBook(
+        bookId: String,
+        sourceTreeUri: String?,
+        tracks: List<Pair<String, File>>,
+        sourceUrl: String = ""
+    ) {
         dao.insertAudiobooks(
             listOf(
                 AudiobookEntity(
@@ -85,7 +90,7 @@ class LocalCopyMigrationTest {
                     narrator = "",
                     description = "",
                     coverDrawableRes = 0,
-                    sourceUrl = "",
+                    sourceUrl = sourceUrl,
                     genre = "",
                     sourceTreeUri = sourceTreeUri
                 )
@@ -159,6 +164,48 @@ class LocalCopyMigrationTest {
         assertNull(track.localFilePath)
         assertTrue("копія лишається доступною офлайн", track.isDownloaded)
         assertFalse("файл звільнено", file.exists())
+    }
+
+    @Test
+    fun `two books of one tree are migrated in a single walk`() = runBlocking {
+        val first = copy("01.mp3")
+        val second = copy("02.mp3")
+        val secondHash = contentHashOf(ByteArray(16) { 2 }.inputStream())
+        seedBook("b1", tree, listOf(hash to first))
+        seedBook("b2", tree, listOf(secondHash to second))
+        seedMemory(
+            "b1",
+            listOf(FolderRescan.RescanFile("01.mp3", "Кобзар", hash, 16L, 100L))
+        )
+        seedMemory(
+            "b2",
+            listOf(FolderRescan.RescanFile("02.mp3", "Кобзар", secondHash, 16L, 100L))
+        )
+        var scans = 0
+
+        val report = migration {
+            scans++
+            listOf(entry("01.mp3", hash), entry("02.mp3", secondHash))
+        }.runOnce()
+
+        assertEquals("одна прогулянка на дерево, не на книгу", 1, scans)
+        assertEquals(2, report.relinkedTracks)
+        assertEquals(2, report.booksMigrated)
+        assertFalse(first.exists())
+        assertFalse(second.exists())
+    }
+
+    @Test
+    fun `a local source merged into a networked book is still migrated`() = runBlocking {
+        val file = copy("01.mp3")
+        seedBook("b1", tree, listOf(hash to file), sourceUrl = "https://lihtar.in.ua/book/b1")
+        seedMemory("b1", listOf(FolderRescan.RescanFile("01.mp3", "Кобзар", hash, 16L, 100L)))
+
+        val report = migration { listOf(entry("01.mp3", hash)) }.runOnce()
+
+        assertEquals("локальне джерело — не привід пропустити книгу", 1, report.relinkedTracks)
+        assertEquals("$tree/01.mp3", trackOf("b1").url)
+        assertFalse(file.exists())
     }
 
     @Test

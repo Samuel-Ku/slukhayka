@@ -125,6 +125,31 @@ jobs:
           set -euo pipefail
           scripts/check-base-sync.sh "origin/$BASE_REF" "HEAD"
 
+  # #1493: a changed Kotlin test file can lose tests while staying green — a
+  # scripted rewrite once cut twelve adapter tests out of #1486's test file and
+  # CI saw nothing, because a deleted test simply does not run. The guard reads
+  # the PR's base..head diff and requires every gone `@Test` name to be named in
+  # a `test-removal:` line of some commit in the range. PR-only: on push to main
+  # there is no base to compare against, same reasoning as the guards above.
+  test-count-guard:
+    name: Test count guard
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          # The PR's own head, not the synthetic merge ref: the guard should
+          # judge the commit the reviewer read.
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Fail when a changed test file loses tests without a declared removal
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 scripts/test_count_guard.py --base "$BASE_SHA"
+
   # #1227: two ADRs can claim ONE number and `git` will not notice, because the
   # filenames differ — the text merge is clean and the merge result simply
   # carries both files. Live, not hypothetical: #1139 and #1186 each add a

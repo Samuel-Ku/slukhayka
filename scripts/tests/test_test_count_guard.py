@@ -225,6 +225,19 @@ class TestCountGuardTest(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn("0 changed test file(s)", result.stdout)
 
+    def test_adding_a_new_test_file_is_not_an_unreadable_base(self):
+        # Status A means the file has no base side; reading a missing base blob
+        # as "no tests" would be fail-open, but refusing a genuinely added file
+        # as unreadable would be a false red. The exemption is pinned here —
+        # removing it once left the whole class green (#1495 review).
+        self.write_test(["fresh"], path=TEST_DIR / "NewTest.kt", class_name="NewTest")
+        self.commit("add a new test file")
+
+        result = self.run_guard()
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("no undeclared test removal", result.stdout)
+
     def test_a_non_ascii_test_path_is_still_seen(self):
         # `git diff --name-status` quotes non-ASCII paths unless -z is used; a
         # quoted path silently missed TEST_ROOT and the guard exited 0 (#1495

@@ -2282,11 +2282,21 @@ fun LibraryBookCard(
     // see the offline state — are real sibling nodes next to it, inside the
     // same surface. A card that swallowed its own play button would leave that
     // shortcut unreachable for TalkBack.
+    val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
     Card(
         modifier = (if (grid) modifier else Modifier)
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.medium),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+            .clip(if (paperInk && !grid) RoundedCornerShape(0.dp) else MaterialTheme.shapes.medium),
+        colors = CardDefaults.cardColors(
+            // A list row is a stream of paper rows, not a stack of raised
+            // tiles; the grid keeps a contained tile.
+            containerColor = if (paperInk && !grid) {
+                MaterialTheme.colorScheme.background
+            } else {
+                MaterialTheme.colorScheme.surfaceContainer
+            }
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         if (grid) {
             Box(

@@ -1362,6 +1362,18 @@ class MainViewModel @JvmOverloads constructor(
 
     init {
         refreshCacheSize()
+        // ADR-0061 §2 / #1185 T4 — once per device: free the private copies an
+        // older version wrote where the tree grant is alive and the bytes still
+        // match. Quiet on every later launch (and when nothing was freed).
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { libraryImport.migrateLocalCopiesOnce() }
+                .onSuccess { report ->
+                    if (report.changed) {
+                        _importMessage.value = OutcomeMessages.localCopyMigration(report)
+                    }
+                }
+                .onFailure { Log.w("MainViewModel", "local copy migration failed", it) }
+        }
         // #916 — the local social facts feed the «Друзі» screen directly. The
         // collector starts here, before any screen exists, so the feed is
         // populated on the first show instead of flashing an empty state.

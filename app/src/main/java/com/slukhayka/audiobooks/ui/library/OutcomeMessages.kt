@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.ui.library
 
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.imports.LocalCopyMigration
 import com.slukhayka.audiobooks.data.imports.LocalImportResult
 
 /**
@@ -98,6 +99,27 @@ object OutcomeMessages {
      * files append as caveats; an unchanged library says so plainly. Nothing
      * is ever deleted by a re-scan, so the message never claims deletion.
      */
+    /**
+     * #1185 T4 — the one-time copy-migration report: how much disk the pass
+     * freed, and (honestly) how many copies it had to keep.
+     */
+    fun localCopyMigration(report: LocalCopyMigration.Report): String = buildString {
+        append("Звільнено ${formatFreedBytes(report.freedBytes)}: копії локальних книг переїхали на оригінальні теки")
+        if (report.keptTracks > 0) {
+            append(" · ${report.keptTracks} копій лишено — грамота недоступна")
+        }
+    }
+
+    private fun formatFreedBytes(bytes: Long): String = when {
+        bytes <= 0L -> "0 МБ"
+        bytes >= 1024L * 1024L -> java.lang.String.format(
+            java.util.Locale.UK,
+            "%.1f МБ",
+            bytes / 1024.0 / 1024.0
+        )
+        else -> "${(bytes / 1024.0).toInt()} КБ"
+    }
+
     fun rescanOutcome(totals: LibraryImport.RescanReport): String = buildString {
         append("Пересканування завершено")
         when {

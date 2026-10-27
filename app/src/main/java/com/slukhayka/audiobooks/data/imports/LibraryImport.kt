@@ -2332,6 +2332,24 @@ class LibraryImport(
     )
 
     /**
+     * #1185 T4 / ADR-0061 §2 — the one-time pass that frees the private copies
+     * an older version wrote: a local book whose tree grant is alive and whose
+     * bytes still match moves onto its SAF documents, and the copies are
+     * deleted. A dead grant (or a single-file import without a stored address)
+     * keeps its copies — they are the only audio there. Idempotent; safe to
+     * call on every launch, the pass itself knows whether it already ran.
+     */
+    suspend fun migrateLocalCopiesOnce(): LocalCopyMigration.Report {
+        val ctx = context ?: return LocalCopyMigration.Report()
+        return LocalCopyMigration(
+            dao = dao,
+            copyRoot = File(ctx.filesDir, LOCAL_AUDIO_DIR),
+            scanTree = { tree -> LocalFolderScanner.scan(ctx, Uri.parse(tree)) },
+            writeBatchRunner = writeBatchRunner
+        ).runOnce()
+    }
+
+    /**
      * Re-scans one previously imported SAF tree (wayfinder #42): walks it,
      * reads only the files whose SAF metadata is unknown or changed, or whose
      * current hash the memory cannot agree on (ADR-0061 §3; a file with

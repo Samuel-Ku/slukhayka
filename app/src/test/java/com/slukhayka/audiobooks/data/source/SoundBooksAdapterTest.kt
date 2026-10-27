@@ -1036,6 +1036,34 @@ class SoundBooksAdapterTest {
     }
 
     @Test
+    fun `the page budget covers every matched tag before going deeper`() = runBlocking {
+        val stephenPage2 = stephenKingTag + "page/2/"
+        val fetcher = FakeFetcher(
+            mapOf(
+                sitemapUrl to tagsSitemap(stephenKingTag, williamKingTag),
+                stephenKingTag to tagPage(
+                    stephenKingTag,
+                    "doktor-son" to "Доктор Сон - Стівен Кінг",
+                    nextPages = listOf(2)
+                ),
+                williamKingTag to tagPage(williamKingTag, "richard-bach" to "Ричард Бах - Уільям Кінг"),
+                stephenPage2 to tagPage(stephenPage2, "ur" to "Ур - Стівен Кінг")
+            )
+        )
+        val adapter = SoundBooksAdapter(fetcher = fetcher, pauseMillis = {}, searchPageLimit = 3)
+
+        val books = adapter.search("кінг")
+
+        assertEquals(
+            setOf("Доктор Сон", "Ур", "Ричард Бах"),
+            books.map { it.title }.toSet()
+        )
+        assertTrue("другий тег відкрито ПЕРШ ніж заглиблюватись", fetcher.requestedUrls.contains(williamKingTag))
+        assertTrue(fetcher.requestedUrls.contains(stephenPage2))
+        assertEquals("sitemap + 3 сторінки", 4, fetcher.requestedUrls.size)
+    }
+
+    @Test
     fun `the tag index is read once while the catalogue TTL holds`() = runBlocking {
         val fetcher = FakeFetcher(
             mapOf(

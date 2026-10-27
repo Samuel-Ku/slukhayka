@@ -19,11 +19,19 @@ import kotlinx.coroutines.delay
  * disallows the `do=search` route), so [search] goes through the site's OWN
  * allowed taxonomy instead: `tags_pages.xml` lists the author/narrator/genre
  * tags (1828 at the 2026-10-27 spike), and a tag page (`/tags/<name>/`,
- * paginated like a category) lists that author's books with the same tiles as
- * the feed. The book page's «Переглянути всі книги цього автора» link is the
- * same listing. One sitemap read (cached for the catalogue TTL) plus at most
- * [searchTagLimit] paced requests; discovery otherwise goes through [fetchNew]
- * (homepage recent) and category pages (T4's job).
+ * paginated like a category) lists that author's books with the feed's
+ * `short-item` tiles. The book page's «Переглянути всі книги цього автора»
+ * link is the same listing.
+ *
+ * The budget is the point: one sitemap read (cached for the catalogue TTL),
+ * at most [searchTagLimit] tags and [searchPageLimit] tag-page REQUESTS per
+ * query — the first page is immediate, every continuation rides the human
+ * rhythm ([PacingPolicy]) — for at most [searchResultLimit] books. That is
+ * why the query «стівен кінг» reaches ~30 books instead of the ten of a
+ * single page, still without touching the disallowed search route. Only the
+ * listing TILES are parsed: the tag page also carries a «останні коментарі»
+ * sidebar whose links are books the author never wrote (the 2026-10-27
+ * review caught 18 such rows on the live page).
  *
  * ## True profile completeness (spec-35 T5, inventory #237)
  *
@@ -48,10 +56,14 @@ class SoundBooksAdapter(
     private val pacing: PacingPolicy = PacingPolicy(),
     /** Injectable pause so tests pin the rhythm without sleeping (spec-38). */
     private val pauseMillis: suspend (Long) -> Unit = { delay(it) },
-    /** #1486 — how many matched tag pages one query may open. */
+    /** #1486 — how many matched tags one query may use. */
     private val searchTagLimit: Int = SEARCH_TAG_LIMIT,
+    /** #1486 — how many tag-page REQUESTS one query may spend (1 = first pages only). */
+    private val searchPageLimit: Int = SEARCH_PAGE_LIMIT,
     /** #1486 — how many books one query returns at most. */
-    private val searchResultLimit: Int = SEARCH_RESULT_LIMIT
+    private val searchResultLimit: Int = SEARCH_RESULT_LIMIT,
+    /** Injectable clock so the tag-index freshness is testable (policy convention). */
+    private val now: () -> Long = System::currentTimeMillis
 ) : SourceAdapter {
     // Page + playlist may each wait for a token; Player's eight seconds are
     // for starting resolved media, not for acquiring these signed URLs.
@@ -71,29 +83,116 @@ class SoundBooksAdapter(
             .map { it.first }
             .take(searchTagLimit)
         if (matched.isEmpty()) return emptyList()
+
         val books = LinkedHashMap<String, SourceBook>()
-        matched.forEachIndexed { index, tag ->
-            if (books.size >= searchResultLimit) return@forEachIndexed
-            if (index > 0) pauseMillis(pacing.nextPauseMillis())
-            val html = fetcher.getText(tag.url, emptyMap(), SourceRequestClass.LISTENER_ACTION, 0L)
-            if (html.isEmpty()) return@forEachIndexed
-            for (book in parseTiles(html, searchResultLimit - books.size)) {
-                books.putIfAbsent(book.url, book)
+        var pagesOpened = 0
+        var requests = 0
+        for (tag in matched) {
+            var pageUrl: String? = tag.url
+            while (pageUrl != null && pagesOpened < searchPageLimit && books.size < searchResultLimit) {
+                if (requests > 0) pauseMillis(pacing.nextPauseMillis())
+                requests++
+                val html = fetcher.getText(
+                    pageUrl,
+                    emptyMap(),
+                    SourceRequestClass.LISTENER_ACTION,
+                    FeedSnapshotPolicy.CATALOG_TTL_MS
+                )
+                pagesOpened++
+                if (html.isEmpty()) break
+                parseSearchTiles(html, searchResultLimit - books.size)
+                    .forEach { books.putIfAbsent(it.url, it) }
+                pageUrl = nextTagPage(pageUrl, html)
             }
         }
         return books.values.toList()
     }
 
     /**
+     * The listing TILES only. A tag page carries the book tiles plus a
+     * «останні коментарі» sidebar of unrelated book links; [parseTiles]
+     * happily reads both, but a search answer must not. One block = one book.
+     */
+    private fun parseSearchTiles(html: String, limit: Int): List<SourceBook> {
+        if (limit <= 0) return emptyList()
+        val books = mutableListOf<SourceBook>()
+        val blocks = html.split(TILE_START).drop(1)
+        for (block in blocks) {
+            if (books.size >= limit) break
+            // The cover anchor wraps an <img>; the title anchor carries the
+            // text. Prefer the text one, fall back to the cover's img alt.
+            val titleLink = BOOK_LINK.findAll(block)
+                .firstOrNull { !it.groupValues[2].contains("<img", ignoreCase = true) }
+            val coverMatch = COVER_TILE.find(block)
+            val url = titleLink?.groupValues?.get(1) ?: coverMatch?.groupValues?.get(1) ?: continue
+            if (isPromoUrl(url)) continue
+            val cover = coverMatch?.groupValues?.get(2)?.let { raw ->
+                if (raw.startsWith("http")) raw else "https://sound-books.net$raw"
+            }
+            val anchor = titleLink?.groupValues?.get(2)?.trim()?.takeIf { it.length >= 3 }
+                ?: coverMatch?.groupValues?.get(3)?.trim()?.takeIf { it.length >= 3 }
+            val (title, author) = titleAuthorOf(anchor, url)
+            books += SourceBook(
+                title = title,
+                author = author,
+                url = url,
+                sourceId = sourceId,
+                coverImageUrl = cover
+            )
+        }
+        return books
+    }
+
+    /** «Назва - Автор» → (title, author); no separator → the whole anchor is the title. */
+    private fun titleAuthorOf(anchor: String?, url: String): Pair<String, String> {
+        if (anchor == null) return slugTitle(url) to ""
+        val sep = anchor.indexOf(" - ")
+        return if (sep > 0) {
+            anchor.substring(0, sep).trim() to anchor.substring(sep + 3).trim()
+        } else {
+            anchor to ""
+        }
+    }
+
+    /**
+     * The next page of the SAME tag listing, or null on the last page. Both
+     * `href="/tags/<name>/page/N/"` and the absolute form occur on the site.
+     */
+    private fun nextTagPage(current: String, html: String): String? {
+        val path = current.removePrefix("https://sound-books.net")
+        val base = path.substringBefore("/page/")
+        if (base.isBlank()) return null
+        val currentPage = PAGE_NUMBER.find(path)?.groupValues?.get(1)?.toIntOrNull() ?: 1
+        val next = TAG_PAGE_LINK.findAll(html).mapNotNull { match ->
+            val linkedPath = match.groupValues[1]
+            val linkedPage = match.groupValues[2].toIntOrNull()
+            if (linkedPage != null && linkedPath.substringBefore("/page/") == base && linkedPage > currentPage) {
+                linkedPage
+            } else {
+                null
+            }
+        }.minOrNull() ?: return null
+        return "https://sound-books.net$base/page/$next/"
+    }
+
+    /**
      * The site's author/narrator/genre tags from `tags_pages.xml`. The sitemap
      * is metadata under the catalogue TTL; the parsed index is kept in memory
-     * so a keystroke never re-reads 428 KB.
+     * so a keystroke never re-reads 428 KB. Freshness is the repo's ONE decision
+     * ([FeedSnapshotPolicy.isFresh] — never fresh when the stamp lies ahead).
      */
     private suspend fun tagIndex(): List<Tag> {
-        val now = System.currentTimeMillis()
         val cached = tagIndexCache
-        if (cached != null && now - cached.first < TAG_INDEX_TTL_MS) return cached.second
-        val xml = fetcher.getText(TAG_SITEMAP_URL, emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.CATALOG_TTL_MS)
+        val nowMillis = now()
+        if (cached != null && FeedSnapshotPolicy.isFresh(cached.first, nowMillis, TAG_INDEX_TTL_MS)) {
+            return cached.second
+        }
+        val xml = fetcher.getText(
+            TAG_SITEMAP_URL,
+            emptyMap(),
+            SourceRequestClass.TTL_REFRESH,
+            FeedSnapshotPolicy.CATALOG_TTL_MS
+        )
         if (xml.isEmpty()) return cached?.second.orEmpty()
         val tags = TAG_LOC.findAll(xml).mapNotNull { match ->
             val url = match.groupValues[1].trim()
@@ -101,7 +200,7 @@ class SoundBooksAdapter(
             val name = tagName(url) ?: return@mapNotNull null
             Tag(name, url)
         }.distinctBy { it.url }.toList()
-        if (tags.isNotEmpty()) tagIndexCache = now to tags
+        if (tags.isNotEmpty()) tagIndexCache = nowMillis to tags
         return tags.ifEmpty { cached?.second.orEmpty() }
     }
 
@@ -483,12 +582,22 @@ class SoundBooksAdapter(
         const val TAG_URL_PREFIX: String = "https://sound-books.net/tags/"
         /** Keep the in-memory tag index for the same day the catalogue keeps. */
         const val TAG_INDEX_TTL_MS: Long = FeedSnapshotPolicy.CATALOG_TTL_MS
-        /** #1486 — matched tag pages one query may open; the rest wait for the next query. */
+        /** #1486 — matched tags one query may use; the rest wait for the next query. */
         const val SEARCH_TAG_LIMIT: Int = 3
-        /** #1486 — bounded result: one page of a tag is ten books, plus the merge. */
-        const val SEARCH_RESULT_LIMIT: Int = 60
+        /**
+         * #1486 — tag-page REQUESTS per query. One page is ten books; three
+         * requests reach ~30 for a single-author query. Every continuation is a
+         * paced request, so this is the latency/breadth trade the listener pays.
+         */
+        const val SEARCH_PAGE_LIMIT: Int = 3
+        /** #1486 — bounded result: at most [SEARCH_PAGE_LIMIT] pages of ten books. */
+        const val SEARCH_RESULT_LIMIT: Int = 30
         /** One `<loc>` of the sitemap index. */
         val TAG_LOC = Regex("""<loc>\s*([^<\s]+)\s*</loc>""", RegexOption.IGNORE_CASE)
+        /** A pagination link of one tag listing (relative or absolute). */
+        private val TAG_PAGE_LINK = Regex("""href="(?:https://sound-books\.net)?(/tags/[^"]+/page/(\d+)/)""", RegexOption.IGNORE_CASE)
+        /** The `.short-item` block start — one block is one listing card. */
+        private const val TILE_START: String = """<div class="short-item">"""
 
         /**
          * Spec #462 ID5 (#468) — the named (and per-instance configurable,

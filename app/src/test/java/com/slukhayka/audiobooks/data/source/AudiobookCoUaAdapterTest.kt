@@ -126,9 +126,10 @@ class AudiobookCoUaAdapterTest {
     private val playlistUrl = "https://audiobook.co.ua/playlist/pid-kupolom-stiven-king.txt"
 
     @Test
-    fun `search is an honest empty list`() = runBlocking {
-        // T1 spike: the keyword form does not filter server-side — the seam
-        // contract's honest refusal, never a fake results page.
+    fun `the robots-disallowed keyword search is never used and an empty sitemap is an honest miss`() = runBlocking {
+        // robots.txt disallows `*?s=`, `/search/`, `/?`; discovery goes through
+        // the allowed tag sitemap instead. An EMPTY fetcher map means any
+        // attempt at the old keyword door would fail loudly.
         val adapter = AudiobookCoUaAdapter(FakeFetcher(emptyMap()))
 
         assertTrue(adapter.search("Стівен Кінг").isEmpty())
@@ -337,5 +338,261 @@ class AudiobookCoUaAdapterTest {
             "audiobookcoua-x",
             adapter.bookId("https://audiobook.co.ua/x/?p=1")
         )
+    }
+
+    // --- #1486: search through the ALLOWED tag taxonomy ----------------------
+
+    private val tagSitemapUrl = "https://audiobook.co.ua/post_tag-sitemap.xml"
+    private val kingTag = "https://audiobook.co.ua/tag/king-stiven/"
+    private val kingOvenTag = "https://audiobook.co.ua/tag/king-oven/"
+    private val kingDejliTag = "https://audiobook.co.ua/tag/king-dejli/"
+    private val shevchenkoTag = "https://audiobook.co.ua/tag/shevchenko-taras/"
+
+    private fun tagsSitemap(vararg urls: String): String = buildString {
+        append("""<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">""")
+        urls.forEach { append("<url><loc>").append(it).append("</loc></url>") }
+        // A non-tag loc must never enter the tag index.
+        append("""<url><loc>https://audiobook.co.ua/post-sitemap.xml</loc></url></urlset>""")
+    }
+
+    /**
+     * One tag listing as the list theme renders it: one `<article id="post-N">`
+     * per book, its title anchor and the WordPress cover. Titles keep the raw
+     * `&#8212;` entity on purpose — the live pages carry it in place of «—».
+     */
+    private fun tagPage(
+        tagUrl: String,
+        vararg books: Pair<String, String>,
+        nextPages: List<Int> = emptyList()
+    ): String = buildString {
+        books.forEach { (slug, rawTitle) ->
+            append("""<article id="post-${slug.length}" class="bam-entry clearfix list-entry">""")
+            append("""<div class="post-thumbnail"><a href="https://audiobook.co.ua/$slug/">""")
+            append("""<img src="https://audiobook.co.ua/wp-content/uploads/2025/12/$slug.jpg" alt="$rawTitle"></a></div>""")
+            append("""<header class="entry-header"><h2 class="entry-title">""")
+            append("""<a href="https://audiobook.co.ua/$slug/" rel="bookmark">$rawTitle</a></h2></header>""")
+            append("</article>")
+        }
+        nextPages.forEach { page ->
+            append("""<a href="${tagUrl}page/$page/">$page</a>""")
+        }
+    }
+
+    @Test
+    fun `search finds an author through the allowed tag sitemap`() = runBlocking {
+        val fetcher = FakeFetcher(
+            mapOf(
+                tagSitemapUrl to tagsSitemap(kingTag, kingDejliTag, shevchenkoTag),
+                kingTag to tagPage(
+                    kingTag,
+                    "doktor-son-stiven-king" to "Доктор Сон &#8212; Стівен Кінг",
+                    "pid-kupolom-stiven-king" to "Під куполом &#8212; Стівен Кінг"
+                ),
+                kingDejliTag to tagPage(kingDejliTag, "deiaki-knyhy-king-dejli" to "Деякі книги &#8212; Кінг Делі"),
+                shevchenkoTag to tagPage(shevchenkoTag, "kobzar" to "Кобзар &#8212; Тарас Шевченко")
+            )
+        )
+        val adapter = AudiobookCoUaAdapter(fetcher = fetcher, pauseMillis = {})
+
+        val books = adapter.search("кінг")
+
+        assertEquals(
+            setOf("Доктор Сон", "Під куполом", "Деякі книги"),
+            books.map { it.title }.toSet()
+        )
+        assertEquals("Стівен Кінг", books.first { it.title == "Доктор Сон" }.author)
+        assertEquals(
+            "https://audiobook.co.ua/wp-content/uploads/2025/12/doktor-son-stiven-king.jpg",
+            books.first { it.title == "Доктор Сон" }.coverImageUrl
+        )
+        assertTrue("тег автора відкрито", fetcher.requestedUrls.contains(kingTag))
+        assertTrue("другий тег автора відкрито", fetcher.requestedUrls.contains(kingDejliTag))
+        assertTrue("сторонній тег не чіпали", !fetcher.requestedUrls.contains(shevchenkoTag))
+    }
+
+    @Test
+    fun `a Cyrillic query meets a transliterated slug through the shared variant set`() = runBlocking {
+        // «шевченко» ↔ `shevchenko-taras`: no new transliteration table, the
+        // repository's SlugMatch.variants does the work.
+        val fetcher = FakeFetcher(
+            mapOf(
+                tagSitemapUrl to tagsSitemap(shevchenkoTag),
+                shevchenkoTag to tagPage(shevchenkoTag, "kobzar" to "Кобзар &#8212; Тарас Шевченко")
+            )
+        )
+        val adapter = AudiobookCoUaAdapter(fetcher = fetcher, pauseMillis = {})
+
+        assertEquals(listOf("Кобзар"), adapter.search("шевченко").map { it.title })
+    }
+
+    @Test
+    fun `every query token must match a slug token`() = runBlocking {
+        // «кінг овен» must reach king-oven and must NOT pull king-stiven, whose
+        // slug answers only one of the two tokens (half a name is not an author).
+        val fetcher = FakeFetcher(
+            mapOf(
+                tagSitemapUrl to tagsSitemap(kingTag, kingOvenTag),
+                kingTag to tagPage(kingTag, "doktor-son-stiven-king" to "Доктор Сон &#8212; Стівен Кінг"),
+                kingOvenTag to tagPage(kingOvenTag, "deiaki-knyhy-king-oven" to "Деякі книги &#8212; Кінг Овен")
+            )
+        )
+        val adapter = AudiobookCoUaAdapter(fetcher = fetcher, pauseMillis = {})
+
+        assertEquals(listOf("Деякі книги"), adapter.search("кінг овен").map { it.title })
+        assertTrue("тег king-oven відкрито", fetcher.requestedUrls.contains(kingOvenTag))
+        assertTrue("напівзбіг не відкриває king-stiven", !fetcher.requestedUrls.contains(kingTag))
+
+        assertTrue(adapter.search("стівен кінг").isNotEmpty())
+    }
+
+    @Test
+    fun `a query no tag matches opens no page`() = runBlocking {
+        val fetcher = FakeFetcher(mapOf(tagSitemapUrl to tagsSitemap(kingTag)))
+        val adapter = AudiobookCoUaAdapter(fetcher = fetcher, pauseMillis = {})
+
+        assertTrue(adapter.search("коваль").isEmpty())
+        assertEquals(listOf(tagSitemapUrl), fetcher.requestedUrls.toList())
+    }
+
+    @Test
+    fun `one query spends at most the configured tag-page requests`() = runBlocking {
+        val fetcher = FakeFetcher(
+            mapOf(
+                tagSitemapUrl to tagsSitemap(kingTag, kingDejliTag),
+                kingTag to tagPage(
+                    kingTag,
+                    "doktor-son-stiven-king" to "Доктор Сон &#8212; Стівен Кінг"
+                ),
+                kingDejliTag to tagPage(kingDejliTag, "deiaki-knyhy-king-dejli" to "Деякі книги &#8212; Кінг Делі")
+            )
+        )
+        val adapter = AudiobookCoUaAdapter(fetcher = fetcher, pauseMillis = {}, searchPageLimit = 1)
+
+        val books = adapter.search("кінг")
+
+        assertEquals(1, books.size)
+        assertEquals("sitemap + одна сторінка", 2, fetcher.requestedUrls.size)
+    }
+
+    @Test
+    fun `search follows a tag's next page with a paced continuation`() = runBlocking {
+        val page2 = kingTag + "page/2/"
+        val fetcher = FakeFetcher(
+            mapOf(
+                tagSitemapUrl to tagsSitemap(kingTag),
+                kingTag to tagPage(
+                    kingTag,
+                    "doktor-son-stiven-king" to "Доктор Сон &#8212; Стівен Кінг",
+                    nextPages = listOf(2)
+                ),
+                page2 to tagPage(page2, "pid-kupolom-stiven-king" to "Під куполом &#8212; Стівен Кінг")
+            )
+        )
+        val pauses = mutableListOf<Long>()
+        val adapter = AudiobookCoUaAdapter(
+            fetcher = fetcher,
+            pauseMillis = { pauses += it },
+            searchPageLimit = 2
+        )
+
+        val books = adapter.search("кінг")
+
+        assertEquals(setOf("Доктор Сон", "Під куполом"), books.map { it.title }.toSet())
+        assertTrue("другу сторінку тега відкрито", fetcher.requestedUrls.contains(page2))
+        assertTrue("продовження йде з ритмічною паузою", pauses.isNotEmpty())
+    }
+
+    @Test
+    fun `the page budget covers every matched tag before going deeper`() = runBlocking {
+        // `king-oven` (9 chars) sorts BEFORE `king-stiven` (11) at the same
+        // score, and it owns TWO continuation pages. A depth-first walk would
+        // spend all three page requests on king-oven and never reach
+        // king-stiven; only breadth-first keeps both authors in budget.
+        val ovenPage2 = kingOvenTag + "page/2/"
+        val ovenPage3 = kingOvenTag + "page/3/"
+        val fetcher = FakeFetcher(
+            mapOf(
+                tagSitemapUrl to tagsSitemap(kingOvenTag, kingTag),
+                kingOvenTag to tagPage(
+                    kingOvenTag,
+                    "deiaki-knyhy-king-oven" to "Деякі книги &#8212; Кінг Овен",
+                    nextPages = listOf(2, 3)
+                ),
+                kingTag to tagPage(kingTag, "doktor-son-stiven-king" to "Доктор Сон &#8212; Стівен Кінг"),
+                ovenPage2 to tagPage(
+                    ovenPage2,
+                    "shchos-inshe-king-oven" to "Щось інше &#8212; Кінг Овен",
+                    nextPages = listOf(3)
+                ),
+                ovenPage3 to tagPage(ovenPage3, "tretye-king-oven" to "Третє &#8212; Кінг Овен")
+            )
+        )
+        val adapter = AudiobookCoUaAdapter(fetcher = fetcher, pauseMillis = {}, searchPageLimit = 3)
+
+        val books = adapter.search("кінг")
+
+        assertEquals(
+            setOf("Деякі книги", "Щось інше", "Доктор Сон"),
+            books.map { it.title }.toSet()
+        )
+        assertTrue(
+            "другий тег відкрито ПЕРШ ніж заглиблюватись",
+            fetcher.requestedUrls.contains(kingTag)
+        )
+        assertTrue(fetcher.requestedUrls.contains(ovenPage2))
+        assertTrue("третя сторінка не влізла в бюджет", !fetcher.requestedUrls.contains(ovenPage3))
+        assertEquals("sitemap + 3 сторінки", 4, fetcher.requestedUrls.size)
+    }
+
+    @Test
+    fun `the result limit bounds one tag page`() = runBlocking {
+        val many = (1..40).map { index -> "knyha-$index" to "Книга $index &#8212; Стівен Кінг" }
+        val fetcher = FakeFetcher(
+            mapOf(
+                tagSitemapUrl to tagsSitemap(kingTag),
+                kingTag to tagPage(kingTag, *many.toTypedArray())
+            )
+        )
+        val adapter = AudiobookCoUaAdapter(fetcher = fetcher, pauseMillis = {}, searchResultLimit = 30)
+
+        assertEquals(30, adapter.search("кінг").size)
+    }
+
+    @Test
+    fun `the tag index is read once while the catalogue TTL holds`() = runBlocking {
+        val fetcher = FakeFetcher(
+            mapOf(
+                tagSitemapUrl to tagsSitemap(kingTag),
+                kingTag to tagPage(kingTag, "doktor-son-stiven-king" to "Доктор Сон &#8212; Стівен Кінг")
+            )
+        )
+        var clock = 1_000_000L
+        val adapter = AudiobookCoUaAdapter(fetcher = fetcher, pauseMillis = {}, now = { clock })
+
+        adapter.search("кінг")
+        clock += 60_000L
+        adapter.search("шевченко")
+
+        assertEquals(1, fetcher.requestedUrls.count { it == tagSitemapUrl })
+    }
+
+    @Test
+    fun `a future stamp never freezes the tag index`() = runBlocking {
+        // #622 convention: an inverted stamp is stale, never trusted until the
+        // real clock catches up.
+        val fetcher = FakeFetcher(
+            mapOf(
+                tagSitemapUrl to tagsSitemap(kingTag),
+                kingTag to tagPage(kingTag, "doktor-son-stiven-king" to "Доктор Сон &#8212; Стівен Кінг")
+            )
+        )
+        var clock = 9_000_000L
+        val adapter = AudiobookCoUaAdapter(fetcher = fetcher, pauseMillis = {}, now = { clock })
+
+        adapter.search("кінг")
+        clock = 1_000L
+        adapter.search("кінг")
+
+        assertEquals(2, fetcher.requestedUrls.count { it == tagSitemapUrl })
     }
 }

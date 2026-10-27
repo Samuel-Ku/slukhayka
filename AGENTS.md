@@ -21,11 +21,15 @@ fresh copy with `scripts/new-lane.sh`: a file missing here may exist there, and
 a count taken here may be stale. This has already produced a wrong "the file
 does not exist" once.
 
-Two symptoms are worth recognizing instead of diagnosing again: a path that
-should exist is missing, or `git status` says the repository is bare.
-`scripts/whereami.sh` answers both in one read — branch, ahead/behind
-`origin/main`, the file-set difference (only-in-main / only-here) and the count
-of uncommitted changes; exit 1 means you are not on `main`.
+When a path that should exist is missing, `scripts/whereami.sh` prints the
+branch, ahead/behind `origin/main`, the file-set difference (only-in-main /
+only-here) and the uncommitted count in one read. Its exit code is about the
+FILE SET, not the branch name: a content-only branch has an equal file set and
+can exit 0 while not being `main`; `--quiet` is the branch verdict, with the
+named limit that a detached HEAD counts as not-main. A tree where git itself
+refuses with `fatal: this operation must be run in a work tree` is bare —
+`scripts/new-lane.sh` names that symptom and the remedy (`git config core.bare
+false`) in its first lines.
 
 ## Continuity
 

@@ -17,6 +17,7 @@ each links to the section that explains it.
 | compile anything | a lane **inherits** `local.properties` from the copy that created it — a stale `sdk.dir` (this machine has seen `/opt/android-sdk`, which does not exist) makes Gradle answer `SDK location not found`. The SDK here is `/home/stealth/android-sdk`, or set `ANDROID_HOME` | [Worktrees](#worktrees) |
 | trust a mutation | `outcome: killed` is caught; `no-verdict` and `interrupted` are **not** verdicts | [Mutations](#mutations) |
 | run Gradle | only through `.worktrees/gt` — **a file**, not a directory, not on `PATH` | [The build slot](#the-build-slot) |
+| trust `AGENTS.md` / `docs/agents/` in this copy | run `scripts/check_guidance_freshness.py` — it fetches `origin/main` and names every covered guidance file that differs | [Guidance freshness](#guidance-freshness) |
 
 ## Worktrees
 
@@ -60,6 +61,30 @@ change the way it was built.
 A rebase rewrites the commit hashes, so a PR body that cited one now cites a
 commit nobody can find. After a rebase, refresh the hash in the PR body — or
 cite the branch's `HEAD` instead of a hash.
+
+## Guidance freshness
+
+Guidance is read from the copy in front of you, so a long-lived lane or the
+repository root left on another branch can serve a stale `AGENTS.md`. That is
+not hypothetical: a session read a root copy that still named `GLOSSARY.md`
+while `origin/main` had `CONTEXT.md`, `docs/agents/local-environment.md` and the
+merge gate — and merged a PR with `gh pr merge`, never knowing the gate
+existed. The same session's checkout also had uncommitted guidance copies, so
+the always-loaded file described a repository that did not exist.
+
+```sh
+scripts/check_guidance_freshness.py            # 0 = matches origin/main, 1 = drift
+scripts/check_guidance_freshness.py --no-fetch # offline: only as fresh as the local ref
+git show origin/main:AGENTS.md                  # the version that matters
+```
+
+It fetches `origin/main` first (comparing against a stale remote-tracking ref is
+the false PASS the tool exists to prevent; an unreadable remote is exit 2, not
+freshness). It covers `AGENTS.md`, `CONTRIBUTING.md`, `docs/agents/**` and
+`docs/CODEMAPS/**`, and it only reads: a lane may legitimately change guidance
+in its own PR, and that is drift until the PR merges. Run it at the start of a
+session in a copy you did not create from fresh `origin/main`, and whenever a
+rule seems to be missing.
 
 ## The build slot
 

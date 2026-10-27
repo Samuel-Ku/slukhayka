@@ -285,6 +285,27 @@ class MergePrTest(unittest.TestCase):
         result = self.gate(pr=pr_payload(files=("app/src/main/java/X.kt",)))
         self.assertNotIn("переписувати те, що його перевіряє", result.stderr)
 
+    def test_a_pr_that_rewrites_the_verdict_check_is_refused(self):
+        """#1492: скрипт, що публікує вердикт, — частина гейта, не «звичайний код».
+
+        Інакше PR міг би переписати `review_gate.py` так, щоб чек зеленів без
+        мітки; base-checkout у workflow закриває лише скриптову логіку, але не
+        сам факт правки. Явний дозвіл власника лишається: він і є межею.
+        """
+        result = self.gate(pr=pr_payload(files=("scripts/review_gate.py",)))
+        self.assertEqual(1, result.returncode)
+        self.assertIn("переписувати те, що його перевіряє", result.stderr)
+        self.assertEqual([], self.merge_calls())
+
+    def test_the_owner_can_allow_gate_edits_explicitly(self):
+        """Вихід є, але він названий вголос (MERGE_PR_ALLOW_GATE_EDITS=1)."""
+        result = self.gate(
+            pr=pr_payload(files=("scripts/review_gate.py",)),
+            env_extra={"MERGE_PR_ALLOW_GATE_EDITS": "1"},
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn("переписувати те, що його перевіряє", result.stderr)
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
@@ -438,6 +459,79 @@ class MergePrTest(unittest.TestCase):
         return [line for line in self.invocations() if line.startswith("pr merge")]
 
     # --- відмови на чеках ---------------------------------------------------
+    def test_a_superseded_failed_run_does_not_block_the_merge(self):
+        """One name, two runs on one HEAD: the LATEST run is the verdict.
+
+        The Review gate is the live case: it fails without a label, then a new
+        `labeled` run succeeds. GitHub keeps both runs in statusCheckRollup, and
+        counting the old failure refuses every correctly reviewed PR forever.
+        """
+        checks = [
+            check("Pure JVM"),
+            check("Review gate", "FAILURE",
+                  started="2026-10-10T19:10:00Z", completed="2026-10-10T19:10:12Z"),
+            check("Review gate", "SUCCESS",
+                  started="2026-10-10T19:44:31Z", completed="2026-10-10T19:44:42Z"),
+        ]
+
+        result = self.gate(pr=pr_payload(checks=checks))
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn("упали", result.stderr)
+
+    def test_a_pending_run_with_the_zero_completed_sentinel_still_blocks(self):
+        """In-progress runs carry `completedAt: "0001-01-01T00:00:00Z"`, not null.
+
+        Parsing that sentinel as a real year-1 moment made the latest-run dedupe
+        keep an older green run and discard the newer pending one — the gate
+        would report CI green while it was still running. Zero means "not
+        completed"; recency falls back to startedAt.
+        """
+        checks = [
+            check("Pure JVM"),
+            check("Room native SDK 36", conclusion="",
+                  started="2026-10-10T19:40:00Z",
+                  completed="0001-01-01T00:00:00Z", status="IN_PROGRESS"),
+        ]
+
+        result = self.gate(pr=pr_payload(checks=checks))
+
+        self.assertEqual(1, result.returncode, result.stderr)
+        self.assertIn("не завершився", result.stderr)
+        self.assertIn("Room native SDK 36", result.stderr)
+
+    def test_a_pending_verdict_check_is_not_hidden_by_an_old_success(self):
+        """Same sentinel on a re-run of the verdict check after `labeled`."""
+        checks = [
+            check("Pure JVM"),
+            check("Review gate", "SUCCESS",
+                  started="2026-10-10T19:30:00Z", completed="2026-10-10T19:30:12Z"),
+            check("Review gate", conclusion="",
+                  started="2026-10-10T19:45:00Z",
+                  completed="0001-01-01T00:00:00Z", status="IN_PROGRESS"),
+        ]
+
+        result = self.gate(pr=pr_payload(checks=checks))
+
+        self.assertEqual(1, result.returncode, result.stderr)
+        self.assertIn("не завершився", result.stderr)
+
+    def test_the_latest_failed_run_still_refuses(self):
+        """The dedupe is by time, not by conclusion: latest fail stays fail."""
+        checks = [
+            check("Pure JVM"),
+            check("Review gate", "SUCCESS",
+                  started="2026-10-10T19:10:00Z", completed="2026-10-10T19:10:12Z"),
+            check("Review gate", "FAILURE",
+                  started="2026-10-10T19:44:31Z", completed="2026-10-10T19:44:42Z"),
+        ]
+
+        result = self.gate(pr=pr_payload(checks=checks))
+
+        self.assertEqual(1, result.returncode)
+        self.assertIn("упали", result.stderr)
+        self.assertIn("Review gate", result.stderr)
+
     def test_refuses_a_failing_check(self):
         checks = [check("Pure JVM"), check("Android Lint", "FAILURE")]
 
@@ -578,6 +672,48 @@ class MergePrTest(unittest.TestCase):
         self.assertEqual(1, result.returncode)
         self.assertIn("старіший за останній прогін CI", result.stderr)
         self.assertIn("Pure JVM", result.stderr)
+
+    def test_the_verdict_check_created_by_the_label_is_not_a_late_run(self):
+        """#1492: `Review gate` стартує ПІСЛЯ мітки — інакше гейт вічно червоний.
+
+        Чек публікує вердикт, тож подія `labeled` запускає його вже після часу
+        мітки. Якщо вважати його «пізнім прогоном CI», кожен правильно
+        оглянутий PR отримує вічну відмову. Виключення не послаблює гейт:
+        без свіжої мітки цей чек сам червоний (див. test_review_gate), а
+        решта чеків і комітів перевіряються як раніше.
+        """
+        check_runs = check_runs_page(
+            *history(),
+            run("Review gate", "success", "2026-10-10T19:50:05Z", "2026-10-10T19:50:20Z"),
+        )
+
+        result = self.gate(check_runs=check_runs)
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn("старіший за останній прогін CI", result.stderr)
+        self.assertEqual(
+            ["pr merge 1215 --squash --match-head-commit %s" % HEAD],
+            self.merge_calls(),
+        )
+
+    def test_another_check_created_after_the_label_is_still_late(self):
+        """Межа виключення — рівно один названий чек, а не «будь-який новий».
+
+        Цей тест падає, якщо майбутня правка почне виключати «схожі» чеки або
+        весь клас success-прогонів: саме так гейт став би зеленим на CI, який
+        перезапустили після огляду.
+        """
+        check_runs = check_runs_page(
+            *history(),
+            run("Review gate", "success", "2026-10-10T19:50:05Z", "2026-10-10T19:50:20Z"),
+            run("Android Lint", "success", "2026-10-10T19:51:00Z", "2026-10-10T19:52:00Z"),
+        )
+
+        result = self.gate(check_runs=check_runs)
+
+        self.assertEqual(1, result.returncode)
+        self.assertIn("старіший за останній прогін CI", result.stderr)
+        self.assertIn("Android Lint", result.stderr)
 
     def test_refuses_when_the_repository_would_delete_the_branch(self):
         result = self.gate(repo={"delete_branch_on_merge": True})

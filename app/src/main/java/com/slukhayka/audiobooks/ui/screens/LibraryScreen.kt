@@ -1470,17 +1470,15 @@ internal fun LibraryContinueCard(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("library_continue_card"),
-        shape = RoundedCornerShape(AppDimens.RadiusHero),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+        shape = RoundedCornerShape(PaperInkDimens.RadiusLarge),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(modifier = Modifier.padding(AppDimens.SpaceLg)) {
             Text(
-                text = stringResource(R.string.lib_continue_label),
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                ),
-                color = MaterialTheme.colorScheme.primary
+                text = stringResource(R.string.lib_continue_label).uppercase(),
+                style = PaperInkType.TrackingLabel,
+                color = MaterialTheme.colorScheme.tertiary
             )
             Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
             Row(
@@ -1513,14 +1511,14 @@ internal fun LibraryContinueCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = book.book.title,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        style = PaperInkType.BookTitleHero,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = book.book.displayAuthor,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = PaperInkType.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -1530,7 +1528,7 @@ internal fun LibraryContinueCard(
                         Spacer(modifier = Modifier.height(AppDimens.SpaceSm))
                         Text(
                             text = subtitle,
-                            style = MaterialTheme.typography.labelMedium,
+                            style = PaperInkType.Label,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -1551,7 +1549,7 @@ internal fun LibraryContinueCard(
                                 .fillMaxWidth()
                                 .height(6.dp)
                                 .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
-                            color = MaterialTheme.colorScheme.primary,
+                            color = MaterialTheme.colorScheme.tertiary,
                             trackColor = MaterialTheme.colorScheme.outlineVariant,
                             // #292: the M3 stop dot sat at the track's end like a
                             // second, unexplained marker (device review, 2026-09-16).
@@ -1566,7 +1564,7 @@ internal fun LibraryContinueCard(
                                 R.string.lib_progress_percent,
                                 knownPercent
                             ),
-                            style = MaterialTheme.typography.labelSmall,
+                            style = PaperInkType.Micro,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
@@ -1579,14 +1577,18 @@ internal fun LibraryContinueCard(
                 onClick = onPlay,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 52.dp)
+                    .heightIn(min = 56.dp)
                     .testTag("library_continue_play"),
-                shape = RoundedCornerShape(AppDimens.RadiusPanel)
+                shape = RoundedCornerShape(PaperInkDimens.RadiusLarge),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.tertiary,
+                    contentColor = MaterialTheme.colorScheme.onTertiary,
+                ),
             ) {
                 Icon(
                     imageVector = Icons.Default.PlayArrow,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimary,
+                    tint = MaterialTheme.colorScheme.onTertiary,
                     modifier = Modifier.size(22.dp)
                 )
                 Spacer(modifier = Modifier.width(AppDimens.SpaceSm))
@@ -1596,8 +1598,8 @@ internal fun LibraryContinueCard(
                     } else {
                         stringResource(R.string.lib_listen_continue)
                     },
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onPrimary
+                    style = PaperInkType.Label,
+                    color = MaterialTheme.colorScheme.onTertiary
                 )
             }
         }

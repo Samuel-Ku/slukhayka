@@ -29,7 +29,9 @@ import kotlinx.coroutines.delay
  *   disallows `*?s=`, `/search/` and `/?`. Since #1486 [search] therefore
  *   rides the ALLOWED taxonomy — `post_tag-sitemap.xml` + `/tag/<slug>/`
  *   pages, transliterated slugs matched through [SlugMatch] — while a
- *   title-only lookup still falls back to [fetchNew]/[fetchCatalog].
+ *   title-only lookup still falls back to the recent feed ([fetchNew] via
+ *   `SourceCatalog.searchSourceWithStatus`); [fetchCatalog] serves the
+ *   catalogue walk, not search.
  * - **Series, duration, rating, blurb:** the book page carries none of them
  *   in the captured shape — series pages (`/seria/…`) are taxonomy-level,
  *   not per-book links, and og:description is site boilerplate («…скачать,

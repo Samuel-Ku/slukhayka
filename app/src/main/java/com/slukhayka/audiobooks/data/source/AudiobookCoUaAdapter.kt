@@ -134,12 +134,10 @@ class AudiobookCoUaAdapter(
         if (slugTokens.isEmpty() || queryTokens.isEmpty()) return null
         val forms = queryTokens.flatMap { SlugMatch.variants(it) }.toSet()
         val matched = slugTokens.count { it in forms }
-        if (matched == 0) return null
-        return when {
-            matched >= queryTokens.size && slugTokens.size == queryTokens.size -> 100 + matched
-            matched >= queryTokens.size -> 50 + matched
-            else -> matched
-        }
+        // Half a name is not an author: EVERY query token must land on a slug
+        // token, otherwise «кінг овен» would open `king-stiven`.
+        if (matched < queryTokens.size) return null
+        return if (slugTokens.size == queryTokens.size) 100 + matched else 50 + matched
     }
 
     /**

@@ -70,8 +70,7 @@ fun SleepTimerSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        // MD3: modal bottom sheet = surfaceContainerLow (tonal elevation).
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = { BottomSheetDefaults.DragHandle() },
         modifier = Modifier
             .accessibilityPane(paneTitle)
@@ -100,7 +99,7 @@ fun SleepTimerSheet(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = paneTitle,
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        style = PaperInkType.SectionTitle,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier
                             .focusRequester(headingFocusRequester)
@@ -141,9 +140,7 @@ fun SleepTimerSheet(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .clip(RoundedCornerShape(AppDimens.RadiusCard))
-                            .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.3f))
+                            .padding(vertical = 2.dp)
                             .selectable(
                                 selected = isSelected,
                                 role = Role.RadioButton,
@@ -152,17 +149,23 @@ fun SleepTimerSheet(
                                     onDismiss()
                                 }
                             )
-                            .padding(horizontal = 16.dp, vertical = 14.dp)
+                            .padding(horizontal = 4.dp, vertical = 14.dp)
                             .testTag("sleep_timer_option_$mins"),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
                             text = label,
-                            style = MaterialTheme.typography.bodyLarge.copy(
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                            ),
-                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                            style = if (isSelected) {
+                                PaperInkType.RowTitle
+                            } else {
+                                PaperInkType.Body
+                            },
+                            color = if (isSelected) {
+                                MaterialTheme.colorScheme.tertiary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            }
                         )
 
                         RadioButton(
@@ -171,7 +174,9 @@ fun SleepTimerSheet(
                             modifier = Modifier
                                 .testTag("sleep_timer_radio_$mins")
                                 .clearAndSetSemantics { hideFromAccessibility() },
-                            colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary)
+                            colors = RadioButtonDefaults.colors(
+                                selectedColor = MaterialTheme.colorScheme.tertiary
+                            )
                         )
                     }
                 }

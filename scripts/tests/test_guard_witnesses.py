@@ -225,6 +225,8 @@ GUARD_TESTS = (
     ".test_a_conflicted_trial_merge_is_an_unknown_not_a_clean_tree",
     "test_adr_numbers.OpenPrTest"
     ".test_the_same_new_number_in_two_open_prs_names_both",
+    "test_test_count_guard.TestCountGuardTest"
+    ".test_removing_a_test_without_a_declared_removal_fails",
 )
 EXPECTED_GUARDS = len(GUARD_TESTS)
 

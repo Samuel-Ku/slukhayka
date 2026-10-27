@@ -88,6 +88,7 @@ import com.slukhayka.audiobooks.ui.displayNarrator
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
 import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
 import com.slukhayka.audiobooks.ui.theme.PaperInkType
 import com.slukhayka.audiobooks.ui.theme.TabularTimerStyle
 

@@ -130,121 +130,54 @@ fun BookDetailIdentityHeader(
     authorBookmark: PersonBookmarkControl = PersonBookmarkControl(),
     narratorBookmark: PersonBookmarkControl = PersonBookmarkControl()
 ) {
-    val heroHeight = LocalConfiguration.current.screenHeightDp.dp * 0.72f
-    // Висота обкладинки в hero: малюємо її на всю ширину в природній
-    // пропорції й притискаємо до ГОРИ, тож ріжеться лише низ — верх
-    // обкладинки (назва, арт) лишається цілим.
-    var coverAspect by remember(book.coverImageUrl) { mutableStateOf<Float?>(null) }
-    Box(
+    // Plan 2026-2027 — the compact paper hero: a 132×198 cover on the page's
+    // own ground, then the canonical summary. The full-bleed 72 % art with
+    // gradient scrims belongs to the old direction and is deliberately gone.
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            // #991: 72 % екрана — це МІНІМУМ hero, а не його стеля. Фіксована
-            // висота на fontScale = 2f лишала ОСТАННЬОМУ рядку summary
-            // (пілюля серії) ~24 px, бо Column міряє дітей із залишком.
-            // `heightIn(min = …)` не змінює нічого для тих, чий summary
-            // вміщається в 72 % (1f), і дає боксу вирости, коли не вміщається.
-            .heightIn(min = heroHeight)
-            .clipToBounds()
             .testTag("book_detail_cover")
+            .padding(horizontal = PaperInkDimens.SpacePage)
+            // The transparent toolbar floats above the page; leave it its room.
+            .padding(top = 64.dp, bottom = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Шар обкладинки. `matchParentSize` тримає обкладинку ПОЗА
-        // розрахунком висоти боксу: інакше її природна висота (більша за
-        // heroHeight) сама розтягла б бокс навіть на 1f. Усередині ж
-        // constraints — це вже ВИМІРЯНИЙ бокс, тож обкладинку прив'язано до
-        // реальної висоти hero, а не до константи 72 %: коли summary робить
-        // hero вищим, під обкладинкою не лишається дірки.
-        BoxWithConstraints(modifier = Modifier.matchParentSize()) {
-            val heroMeasuredHeight = maxHeight
-            val naturalHeight = coverAspect?.let { maxWidth / it } ?: heroMeasuredHeight
-            BookCoverImage(
-                book = book,
-                semantics = BookCoverSemantics.Decorative,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    // Міряємо на природну висоту (вона може перевищувати
-                    // hero), але звітуємо лише висоту hero: обкладинка
-                    // лишається притиснутою до гори, а зайве знизу обрізає
-                    // clipToBounds — так само, як було до #991.
-                    .wrapContentHeight(unbounded = true, align = Alignment.Top)
-                    .height(maxOf(naturalHeight, heroMeasuredHeight)),
-                contentScale = ContentScale.Crop,
-                // #995 — the summary below states the title and the author,
-                // right here in this viewport. Letting the no-art fallback
-                // repeat them drew the same words twice, and at
-                // fontScale = 2f the two copies collided outright. The
-                // genre-tinted ground stays; the identity is stated once.
-                typographicFallback = false,
-                onImageLoaded = { drawable ->
-                    val width = drawable.intrinsicWidth
-                    val height = drawable.intrinsicHeight
-                    if (width > 0 && height > 0) {
-                        coverAspect = width.toFloat() / height.toFloat()
-                    }
-                }
-            )
-        }
-        // Верхній скрим: іконки прозорого тулбара мають читатися на арті.
-        Box(
+        BookCoverImage(
+            book = book,
+            semantics = BookCoverSemantics.Decorative,
             modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .height(140.dp)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent)
-                    )
-                )
+                .width(132.dp)
+                .height(198.dp)
+                .clip(RoundedCornerShape(PaperInkDimens.RadiusMedium)),
+            contentScale = ContentScale.Crop,
+            // The summary below states the title and the author; the fallback
+            // ground stays, its duplicate identity does not.
+            typographicFallback = false,
         )
-        // Нижній скрим: текст плавно переходить у фон сторінки. Опущений на
-        // 40 dp нижче — так видно більше обкладинки. Нижній край градієнта
-        // все одно впирається у фон сторінки, тож обрізається непомітно.
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .offset(y = 40.dp)
-                .fillMaxWidth()
-                .height(360.dp)
-                .background(
-                    Brush.verticalGradient(
-                        0.0f to Color.Transparent,
-                        0.30f to MaterialTheme.colorScheme.background.copy(alpha = 0.7f),
-                        0.55f to MaterialTheme.colorScheme.background,
-                        1.0f to MaterialTheme.colorScheme.background
-                    )
-                )
+        Spacer(modifier = Modifier.height(20.dp))
+        BookDetailCanonicalSummary(
+            presentation = presentation,
+            entryFocusKey = book.id,
+            universeName = universeName,
+            narrationAverage = narrationAverage,
+            narrationVoteCount = narrationVoteCount,
+            ownNarrationRating = ownNarrationRating,
+            canRateNarration = canRateNarration,
+            narrationRateUnavailableReason = narrationRateUnavailableReason,
+            onRateNarration = onRateNarration,
+            onDeleteNarrationRating = onDeleteNarrationRating,
+            narrationRatingDeleteFocusRequester = narrationRatingDeleteFocusRequester,
+            onAuthorClick = onAuthorClick,
+            onNarratorClick = onNarratorClick,
+            onSeriesClick = onSeriesClick,
+            requestInitialFocus = requestInitialFocus,
+            onInitialFocusHandled = onInitialFocusHandled,
+            returnFocusOrigin = returnFocusOrigin,
+            onChildRouteOpened = onChildRouteOpened,
+            onReturnFocusRestored = onReturnFocusRestored,
+            authorBookmark = authorBookmark,
+            narratorBookmark = narratorBookmark
         )
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            BookDetailCanonicalSummary(
-                presentation = presentation,
-                entryFocusKey = book.id,
-                universeName = universeName,
-                narrationAverage = narrationAverage,
-                narrationVoteCount = narrationVoteCount,
-                ownNarrationRating = ownNarrationRating,
-                canRateNarration = canRateNarration,
-                narrationRateUnavailableReason = narrationRateUnavailableReason,
-                onRateNarration = onRateNarration,
-                onDeleteNarrationRating = onDeleteNarrationRating,
-                narrationRatingDeleteFocusRequester = narrationRatingDeleteFocusRequester,
-                onAuthorClick = onAuthorClick,
-                onNarratorClick = onNarratorClick,
-                onSeriesClick = onSeriesClick,
-                requestInitialFocus = requestInitialFocus,
-                onInitialFocusHandled = onInitialFocusHandled,
-                returnFocusOrigin = returnFocusOrigin,
-                onChildRouteOpened = onChildRouteOpened,
-                onReturnFocusRestored = onReturnFocusRestored,
-                authorBookmark = authorBookmark,
-                narratorBookmark = narratorBookmark
-            )
-        }
     }
 }
 

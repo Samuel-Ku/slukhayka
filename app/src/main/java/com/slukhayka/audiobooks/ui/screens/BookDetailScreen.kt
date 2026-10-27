@@ -577,6 +577,7 @@ fun BookDetailScreen(
         }
     }
 
+    PaperInkThemedContent {
     Scaffold(
         modifier = Modifier.accessibilityModalBackground(
             modalVisible = showAddToCollection || showAddBookmarkDialog || showDeleteSheet || showDeleteDialog ||
@@ -1830,6 +1831,7 @@ fun BookDetailScreen(
                 }
             )
         }
+    }
     }
 }
 

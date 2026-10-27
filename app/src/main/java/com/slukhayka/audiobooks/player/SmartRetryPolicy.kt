@@ -54,8 +54,8 @@ object SmartRetryPolicy {
      * re-resolve memo already spent its window; a re-resolve runs only while
      * the memo allows it ([SmartRetryMemo.canAttempt]).
      */
-    fun decide(localFileReady: Boolean, canReResolve: Boolean): Decision = when {
-        localFileReady -> Decision.PlayLocal
+    fun decide(localAddressReady: Boolean, canReResolve: Boolean): Decision = when {
+        localAddressReady -> Decision.PlayLocal
         canReResolve -> Decision.ReResolve
         else -> Decision.Unavailable
     }
@@ -80,9 +80,12 @@ object SmartRetryPolicy {
     fun isLocalDocumentAddress(url: String?): Boolean = url?.startsWith("content://") == true
 
     /**
-     * Whether a track can play LOCALLY: a real copied file (legacy imports and
-     * downloads) or a by-reference document URI. One shared verdict for the
-     * catalogue pairing, the player's local branch and the retry policy.
+     * Whether a track's address is a LOCAL one: a real copied file (legacy
+     * imports and downloads) or a by-reference document URI. One shared
+     * verdict for the catalogue pairing, the player's local branch and the
+     * retry policy. The document branch is still only a scheme check — whether
+     * the grant resolves is the engine's verdict at playback, and a dead
+     * document surfaces as the honest failure, never as a network switch.
      */
     fun localAddressReady(localFilePath: String?, url: String?): Boolean =
         localFileReady(localFilePath) || isLocalDocumentAddress(url)

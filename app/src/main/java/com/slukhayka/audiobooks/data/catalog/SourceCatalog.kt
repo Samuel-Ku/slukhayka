@@ -1668,10 +1668,11 @@ class SourceCatalog(
                     sourceName = sourceDisplayName(source.type),
                     url = source.url,
                     localAvailable = tracks.any { track ->
-                        // #472: the ONE local-file threshold (#471) — the same
-                        // [SmartRetryPolicy.localFileReady] buildMediaItem and
-                        // the heal gate apply, so source ordering can never
-                        // disagree with what the engine would actually play.
+                        // #472: the ONE local-address verdict (#471, ADR-0061)
+                        // — the same [SmartRetryPolicy.localAddressReady]
+                        // buildMediaItem and the heal gate apply, so source
+                        // ordering can never disagree with what the engine
+                        // would actually play.
                         track.isDownloaded &&
                             SmartRetryPolicy.localAddressReady(track.localFilePath, track.url)
                     }

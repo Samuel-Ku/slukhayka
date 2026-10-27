@@ -965,9 +965,9 @@ class AudioPlayerManager(
             if (playbackState == Player.STATE_READY) {
                 prepareTimeoutJob?.cancel()
                 val mp = mediaPlayer ?: return
-                // #471: the local-file verdict is one shared decision
-                // ([SmartRetryPolicy.localFileReady]) — the retry policy can
-                // never disagree with what the engine actually plays.
+                // #471: the local verdict is one shared decision
+                // ([SmartRetryPolicy.localAddressReady]) — the retry policy
+                // can never disagree with what the engine actually plays.
                 val isLocal = SmartRetryPolicy.localAddressReady(currentTrack?.localFilePath, currentTrack?.url)
                 _playerState.value = _playerState.value.copy(
                     isBuffering = false,
@@ -1159,9 +1159,10 @@ class AudioPlayerManager(
     /**
      * Spec-32 T4 (#234): whether a stream failure qualifies for self-healing.
      * Mirrors [buildMediaItem]'s source decision exactly: a track plays
-     * locally only while its file exists with real content — a stale local
-     * path falls back to the network stream, and THAT stream may heal. Pure
-     * local playback never re-fetches a page.
+     * locally while its address is local ([SmartRetryPolicy.localAddressReady] —
+     * a real file, or the SAF document URI of a by-reference import); only a
+     * non-local track streams, and THAT stream may heal. Pure local playback
+     * never re-fetches a page.
      */
     private fun isNetworkStream(track: SourceTrackEntity?): Boolean {
         if (track == null) return false

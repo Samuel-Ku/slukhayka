@@ -67,11 +67,11 @@ class SmartRetryPolicyTest {
         // on the dead remote.
         assertEquals(
             SmartRetryPolicy.Decision.PlayLocal,
-            SmartRetryPolicy.decide(localFileReady = true, canReResolve = true)
+            SmartRetryPolicy.decide(localAddressReady = true, canReResolve = true)
         )
         assertEquals(
             SmartRetryPolicy.Decision.PlayLocal,
-            SmartRetryPolicy.decide(localFileReady = true, canReResolve = false)
+            SmartRetryPolicy.decide(localAddressReady = true, canReResolve = false)
         )
     }
 
@@ -81,7 +81,7 @@ class SmartRetryPolicyTest {
     fun `without a local copy a fresh memo allows one re-resolve`() {
         assertEquals(
             SmartRetryPolicy.Decision.ReResolve,
-            SmartRetryPolicy.decide(localFileReady = false, canReResolve = true)
+            SmartRetryPolicy.decide(localAddressReady = false, canReResolve = true)
         )
     }
 
@@ -91,7 +91,7 @@ class SmartRetryPolicyTest {
     fun `an exhausted memo surfaces the honest unavailability`() {
         assertEquals(
             SmartRetryPolicy.Decision.Unavailable,
-            SmartRetryPolicy.decide(localFileReady = false, canReResolve = false)
+            SmartRetryPolicy.decide(localAddressReady = false, canReResolve = false)
         )
     }
 

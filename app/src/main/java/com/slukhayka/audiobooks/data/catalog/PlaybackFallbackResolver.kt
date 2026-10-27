@@ -132,7 +132,7 @@ class PlaybackFallbackResolver(
         val local = track.localFilePath?.takeIf { SmartRetryPolicy.localFileReady(it) }
         // ADR-0061: a by-reference local track's only address is its SAF
         // document URI — still a local locator, never a network one.
-        val localDocument = track.url?.takeIf { SmartRetryPolicy.isLocalDocumentAddress(it) }
+        val localDocument = track.url.takeIf { SmartRetryPolicy.isLocalDocumentAddress(it) }
         val remote = track.url.toHttpUrlOrNull()?.toString()
         val locator = local ?: localDocument ?: remote ?: return null
         if (sourceId == "local" && local == null && localDocument == null) return null

@@ -90,7 +90,7 @@ object LocalAccessRecovery {
     ): State {
         val localFilesUnreadable = localTracks.any { track ->
             !isLocalFileReady(track.localFilePath) &&
-                !(SmartRetryPolicy.isLocalDocumentAddress(track.url) && isDocumentReadable(track.url!!))
+                !(SmartRetryPolicy.isLocalDocumentAddress(track.url) && isDocumentReadable(track.url))
         }
         return State(
             localBook = localBook,

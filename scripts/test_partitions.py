@@ -43,6 +43,11 @@ SHARED_FILES = {
     "gradle.properties",
     "settings.gradle.kts",
 }
+# A diff path that ships documentation and nothing a test can run (#1493).
+# Without this, a docs-only commit fell through to "unmapped changed path" and
+# dragged the whole six-partition matrix into a lane for no possible witness.
+DOCUMENTATION_PREFIX = "docs/"
+DOCUMENTATION_SUFFIXES = (".md", ".mdx")
 WEB_CHECK_PREFIX = "web/"
 WEB_CHECK = "web"
 # The steps the web check runs, READ FROM THE SCRIPT THAT RUNS THEM (#1276).
@@ -176,6 +181,10 @@ def validate(test_classes: list[TestClass]) -> dict[str, int]:
     }
 
 
+def is_documentation_only(path: str) -> bool:
+    return path.startswith(DOCUMENTATION_PREFIX) or path.endswith(DOCUMENTATION_SUFFIXES)
+
+
 def is_shared_or_unknown(path: str) -> bool:
     return path in SHARED_FILES or path.startswith(SHARED_PREFIXES)
 
@@ -227,6 +236,8 @@ def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str,
         return {"fullSuite": True, "partitions": {}, "reason": "no changed files"}
     if any(is_shared_or_unknown(path) for path in changed_files):
         return {"fullSuite": True, "partitions": {}, "reason": "shared infrastructure changed"}
+    if all(is_documentation_only(path) for path in changed_files):
+        return {"fullSuite": False, "partitions": {}, "reason": "documentation only"}
 
     selected: dict[str, set[str]] = {}
     checks: set[str] = set()
@@ -246,6 +257,11 @@ def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str,
             # afford when nothing below web/ needs the JDK. The web tree has
             # its own check in CI; name that check instead.
             checks.add(WEB_CHECK)
+            continue
+
+        # In a mixed diff the documentation paths claim nothing; the code paths
+        # still decide the scope (#1493). A docs-only diff was answered above.
+        if is_documentation_only(path):
             continue
 
         package = production_package(path)

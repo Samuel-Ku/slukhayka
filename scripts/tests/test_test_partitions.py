@@ -227,10 +227,47 @@ class TestPartitionsCliTest(unittest.TestCase):
 
         self.assertIn("unsupported SDK cohort", result.stderr)
 
+    def test_documentation_only_change_selects_nothing(self):
+        self.seed_three_partitions()
+
+        for changed_files in (
+            ("docs/plans/2026-10-27-retro-agent-environment.md",),
+            ("AGENTS.md", "CONTRIBUTING.md"),
+            ("README.md",),
+            ("docs/adr/0039-source-request-gate.md", "docs/agents/swarm.md"),
+        ):
+            with self.subTest(changed_files=changed_files):
+                arguments = ["select"]
+                for changed_file in changed_files:
+                    arguments += ["--changed-file", changed_file]
+                result = self.run_cli(*arguments)
+                payload = json.loads(result.stdout)
+                self.assertFalse(payload["fullSuite"])
+                self.assertEqual({}, payload["partitions"])
+                self.assertEqual("documentation only", payload["reason"])
+
+    def test_documentation_mixed_with_code_maps_the_code(self):
+        self.seed_three_partitions()
+
+        result = self.run_cli(
+            "select",
+            "--changed-file",
+            "docs/plans/2026-10-27-retro-agent-environment.md",
+            "--changed-file",
+            "app/src/main/java/com/slukhayka/audiobooks/player/SmartRewind.kt",
+        )
+
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["fullSuite"])
+        self.assertEqual({"pure-jvm"}, set(payload["partitions"]))
+
     def test_shared_or_unknown_change_falls_back_to_full_suite(self):
         self.seed_three_partitions()
 
-        for changed_file in ("app/build.gradle.kts", "app/schemas/16.json", "README.md"):
+        # A documentation file is no longer part of this loop: it selects
+        # nothing (#1493), and test_documentation_only_change_selects_nothing
+        # pins that separately.
+        for changed_file in ("app/build.gradle.kts", "app/schemas/16.json"):
             with self.subTest(changed_file=changed_file):
                 result = self.run_cli("select", "--changed-file", changed_file)
                 self.assertTrue(json.loads(result.stdout)["fullSuite"])

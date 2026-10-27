@@ -348,6 +348,31 @@ class FullSuiteWrapperTest(unittest.TestCase):
         self.assertIn("com.slukhayka.audiobooks.player.SmartRewindTest", invocations)
         self.assertNotIn(":app:testComposeRoborazzi", invocations)
 
+    def test_documentation_only_change_runs_nothing(self):
+        self.write_gradle()
+
+        result = subprocess.run(
+            [
+                "bash",
+                str(TEST_CHANGED),
+                "--changed-file",
+                "docs/plans/2026-10-27-retro-agent-environment.md",
+                "--changed-file",
+                "AGENTS.md",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=self.environment(java_home=self.java_home),
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("no test partitions to run", result.stdout)
+        self.assertFalse(
+            self.gradle_log.exists(),
+            "documentation-only diff must not reach Gradle",
+        )
+
     def test_unavailable_base_falls_back_to_full_suite(self):
         self.write_gradle()
 

@@ -89,6 +89,14 @@ if [[ $(python3 -c 'import json,sys; print("yes" if json.loads(sys.argv[1])["ful
   run_full_suite
 fi
 
+# A diff that touches documentation only cannot change a test's behaviour, and
+# select says so by naming no partitions and no checks (#1493). Running the
+# matrix here would spend a lane-wide slot on a commit no test can witness.
+if [[ $(python3 -c 'import json,sys; payload=json.loads(sys.argv[1]); print("yes" if not payload["partitions"] and not payload.get("checks") else "no")' "$selection") == yes ]]; then
+  printf '%s\n' "Documentation-only diff: no test partitions to run."
+  exit 0
+fi
+
 python3 -c '
 import json, sys
 payload = json.loads(sys.argv[1])

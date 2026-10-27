@@ -231,33 +231,49 @@ private fun BookDetailPlayButton(
     onClick: () -> Unit,
     modifier: Modifier
 ) {
+    val paperInk = LocalPaperInkDesign.current
     Button(
         onClick = onClick,
-        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (paperInk) {
+                MaterialTheme.colorScheme.tertiary
+            } else {
+                MaterialTheme.colorScheme.primary
+            },
+            contentColor = if (paperInk) {
+                MaterialTheme.colorScheme.onTertiary
+            } else {
+                MaterialTheme.colorScheme.onPrimary
+            },
+        ),
         // #885 (wave 1) — «основна кнопка повністю заокруглена» (спека:99);
         // прототип пише `border-radius:999px`. Це Головна дія сторінки, тож
         // вона бере пігулку, а не радіус панелі.
-        shape = RoundedCornerShape(AppDimens.RadiusPill),
+        shape = if (paperInk) {
+            RoundedCornerShape(PaperInkDimens.RadiusLarge)
+        } else {
+            RoundedCornerShape(AppDimens.RadiusPill)
+        },
         // #382: дефолтні 24dp по горизонталі плюс іконка з'їдали ширину слова
         // «Продовжити»; паддінг однаковий з download-кнопкою, підлога ширини
         // тримає найдовший лейбл на вузьких панелях.
         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
         modifier = modifier
             .widthIn(min = 150.dp)
-            .heightIn(min = 50.dp)
+            .heightIn(min = if (paperInk) 56.dp else 50.dp)
             .testTag("play_book_button")
             .semantics { contentDescription = actionDescription }
     ) {
         Icon(
             imageVector = Icons.Default.PlayArrow,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onPrimary
+            tint = MaterialTheme.colorScheme.onTertiary,
         )
         Spacer(modifier = Modifier.width(6.dp))
         Text(
             text = label,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onPrimary,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onTertiary,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
@@ -273,9 +289,14 @@ private fun BookDetailDownloadButton(
     onClick: () -> Unit,
     modifier: Modifier
 ) {
+    val paperInk = LocalPaperInkDesign.current
     OutlinedButton(
         onClick = onClick,
-        shape = RoundedCornerShape(AppDimens.RadiusPanel),
+        shape = if (paperInk) {
+            RoundedCornerShape(PaperInkDimens.RadiusLarge)
+        } else {
+            RoundedCornerShape(AppDimens.RadiusPanel)
+        },
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
             if (action == BookDetailDownloadAction.Remove) MaterialTheme.colorScheme.secondary
@@ -288,7 +309,7 @@ private fun BookDetailDownloadButton(
         // #382: спільний паддінг із play-кнопкою — жодних per-button налаштувань.
         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
         modifier = modifier
-            .heightIn(min = 50.dp)
+            .heightIn(min = if (paperInk) 56.dp else 50.dp)
             .testTag("download_offline_button")
             .semantics {
                 contentDescription = actionDescription
@@ -344,9 +365,14 @@ private fun BookDetailBookmarkButton(
     showLabel: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val paperInk = LocalPaperInkDesign.current
     OutlinedButton(
         onClick = onClick,
-        shape = RoundedCornerShape(AppDimens.RadiusPanel),
+        shape = if (paperInk) {
+            RoundedCornerShape(PaperInkDimens.RadiusLarge)
+        } else {
+            RoundedCornerShape(AppDimens.RadiusPanel)
+        },
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier
             .heightIn(min = 50.dp)

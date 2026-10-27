@@ -89,25 +89,15 @@ object OutcomeMessages {
         }
     }
 
-    /** #1230 — the recovery door itself failed (no report was produced). */
-    fun localAccessRecoveryFailed(): String =
-        "Не вдалося відновити доступ — виберіть файл або теку заново."
-
-    /**
-     * The snackbar text after a re-scan of every previously imported folder.
-     * New chapters/books are reported first; missing, moved and duplicate
-     * files append as caveats; an unchanged library says so plainly. Nothing
-     * is ever deleted by a re-scan, so the message never claims deletion.
-     */
     /**
      * #1185 T4 — the one-time copy-migration report: how much disk the pass
-     * freed, and (honestly) how many copies it had to keep.
+     * freed and how many copies it had to keep. The pass cannot know WHY a copy
+     * was kept (a dead grant, unmatched bytes, a single-file import, a
+     * rolled-back transaction), so the message never guesses the cause.
      */
     fun localCopyMigration(report: LocalCopyMigration.Report): String = buildString {
         append("Звільнено ${formatFreedBytes(report.freedBytes)}: копії локальних книг переїхали на оригінальні теки")
-        if (report.keptTracks > 0) {
-            append(" · ${report.keptTracks} копій лишено — грамота недоступна")
-        }
+        if (report.keptTracks > 0) append(" · ${report.keptTracks} копій лишено")
     }
 
     private fun formatFreedBytes(bytes: Long): String = when {
@@ -120,6 +110,16 @@ object OutcomeMessages {
         else -> "${(bytes / 1024.0).toInt()} КБ"
     }
 
+    /** #1230 — the recovery door itself failed (no report was produced). */
+    fun localAccessRecoveryFailed(): String =
+        "Не вдалося відновити доступ — виберіть файл або теку заново."
+
+    /**
+     * The snackbar text after a re-scan of every previously imported folder.
+     * New chapters/books are reported first; missing, moved and duplicate
+     * files append as caveats; an unchanged library says so plainly. Nothing
+     * is ever deleted by a re-scan, so the message never claims deletion.
+     */
     fun rescanOutcome(totals: LibraryImport.RescanReport): String = buildString {
         append("Пересканування завершено")
         when {

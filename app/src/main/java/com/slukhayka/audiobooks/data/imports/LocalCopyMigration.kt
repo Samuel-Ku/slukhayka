@@ -37,12 +37,22 @@ class LocalCopyMigration(
         val relinkedTracks: Int = 0,
         val freedBytes: Long = 0L,
         val booksMigrated: Int = 0,
-        /** Tracks whose copy stays: no tree, dead grant, or unmatched bytes. */
+        /**
+         * Tracks whose copy stays: no tree (a single-file import), a dead or
+         * unavailable grant, bytes that no longer match, a foreign path, or a
+         * rolled-back transaction. The report never guesses which one it was.
+         */
         val keptTracks: Int = 0,
         /** Trees that could not be opened at all (grant revoked / provider gone). */
         val unavailableTrees: Int = 0,
         /** The pass already ran on this device. */
-        val alreadyRan: Boolean = false
+        val alreadyRan: Boolean = false,
+        /**
+         * A transient failure (an unreadable tree, a rolled-back transaction)
+         * means the pass will try again on the next launch: the once-per-device
+         * marker is only written for a clean run.
+         */
+        val retryPlanned: Boolean = false
     ) {
         val changed: Boolean get() = relinkedTracks > 0
     }
@@ -55,7 +65,11 @@ class LocalCopyMigration(
     suspend fun runOnce(): Report = withContext(Dispatchers.IO) {
         if (hasRun()) return@withContext Report(alreadyRan = true)
         val report = migrate()
-        markRun()
+        if (report.retryPlanned) {
+            Log.w(TAG, "copy migration deferred: a transient failure kept some copies")
+        } else {
+            markRun()
+        }
         report
     }
 
@@ -67,6 +81,12 @@ class LocalCopyMigration(
         var unavailable = 0
 
         val localBooks = dao.getAllAudiobooksOnce().filter { it.sourceUrl.isBlank() }
+        // One walk and one hash pass per TREE: every book of the same import
+        // shares the tree, and on the legacy (v2) memory a miss would otherwise
+        // re-read the whole folder once per book.
+        val addressesByTree = mutableMapOf<String, Map<String, String>>()
+        val unavailableTrees = mutableSetOf<String>()
+        var rolledBack = false
         for (book in localBooks) {
             val localSource = dao.getSourcesForBookSync(book.id).firstOrNull { it.type == "local" }
                 ?: continue
@@ -95,21 +115,34 @@ class LocalCopyMigration(
                 kept += keptByPolicy + copied.size
                 continue
             }
-
-            val entries = try {
-                scanTree(tree)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "copy migration could not open $tree", e)
-                unavailable++
+            if (tree in unavailableTrees) {
                 kept += keptByPolicy + copied.size
                 continue
             }
 
-            val addressByHash = resolveAddresses(tree, entries)
+            val addresses = addressesByTree[tree] ?: run {
+                val entries = try {
+                    scanTree(tree)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "copy migration could not open $tree", e)
+                    unavailableTrees += tree
+                    null
+                }
+                if (entries == null) {
+                    null
+                } else {
+                    resolveAddresses(tree, entries).also { addressesByTree[tree] = it }
+                }
+            }
+            if (addresses == null) {
+                kept += keptByPolicy + copied.size
+                continue
+            }
+
             val migratable = copied.mapNotNull { track ->
-                addressByHash[track.contentHash]?.let { address -> track to address }
+                addresses[track.contentHash]?.let { address -> track to address }
             }
             if (migratable.isEmpty()) {
                 kept += keptByPolicy + copied.size
@@ -127,9 +160,10 @@ class LocalCopyMigration(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // The rows did not commit: every file of THIS book stays, and a
-                // retry is possible only through a future pass.
+                // The rows did not commit: every file of THIS book stays, and
+                // the next launch retries (the marker is not written).
                 Log.w(TAG, "copy migration rolled back for ${book.id}", e)
+                rolledBack = true
                 kept += keptByPolicy + copied.size
                 continue
             }
@@ -140,11 +174,6 @@ class LocalCopyMigration(
             migratable.forEach { (track, _) ->
                 val path = track.localFilePath ?: return@forEach
                 val file = File(path)
-                if (!file.startsWith(copyRoot)) {
-                    // Never delete outside the private copy dir this pass owns.
-                    Log.w(TAG, "copy migration skipped a foreign path: $path")
-                    return@forEach
-                }
                 val size = if (file.isFile) file.length() else 0L
                 val deleted = runCatching { file.delete() }.getOrDefault(false)
                 if (deleted || !file.exists()) freed += size
@@ -156,7 +185,8 @@ class LocalCopyMigration(
             freedBytes = freed,
             booksMigrated = books,
             keptTracks = kept,
-            unavailableTrees = unavailable
+            unavailableTrees = unavailableTrees.size,
+            retryPlanned = unavailableTrees.isNotEmpty() || rolledBack
         )
     }
 
@@ -182,7 +212,7 @@ class LocalCopyMigration(
                 continue
             }
             val hash = try {
-                contentHashOf(entry.openStream())
+                entry.openStream().use { contentHashOf(it) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

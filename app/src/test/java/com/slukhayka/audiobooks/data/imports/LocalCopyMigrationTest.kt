@@ -192,6 +192,27 @@ class LocalCopyMigrationTest {
         val track = trackOf("b1")
         assertEquals(file.absolutePath, track.localFilePath)
         assertFalse(report.changed)
+        assertTrue("транзієнтна невдача → повтор наступного запуску", report.retryPlanned)
+        assertTrue("маркер НЕ пишеться — інакше повтору не буде", dao.getCorrectionsForMergeKey("local-copy-migration").isEmpty())
+    }
+
+    @Test
+    fun `a transient failure retries on the next launch`() = runBlocking {
+        val file = copy("01.mp3")
+        seedBook("b1", tree, listOf(hash to file))
+        var scans = 0
+        val migration = migration {
+            scans++
+            throw SecurityException("provider not ready yet")
+        }
+
+        assertEquals(1, migration.runOnce().unavailableTrees)
+        assertEquals("перший запуск спробував", 1, scans)
+
+        val second = migration.runOnce()
+
+        assertFalse("маркер не закрив прохід назавжди", second.alreadyRan)
+        assertEquals("другий запуск спробував ще раз", 2, scans)
     }
 
     @Test

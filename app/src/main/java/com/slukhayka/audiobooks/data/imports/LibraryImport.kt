@@ -2341,12 +2341,16 @@ class LibraryImport(
      */
     suspend fun migrateLocalCopiesOnce(): LocalCopyMigration.Report {
         val ctx = context ?: return LocalCopyMigration.Report()
-        return LocalCopyMigration(
-            dao = dao,
-            copyRoot = File(ctx.filesDir, LOCAL_AUDIO_DIR),
-            scanTree = { tree -> LocalFolderScanner.scan(ctx, Uri.parse(tree)) },
-            writeBatchRunner = writeBatchRunner
-        ).runOnce()
+        // #618: the migration writes track rows, so it takes the ONE local write
+        // lock — a concurrent rescan/import can never interleave a stale REPLACE.
+        return localWriteMutex.withLock {
+            LocalCopyMigration(
+                dao = dao,
+                copyRoot = File(ctx.filesDir, LOCAL_AUDIO_DIR),
+                scanTree = { tree -> LocalFolderScanner.scan(ctx, Uri.parse(tree)) },
+                writeBatchRunner = writeBatchRunner
+            ).runOnce()
+        }
     }
 
     /**

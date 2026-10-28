@@ -311,7 +311,7 @@ class ReviewPassTest(unittest.TestCase):
                 *[run(name, conclusion.lower(), started, completed)
                   for name, conclusion, started, completed in GREEN_CHECKS]),
             "repo.json": {"delete_branch_on_merge": False},
-            "files.json": [[{"path": "app/src/main/java/X.kt"}]],
+            "files.json": [[{"filename": "app/src/main/java/X.kt"}]],
         }
         for name, value in fixtures.items():
             (self.fixtures / name).write_text(json.dumps(value), encoding="utf-8")

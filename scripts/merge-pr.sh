@@ -509,10 +509,10 @@ for page in pages:
         print("bad files page: a page is not a list", file=sys.stderr)
         raise SystemExit(2)
     for item in page:
-        if not isinstance(item, dict) or not item.get("path"):
-            print("bad files page: item without path", file=sys.stderr)
+        if not isinstance(item, dict) or not item.get("filename"):
+            print("bad files page: item without filename", file=sys.stderr)
             raise SystemExit(2)
-        print(item["path"])
+        print(item["filename"])
 PYGATE
   )"; then
     refuse "PR #$PR_NUMBER: список файлів прочитано, але не розібрано — невідомо, чи PR редагує гейт." \

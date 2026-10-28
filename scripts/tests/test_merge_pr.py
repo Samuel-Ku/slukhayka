@@ -294,9 +294,9 @@ class MergePrTest(unittest.TestCase):
 
     def test_a_gate_edit_on_a_later_files_page_is_still_refused(self):
         """#1514: `gh pr view --json files` caps at 100; the gate edit may be 101st."""
-        first_page = [{"path": "app/src/main/java/com/slukhayka/File%02d.kt" % index}
+        first_page = [{"filename": "app/src/main/java/com/slukhayka/File%02d.kt" % index}
                       for index in range(100)]
-        files_pages = [first_page, [{"path": "scripts/merge-pr.sh"}]]
+        files_pages = [first_page, [{"filename": "scripts/merge-pr.sh"}]]
 
         result = self.gate(pr=pr_payload(files=()), files_pages=files_pages)
 
@@ -471,7 +471,7 @@ class MergePrTest(unittest.TestCase):
         """
         payload = pr_payload() if pr is None else pr
         if files_pages is None:
-            files_pages = [[{"path": item["path"]} for item in payload.get("files") or []]]
+            files_pages = [[{"filename": item["path"]} for item in payload.get("files") or []]]
         fixtures = {
             "pr.json": payload,
             "timeline.json": page(labeled()) if timeline is None else timeline,

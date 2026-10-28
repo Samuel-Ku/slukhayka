@@ -1215,7 +1215,7 @@ fun CatalogNavRow(
             }
         }
         if (showScrollHint) {
-            Box(modifier = Modifier.matchParentSize()) {
+            Box(modifier = Modifier.matchParentSize().testTag("home_chips_scroll_hint")) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)

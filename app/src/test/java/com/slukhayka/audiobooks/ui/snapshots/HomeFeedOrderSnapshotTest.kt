@@ -227,17 +227,21 @@ class HomeFeedOrderSnapshotTest {
         }
         composeTestRule.waitForIdle()
 
-        // Every block composes on the tall viewport — assert the spec-42
-        // hierarchy: quick transitions → «Для вас» → «Відкрити нове» →
-        // compact feed toolbar → endless feed. Genre navigation and the
-        // redundant «Весь каталог» label have no second home on this screen.
+        // Every block composes on the tall viewport — assert the migrated
+        // hierarchy: navigation chips (no group caption above them) → the first
+        // curated shelf → «Новинки» → duration shelves → catalogue sections →
+        // collections → compact feed toolbar → endless feed. Genre navigation
+        // and the redundant «Весь каталог» label have no second home here.
         fun topOf(text: String): Dp =
             composeTestRule.onNodeWithText(text, ignoreCase = true).getBoundsInRoot().top
 
-        assertTrue(topOf("Швидкі переходи") < topOf("Для вас"))
-        assertTrue(topOf("Для вас") < topOf("Рекомендовано для вас"))
-        assertTrue(topOf("Рекомендовано для вас") < topOf("Відкрити нове"))
-        assertTrue(topOf("Відкрити нове") < topOf("Новинки"))
+        val chipsTop = composeTestRule.onNodeWithTag("navigation_chip_Рейтинг")
+            .getBoundsInRoot().top
+        // F19: screen → section → card, so the two GROUP captions are gone.
+        composeTestRule.onNodeWithText("Швидкі переходи").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Для вас").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Відкрити нове").assertDoesNotExist()
+        assertTrue(chipsTop < topOf("Рекомендовано для вас"))
         assertTrue(topOf("Рекомендовано для вас") < topOf("Новинки"))
         // spec-28 (#195): «За тривалістю» headers are human-named shelves
         // stating the real bucket bounds (US-15, ADR-0014).
@@ -343,7 +347,6 @@ class HomeFeedOrderSnapshotTest {
         fun topOf(text: String): Dp =
             composeTestRule.onNodeWithText(text, ignoreCase = true).getBoundsInRoot().top
 
-        assertTrue(topOf("Для вас") < topOf("Ваші цикли"))
         assertTrue(topOf("Ваші цикли") < topOf("Рекомендовано для вас"))
         // The rest of the order is unchanged behind the new shelf.
         assertTrue(topOf("Рекомендовано для вас") < topOf("Новинки"))

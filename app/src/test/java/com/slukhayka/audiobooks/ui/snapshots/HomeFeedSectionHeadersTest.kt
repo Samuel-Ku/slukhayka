@@ -119,12 +119,11 @@ class HomeFeedSectionHeadersTest {
             adHoc.isEmpty()
         )
 
-        // Both top-level groups of Огляд are the GROUP level; the rails are
-        // the SECTION level. The tag is the machine-checkable distinction.
-        composeTestRule.onNodeWithText("Для вас")
-            .assert(hasTestTag(SectionHeaderTags.GROUP))
-        composeTestRule.onNodeWithText("Відкрити нове")
-            .assert(hasTestTag(SectionHeaderTags.GROUP))
+        // F19 — one heading level on «Огляд»: every shelf is a SECTION header;
+        // the two GROUP captions («Для вас», «Відкрити нове») died with the
+        // migration. The tag stays the machine-checkable distinction.
+        composeTestRule.onNodeWithText("Для вас").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Відкрити нове").assertDoesNotExist()
         composeTestRule.onNodeWithText("Нове від ваших авторів/виконавців")
             .assert(hasTestTag(SectionHeaderTags.SECTION))
         composeTestRule.onNodeWithText("Популярне")

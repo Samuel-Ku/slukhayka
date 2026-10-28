@@ -187,8 +187,21 @@ class HomeFeedPhoneFoldSnapshotTest {
         fun topOf(text: String): Dp =
             composeTestRule.onNodeWithText(text, ignoreCase = true).getBoundsInRoot().top
 
-        assertTrue("quick transitions should be above the fold", topOf("Швидкі переходи") < foldBottom)
-        assertTrue("the first curated group should begin above the fold", topOf("Для вас") < foldBottom)
+        assertTrue("the navigation chips should be above the fold", topOf("Рейтинг") < foldBottom)
+        assertTrue(
+            "the first curated shelf should begin above the fold",
+            topOf("Рекомендовано для вас") < foldBottom
+        )
+        // F5/F19 — the migration's whole point: the first curated card sits
+        // near the top of the phone (≈280–320 dp), not at ≈703 dp, and the old
+        // GROUP captions («Швидкі переходи», «Для вас», «Відкрити нове») are gone.
+        assertTrue(
+            "the first poster should be within the 350 dp target",
+            composeTestRule.onNodeWithTag("recommended_r1").getBoundsInRoot().top < 350.dp
+        )
+        composeTestRule.onNodeWithText("Швидкі переходи").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Для вас").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Відкрити нове").assertDoesNotExist()
         composeTestRule.onNodeWithText("Жанри", ignoreCase = true).assertDoesNotExist()
         composeTestRule.onNodeWithText("Весь каталог", ignoreCase = true).assertDoesNotExist()
 
@@ -198,7 +211,7 @@ class HomeFeedPhoneFoldSnapshotTest {
     }
 
     @Test
-    fun personal_group_distinguishes_loading_from_ready_empty() {
+    fun personal_group_states_are_quiet_and_the_empty_one_is_absent() {
         var recommendationsReady by mutableStateOf(false)
         composeTestRule.setContent {
             renderHomeFeed(
@@ -208,13 +221,17 @@ class HomeFeedPhoneFoldSnapshotTest {
         }
         composeTestRule.waitForIdle()
 
-        composeTestRule.onNodeWithText("Для вас").assertExists()
+        // F19: the empty «Для вас» group no longer renders a GROUP heading, and
+        // once the personal layer is ready with nothing to show it renders
+        // nothing at all (the header + «поки немає» line was pure chrome).
+        composeTestRule.onNodeWithText("Для вас").assertDoesNotExist()
         composeTestRule.onNodeWithText("Готуємо персональні добірки…").assertExists()
         composeTestRule.onNodeWithText("Персональних добірок поки немає.").assertDoesNotExist()
 
         composeTestRule.runOnIdle { recommendationsReady = true }
         composeTestRule.onNodeWithText("Готуємо персональні добірки…").assertDoesNotExist()
-        composeTestRule.onNodeWithText("Персональних добірок поки немає.").assertExists()
+        composeTestRule.onNodeWithText("Для вас").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Персональних добірок поки немає.").assertDoesNotExist()
     }
 
     @Test

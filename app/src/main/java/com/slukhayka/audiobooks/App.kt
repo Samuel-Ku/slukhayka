@@ -604,7 +604,43 @@ class App : Application() {
                 val uid = listenerIdentity.current()?.uid
                 if (policy != null && !uid.isNullOrBlank()) policy.remainingToday(uid) else Int.MAX_VALUE
             },
-            submitterId = { listenerIdentity.current()?.uid }
+            submitterId = { listenerIdentity.current()?.uid },
+            // #1487 (slice 1) — a book page of a registered source: the host is
+            // the ADR-0038 registry's (`sourceIdForUrl`), the page is imported
+            // through the SAME door as a search result (fetchBookPage →
+            // MergeKey upsert), and the listener's paste is an explicit save.
+            resolveKnownSource = { url ->
+                com.slukhayka.audiobooks.data.ingest.KnownSourceLinkResolver.resolve(url) {
+                    com.slukhayka.audiobooks.data.source.sourceIdForUrl(it)
+                }
+            },
+            importKnownSource = { link ->
+                var isNew = false
+                val entity = runCatching {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                        libraryImport.importFromSourceUrl(
+                            link.sourceId,
+                            link.url,
+                            origin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.EXPLICIT_SAVE,
+                            onNewBookImported = { isNew = true }
+                        )
+                    }
+                }.getOrNull()
+                // Null = the ordinary source door imported nothing (page has no
+                // playable chapters / source refused); the flow turns that into
+                // Refused(IMPORT_FAILED) instead of inventing a card.
+                entity?.let {
+                    com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportOutcome(
+                        result = if (isNew) {
+                            com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportResult.IMPORTED
+                        } else {
+                            com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportResult.ALREADY_ADDED
+                        },
+                        bookId = it.id,
+                        sourceId = link.sourceId
+                    )
+                }
+            }
         )
     }
 

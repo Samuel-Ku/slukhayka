@@ -467,7 +467,7 @@
     <string name="submission_preview_single_video">jedno wideo</string>
     <string name="submission_preview_telegram">Post Telegram</string>
     <string name="submission_remaining">Pozostałe zgłoszenia na dziś: %1$d</string>
-    <string name="submission_sheet_subtitle">Film YouTube, playlista lub post Telegram. Książka pojawi się w bibliotece od razu, a we wspólnym katalogu — po rzeczywistym odtworzeniu.</string>
+    <string name="submission_sheet_subtitle">Film YouTube, playlista, post Telegram lub strona książki z znanego źródła. Książka pojawi się w bibliotece od razu, a film i post — we wspólnym katalogu po rzeczywistym odtworzeniu.</string>
     <string name="submission_sheet_title">Wyślij link</string>
     <string name="submission_status_already_in_library">Już w bibliotece.</string>
     <string name="submission_status_deferred">Brak sieci — link odłożony. Przetworzę go, gdy pojawi się połączenie.</string>
@@ -485,7 +485,7 @@
     <string name="submission_status_refused_not_verified">Publikacja wymaga rzeczywistego odtworzenia.</string>
     <string name="submission_status_refused_rejected">Ten link został odrzucony przez kuratora — nie wróci do kolejki.</string>
     <string name="submission_status_refused_unavailable">Wspólna baza niedostępna.</string>
-    <string name="submission_status_unsupported">Ten link nie jest obsługiwany. Wyślij film YouTube, playlistę lub post Telegram.</string>
+    <string name="submission_status_unsupported">Ten link nie jest obsługiwany. Wyślij film YouTube, playlistę, post Telegram lub stronę książki z znanego źródła.</string>
     <string name="submission_status_working">Przetwarzamy link…</string>
     <string name="submission_submit_action">Dodaj od razu</string>
     <string name="submission_url_label">Link</string>

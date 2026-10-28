@@ -433,7 +433,7 @@
     <string name="a11y_submission_pane">Submit a link</string>
     <string name="a11y_submission_close">Close</string>
     <string name="submission_sheet_title">Submit a link</string>
-    <string name="submission_sheet_subtitle">A YouTube video or playlist, or a Telegram post. The book lands in your library right away and in the shared catalog after it really plays.</string>
+    <string name="submission_sheet_subtitle">A YouTube video, a playlist, a Telegram post, or a book page from a known source. The book lands in your library right away; a video or a post reaches the shared catalog after it really plays.</string>
     <string name="submission_url_label">Link</string>
     <string name="submission_remaining">Submissions left today: %1$d</string>
     <string name="submission_submit_action">Add now</string>
@@ -573,7 +573,7 @@
     <string name="submission_watching_source">Looking for a source</string>
     <string name="submission_published_toast">Shared the book with the community</string>
     <string name="submission_paste_from_clipboard">Paste from clipboard</string>
-    <string name="submission_status_unsupported">This link is not supported. Submit a YouTube video, a playlist or a Telegram post.</string>
+    <string name="submission_status_unsupported">This link is not supported. Submit a YouTube video, a playlist, a Telegram post, or a book page from a known source.</string>
     <!-- Spec-53 T8 — the offline queue. -->
     <string name="submission_status_deferred">No network — the link is deferred. It will run when the connection returns.</string>
     <string name="submission_deferred_title">Deferred links</string>
@@ -583,7 +583,7 @@
     <string name="submission_status_deferred_publication">The daily limit is spent — it will publish tomorrow, with no second playback.</string>
     <string name="submission_deferred_publication_badge">Publishes tomorrow</string>
     <string name="import_option_link">Submit a link</string>
-    <string name="import_option_link_subtitle">YouTube video, playlist or TG post</string>
+    <string name="import_option_link_subtitle">YouTube video, playlist, TG post or a book from a known source</string>
     <string name="source_audio_refusal_publish_title">Share my refusals anonymously</string>
     <string name="source_audio_refusal_publish_description">When on, the app adds one anonymous vote to the shared counter of each ticked source — a count only, no name, books or links. Turning it off stops new votes.</string>
     <string name="source_audio_refusal_shared_count">Anonymous refusals: %1$d</string>

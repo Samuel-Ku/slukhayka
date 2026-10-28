@@ -212,6 +212,34 @@
 
     <!-- v1.4 (ADR-0033): Слухати hero chrome. -->
     <string name="listen_hero_overline">ПРОДОВЖИТИ СЛУХАТИ</string>
+
+    <!-- #1478 — shelf titles and reasons come from resources, not ListenComposer code. -->
+    <string name="listen_shelf_hero">Продовжити слухати</string>
+    <string name="listen_shelf_almost_done">Майже дочитали</string>
+    <string name="listen_shelf_return">Поверніться</string>
+    <string name="listen_shelf_next_in_series">Продовжити серію</string>
+    <string name="listen_shelf_travel">Готово до поїздки</string>
+    <string name="listen_shelf_short">Щось коротке</string>
+    <string name="listen_shelf_favorite_authors">Улюблені автори</string>
+    <string name="listen_shelf_recently_added">Нещодавно додані</string>
+    <string name="listen_shelf_finished">Прослухані</string>
+    <string name="listen_reason_remaining">До кінця %1$s</string>
+    <plurals name="listen_reason_dormant">
+        <item quantity="one">Ви слухали %1$d день тому</item>
+        <item quantity="few">Ви слухали %1$d дні тому</item>
+        <item quantity="many">Ви слухали %1$d днів тому</item>
+        <item quantity="other">Ви слухали %1$d дня тому</item>
+    </plurals>
+    <string name="listen_reason_next_volume">Наступний том: %1$s</string>
+    <string name="listen_reason_offline_ready">Завантажено · працює офлайн</string>
+    <string name="listen_reason_short">%1$s прослуховування</string>
+    <string name="listen_short_less_than_hour">менше години</string>
+    <string name="listen_short_hours">~%1$d год</string>
+    <string name="listen_reason_favorite_author">Ви часто слухаєте цього автора</string>
+    <string name="listen_reason_added_this_week">Додано цього тижня</string>
+    <string name="listen_reason_finished">Завершено: %1$d</string>
+    <string name="listen_series_part">Частина %1$d</string>
+    <string name="listen_series_next_part">Наступна частина</string>
     <string name="listen_chapter_of">Розділ %1$d із %2$d</string>
     <string name="listen_chapter_position">Розділ %1$d · %2$s</string>
     <string name="listen_progress_percent">%1$d%%</string>

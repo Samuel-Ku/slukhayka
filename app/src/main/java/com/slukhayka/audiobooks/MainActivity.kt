@@ -304,6 +304,11 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         handleDownloadIntent(intent)
         super.onCreate(savedInstanceState)
+        // #1478 — the Listen shelves' copy follows the STORED UI language, and
+        // on API < 33 that choice is pinned on the Activity's context: rebuild
+        // it after every (re)create so a language switch is reflected.
+        androidx.lifecycle.ViewModelProvider(this)[com.slukhayka.audiobooks.ui.MainViewModel::class.java]
+            .onUiLocaleApplied()
         // #532 — the cold-start seed MUST run at APP startup, not from a
         // screen's composition: a clean install opens on Слухати, so a
         // HomeScreen-only trigger left the bundled seed unimported (measured

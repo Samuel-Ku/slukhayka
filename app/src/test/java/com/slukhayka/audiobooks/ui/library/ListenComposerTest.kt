@@ -77,11 +77,77 @@ class ListenComposerTest {
     private val NOW = 1_700_000_000_000L
     private val DAY = 24 * 3600 * 1000L
 
+    /**
+     * #1478 — the Ukrainian copy the composer used to bake into code now comes
+     * from the caller; this fixture pins the same words in the pure tests.
+     */
+    private val copy = object : ListenComposer.ListenCopy {
+        override fun title(id: ListenComposer.BlockId): String = when (id) {
+            ListenComposer.BlockId.HERO -> "Продовжити слухати"
+            ListenComposer.BlockId.ALMOST_DONE -> "Майже дочитали"
+            ListenComposer.BlockId.RETURN -> "Поверніться"
+            ListenComposer.BlockId.NEXT_IN_SERIES -> "Продовжити серію"
+            ListenComposer.BlockId.TRAVEL -> "Готово до поїздки"
+            ListenComposer.BlockId.SHORT -> "Щось коротке"
+            ListenComposer.BlockId.FAVORITE_AUTHORS -> "Улюблені автори"
+            ListenComposer.BlockId.RECENTLY_ADDED -> "Нещодавно додані"
+            ListenComposer.BlockId.FINISHED -> "Прослухані"
+        }
+
+        override fun almostDoneReason(remainingSeconds: Long): String =
+            "До кінця " + formatRemainingTime(remainingSeconds, UK_REMAINING_TIME_UNITS)
+
+        override fun returnReason(days: Int): String =
+            "Ви слухали $days ${pluralDays(days)} тому"
+
+        override fun nextVolumeReason(seriesTitle: String): String = "Наступний том: $seriesTitle"
+
+        override fun offlineReadyReason(): String = "Завантажено · працює офлайн"
+
+        override fun shortReason(totalDurationSeconds: Long): String {
+            val hours = totalDurationSeconds / 3600.0
+            val label = if (hours < 1.0) "менше години" else "~${kotlin.math.round(hours).toInt()} год"
+            return "$label прослуховування"
+        }
+
+        override fun favoriteAuthorReason(): String = "Ви часто слухаєте цього автора"
+
+        override fun addedThisWeekReason(): String = "Додано цього тижня"
+
+        override fun finishedReason(count: Int): String = "Завершено: $count"
+
+        override fun nextSeriesPartCaption(book: LibraryBook): String {
+            val index = book.book.seriesIndex
+            return if (index != null && index > 0) "Частина $index" else "Наступна частина"
+        }
+    }
+
+    private fun pluralDays(days: Int): String = when {
+        days % 10 == 1 && days % 100 != 11 -> "день"
+        days % 10 in 2..4 && days % 100 !in 12..14 -> "дні"
+        else -> "днів"
+    }
+
+    private fun compose(
+        library: List<LibraryBook> = emptyList(),
+        nextInSeries: AudiobookEntity? = null,
+        prefs: ListenPrefs = prefs(),
+        finishedWorkIds: Set<String> = emptySet(),
+        now: Long = NOW
+    ) = ListenComposer.compose(
+        library = library,
+        nextInSeries = nextInSeries,
+        prefs = prefs,
+        finishedWorkIds = finishedWorkIds,
+        now = now,
+        copy = copy
+    )
+
     // --- block eligibility and priority -------------------------------------
 
     @Test
     fun `empty library composes to no blocks`() {
-        val blocks = ListenComposer.compose(emptyList(), nextInSeries = null, prefs = prefs(), now = NOW)
+        val blocks = compose(emptyList(), nextInSeries = null, prefs = prefs(), now = NOW)
         assertTrue(blocks.isEmpty())
     }
 
@@ -90,7 +156,7 @@ class ListenComposerTest {
         val b1 = card(book("b1", "Перша"), progress("b1", position = 100L, lastListenedAt = NOW - DAY))
         val b2 = card(book("b2", "Друга"), progress("b2", position = 50L, lastListenedAt = NOW))
 
-        val blocks = ListenComposer.compose(listOf(b1, b2), nextInSeries = null, prefs = prefs(), now = NOW)
+        val blocks = compose(listOf(b1, b2), nextInSeries = null, prefs = prefs(), now = NOW)
 
         assertEquals(ListenComposer.BlockId.HERO, blocks.first().id)
         assertEquals("b2", blocks.first().books.single().book.id)
@@ -102,7 +168,7 @@ class ListenComposerTest {
         val done = card(book("done", "Завершена"), progress("done", position = 3600L))
         val half = card(book("half", "Половина"), progress("half", position = 100L, lastListenedAt = NOW))
 
-        val blocks = ListenComposer.compose(listOf(done, half), nextInSeries = null, prefs = prefs(), now = NOW)
+        val blocks = compose(listOf(done, half), nextInSeries = null, prefs = prefs(), now = NOW)
 
         val hero = blocks.first { it.id == ListenComposer.BlockId.HERO }
         assertEquals("half", hero.books.single().book.id)
@@ -113,7 +179,7 @@ class ListenComposerTest {
         val near = card(book("near", "Майже"), progress("near", position = 3200L)) // 3200/3600 = 89 %
         val far = card(book("far", "Далеко"), progress("far", position = 100L))
 
-        val blocks = ListenComposer.compose(listOf(near, far), nextInSeries = null, prefs = prefs(), now = NOW)
+        val blocks = compose(listOf(near, far), nextInSeries = null, prefs = prefs(), now = NOW)
 
         val block = blocks.first { it.id == ListenComposer.BlockId.ALMOST_DONE }
         assertEquals(listOf("near"), block.books.map { it.book.id })
@@ -125,7 +191,7 @@ class ListenComposerTest {
         val dormant = card(book("old", "Старе"), progress("old", position = 100L, lastListenedAt = NOW - 20 * DAY))
         val recent = card(book("new", "Свіже"), progress("new", position = 100L, lastListenedAt = NOW - DAY))
 
-        val blocks = ListenComposer.compose(listOf(dormant, recent), nextInSeries = null, prefs = prefs(), now = NOW)
+        val blocks = compose(listOf(dormant, recent), nextInSeries = null, prefs = prefs(), now = NOW)
 
         val block = blocks.first { it.id == ListenComposer.BlockId.RETURN }
         assertEquals(listOf("old"), block.books.map { it.book.id })
@@ -135,7 +201,7 @@ class ListenComposerTest {
     @Test
     fun `next-in-series block renders the passed next volume`() {
         val next = book("next", "Наступна", seriesTitle = "Сага")
-        val blocks = ListenComposer.compose(
+        val blocks = compose(
             emptyList(),
             nextInSeries = next,
             prefs = prefs(),
@@ -152,14 +218,14 @@ class ListenComposerTest {
     fun `next-series caption names the volume when the series numbers its books`() {
         val next = card(book("next", "Наступна", seriesTitle = "Сага").also { it.seriesIndex = 2 })
 
-        assertEquals("Частина 2", nextSeriesPartCaption(next))
+        assertEquals("Частина 2", copy.nextSeriesPartCaption(next))
     }
 
     @Test
     fun `next-series caption falls back to the context line when unnumbered`() {
         val unnumbered = card(book("next", "Наступна", seriesTitle = "Сага"))
 
-        assertEquals("Наступна частина", nextSeriesPartCaption(unnumbered))
+        assertEquals("Наступна частина", copy.nextSeriesPartCaption(unnumbered))
     }
 
     @Test
@@ -167,7 +233,7 @@ class ListenComposerTest {
         val offline = card(book("off", "Офлайн", isDownloaded = true))
         val online = card(book("on", "Онлайн"))
 
-        val blocks = ListenComposer.compose(listOf(offline, online), nextInSeries = null, prefs = prefs(), now = NOW)
+        val blocks = compose(listOf(offline, online), nextInSeries = null, prefs = prefs(), now = NOW)
 
         val block = blocks.first { it.id == ListenComposer.BlockId.TRAVEL }
         assertEquals(listOf("off"), block.books.map { it.book.id })
@@ -179,7 +245,7 @@ class ListenComposerTest {
         val short = card(book("s", "Коротка", totalDurationSeconds = 2 * 3600L))
         val long = card(book("l", "Довга", totalDurationSeconds = 10 * 3600L))
 
-        val blocks = ListenComposer.compose(listOf(short, long), nextInSeries = null, prefs = prefs(), now = NOW)
+        val blocks = compose(listOf(short, long), nextInSeries = null, prefs = prefs(), now = NOW)
 
         val block = blocks.first { it.id == ListenComposer.BlockId.SHORT }
         assertEquals(listOf("s"), block.books.map { it.book.id })
@@ -191,7 +257,7 @@ class ListenComposerTest {
         val fav = card(book("f", "Улюблена", isFavorite = true))
         val plain = card(book("p", "Звичайна"))
 
-        val blocks = ListenComposer.compose(listOf(fav, plain), nextInSeries = null, prefs = prefs(), now = NOW)
+        val blocks = compose(listOf(fav, plain), nextInSeries = null, prefs = prefs(), now = NOW)
 
         val block = blocks.first { it.id == ListenComposer.BlockId.FAVORITE_AUTHORS }
         assertEquals(listOf("f"), block.books.map { it.book.id })
@@ -202,7 +268,7 @@ class ListenComposerTest {
         val fresh = card(book("fr", "Нове", createdAt = NOW - DAY))
         val ancient = card(book("an", "Старе", createdAt = NOW - 30 * DAY))
 
-        val blocks = ListenComposer.compose(listOf(fresh, ancient), nextInSeries = null, prefs = prefs(), now = NOW)
+        val blocks = compose(listOf(fresh, ancient), nextInSeries = null, prefs = prefs(), now = NOW)
 
         val block = blocks.first { it.id == ListenComposer.BlockId.RECENTLY_ADDED }
         assertEquals(listOf("fr"), block.books.map { it.book.id })
@@ -221,7 +287,7 @@ class ListenComposerTest {
             card(book("e", "Нова", createdAt = NOW, totalDurationSeconds = 10 * 3600L))
         )
 
-        val blocks = ListenComposer.compose(all, nextInSeries = book("n", "Наступна"), prefs = prefs(), now = NOW)
+        val blocks = compose(all, nextInSeries = book("n", "Наступна"), prefs = prefs(), now = NOW)
 
         assertEquals(
             listOf(
@@ -246,7 +312,7 @@ class ListenComposerTest {
             card(book("c", "Офлайн", isDownloaded = true, totalDurationSeconds = 10 * 3600L))
         )
 
-        val blocks = ListenComposer.compose(
+        val blocks = compose(
             all,
             nextInSeries = null,
             prefs = prefs(order = listOf(ListenComposer.BlockId.TRAVEL, ListenComposer.BlockId.HERO)),
@@ -266,7 +332,7 @@ class ListenComposerTest {
             card(book("c", "Офлайн", isDownloaded = true, totalDurationSeconds = 10 * 3600L))
         )
 
-        val blocks = ListenComposer.compose(
+        val blocks = compose(
             all,
             nextInSeries = null,
             prefs = prefs(hidden = setOf(ListenComposer.BlockId.TRAVEL)),
@@ -284,7 +350,7 @@ class ListenComposerTest {
         val near = card(book("near", "Майже"), progress("near", position = 3400L, lastListenedAt = NOW))
         val other = card(book("other", "Інша"), progress("other", position = 3400L, lastListenedAt = NOW - DAY))
 
-        val blocks = ListenComposer.compose(
+        val blocks = compose(
             listOf(near, other),
             nextInSeries = null,
             prefs = prefs(dismissed = setOf("near")),
@@ -301,7 +367,7 @@ class ListenComposerTest {
             card(book("a", "Книга", totalDurationSeconds = 10 * 3600L), progress("a", position = 100L, lastListenedAt = NOW))
         )
 
-        val blocks = ListenComposer.compose(
+        val blocks = compose(
             all,
             nextInSeries = null,
             prefs = prefs(order = listOf(ListenComposer.BlockId.RETURN, ListenComposer.BlockId.HERO)),
@@ -318,7 +384,7 @@ class ListenComposerTest {
         val done = card(book("done", "Дослухана"), progress("done", position = 3600L, lastListenedAt = NOW - DAY))
         val live = card(book("live", "В процесі"), progress("live", position = 100L, lastListenedAt = NOW))
 
-        val blocks = ListenComposer.compose(listOf(done, live), nextInSeries = null, prefs = prefs(), now = NOW)
+        val blocks = compose(listOf(done, live), nextInSeries = null, prefs = prefs(), now = NOW)
 
         val finished = blocks.first { it.id == ListenComposer.BlockId.FINISHED }
         assertEquals(listOf("done"), finished.books.map { it.book.id })
@@ -332,7 +398,7 @@ class ListenComposerTest {
         // so it belongs on the shelf.
         val restarted = card(book("restarted", "Переслуховую"), progress("restarted", position = 30L, lastListenedAt = NOW))
 
-        val blocks = ListenComposer.compose(
+        val blocks = compose(
             listOf(restarted),
             nextInSeries = null,
             prefs = prefs(),
@@ -348,7 +414,7 @@ class ListenComposerTest {
     fun `finished block is absent when nothing has been finished`() {
         val live = card(book("live", "В процесі"), progress("live", position = 100L, lastListenedAt = NOW))
 
-        val blocks = ListenComposer.compose(listOf(live), nextInSeries = null, prefs = prefs(), now = NOW)
+        val blocks = compose(listOf(live), nextInSeries = null, prefs = prefs(), now = NOW)
 
         assertNull(blocks.firstOrNull { it.id == ListenComposer.BlockId.FINISHED })
     }
@@ -358,7 +424,7 @@ class ListenComposerTest {
         val older = card(book("older", "Раніше"), progress("older", position = 3600L, lastListenedAt = NOW - 2 * DAY))
         val newer = card(book("newer", "Пізніше"), progress("newer", position = 3600L, lastListenedAt = NOW - DAY))
 
-        val blocks = ListenComposer.compose(listOf(older, newer), nextInSeries = null, prefs = prefs(), now = NOW)
+        val blocks = compose(listOf(older, newer), nextInSeries = null, prefs = prefs(), now = NOW)
 
         val finished = blocks.first { it.id == ListenComposer.BlockId.FINISHED }
         assertEquals(listOf("newer", "older"), finished.books.map { it.book.id })

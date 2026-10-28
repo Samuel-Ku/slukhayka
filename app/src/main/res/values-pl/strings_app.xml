@@ -714,6 +714,34 @@
     <string name="chapter_order_saving">Zapisujemy…</string>
     <string name="listen_all_shelves_hidden_body">Twoje książki są na miejscu — przywróć potrzebną półkę, a znów się tu pojawi.</string>
     <string name="listen_all_shelves_hidden_title">Wszystkie półki ukryte</string>
+
+    <!-- #1478 — shelf titles and reasons come from resources, not ListenComposer code. -->
+    <string name="listen_shelf_hero">Słuchaj dalej</string>
+    <string name="listen_shelf_almost_done">Prawie skończone</string>
+    <string name="listen_shelf_return">Wróć</string>
+    <string name="listen_shelf_next_in_series">Kontynuuj serię</string>
+    <string name="listen_shelf_travel">Gotowe do podróży</string>
+    <string name="listen_shelf_short">Coś krótkiego</string>
+    <string name="listen_shelf_favorite_authors">Ulubieni autorzy</string>
+    <string name="listen_shelf_recently_added">Ostatnio dodane</string>
+    <string name="listen_shelf_finished">Wysłuchane</string>
+    <string name="listen_reason_remaining">Do końca: %1$s</string>
+    <plurals name="listen_reason_dormant">
+        <item quantity="one">Słuchałeś %1$d dzień temu</item>
+        <item quantity="few">Słuchałeś %1$d dni temu</item>
+        <item quantity="many">Słuchałeś %1$d dni temu</item>
+        <item quantity="other">Słuchałeś %1$d dnia temu</item>
+    </plurals>
+    <string name="listen_reason_next_volume">Następny tom: %1$s</string>
+    <string name="listen_reason_offline_ready">Pobrane · działa offline</string>
+    <string name="listen_reason_short">%1$s słuchania</string>
+    <string name="listen_short_less_than_hour">mniej niż godzina</string>
+    <string name="listen_short_hours">~%1$d godz.</string>
+    <string name="listen_reason_favorite_author">Często słuchasz tego autora</string>
+    <string name="listen_reason_added_this_week">Dodano w tym tygodniu</string>
+    <string name="listen_reason_finished">Ukończono: %1$d</string>
+    <string name="listen_series_part">Część %1$d</string>
+    <string name="listen_series_next_part">Następna część</string>
     <string name="listen_chapter_of">Rozdział %1$d z %2$d</string>
     <string name="listen_chapter_position">Rozdział %1$d · %2$s</string>
     <string name="listen_empty_body">Tu pojawi się Twoja bieżąca książka, gdy tylko zaczniesz słuchać.</string>

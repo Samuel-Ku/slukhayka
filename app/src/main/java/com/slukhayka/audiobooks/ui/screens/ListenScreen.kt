@@ -60,7 +60,6 @@ import com.slukhayka.audiobooks.ui.library.LibraryBook
 import com.slukhayka.audiobooks.ui.library.RemainingTimeUnits
 import com.slukhayka.audiobooks.ui.library.deduplicateListenShelves
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
-import com.slukhayka.audiobooks.ui.library.nextSeriesPartCaption
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
@@ -202,7 +201,7 @@ fun ListenScreen(
                             // the series context — each card names which part
                             // is next. No one-tap play triangle (ADR-0018).
                             captionFor = if (block.id == ListenComposer.BlockId.NEXT_IN_SERIES) {
-                                { entry -> nextSeriesPartCaption(entry) }
+                                { entry -> viewModel.listenPartCaption(entry) }
                             } else {
                                 null
                             }

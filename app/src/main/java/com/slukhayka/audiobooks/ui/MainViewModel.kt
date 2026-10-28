@@ -1615,6 +1615,9 @@ class MainViewModel @JvmOverloads constructor(
     // (it would read the JVM default null).
     private val listenPrefs = com.slukhayka.audiobooks.ui.library.ListenPrefsStore(getApplication())
     private val _listenPrefsVersion = MutableStateFlow(0)
+    // #1478 — the shelf copy is locale-dependent; MainActivity re-creates on a
+    // language change and bumps this so the composer rebuilds its copy.
+    private val _localeVersion = MutableStateFlow(0)
     private val _nextInSeries = MutableStateFlow<AudiobookEntity?>(null)
     val nextInSeries: StateFlow<AudiobookEntity?> = _nextInSeries.asStateFlow()
 
@@ -1622,15 +1625,34 @@ class MainViewModel @JvmOverloads constructor(
         libraryBooks,
         nextInSeries,
         libraryEntries.finishedWorkIds,
-        _listenPrefsVersion
-    ) { books, seriesBook, finishedWorkIds, _ ->
+        _listenPrefsVersion,
+        _localeVersion
+    ) { books, seriesBook, finishedWorkIds, _, _ ->
         com.slukhayka.audiobooks.ui.library.ListenComposer.compose(
             library = books,
             nextInSeries = seriesBook,
             prefs = listenPrefs,
-            finishedWorkIds = finishedWorkIds
+            finishedWorkIds = finishedWorkIds,
+            // #1478 — every shelf word comes from the STORED UI language
+            // (explicit choice wins over the device one), never from the
+            // composer itself.
+            copy = com.slukhayka.audiobooks.ui.library.ResourceListenCopy.forApp(getApplication())
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** #1478 — the «Наступна частина» caption of the next-in-series shelf card. */
+    fun listenPartCaption(book: com.slukhayka.audiobooks.ui.library.LibraryBook): String =
+        com.slukhayka.audiobooks.ui.library.ResourceListenCopy.forApp(getApplication())
+            .nextSeriesPartCaption(book)
+
+    /**
+     * #1478 — called by the Activity after every (re)create: an explicit UI
+     * language is pinned on the Activity on API < 33, so the composer's copy
+     * must be rebuilt when the language changes.
+     */
+    fun onUiLocaleApplied() {
+        _localeVersion.value++
+    }
 
     /** The blocks the user hid — the UI shows a restore row when all are hidden. */
     val hiddenListenBlocks: StateFlow<Set<com.slukhayka.audiobooks.ui.library.ListenComposer.BlockId>> =

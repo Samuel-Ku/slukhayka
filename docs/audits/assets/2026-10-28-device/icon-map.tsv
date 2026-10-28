@@ -1,0 +1,235 @@
+file	line	current_icon	target	class	note
+AchievementPinButton.kt	69	Star	PaperInkIcons.Star	state	рейтинг; filled = оцінка
+AchievementsScreen.kt	82	EmojiEvents	PaperInkIcons.Medal	core	досягнення: у прототипі медаль = ic-check/flame/moon/star/lock
+AppLocaleScreen.kt	82	Language	PaperInkIcons.Globe	core	мова контенту — зараз тонкий глобус серед жирних іконок
+AppNavigationRail.kt	52	Headphones	PaperInkIcons.Headphones	core	навбар «Слухати», hero CTA, фолбек обкладинки каталогу
+AppNavigationRail.kt	61	Explore	PaperInkIcons.Compass	core	навбар «Огляд»; у Material це компас https://fonts.google.com/icons?icon=explore
+AppNavigationRail.kt	70	LibraryMusic	PaperInkIcons.Library	core	навбар «Мої книги»; замінити музичну ноту на 3 книжкові корінці
+AppNavigationRail.kt	81	Group	PaperInkIcons.Friends	core	навбар «Друзі» + порожній стан; та сама іконка на 2 семантики
+AppSettingsGear.kt	37	Settings	PaperInkIcons.Settings	core	шестерня в хедері всіх 4 коренів
+AppTabHeader.kt	99	GraphicEq	PaperInkIcons.Wave	core	бренд-хвиля в хедері + бейдж «слухаєш»
+AuthorDiscovery.kt	187	MenuBook	PaperInkIcons.Book	core	книга/каталог; Filled + AutoMirrored дублі — один гліф
+AuthorDiscovery.kt	237	Warning	PaperInkIcons.Alert	core	NEW: попередження — зараз Filled.Warning (залитий трикутник)
+AuthorDiscovery.kt	247	MenuBook	PaperInkIcons.Book	core	книга/каталог; Filled + AutoMirrored дублі — один гліф
+AuthorDiscovery.kt	284	Person	PaperInkIcons.Person	core	NEW: рядок «Профіль», автор; у прототипі лише пара Friends
+AuthorDiscovery.kt	292	ChevronRight	PaperInkIcons.ChevronRight	core	рядки налаштувань/списки
+AuthorDiscovery.kt	308	Person	PaperInkIcons.Person	core	NEW: рядок «Профіль», автор; у прототипі лише пара Friends
+AuthorDiscovery.kt	323	ChevronRight	PaperInkIcons.ChevronRight	core	рядки налаштувань/списки
+BookAbandonAction.kt	46	BookmarkRemove	PaperInkIcons.BookmarkRemove	core	прибрати закладку
+BookAbandonAction.kt	58	Undo	PaperInkIcons.Undo	tier2	відкат імпорту
+BookDetailActions.kt	268	PlayArrow	PaperInkIcons.Play	state	filled-трикутник: play hero/постер/рядок/міні-плеєр/плеєр
+BookDetailActions.kt	350	CloudDone	PaperInkIcons.Downloaded	state	завантажено (13 dp у міні-плеєрі! п.3)
+BookDetailActions.kt	352	CloudDownload	PaperInkIcons.Download	core	завантажити
+BookDetailActions.kt	383	BookmarkAdd	PaperInkIcons.BookmarkAdd	core	додати закладку
+BookDetailDeleteModals.kt	196	RemoveCircleOutline	PaperInkIcons.RemoveCircle	tier2	діалог видалення
+BookDetailDeleteModals.kt	207	CloudOff	PaperInkIcons.Offline	state	офлайн/недоступно
+BookDetailDeleteModals.kt	218	Delete	PaperInkIcons.Trash	core	NEW: 9 вживань
+BookDetailHighlights.kt	124	Favorite	PaperInkIcons.HeartFilled	state	в обраному
+BookDetailReviews.kt	134	Star	PaperInkIcons.Star	state	рейтинг; filled = оцінка
+BookDetailReviews.kt	258	CloudUpload	PaperInkIcons.Upload	core	завантажити у хмару/публікація
+BookDetailReviews.kt	307	Edit	PaperInkIcons.Edit	core	NEW: 3 вживання
+BookDetailReviews.kt	327	Delete	PaperInkIcons.Trash	core	NEW: 9 вживань
+BookDetailReviews.kt	344	MoreVert	PaperInkIcons.More	core	⋮ меню
+BookDetailReviews.kt	481	Delete	PaperInkIcons.Trash	core	NEW: 9 вживань
+BookDetailRows.kt	213	VolumeUp	PaperInkIcons.VolumeUp	tier2	гучність
+BookDetailRows.kt	283	CloudDone	PaperInkIcons.Downloaded	state	завантажено (13 dp у міні-плеєрі! п.3)
+BookDetailRows.kt	302	Delete	PaperInkIcons.Trash	core	NEW: 9 вживань
+BookDetailRows.kt	312	Pause	PaperInkIcons.Pause	state	filled-пауза
+BookDetailRows.kt	313	PlayArrow	PaperInkIcons.Play	state	filled-трикутник: play hero/постер/рядок/міні-плеєр/плеєр
+BookDetailRows.kt	314	PauseCircle	PaperInkIcons.Pause	tier2	legacy рядок розділу
+BookDetailRows.kt	315	PlayCircle	PaperInkIcons.Play	tier2	legacy рядок розділу
+BookDetailRows.kt	372	Bookmark	PaperInkIcons.Bookmark	state	збережено/добірка; стан = BookmarkFilled
+BookDetailRows.kt	402	PlayArrow	PaperInkIcons.Play	state	filled-трикутник: play hero/постер/рядок/міні-плеєр/плеєр
+BookDetailRows.kt	419	Delete	PaperInkIcons.Trash	core	NEW: 9 вживань
+BookDetailScreen.kt	1489	Star	PaperInkIcons.Star	state	рейтинг; filled = оцінка
+BookDetailScreen.kt	666	ArrowBack	PaperInkIcons.ChevronLeft	core	назад; прототип використовує chevron-left (index.html:509)
+BookDetailScreen.kt	720	MoreVert	PaperInkIcons.More	core	⋮ меню
+BookDetailScreen.kt	735	OpenInNew	PaperInkIcons.OpenInNew	tier2	зовнішнє посилання
+BookDetailScreen.kt	752	CheckCircle	PaperInkIcons.CheckCircle	tier2	підтверджено
+BookDetailScreen.kt	781	Edit	PaperInkIcons.Edit	core	NEW: 3 вживання
+BookDetailScreen.kt	793	Edit	PaperInkIcons.Edit	core	NEW: 3 вживання
+BookDetailScreen.kt	805	CloudUpload	PaperInkIcons.Upload	core	завантажити у хмару/публікація
+BookDetailScreen.kt	821	BookmarkAdd	PaperInkIcons.BookmarkAdd	core	додати закладку
+BookDetailScreen.kt	833	Delete	PaperInkIcons.Trash	core	NEW: 9 вживань
+BookDetailSections.kt	484	PlayArrow	PaperInkIcons.Play	state	filled-трикутник: play hero/постер/рядок/міні-плеєр/плеєр
+BookDetailSections.kt	591	RecordVoiceOver	PaperInkIcons.Narrator	tier2	начитка
+BookListScreen.kt	115	Warning	PaperInkIcons.Alert	core	NEW: попередження — зараз Filled.Warning (залитий трикутник)
+BookListScreen.kt	129	Info	PaperInkIcons.Info	core	NEW: інфо-рядки
+BookListScreen.kt	94	Info	PaperInkIcons.Info	core	NEW: інфо-рядки
+BookRow.kt	470	CloudDone	PaperInkIcons.Downloaded	state	завантажено (13 dp у міні-плеєрі! п.3)
+BookRow.kt	490	PlayArrow	PaperInkIcons.Play	state	filled-трикутник: play hero/постер/рядок/міні-плеєр/плеєр
+BookmarkDialog.kt	55	BookmarkAdd	PaperInkIcons.BookmarkAdd	core	додати закладку
+CastButton.kt	73	Cast	PaperInkIcons.Cast	tier2	трансляція
+CatalogCoverImage.kt	99	Headphones	PaperInkIcons.Headphones	core	навбар «Слухати», hero CTA, фолбек обкладинки каталогу
+ChannelImportCard.kt	123	Warning	PaperInkIcons.Alert	core	NEW: попередження — зараз Filled.Warning (залитий трикутник)
+ChannelImportCard.kt	157	Inbox	PaperInkIcons.Inbox	tier2	порожній стан
+ChapterDragHandle.kt	169	DragHandle	PaperInkIcons.DragHandle	core	перетягування розділів
+CollectionPage.kt	68	ArrowBack	PaperInkIcons.ChevronLeft	core	назад; прототип використовує chevron-left (index.html:509)
+CollectionsIndexScreen.kt	77	MenuBook	PaperInkIcons.Book	core	книга/каталог; Filled + AutoMirrored дублі — один гліф
+ContentLanguageScreen.kt	95	Language	PaperInkIcons.Globe	core	мова контенту — зараз тонкий глобус серед жирних іконок
+DownloadManagerScreen.kt	431	CloudDownload	PaperInkIcons.Download	core	завантажити
+FriendsScreen.kt	166	Group	PaperInkIcons.Friends	core	навбар «Друзі» + порожній стан; та сама іконка на 2 семантики
+FriendsScreen.kt	175	Group	PaperInkIcons.Friends	core	навбар «Друзі» + порожній стан; та сама іконка на 2 семантики
+HomeFeedContent.kt	545	CloudOff	PaperInkIcons.Offline	state	офлайн/недоступно
+HomeFeedContent.kt	561	FilterAltOff	PaperInkIcons.FilterOff	core	скидання фільтрів
+HomeFeedContent.kt	581	MenuBook	PaperInkIcons.Book	core	книга/каталог; Filled + AutoMirrored дублі — один гліф
+HomeFeedContent.kt	709	Close	PaperInkIcons.Close	core	NEW: 16 вживань — діалоги/шити/міні-плеєр/постер (у прототипі гліфа немає)
+HomeFeedContent.kt	720	PlayArrow	PaperInkIcons.Play	state	filled-трикутник: play hero/постер/рядок/міні-плеєр/плеєр
+HomeFeedContent.kt	826	Refresh	PaperInkIcons.Refresh	core	NEW: оновити каталог
+HomeScreen.kt	1025	MoreVert	PaperInkIcons.More	core	⋮ меню
+HomeScreen.kt	1157	MenuBook	PaperInkIcons.Book	core	книга/каталог; Filled + AutoMirrored дублі — один гліф
+HomeScreen.kt	1171	Refresh	PaperInkIcons.Refresh	core	NEW: оновити каталог
+HomeScreen.kt	1181	FileUpload	PaperInkIcons.Upload	core	імпорт файлу
+HomeScreen.kt	1260	Sort	PaperInkIcons.Sort	core	сортування
+HomeScreen.kt	1269	ArrowDropDown	PaperInkIcons.ChevronDown	core	сортування — дубль
+HomeScreen.kt	1304	Tune	PaperInkIcons.Filter	core	фільтри; зараз Tune = смужки з повзунками, прототип = 3 лінії
+HomeScreen.kt	1316	Tune	PaperInkIcons.Filter	core	фільтри; зараз Tune = смужки з повзунками, прототип = 3 лінії
+HomeScreen.kt	765	Refresh	PaperInkIcons.Refresh	core	NEW: оновити каталог
+HomeScreen.kt	784	Search	PaperInkIcons.Search	core	пошук у хедері/полі
+HomeScreen.kt	797	Clear	PaperInkIcons.Close	core	очистити поле пошуку = той самий хрестик
+HomeScreen.kt	961	Done	PaperInkIcons.Check	core	готово
+IndexScreenScaffold.kt	203	ArrowBack	PaperInkIcons.ChevronLeft	core	назад; прототип використовує chevron-left (index.html:509)
+LibraryFilterSheet.kt	357	Close	PaperInkIcons.Close	core	NEW: 16 вживань — діалоги/шити/міні-плеєр/постер (у прототипі гліфа немає)
+LibraryFilterSheet.kt	430	ViewList	PaperInkIcons.ListCover	core	перемикач вигляду списком
+LibraryFilterSheet.kt	437	GridView	PaperInkIcons.Grid	core	перемикач сіткою
+LibraryImportSheet.kt	126	Close	PaperInkIcons.Close	core	NEW: 16 вживань — діалоги/шити/міні-плеєр/постер (у прототипі гліфа немає)
+LibraryImportSheet.kt	133	FileUpload	PaperInkIcons.Upload	core	імпорт файлу
+LibraryImportSheet.kt	141	CreateNewFolder	PaperInkIcons.FolderPlus	tier2	імпорт у теку
+LibraryImportSheet.kt	149	Link	PaperInkIcons.Link	core	посилання
+LibraryImportSheet.kt	201	KeyboardArrowRight	PaperInkIcons.ChevronRight	core	дубль: та сама семантика, інший гліф
+LibraryRatingScreen.kt	114	Warning	PaperInkIcons.Alert	core	NEW: попередження — зараз Filled.Warning (залитий трикутник)
+LibraryRatingScreen.kt	128	Info	PaperInkIcons.Info	core	NEW: інфо-рядки
+LibraryRatingScreen.kt	180	PlayArrow	PaperInkIcons.Play	state	filled-трикутник: play hero/постер/рядок/міні-плеєр/плеєр
+LibraryRatingScreen.kt	93	Info	PaperInkIcons.Info	core	NEW: інфо-рядки
+LibraryScreen.kt	1156	MenuBook	PaperInkIcons.Book	core	книга/каталог; Filled + AutoMirrored дублі — один гліф
+LibraryScreen.kt	1264	MoreVert	PaperInkIcons.More	core	⋮ меню
+LibraryScreen.kt	1335	Add	PaperInkIcons.Plus	core	додати книгу/добірку
+LibraryScreen.kt	1381	Search	PaperInkIcons.Search	core	пошук у хедері/полі
+LibraryScreen.kt	1393	Clear	PaperInkIcons.Close	core	очистити поле пошуку = той самий хрестик
+LibraryScreen.kt	1596	PlayArrow	PaperInkIcons.Play	state	filled-трикутник: play hero/постер/рядок/міні-плеєр/плеєр
+LibraryScreen.kt	2110	CloudDone	PaperInkIcons.Downloaded	state	завантажено (13 dp у міні-плеєрі! п.3)
+LibraryScreen.kt	2161	CloudDone	PaperInkIcons.Downloaded	state	завантажено (13 dp у міні-плеєрі! п.3)
+LibraryScreen.kt	2674	Today	PaperInkIcons.CalendarDay	tier2	статистика
+LibraryScreen.kt	2681	DateRange	PaperInkIcons.Calendar	tier2	статистика
+LibraryScreen.kt	2696	Whatshot	PaperInkIcons.Flame	core	серія днів — замінити на ic-flame
+LibraryScreen.kt	2703	MenuBook	PaperInkIcons.Book	core	книга/каталог; Filled + AutoMirrored дублі — один гліф
+LibraryScreen.kt	2785	Bookmark	PaperInkIcons.Bookmark	state	збережено/добірка; стан = BookmarkFilled
+LibraryScreen.kt	2826	PlayArrow	PaperInkIcons.Play	state	filled-трикутник: play hero/постер/рядок/міні-плеєр/плеєр
+LibraryScreen.kt	2840	Delete	PaperInkIcons.Trash	core	NEW: 9 вживань
+LibraryScreen.kt	3478	Person	PaperInkIcons.Person	core	NEW: рядок «Профіль», автор; у прототипі лише пара Friends
+LibraryScreen.kt	3508	Bookmark	PaperInkIcons.Bookmark	state	збережено/добірка; стан = BookmarkFilled
+LibraryScreen.kt	3655	CalendarMonth	PaperInkIcons.Calendar	tier2	статистика
+LibraryScreen.kt	3676	CalendarMonth	PaperInkIcons.Calendar	tier2	статистика
+LibraryScreen.kt	3847	Tune	PaperInkIcons.Filter	core	фільтри; зараз Tune = смужки з повзунками, прототип = 3 лінії
+LibraryScreen.kt	537	ArrowBack	PaperInkIcons.ChevronLeft	core	назад; прототип використовує chevron-left (index.html:509)
+LibraryScreen.kt	658	Search	PaperInkIcons.Search	core	пошук у хедері/полі
+LibraryScreen.kt	722	Group	PaperInkIcons.Friends	core	навбар «Друзі» + порожній стан; та сама іконка на 2 семантики
+LibraryScreen.kt	787	Bookmark	PaperInkIcons.Bookmark	state	збережено/добірка; стан = BookmarkFilled
+LibraryScreen.kt	867	Inbox	PaperInkIcons.Inbox	tier2	порожній стан
+ListenScreen.kt	223	VisibilityOff	PaperInkIcons.EyeOff	tier2	приховати
+ListenScreen.kt	275	Tune	PaperInkIcons.Filter	core	фільтри; зараз Tune = смужки з повзунками, прототип = 3 лінії
+ListenScreen.kt	424	Close	PaperInkIcons.Close	core	NEW: 16 вживань — діалоги/шити/міні-плеєр/постер (у прототипі гліфа немає)
+ListenScreen.kt	451	SettingsBackupRestore	PaperInkIcons.Reset	tier2	скидання полиць
+ListenScreen.kt	504	ArrowUpward	PaperInkIcons.ArrowUp	core	перестановка полиць
+ListenScreen.kt	516	ArrowDownward	PaperInkIcons.ArrowDown	core	перестановка полиць
+ListenScreen.kt	527	Visibility	PaperInkIcons.Eye	tier2	показати
+ListenScreen.kt	741	Headphones	PaperInkIcons.Headphones	core	навбар «Слухати», hero CTA, фолбек обкладинки каталогу
+ListenScreen.kt	771	Explore	PaperInkIcons.Compass	core	навбар «Огляд»; у Material це компас https://fonts.google.com/icons?icon=explore
+ListenScreen.kt	795	FileUpload	PaperInkIcons.Upload	core	імпорт файлу
+MainActivity.kt	1752	Headphones	PaperInkIcons.Headphones	core	навбар «Слухати», hero CTA, фолбек обкладинки каталогу
+MainActivity.kt	1757	Explore	PaperInkIcons.Compass	core	навбар «Огляд»; у Material це компас https://fonts.google.com/icons?icon=explore
+MainActivity.kt	1762	LibraryMusic	PaperInkIcons.Library	core	навбар «Мої книги»; замінити музичну ноту на 3 книжкові корінці
+MainActivity.kt	1767	Group	PaperInkIcons.Friends	core	навбар «Друзі» + порожній стан; та сама іконка на 2 семантики
+NetworkPrivacyScreen.kt	101	Shield	PaperInkIcons.Shield	core	приватність
+OpenWebSourceRow.kt	44	Language	PaperInkIcons.Globe	core	мова контенту — зараз тонкий глобус серед жирних іконок
+OpenWebSourceRow.kt	54	KeyboardArrowRight	PaperInkIcons.ChevronRight	core	дубль: та сама семантика, інший гліф
+PaperInkCards.kt	293	PlayArrow	PaperInkIcons.Play	state	filled-трикутник: play hero/постер/рядок/міні-плеєр/плеєр
+PaperInkCards.kt	359	GraphicEq	PaperInkIcons.Wave	core	бренд-хвиля в хедері + бейдж «слухаєш»
+PaperInkCards.kt	411	Close	PaperInkIcons.Close	core	NEW: 16 вживань — діалоги/шити/міні-плеєр/постер (у прототипі гліфа немає)
+PaperInkCards.kt	534	PlayArrow	PaperInkIcons.Play	state	filled-трикутник: play hero/постер/рядок/міні-плеєр/плеєр
+PaperInkChrome.kt	140	CloudDone	PaperInkIcons.Downloaded	state	завантажено (13 dp у міні-плеєрі! п.3)
+PaperInkChrome.kt	173	Pause	PaperInkIcons.Pause	state	filled-пауза
+PaperInkTabHeader.kt	115	GraphicEq	PaperInkIcons.Wave	core	бренд-хвиля в хедері + бейдж «слухаєш»
+PaperInkTabHeader.kt	160	Settings	PaperInkIcons.Settings	core	шестерня в хедері всіх 4 коренів
+PaperInkTabHeader.kt	95	ArrowBack	PaperInkIcons.ChevronLeft	core	назад; прототип використовує chevron-left (index.html:509)
+PeopleScreen.kt	150	Info	PaperInkIcons.Info	core	NEW: інфо-рядки
+PeopleScreen.kt	171	Warning	PaperInkIcons.Alert	core	NEW: попередження — зараз Filled.Warning (залитий трикутник)
+PeopleScreen.kt	185	Info	PaperInkIcons.Info	core	NEW: інфо-рядки
+PeopleScreen.kt	233	Person	PaperInkIcons.Person	core	NEW: рядок «Профіль», автор; у прототипі лише пара Friends
+PeopleScreen.kt	254	ChevronRight	PaperInkIcons.ChevronRight	core	рядки налаштувань/списки
+PersonBookmarkButton.kt	86	Star	PaperInkIcons.Star	state	рейтинг; filled = оцінка
+PersonBooksScreen.kt	148	Warning	PaperInkIcons.Alert	core	NEW: попередження — зараз Filled.Warning (залитий трикутник)
+PersonBooksScreen.kt	150	MenuBook	PaperInkIcons.Book	core	книга/каталог; Filled + AutoMirrored дублі — один гліф
+PlayerDebugOverlay.kt	108	ExpandLess	PaperInkIcons.ChevronUp	debug	PlayerDebugOverlay лише
+PlayerDebugOverlay.kt	121	Close	PaperInkIcons.Close	core	NEW: 16 вживань — діалоги/шити/міні-плеєр/постер (у прототипі гліфа немає)
+PlayerDebugOverlay.kt	202	ContentCopy	PaperInkIcons.Copy	debug	лише debug-overlay
+PlayerDebugOverlay.kt	293	ContentCopy	PaperInkIcons.Copy	debug	лише debug-overlay
+PlayerDebugOverlay.kt	345	Refresh	PaperInkIcons.Refresh	core	NEW: оновити каталог
+PlayerDebugOverlay.kt	83	BugReport	DEBUG	debug	PlayerDebugOverlay
+PlayerScreen.kt	1102	Undo	PaperInkIcons.Undo	tier2	відкат імпорту
+PlayerScreen.kt	1353	KeyboardArrowDown	PaperInkIcons.ChevronDown	core	розгортання
+PlayerScreen.kt	1379	MoreVert	PaperInkIcons.More	core	⋮ меню
+PlayerScreen.kt	1393	Favorite	PaperInkIcons.HeartFilled	state	в обраному
+PlayerScreen.kt	1399	BugReport	DEBUG	debug	PlayerDebugOverlay
+PlayerScreen.kt	1685	Bookmark	PaperInkIcons.Bookmark	state	збережено/добірка; стан = BookmarkFilled
+PlayerScreen.kt	1749	SkipPrevious	PaperInkIcons.SkipBack	core	транспорт плеєра
+PlayerScreen.kt	1753	Replay	PaperInkIcons.Replay (#1534) → Rew15/Fwd30 (player-PR)	core	назад/вперед: зараз mirrored Replay + підписи «15 с»/«30 с»; F9 затверджено Lead — підписи прибираються, гліфи Rew15/Fwd30 намальовані icon-engineer і підуть у player-PR
+PlayerScreen.kt	1781	Pause	PaperInkIcons.Pause	state	filled-пауза
+PlayerScreen.kt	1787	Replay	PaperInkIcons.Replay (#1534) → Rew15/Fwd30 (player-PR)	core	назад/вперед: зараз mirrored Replay + підписи «15 с»/«30 с»; F9 затверджено Lead — підписи прибираються, гліфи Rew15/Fwd30 намальовані icon-engineer і підуть у player-PR
+PlayerScreen.kt	1793	SkipNext	PaperInkIcons.SkipFwd	core	транспорт плеєра
+PlayerScreen.kt	1879	Speed	PaperInkIcons.Speed	core	швидкість
+PlayerScreen.kt	1889	Bedtime	PaperInkIcons.Moon	core	таймер сну
+PlayerScreen.kt	1899	BookmarkAdd	PaperInkIcons.BookmarkAdd	core	додати закладку
+PlayerScreen.kt	1909	FormatListNumbered	PaperInkIcons.List	core	розділи
+PlayerScreen.kt	2042	Close	PaperInkIcons.Close	core	NEW: 16 вживань — діалоги/шити/міні-плеєр/постер (у прототипі гліфа немає)
+PlayerScreen.kt	2063	Bookmark	PaperInkIcons.Bookmark	state	збережено/добірка; стан = BookmarkFilled
+PlayerScreen.kt	2085	Delete	PaperInkIcons.Trash	core	NEW: 9 вживань
+PlayerScreen.kt	2163	Close	PaperInkIcons.Close	core	NEW: 16 вживань — діалоги/шити/міні-плеєр/постер (у прототипі гліфа немає)
+PlayerScreen.kt	2235	Close	PaperInkIcons.Close	core	NEW: 16 вживань — діалоги/шити/міні-плеєр/постер (у прототипі гліфа немає)
+PlayerScreen.kt	2279	GraphicEq	PaperInkIcons.Wave	core	бренд-хвиля в хедері + бейдж «слухаєш»
+PlayerScreen.kt	894	Undo	PaperInkIcons.Undo	tier2	відкат імпорту
+PlaylistSelectionCard.kt	165	KeyboardArrowUp	PaperInkIcons.ChevronUp	core	згортання
+PlaylistSelectionCard.kt	178	KeyboardArrowDown	PaperInkIcons.ChevronDown	core	розгортання
+PosterCard.kt	307	Close	PaperInkIcons.Close	core	NEW: 16 вживань — діалоги/шити/міні-плеєр/постер (у прототипі гліфа немає)
+PosterCard.kt	469	CloudDone	PaperInkIcons.Downloaded	state	завантажено (13 dp у міні-плеєрі! п.3)
+ProfileScreen.kt	149	Person	PaperInkIcons.Person	core	NEW: рядок «Профіль», автор; у прототипі лише пара Friends
+ProfileScreen.kt	600	ContentCopy	PaperInkIcons.Copy	debug	лише debug-overlay
+PublicCollectionsRail.kt	154	Bookmark	PaperInkIcons.Bookmark	state	збережено/добірка; стан = BookmarkFilled
+SearchResultsContent.kt	181	SearchOff	PaperInkIcons.SearchOff	tier2	порожній пошук
+SeriesIndexScreen.kt	94	MenuBook	PaperInkIcons.Book	core	книга/каталог; Filled + AutoMirrored дублі — один гліф
+SeriesScreen.kt	106	Info	PaperInkIcons.Info	core	NEW: інфо-рядки
+SeriesScreen.kt	131	Warning	PaperInkIcons.Alert	core	NEW: попередження — зараз Filled.Warning (залитий трикутник)
+SeriesScreen.kt	144	Info	PaperInkIcons.Info	core	NEW: інфо-рядки
+SettingsDestinationScaffold.kt	100	SdCard	PaperInkIcons.Storage	core	памʼять/сховище
+SettingsDestinationScaffold.kt	107	EmojiEvents	PaperInkIcons.Medal	core	досягнення: у прототипі медаль = ic-check/flame/moon/star/lock
+SettingsDestinationScaffold.kt	175	ArrowBack	PaperInkIcons.ChevronLeft	core	назад; прототип використовує chevron-left (index.html:509)
+SettingsDestinationScaffold.kt	54	Person	PaperInkIcons.Person	core	NEW: рядок «Профіль», автор; у прототипі лише пара Friends
+SettingsDestinationScaffold.kt	61	Shield	PaperInkIcons.Shield	core	приватність
+SettingsDestinationScaffold.kt	68	Star	PaperInkIcons.Star	state	рейтинг; filled = оцінка
+SettingsDestinationScaffold.kt	76	Language	PaperInkIcons.Globe	core	мова контенту — зараз тонкий глобус серед жирних іконок
+SettingsDestinationScaffold.kt	84	Translate	PaperInkIcons.Translate	core	мова інтерфейсу
+SettingsDestinationScaffold.kt	93	VolumeOff	PaperInkIcons.VolumeOff	tier2	без звуку / аудіо джерела
+SettingsScreen.kt	358	KeyboardArrowRight	PaperInkIcons.ChevronRight	core	дубль: та сама семантика, інший гліф
+SleepTimerSheet.kt	125	Close	PaperInkIcons.Close	core	NEW: 16 вживань — діалоги/шити/міні-плеєр/постер (у прототипі гліфа немає)
+SleepTimerSheet.kt	93	Timer	PaperInkIcons.Timer	core	шит таймера сну
+SourceAudioRefusalScreen.kt	134	Block	PaperInkIcons.Block	tier2	заблоковано
+SpeedSheet.kt	117	Close	PaperInkIcons.Close	core	NEW: 16 вживань — діалоги/шити/міні-плеєр/постер (у прототипі гліфа немає)
+StorageDestinationScreen.kt	172	SdCard	PaperInkIcons.Storage	core	памʼять/сховище
+StorageDestinationScreen.kt	254	Refresh	PaperInkIcons.Refresh	core	NEW: оновити каталог
+StorageDestinationScreen.kt	293	Delete	PaperInkIcons.Trash	core	NEW: 9 вживань
+SubmissionSheet.kt	251	Close	PaperInkIcons.Close	core	NEW: 16 вживань — діалоги/шити/міні-плеєр/постер (у прототипі гліфа немає)
+WebSourceBrowserScreen.kt	1225	Warning	PaperInkIcons.Alert	core	NEW: попередження — зараз Filled.Warning (залитий трикутник)
+WebSourceBrowserScreen.kt	1243	Close	PaperInkIcons.Close	core	NEW: 16 вживань — діалоги/шити/міні-плеєр/постер (у прототипі гліфа немає)
+WebSourceBrowserScreen.kt	1319	Warning	PaperInkIcons.Alert	core	NEW: попередження — зараз Filled.Warning (залитий трикутник)
+WebSourceBrowserScreen.kt	1346	Close	PaperInkIcons.Close	core	NEW: 16 вживань — діалоги/шити/міні-плеєр/постер (у прототипі гліфа немає)
+WebSourceBrowserScreen.kt	546	ArrowBack	PaperInkIcons.ChevronLeft	core	назад; прототип використовує chevron-left (index.html:509)
+WebSourceBrowserScreen.kt	559	ArrowBack	PaperInkIcons.ChevronLeft	core	назад; прототип використовує chevron-left (index.html:509)
+WebSourceBrowserScreen.kt	572	ArrowForward	PaperInkIcons.ArrowRight	core	перехід далі
+WebSourceBrowserScreen.kt	584	Refresh	PaperInkIcons.Refresh	core	NEW: оновити каталог
+WebSourceBrowserScreen.kt	603	Home	PaperInkIcons.Home	tier2	згадка в коді
+WebSourceBrowserScreen.kt	623	Add	PaperInkIcons.Plus	core	додати книгу/добірку
+WebSourceBrowserScreen.kt	776	Link	PaperInkIcons.Link	core	посилання
+WebSourceBrowserScreen.kt	798	OpenInNew	PaperInkIcons.OpenInNew	tier2	зовнішнє посилання
+WebSourceBrowserScreen.kt	821	Link	PaperInkIcons.Link	core	посилання
+WebSourceBrowserScreen.kt	894	Warning	PaperInkIcons.Alert	core	NEW: попередження — зараз Filled.Warning (залитий трикутник)
+WebSourceBrowserScreen.kt	912	Close	PaperInkIcons.Close	core	NEW: 16 вживань — діалоги/шити/міні-плеєр/постер (у прототипі гліфа немає)

@@ -62,6 +62,7 @@ import com.slukhayka.audiobooks.data.source.SourceAccessMode
 import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
 import com.slukhayka.audiobooks.data.source.mergeGlobalSearchResults
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
+import com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.SourceSelectionCoordinator
 import com.slukhayka.audiobooks.data.source.SourceRegistry
@@ -2351,7 +2352,11 @@ class SourceCatalog(
                 )
             )
             // #741: a scam source (4read) never renders a source row/badge.
-        }.filterNot { SourceRegistry.isScam(it.sourceId) }
+            // #1528: the internal `unknown` marker (a probed public page of a
+            // host no source claims) is not a Source either — the library
+            // already hides its provenance chip; the book page must not show
+            // the raw marker as a name.
+        }.filterNot { it.sourceId == UNKNOWN_SOURCE_ID || SourceRegistry.isScam(it.sourceId) }
         val downloadedBySource = dao.getSourcesForBookSync(bookId)
             .associate { source ->
                 (source.type to source.url) to dao.getTracksForSourceSync(source.id).any { it.isDownloaded }

@@ -519,15 +519,11 @@ fun BookDetailScreen(
     // fetched once per opened book through the catalog seam. The series
     // fetch is session-cached, so this row costs nothing once the series
     // page loaded.
-    var inSeriesBooks by remember { mutableStateOf<List<AudiobookEntity>>(emptyList()) }
-    LaunchedEffect(currentBook.id) {
-        val url = currentBook.seriesUrl?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
-        inSeriesBooks = try {
-            viewModel.sourceCatalog.fetchSeriesBooks(url)
-                .filterNot { it.id == currentBook.id }
-        } catch (e: Exception) {
-            emptyList()
-        }
+    val inSeriesBooks = rememberSeriesBooks(
+        currentBookId = currentBook.id,
+        seriesUrl = currentBook.seriesUrl
+    ) { url ->
+        viewModel.sourceCatalog.fetchSeriesBooks(url)
     }
 
     // #40 decision 1: the main button reflects the book's real state — plain
@@ -1850,3 +1846,33 @@ data class PersonBookmarkControl(
     val onToggle: () -> Unit = {},
     val onToggleNotify: (Boolean) -> Unit = {}
 )
+
+/**
+ * #1506: the «У серії» row is state of ONE opened book, not of the screen.
+ *
+ * `remember(currentBookId)` makes a book switch drop the previous volumes in
+ * the first frame — before any fetch — and `LaunchedEffect(currentBookId, …)`
+ * cancels the previous fetch, so a late answer cannot be applied to the next
+ * book. The loader stays a parameter so the invalidation rule is testable
+ * without a ViewModel or network.
+ */
+@Composable
+internal fun rememberSeriesBooks(
+    currentBookId: String,
+    seriesUrl: String?,
+    load: suspend (String) -> List<AudiobookEntity>
+): List<AudiobookEntity> {
+    var inSeriesBooks by remember(currentBookId) {
+        mutableStateOf<List<AudiobookEntity>>(emptyList())
+    }
+    LaunchedEffect(currentBookId, seriesUrl) {
+        val url = seriesUrl?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        val loaded = try {
+            load(url)
+        } catch (e: Exception) {
+            emptyList()
+        }
+        inSeriesBooks = loaded.filterNot { it.id == currentBookId }
+    }
+    return inSeriesBooks
+}

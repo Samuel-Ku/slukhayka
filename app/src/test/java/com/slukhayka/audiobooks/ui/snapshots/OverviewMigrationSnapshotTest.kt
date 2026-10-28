@@ -16,6 +16,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.height
 import androidx.paging.PagingData
@@ -236,7 +237,12 @@ class OverviewMigrationSnapshotTest {
 
         composeTestRule.onNodeWithTag("home_chips_row")
             .performScrollToNode(hasTestTag("navigation_chip_Колекції"))
-        composeTestRule.waitForIdle()
+        // `performScrollToNode` stops as soon as the item is visible; the hint
+        // only disappears at the END of the row, so settle it there explicitly.
+        repeat(3) {
+            composeTestRule.onNodeWithTag("home_chips_row").performTouchInput { swipeLeft() }
+            composeTestRule.waitForIdle()
+        }
 
         composeTestRule.onNodeWithTag("home_chips_scroll_hint").assertDoesNotExist()
     }
@@ -305,8 +311,12 @@ class OverviewMigrationSnapshotTest {
      * being laundered into the baseline.
      */
     @Test
-    fun typed_query_text_is_readable_in_both_themes() {
+    fun typed_query_text_is_readable_in_paper_theme() {
         assertTypedQueryContrast(dark = false, golden = "home_search_typed_light.png")
+    }
+
+    @Test
+    fun typed_query_text_is_readable_in_ink_theme() {
         assertTypedQueryContrast(dark = true, golden = "home_search_typed_dark.png")
     }
 

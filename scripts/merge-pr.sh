@@ -513,6 +513,15 @@ for page in pages:
             print("bad files page: item without filename", file=sys.stderr)
             raise SystemExit(2)
         print(item["filename"])
+        previous = item.get("previous_filename")
+        if previous is not None:
+            if not isinstance(previous, str) or not previous:
+                print("bad files page: previous_filename is not a path", file=sys.stderr)
+                raise SystemExit(2)
+            # A rename carries the old path only here: checking `filename`
+            # alone would let `scripts/merge-pr.sh` be renamed to a non-gate
+            # name and still edit the gate.
+            print(previous)
 PYGATE
   )"; then
     refuse "PR #$PR_NUMBER: список файлів прочитано, але не розібрано — невідомо, чи PR редагує гейт." \

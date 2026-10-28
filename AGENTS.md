@@ -115,7 +115,10 @@ final word, the check makes it visible where every tool looks.
 
 Механічну роботу, якій не потрібен цей екран, виконуй на воркері, а не
 локально. Машини, їхні користувачі, ключі й ліміти — `docs/agents/machines.md`;
-як віддати задачу й межі автономії — `docs/agents/swarm.md`.
+як віддати задачу й межі автономії — `docs/agents/swarm.md`. Для однієї довгої
+команди без тікета — `scripts/swarm/remote-run.sh`: preflight, стрім логу,
+віддалений PID, прибирання групи на обриві й `--kill-orphans`; межі — у тому ж
+`swarm.md`.
 
 ## Testing and verification
 
@@ -127,7 +130,10 @@ run means `-Ptest.selectedClasses=<FQCN,...>`.
 
 A hand-picked class list proves nothing about the rest of its partition, so
 narrow by **path**, never by class: `scripts/test-changed.sh` maps changed
-paths to the partitions that cover them. For a changed production package that
+paths to the partitions that cover them. A change under `app/src/main/java/`
+also compiles `:app:compileDebugAndroidTestKotlin` first: the device suites live
+in `app/src/androidTest/` and a public composable signature can break that
+compile while every JVM partition stays green. For a changed production package that
 map is the deepest package at or above it that has tests, taken whole, plus the
 tests declared directly in each package above that one — a `ui.components`
 change reaches `ui`'s own tests, not the rest of `ui` — and a path no test

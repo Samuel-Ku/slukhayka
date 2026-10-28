@@ -438,6 +438,12 @@ CASES = (
         programs=(Program("FAKE_GH", "simulated failure"),),
     ),
     StandIn(
+        name="підставний ssh фікстури test_remote_run",
+        where=("scripts/tests/test_remote_run.py",),
+        prefix="FAKE_",
+        programs=(Program("FAKE_SSH", "FAKE_SSH_LOG"),),
+    ),
+    StandIn(
         name="підставний gh фікстури test_issue_premise",
         where=("scripts/tests/test_issue_premise.py",),
         programs=(
@@ -876,6 +882,7 @@ class RegistryTest(unittest.TestCase):
              "scripts/tests/test_mutate.py",
              "scripts/tests/test_new_lane.py",
              "scripts/tests/test_pr_snapshot.py",
+             "scripts/tests/test_remote_run.py",
              "scripts/tests/test_review_clone.py",
              "scripts/tests/test_review_gate.py",
              "scripts/tests/test_review_pass.py",

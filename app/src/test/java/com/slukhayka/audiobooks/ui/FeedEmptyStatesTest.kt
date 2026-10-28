@@ -34,6 +34,7 @@ import com.slukhayka.audiobooks.data.db.WorkFeedRow
 import com.slukhayka.audiobooks.ui.screens.homeFeedContent
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -238,18 +239,23 @@ class FeedEmptyStatesTest {
 
     @Test
     fun aRefreshFailureWithShownRowsKeepsThemAndRetries() {
-        val source = RowsThenFailPagingSource()
+        // Paging expects a FRESH PagingSource per generation: one shared
+        // instance would trip PageFetcher's re-use check on refresh. The attempt
+        // counter is shared, the instances are not.
+        val attempts = AtomicInteger(0)
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     val pager = remember {
-                        Pager(PagingConfig(pageSize = 10, initialLoadSize = 10)) { source }
+                        Pager(PagingConfig(pageSize = 10, initialLoadSize = 10)) {
+                            RowsThenFailPagingSource(attempts)
+                        }
                     }
                     val feedItems = pager.flow.collectAsLazyPagingItems()
                     var refreshStarted by remember { mutableStateOf(false) }
-                    // Wait until the initial load has FINISHED: calling
-                    // refresh() while Paging still reports a refresh in
-                    // progress throws IllegalStateException (PageFetcher).
+                    // Trigger the failing refresh only after the initial page
+                    // is settled, so the test has a deterministic generation
+                    // order: load #1 succeeds, the refresh is load #2.
                     LaunchedEffect(feedItems.itemCount, feedItems.loadState.refresh) {
                         if (feedItems.itemCount > 0 &&
                             feedItems.loadState.refresh is LoadState.NotLoading &&
@@ -292,7 +298,7 @@ class FeedEmptyStatesTest {
             }
         }
         compose.waitUntil(timeoutMillis = 10_000) {
-            source.attempts >= 2 && compose.onAllNodesWithTag("feed_refresh_error_banner")
+            attempts.get() >= 2 && compose.onAllNodesWithTag("feed_refresh_error_banner")
                 .fetchSemanticsNodes().isNotEmpty()
         }
         scrollTo("feed_refresh_error_banner")
@@ -302,7 +308,7 @@ class FeedEmptyStatesTest {
         compose.onNodeWithText("Книга").assertIsDisplayed()
 
         compose.onNodeWithTag("feed_refresh_error_banner_retry").performClick()
-        compose.waitUntil(timeoutMillis = 10_000) { source.attempts >= 3 }
+        compose.waitUntil(timeoutMillis = 10_000) { attempts.get() >= 3 }
     }
 
     private class FailingPagingSource : PagingSource<Int, WorkFeedRow>() {
@@ -321,12 +327,11 @@ class FeedEmptyStatesTest {
      * banner renders ABOVE rows that must stay visible, and its retry asks the
      * source again (third load).
      */
-    private class RowsThenFailPagingSource : PagingSource<Int, WorkFeedRow>() {
-        var attempts = 0
-
+    private class RowsThenFailPagingSource(
+        private val attempts: AtomicInteger
+    ) : PagingSource<Int, WorkFeedRow>() {
         override suspend fun load(params: LoadParams<Int>): LoadResult<Int, WorkFeedRow> {
-            attempts += 1
-            if (attempts == 1) {
+            if (attempts.incrementAndGet() == 1) {
                 return LoadResult.Page(
                     data = listOf(
                         WorkFeedRow(

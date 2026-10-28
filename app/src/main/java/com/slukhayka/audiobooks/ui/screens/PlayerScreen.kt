@@ -291,8 +291,9 @@ fun PlayerScreen(
 
     // #1474 — the temporary «sum of one tap series»: built from the ACTUAL
     // position shift of each «−15 s / +30 s» tap (clamped by the chapter
-    // start/end), reset by a pause, a drag, or a chapter switch, and announced
-    // ONCE when the series ends instead of on every tap.
+    // start/end), reset by a drag or a chapter switch (a playback pause is NOT
+    // a reset: a tap after the idle window simply starts a new series), and
+    // announced ONCE when the series ends instead of on every tap.
     val seekSumMs = remember { mutableLongStateOf(0L) }
     val seekLastTapAt = remember { mutableLongStateOf(0L) }
     val seekLastChapter = remember { mutableIntStateOf(-1) }
@@ -322,16 +323,33 @@ fun PlayerScreen(
         )
         seekLastTapAt.longValue = now
         seekLastChapter.intValue = state.currentChapterIndex
-        seekSumVisible.value = seekSumMs.longValue != 0L
+        // A sub-second shift is not worth a «+0:00» label.
+        seekSumVisible.value = kotlin.math.abs(seekSumMs.longValue) >= 1_000L
         seekSumVersion.intValue++
     }
 
     androidx.compose.runtime.LaunchedEffect(playerState.currentChapterIndex) { resetSeekSum() }
+    // The VISUAL sum is brief. The announcement waits for the SERIES to end
+    // (the idle window), so a tap in the 1.8–2.5 s gap cannot make TalkBack
+    // speak two sums of one logical series.
     androidx.compose.runtime.LaunchedEffect(seekSumVersion.intValue) {
         if (!seekSumVisible.value) return@LaunchedEffect
+        val version = seekSumVersion.intValue
         kotlinx.coroutines.delay(SeekSum.VISIBLE_MS)
-        if (seekSumVisible.value) {
+        if (seekSumVersion.intValue == version && seekSumVisible.value) {
             seekSumVisible.value = false
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(seekSumVersion.intValue) {
+        if (!seekSumVisible.value) return@LaunchedEffect
+        val version = seekSumVersion.intValue
+        val lastTapAt = seekLastTapAt.longValue
+        kotlinx.coroutines.delay(SeekSum.SERIES_IDLE_MS + 50L)
+        if (
+            seekSumVersion.intValue == version &&
+            seekLastTapAt.longValue == lastTapAt &&
+            kotlin.math.abs(seekSumMs.longValue) >= 1_000L
+        ) {
             val spoken = seekSumContext.getString(
                 com.slukhayka.audiobooks.R.string.player_seek_sum_a11y,
                 SeekSum.format(seekSumMs.longValue)
@@ -1810,24 +1828,11 @@ private fun TransportControls(
         bookTitle,
         currentChapterTitle
     )
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        // #1474 — the sum of one tap series, temporary: it is not a second
-        // clock and it never argues with the «Return to …» rewind-undo row.
-        if (seekSumLabel != null) {
-            Text(
-                text = seekSumLabel,
-                style = MaterialTheme.typography.labelLarge.copy(
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
-                ),
-                color = MaterialTheme.colorScheme.tertiary,
-                modifier = Modifier
-                    .padding(bottom = AppDimens.SpaceSm)
-                    .testTag("player_seek_sum")
-            )
-        }
+    // #1474 — the sum floats OVER the transport row, it must not add height:
+    // the landscape column is fixed and the undo row can already fill it
+    // (a zero-height QuickTools row is exactly the #962 defect class this
+    // screen's layout test fences).
+    Box(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1878,6 +1883,21 @@ private fun TransportControls(
             mirrorIcon = true
         )
         TransportIcon(Icons.Default.SkipNext, nextDescription, onNextChapter)
+        }
+        // Temporary and closest to the action: it is not a second clock and
+        // never argues with the «Return to …» rewind-undo row.
+        if (seekSumLabel != null) {
+            Text(
+                text = seekSumLabel,
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                ),
+                color = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = (-28).dp)
+                    .testTag("player_seek_sum")
+            )
         }
     }
 }

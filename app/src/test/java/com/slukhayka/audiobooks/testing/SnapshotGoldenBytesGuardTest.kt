@@ -61,6 +61,14 @@ import java.security.MessageDigest
  * `overview_light`/`overview_dark` goldens are not in this pin set: a new
  * golden is added to the suite deliberately, not as a drift.
  *
+ * Same day, the independent review of #1542 found that `explore_header_expanded`
+ * had legitimately recorded a defect: the TYPED query rendered in platform
+ * black on the ink surface (≈1.2:1), because `BasicTextField` does not read
+ * `LocalContentColor`. Fixing it moved that one golden a second time (0.04 %
+ * of pixels — the glyphs only) and the explicit `onSurface` colour is now
+ * guarded by `OverviewMigrationSnapshotTest.typed_query_text_is_readable_in_ink_theme`
+ * (measured 14.0:1) instead of by a reviewer's eye.
+ *
  * This guard does not bless those bytes — it pins them. They are exactly the
  * files a blind «оновили золота» commit touches, and nothing else in the
  * repository would notice: the compare step in `.github/workflows/ci.yml` runs
@@ -495,7 +503,7 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "expanded.png",
-                "e10e5b03593e4dc7df104b73725e1cc9" + "efe4e277c3fb2d91011a8dc32928de94"
+                "4dba3f69f37e95307b8601f2284458ec" + "e478428b807b9efc959979fe51b35ac2"
             ),
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",

@@ -106,7 +106,7 @@
     <string name="curator_profile_empty">Ten kurator nie ma jeszcze widocznych kolekcji</string>
     <string name="feedback_retry">Ponów</string>
     <string name="import_option_link">Wyślij link</string>
-    <string name="import_option_link_subtitle">Film YouTube, playlista, post TG lub książka z znanego źródła</string>
+    <string name="import_option_link_subtitle">Film YouTube, playlista, post TG lub książka ze znanego źródła</string>
     <string name="lib_add_own_files">Dodaj własne pliki</string>
     <string name="lib_audiobook_fallback">Audiobook</string>
     <string name="lib_bookmark_at">Na %1$s: %2$s</string>

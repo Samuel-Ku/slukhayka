@@ -467,14 +467,14 @@
     <string name="submission_preview_single_video">jedno wideo</string>
     <string name="submission_preview_telegram">Post Telegram</string>
     <string name="submission_remaining">Pozostałe zgłoszenia na dziś: %1$d</string>
-    <string name="submission_sheet_subtitle">Film YouTube, playlista, post Telegram lub strona książki z znanego źródła. Książka pojawi się w bibliotece od razu, a film i post — we wspólnym katalogu po rzeczywistym odtworzeniu.</string>
+    <string name="submission_sheet_subtitle">Film YouTube, playlista, post Telegram lub strona książki ze znanego źródła. Książka pojawi się w bibliotece od razu, a film i post — we wspólnym katalogu po rzeczywistym odtworzeniu.</string>
     <string name="submission_sheet_title">Wyślij link</string>
     <string name="submission_status_already_in_library">Już w bibliotece.</string>
     <string name="submission_status_deferred">Brak sieci — link odłożony. Przetworzę go, gdy pojawi się połączenie.</string>
     <string name="submission_status_deferred_publication">Dzienny limit wyczerpany — opublikujemy jutro, bez ponownego odtwarzania.</string>
     <string name="submission_status_imported">Książkę dodano. Słuchaj — po odtworzeniu trafi do wspólnego katalogu.</string>
     <string name="submission_status_imported_local">Książkę dodano lokalnie. Wspólna baza niedostępna — publikacji nie będzie.</string>
-    <string name="submission_status_imported_catalog">Książkę z znanego źródła dodano do biblioteki. Jest już w katalogu źródła — nie ma czego publikować.</string>
+    <string name="submission_status_imported_catalog">Książkę ze znanego źródła dodano do biblioteki. Jest już w katalogu źródła — nie ma czego publikować.</string>
     <string name="submission_status_metadata_published">Metadane opublikowane. Audio z tego linku jest niedostępne bez logowania — inni zobaczą uczciwy stan niedostępności.</string>
     <string name="submission_status_pending_moderation">Na moderacji: kurator nie podjął jeszcze decyzji.</string>
     <string name="submission_status_published">Opublikowano we wspólnym katalogu.</string>
@@ -486,7 +486,7 @@
     <string name="submission_status_refused_not_verified">Publikacja wymaga rzeczywistego odtworzenia.</string>
     <string name="submission_status_refused_rejected">Ten link został odrzucony przez kuratora — nie wróci do kolejki.</string>
     <string name="submission_status_refused_unavailable">Wspólna baza niedostępna.</string>
-    <string name="submission_status_unsupported">Ten link nie jest obsługiwany. Wyślij film YouTube, playlistę, post Telegram lub stronę książki z znanego źródła.</string>
+    <string name="submission_status_unsupported">Ten link nie jest obsługiwany. Wyślij film YouTube, playlistę, post Telegram lub stronę książki ze znanego źródła.</string>
     <string name="submission_status_working">Przetwarzamy link…</string>
     <string name="submission_submit_action">Dodaj od razu</string>
     <string name="submission_url_label">Link</string>

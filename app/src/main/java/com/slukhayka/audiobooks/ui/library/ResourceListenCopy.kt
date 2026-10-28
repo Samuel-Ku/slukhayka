@@ -14,6 +14,22 @@ import kotlin.math.round
  */
 class ResourceListenCopy(private val resources: Resources) : ListenComposer.ListenCopy {
 
+    companion object {
+        /**
+         * #1478 — the copy the app itself uses: the STORED UI language wins
+         * over the device one. On API < 33 the language is pinned on the
+         * Activity (`MainActivity.attachBaseContext`), so the Application's
+         * own resources follow the system locale — building from them would
+         * regress an explicit «українська» choice on a Polish phone.
+         */
+        fun forApp(application: android.app.Application): ResourceListenCopy =
+            ResourceListenCopy(
+                application.withAppLocale(
+                    com.slukhayka.audiobooks.AppLocalePrefs(application).locale
+                ).resources
+            )
+    }
+
     override fun title(id: ListenComposer.BlockId): String = resources.getString(
         when (id) {
             ListenComposer.BlockId.HERO -> R.string.listen_shelf_hero

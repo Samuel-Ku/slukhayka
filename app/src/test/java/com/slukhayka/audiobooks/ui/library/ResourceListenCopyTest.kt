@@ -117,6 +117,34 @@ class ResourceListenCopyTest {
         assertNoCyrillic(copy.nextSeriesPartCaption(card(2)))
     }
 
+    // --- An explicit UI language wins over the device one (#1478 review) ------
+
+    @Test
+    @Config(qualifiers = "pl")
+    fun `an explicit ukrainian choice wins over the polish system locale`() {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        com.slukhayka.audiobooks.AppLocalePrefs(app).locale =
+            com.slukhayka.audiobooks.AppLocale.UKRAINIAN
+
+        val copy = ResourceListenCopy.forApp(app)
+
+        assertEquals("Продовжити слухати", copy.title(ListenComposer.BlockId.HERO))
+        assertEquals("Ви слухали 3 дні тому", copy.returnReason(3))
+    }
+
+    @Test
+    @Config(qualifiers = "uk")
+    fun `an explicit english choice wins over the ukrainian system locale`() {
+        val app = ApplicationProvider.getApplicationContext<android.app.Application>()
+        com.slukhayka.audiobooks.AppLocalePrefs(app).locale =
+            com.slukhayka.audiobooks.AppLocale.ENGLISH
+
+        assertEquals(
+            "Continue listening",
+            ResourceListenCopy.forApp(app).title(ListenComposer.BlockId.HERO)
+        )
+    }
+
     private fun assertNoCyrillic(value: String) {
         assertFalse("Ukrainian copy leaked on a non-uk locale: $value", cyrillic.containsMatchIn(value))
     }

@@ -93,6 +93,8 @@
     <string name="player_feedback_timer_minutes">Таймер на %1$d хв</string>
     <string name="player_feedback_bookmark_saved">Закладку додано на %1$s</string>
     <string name="player_seek_back_label">15 с</string>
+    <!-- #1474 — the temporary sum of one «−15 s / +30 s» tap series. -->
+    <string name="player_seek_sum_a11y">Разом %1$s</string>
     <string name="player_seek_forward_label">30 с</string>
     <string name="player_chapters_title">Розділи</string>
     <!-- v1.4: locale-aware remaining-time units (formatRemainingTime /

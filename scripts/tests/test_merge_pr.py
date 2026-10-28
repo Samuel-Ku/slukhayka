@@ -318,17 +318,19 @@ class MergePrTest(unittest.TestCase):
         self.assertEqual([], self.merge_calls())
 
     def test_a_non_string_previous_filename_is_an_unknown(self):
-        """A field we cannot read is not "no rename"."""
-        files_pages = [[{
-            "filename": "app/src/main/java/X.kt",
-            "previous_filename": 123,
-        }]]
+        """A field we cannot read is not "no rename" (null included)."""
+        for bad in (None, 123, "", []):
+            with self.subTest(previous=bad):
+                files_pages = [[{
+                    "filename": "app/src/main/java/X.kt",
+                    "previous_filename": bad,
+                }]]
 
-        result = self.gate(pr=pr_payload(files=()), files_pages=files_pages)
+                result = self.gate(pr=pr_payload(files=()), files_pages=files_pages)
 
-        self.assertEqual(1, result.returncode, result.stdout)
-        self.assertIn("previous_filename is not a path", result.stderr)
-        self.assertEqual([], self.merge_calls())
+                self.assertEqual(1, result.returncode, result.stdout)
+                self.assertIn("previous_filename is not a path", result.stderr)
+                self.assertEqual([], self.merge_calls())
 
     def test_a_file_list_read_failure_refuses_instead_of_skipping_the_check(self):
         """A failed files read used to skip check 1b silently — that is fail-open."""

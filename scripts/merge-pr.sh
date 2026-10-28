@@ -513,8 +513,10 @@ for page in pages:
             print("bad files page: item without filename", file=sys.stderr)
             raise SystemExit(2)
         print(item["filename"])
-        previous = item.get("previous_filename")
-        if previous is not None:
+        # `item.get()` cannot tell an absent key from a present JSON null, and
+        # a null previous_filename is an unknown shape, not "no rename".
+        if "previous_filename" in item:
+            previous = item["previous_filename"]
             if not isinstance(previous, str) or not previous:
                 print("bad files page: previous_filename is not a path", file=sys.stderr)
                 raise SystemExit(2)

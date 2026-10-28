@@ -2,6 +2,8 @@ package com.slukhayka.audiobooks.ui.library
 
 import android.content.res.Resources
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.AppLocalePrefs
+import com.slukhayka.audiobooks.withAppLocale
 import kotlin.math.round
 
 /**
@@ -24,9 +26,7 @@ class ResourceListenCopy(private val resources: Resources) : ListenComposer.List
          */
         fun forApp(application: android.app.Application): ResourceListenCopy =
             ResourceListenCopy(
-                application.withAppLocale(
-                    com.slukhayka.audiobooks.AppLocalePrefs(application).locale
-                ).resources
+                application.withAppLocale(AppLocalePrefs(application).locale).resources
             )
     }
 

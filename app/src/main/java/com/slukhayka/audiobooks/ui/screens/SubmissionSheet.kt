@@ -56,7 +56,14 @@ import androidx.compose.ui.Alignment
 sealed interface SubmissionUiState {
     data object Idle : SubmissionUiState
     data object Working : SubmissionUiState
-    data class Imported(val publishable: Boolean) : SubmissionUiState
+    /**
+     * #1487 — [knownSource] separates "nothing to publish because the book is
+     * already in that source's catalogue" from "shared base unavailable".
+     */
+    data class Imported(
+        val publishable: Boolean,
+        val knownSource: Boolean = false
+    ) : SubmissionUiState
 
     /**
      * Spec-53 T6 — the link's copy is already in MY library: a friendly state
@@ -549,10 +556,10 @@ private fun formatPreviewDuration(totalSeconds: Long): String {
 private fun submissionStatusText(state: SubmissionUiState): String? = when (state) {
     SubmissionUiState.Idle -> null
     SubmissionUiState.Working -> stringResource(R.string.submission_status_working)
-    is SubmissionUiState.Imported -> if (state.publishable) {
-        stringResource(R.string.submission_status_imported)
-    } else {
-        stringResource(R.string.submission_status_imported_local)
+    is SubmissionUiState.Imported -> when {
+        state.knownSource -> stringResource(R.string.submission_status_imported_catalog)
+        state.publishable -> stringResource(R.string.submission_status_imported)
+        else -> stringResource(R.string.submission_status_imported_local)
     }
     SubmissionUiState.Published -> stringResource(R.string.submission_status_published)
     SubmissionUiState.PendingModeration -> stringResource(R.string.submission_status_pending_moderation)

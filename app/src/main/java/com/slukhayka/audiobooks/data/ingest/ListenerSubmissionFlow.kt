@@ -196,7 +196,14 @@ class ListenerSubmissionFlow(
              * sheet says so and offers «Відкрити книгу» instead of pretending
              * a fresh import happened.
              */
-            val alreadyInLibrary: Boolean = false
+            val alreadyInLibrary: Boolean = false,
+            /**
+             * #1487 — the copy came from a BOOK PAGE of a known source, so
+             * there is nothing to publish (the book already lives in that
+             * source's catalogue). The sheet must not claim a missing shared
+             * base: that is a different reason for `publishable = false`.
+             */
+            val knownSource: Boolean = false
         ) : Start
 
         /**
@@ -347,7 +354,8 @@ class ListenerSubmissionFlow(
                     sourceId = imported.sourceId ?: link.sourceId,
                     publishable = false,
                     remainingToday = remaining,
-                    alreadyInLibrary = imported.result == ImportResult.ALREADY_ADDED
+                    alreadyInLibrary = imported.result == ImportResult.ALREADY_ADDED,
+                    knownSource = true
                 )
             }
             ImportResult.METADATA_FAILED -> Start.Refused(Reason.METADATA_FAILED, remaining)

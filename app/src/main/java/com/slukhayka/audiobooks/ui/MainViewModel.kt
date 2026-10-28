@@ -935,7 +935,8 @@ class MainViewModel @JvmOverloads constructor(
                     // Spec-53 T3 — no autoplay: the sheet offers one
                     // explicit «Слухати зараз» action; the awaiting badge
                     // keeps the promise visible until then.
-                    _submissionState.value = SubmissionUiState.Imported(start.publishable)
+                    _submissionState.value =
+                        SubmissionUiState.Imported(start.publishable, start.knownSource)
                 }
             }
             is ListenerSubmissionFlow.Start.MetadataPublished ->

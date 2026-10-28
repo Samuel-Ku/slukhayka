@@ -537,6 +537,7 @@
     <string name="submission_status_working">Обробляємо посилання…</string>
     <string name="submission_status_imported">Книгу додано. Слухайте — після програвання вона потрапить у спільний каталог.</string>
     <string name="submission_status_imported_local">Книгу додано локально. Спільна база недоступна — публікації не буде.</string>
+    <string name="submission_status_imported_catalog">Книгу з відомого джерела додано до медіатеки. Вона вже є в каталозі джерела — публікувати нічого.</string>
     <string name="submission_status_published">Опубліковано в спільному каталозі.</string>
     <string name="submission_status_metadata_published">Метадані опубліковано. Аудіо з цього посилання недоступне без логіну — інші побачать чесний недоступний стан.</string>
     <string name="submission_status_refused_limit">Денний ліміт надсилань вичерпано.</string>

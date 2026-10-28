@@ -986,6 +986,7 @@ class ListenerSubmissionFlowTest {
         // Not a listener submission: the catalogue already has the book.
         assertFalse(start.publishable)
         assertFalse(start.alreadyInLibrary)
+        assertTrue(start.knownSource)
         assertEquals(10, start.remainingToday)
         assertEquals(1, harness.knownImportCalls)
         assertEquals(listOf(knownBook.url), harness.knownImportedUrls)

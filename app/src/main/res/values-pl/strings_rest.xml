@@ -474,6 +474,7 @@
     <string name="submission_status_deferred_publication">Dzienny limit wyczerpany — opublikujemy jutro, bez ponownego odtwarzania.</string>
     <string name="submission_status_imported">Książkę dodano. Słuchaj — po odtworzeniu trafi do wspólnego katalogu.</string>
     <string name="submission_status_imported_local">Książkę dodano lokalnie. Wspólna baza niedostępna — publikacji nie będzie.</string>
+    <string name="submission_status_imported_catalog">Książkę z znanego źródła dodano do biblioteki. Jest już w katalogu źródła — nie ma czego publikować.</string>
     <string name="submission_status_metadata_published">Metadane opublikowane. Audio z tego linku jest niedostępne bez logowania — inni zobaczą uczciwy stan niedostępności.</string>
     <string name="submission_status_pending_moderation">Na moderacji: kurator nie podjął jeszcze decyzji.</string>
     <string name="submission_status_published">Opublikowano we wspólnym katalogu.</string>

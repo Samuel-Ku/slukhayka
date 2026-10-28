@@ -188,6 +188,15 @@
     <string name="feed_quick_links">Szybkie przejścia</string>
     <string name="feed_recommendation_consent_body">Lokalne rekomendacje już działają prywatnie. Za osobną zgodą przyszłe wspólne uczenie będzie używać tylko tygodniowej aktualizacji pięciu wag — bez książek i historii.</string>
     <string name="feed_recommended_for_you">Polecane dla Ciebie</string>
+    <string name="feed_empty_title">Jeszcze nie ma utworów</string>
+    <string name="feed_empty_body">Katalog nie przyniósł jeszcze żadnego utworu. Odśwież kanał — albo zajrzyj do „Biblioteki”.</string>
+    <string name="feed_empty_refresh">Odśwież</string>
+    <string name="feed_filters_empty_title">Nic nie znaleziono</string>
+    <string name="feed_filters_empty_body">Żaden utwór nie odpowiada wybranym filtrom.</string>
+    <string name="feed_refresh_error_empty_body">Kanał nie został wczytany. Sprawdź połączenie i spróbuj ponownie.</string>
+    <string name="feed_refresh_error_title">Nie udało się odświeżyć kanału</string>
+    <string name="feed_refresh_error_body">Pokazane utwory zostały. Spróbuj ponownie.</string>
+    <string name="feed_refresh_retry">Ponów</string>
     <string name="feed_reset_all">Zresetuj wszystko</string>
     <string name="feed_similar_cycles">Podobne cykle</string>
     <string name="feed_sort_newest">Najpierw nowe</string>

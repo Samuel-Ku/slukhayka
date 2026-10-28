@@ -181,6 +181,9 @@ if arguments[:1] == ["api"]:
     if "/pulls/" in path and path.endswith("/commits"):
         print(json.dumps(load("commits.json", [])))
         sys.exit(0)
+    if "/pulls/" in path and path.endswith("/files"):
+        print(json.dumps(load("files.json", [[]])))
+        sys.exit(0)
     if method == "POST" and path.endswith("/labels"):
         mode = os.environ.get("FAKE_GH_ADD_MODE", "")
         if mode == "error":
@@ -308,6 +311,7 @@ class ReviewPassTest(unittest.TestCase):
                 *[run(name, conclusion.lower(), started, completed)
                   for name, conclusion, started, completed in GREEN_CHECKS]),
             "repo.json": {"delete_branch_on_merge": False},
+            "files.json": [[{"filename": "app/src/main/java/X.kt"}]],
         }
         for name, value in fixtures.items():
             (self.fixtures / name).write_text(json.dumps(value), encoding="utf-8")

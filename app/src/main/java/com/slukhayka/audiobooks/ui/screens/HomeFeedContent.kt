@@ -119,6 +119,11 @@ fun LazyListScope.homeFeedContent(
     onOpenFeedFilters: (() -> Unit)? = null,
     feedFilterTriggerModifier: Modifier = Modifier,
     onOpenWebSource: (() -> Unit)? = null,
+    // Spec-51 (#1507): the «Добірки слухачів» rail is curated content, so it
+    // must render BEFORE the endless feed. The slot keeps its placement in
+    // this file (and therefore in the order test) while HomeScreen supplies
+    // the rail's data and callbacks.
+    publicCollectionsRail: (@Composable () -> Unit)? = null,
     onRecommendationFeedback: (RecommendationEngine.Recommendation, String) -> Unit = { _, _ -> },
     showRecommendationConsent: Boolean = false,
     onOpenRecommendationConsent: () -> Unit = {},
@@ -485,6 +490,14 @@ fun LazyListScope.homeFeedContent(
                 onClick = onOpenWebSource
             )
         }
+    }
+
+    // Spec-51 (#1507): the public-collections rail is the last curated block;
+    // it used to be emitted by HomeScreen AFTER this function, i.e. after the
+    // whole endless feed, and was unreachable until the listener scrolled the
+    // entire catalogue. The feed remains the last element.
+    if (publicCollectionsRail != null) {
+        item(key = "public_collections_rail") { publicCollectionsRail() }
     }
 
     // spec-42 T1 (#302): compact controls are the one home for feed sort and

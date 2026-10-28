@@ -470,6 +470,20 @@ fun HomeScreen(
                 onOpenFeedFilters = { showWorkFeedFilters = true },
                 feedFilterTriggerModifier = Modifier.focusRequester(workFeedFilterTriggerFocusRequester),
                 onOpenWebSource = onOpenWebSource,
+                // Spec-51 (#693) — «Добірки слухачів»: the top public
+                // collections, ranked by the same rule as the book-page block.
+                // #1507: rendered inside homeFeedContent, BEFORE the feed.
+                publicCollectionsRail = {
+                    com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionsRail(
+                        rows = publicCollectionRailRows,
+                        onOpen = { viewModel.openPublicCollection(it) },
+                        onOpenCurator = { authorId ->
+                            val pseudonym = publicCollectionRailRows
+                                .firstOrNull { it.authorId == authorId }?.pseudonym.orEmpty()
+                            viewModel.openCuratorProfile(authorId, pseudonym)
+                        }
+                    )
+                },
                 onRecommendationFeedback = { rec, kind ->
                     scope.launch {
                         val token = withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -498,20 +512,6 @@ fun HomeScreen(
                     .focusRequester(recommendationDisclosureTriggerFocusRequester)
                     .testTag("recommendation_disclosure_trigger")
             )
-
-            // Spec-51 (#693) — «Добірки слухачів»: the top public collections,
-            // ranked by the same rule as the book-page block.
-            item(key = "public_collections_rail") {
-                com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionsRail(
-                    rows = publicCollectionRailRows,
-                    onOpen = { viewModel.openPublicCollection(it) },
-                    onOpenCurator = { authorId ->
-                        val pseudonym = publicCollectionRailRows
-                            .firstOrNull { it.authorId == authorId }?.pseudonym.orEmpty()
-                        viewModel.openCuratorProfile(authorId, pseudonym)
-                    }
-                )
-            }
 
             // Spec-9: the full library list lives in Медіатека (Library tab),
             // not at the bottom of Огляд.

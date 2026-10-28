@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -365,5 +366,64 @@ class HomeFeedOrderSnapshotTest {
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/home_feed_personal_cycles.png"
         )
+    }
+
+    /** #1507: the public-collections rail is curated content and must precede
+     * the endless feed; before the fix HomeScreen emitted it AFTER the whole
+     * feed, so it was unreachable until the listener scrolled the catalogue. */
+    @Test
+    fun public_collections_rail_sits_above_the_feed() {
+        composeTestRule.setContent {
+            PaperInkTheme(darkTheme = true) {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    val feedFlow = remember { MutableStateFlow(PagingData.from(feedRows)) }
+                    val feedItems = feedFlow.collectAsLazyPagingItems()
+                    LazyColumn(modifier = Modifier.fillMaxSize().testTag("home_feed")) {
+                        homeFeedContent(
+                            isCatalogLoading = false,
+                            hasLibraryBooks = true,
+                            sections = sections,
+                            genreFacetOptions = emptyList(),
+                            collections = emptyList(),
+                            newArrivals = libraryArrivals,
+                            recommendedBooks = recommendations,
+                            personalCycles = emptyList(),
+                            shortBooks = books,
+                            longBooks = books,
+                            workFeedItems = feedItems,
+                            feedGenreFilters = emptySet(),
+                            feedSortByTitle = false,
+                            onRefreshCatalog = {},
+                            onGoToLibrary = {},
+                            onOpenTop100 = {},
+                            onOpenPeople = {},
+                            onOpenSeriesIndex = {},
+                            onOpenCollectionsIndex = {},
+                            onOpenSeries = { _, _ -> },
+                            onOpenRecommendedBook = {},
+                            onOpenWorkFeedRow = {},
+                            onBookClick = {},
+                            onSetFeedGenreFilters = {},
+                            onSetFeedSortByTitle = {},
+                            onOpenWebSource = {},
+                            publicCollectionsRail = {
+                                Text("rail-marker", modifier = Modifier.testTag("public_collections_rail_test"))
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        fun topOf(text: String): Dp =
+            composeTestRule.onNodeWithText(text, ignoreCase = true).getBoundsInRoot().top
+
+        val railTop = composeTestRule.onNodeWithTag("public_collections_rail_test")
+            .getBoundsInRoot().top
+        val sortTop = composeTestRule.onNodeWithTag("feed_sort").getBoundsInRoot().top
+        assertTrue("rail must sit after the curated exit CTA", topOf("Більше книг на Sluhay") < railTop)
+        assertTrue("rail must sit before the feed controls", railTop < sortTop)
+        assertTrue("rail must sit before the first feed row", railTop < topOf("Місто"))
     }
 }

@@ -33,7 +33,6 @@
     <!-- #433 — the browser-required badge in the book page's «Джерела» block -->
     <string name="book_detail_browser_needed">Browser required</string>
     <!-- Spec-45 (#405) T10 (#498): visible UI literals (English). -->
-    <string name="home_search_placeholder">Search for a book or author…</string>
     <string name="home_not_recommend">Don\'t recommend…</string>
     <!-- #486 — the per-Source badge on a source-suggested recommendation card. -->
     <string name="home_recommendation_source_badge">Source suggests · %1$s</string>
@@ -54,12 +53,9 @@
     <string name="feed_reset_all">Reset all</string>
     <string name="feed_done">Done</string>
     <!-- v1.4 EN/UK chrome (E3 + «Огляд rails → ресурси»): English twins. -->
-    <string name="feed_quick_links">Quick links</string>
-    <string name="feed_for_you">For you</string>
     <string name="feed_your_cycles">Your cycles</string>
     <string name="feed_similar_cycles">Similar cycles</string>
     <string name="feed_recommended_for_you">Recommended for you</string>
-    <string name="feed_discover">Discover</string>
     <!-- spec-46 T16 (#577): the Огляд quick-navigation rail and the Слухати
          fresh-install empty state — English twins. -->
     <string name="catalog_nav_rating">Rating</string>
@@ -140,6 +136,8 @@
     <string name="feed_recommendation_consent_body">Local recommendations already work privately. With separate consent, future shared learning would use only the weekly update of five weights — never books or history.</string>
     <string name="feed_more">Learn more</string>
     <string name="update_hide">Hide</string>
+    <string name="update_available_title">Version %1$s is available</string>
+    <string name="update_available_action">Update</string>
     <string name="speed_default_for_all">Default for all</string>
     <string name="book_detail_mark_listened">Mark as listened</string>
     <string name="book_detail_unmark_listened">Remove mark</string>
@@ -330,7 +328,6 @@
     <string name="a11y_people_new_mark_seen">Mark new arrivals as seen</string>
     <string name="home_search_no_results">Nothing found</string>
     <string name="home_search_no_results_hint">Try a different query or filter.</string>
-    <string name="home_no_personal_picks">No personal picks yet.</string>
     <string name="home_personal_picks_loading">Preparing personal picks…</string>
 
     <!-- v1.4 (ADR-0033): book-page section headers and source chrome. -->

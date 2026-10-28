@@ -214,6 +214,32 @@
 
     <!-- v1.4 (ADR-0033): Listen hero chrome. -->
     <string name="listen_hero_overline">RESUME LISTENING</string>
+
+    <!-- #1478 — shelf titles and reasons come from resources, not ListenComposer code. -->
+    <string name="listen_shelf_hero">Continue listening</string>
+    <string name="listen_shelf_almost_done">Almost done</string>
+    <string name="listen_shelf_return">Come back</string>
+    <string name="listen_shelf_next_in_series">Continue the series</string>
+    <string name="listen_shelf_travel">Ready for the trip</string>
+    <string name="listen_shelf_short">Something short</string>
+    <string name="listen_shelf_favorite_authors">Favourite authors</string>
+    <string name="listen_shelf_recently_added">Recently added</string>
+    <string name="listen_shelf_finished">Finished</string>
+    <string name="listen_reason_remaining">Left: %1$s</string>
+    <plurals name="listen_reason_dormant">
+        <item quantity="one">You listened %1$d day ago</item>
+        <item quantity="other">You listened %1$d days ago</item>
+    </plurals>
+    <string name="listen_reason_next_volume">Next volume: %1$s</string>
+    <string name="listen_reason_offline_ready">Downloaded · works offline</string>
+    <string name="listen_reason_short">%1$s of listening</string>
+    <string name="listen_short_less_than_hour">less than an hour</string>
+    <string name="listen_short_hours">~%1$d h</string>
+    <string name="listen_reason_favorite_author">You listen to this author often</string>
+    <string name="listen_reason_added_this_week">Added this week</string>
+    <string name="listen_reason_finished">Finished: %1$d</string>
+    <string name="listen_series_part">Part %1$d</string>
+    <string name="listen_series_next_part">Next part</string>
     <string name="listen_chapter_of">Chapter %1$d of %2$d</string>
     <string name="listen_chapter_position">Chapter %1$d · %2$s</string>
     <string name="listen_progress_percent">%1$d%%</string>

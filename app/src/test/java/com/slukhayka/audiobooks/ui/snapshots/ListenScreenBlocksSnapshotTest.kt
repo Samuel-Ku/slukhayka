@@ -21,7 +21,6 @@ import com.slukhayka.audiobooks.ui.components.paperink.PaperInkSectionHeader
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.library.ListenComposer
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
-import com.slukhayka.audiobooks.ui.library.nextSeriesPartCaption
 import com.slukhayka.audiobooks.ui.screens.ListenBlockShelf
 import com.slukhayka.audiobooks.ui.screens.ListenShelvesSheetContent
 import com.slukhayka.audiobooks.ui.screens.ListenEmptyState
@@ -256,7 +255,10 @@ class ListenScreenBlocksSnapshotTest {
                             books = next,
                             onBookClick = {},
                             onNotInterested = {},
-                            captionFor = { entry -> nextSeriesPartCaption(entry) }
+                            captionFor = { entry ->
+                                entry.book.seriesIndex?.takeIf { it > 0 }
+                                    ?.let { "Частина $it" } ?: "Наступна частина"
+                            }
                         )
                     }
                 }

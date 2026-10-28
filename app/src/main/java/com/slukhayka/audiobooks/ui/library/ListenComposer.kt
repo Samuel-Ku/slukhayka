@@ -40,6 +40,29 @@ object ListenComposer {
         FINISHED
     }
 
+    /**
+     * Every USER-FACING word the composer puts on a block. The pure module owns
+     * eligibility and order, never a language: the app passes a resource-backed
+     * implementation ([com.slukhayka.audiobooks.ui.library.ResourceListenCopy]),
+     * tests pass a fixture one. #1478 — before this seam the module baked
+     * Ukrainian copy into code, so a Polish phone showed Polish chrome around
+     * Ukrainian shelf titles.
+     */
+    interface ListenCopy {
+        fun title(id: BlockId): String
+        fun almostDoneReason(remainingSeconds: Long): String
+        fun returnReason(days: Int): String
+        fun nextVolumeReason(seriesTitle: String): String
+        fun offlineReadyReason(): String
+        fun shortReason(totalDurationSeconds: Long): String
+        fun favoriteAuthorReason(): String
+        fun addedThisWeekReason(): String
+        fun finishedReason(count: Int): String
+
+        /** The «Наступна частина» caption of the next-in-series shelf card. */
+        fun nextSeriesPartCaption(book: LibraryBook): String
+    }
+
     /** One rendered block: already eligible, with its books and a reason line. */
     data class Block(
         val id: BlockId,
@@ -97,21 +120,22 @@ object ListenComposer {
         nextInSeries: AudiobookEntity?,
         prefs: ListenPrefs,
         finishedWorkIds: Set<String> = emptySet(),
-        now: Long = System.currentTimeMillis()
+        now: Long = System.currentTimeMillis(),
+        copy: ListenCopy
     ): List<Block> {
         val dismissed = prefs.dismissedBookIds
         val visible = library.filter { it.book.id !in dismissed }
 
         val byId = buildMap {
-            hero(visible)?.let { put(BlockId.HERO, it) }
-            almostDone(visible)?.let { put(BlockId.ALMOST_DONE, it) }
-            returnBlock(visible, now)?.let { put(BlockId.RETURN, it) }
-            nextInSeries?.let { put(BlockId.NEXT_IN_SERIES, nextInSeries(it)) }
-            travel(visible)?.let { put(BlockId.TRAVEL, it) }
-            shortBooks(visible)?.let { put(BlockId.SHORT, it) }
-            favoriteAuthors(visible)?.let { put(BlockId.FAVORITE_AUTHORS, it) }
-            recentlyAdded(visible, now)?.let { put(BlockId.RECENTLY_ADDED, it) }
-            finished(visible, finishedWorkIds)?.let { put(BlockId.FINISHED, it) }
+            hero(visible, copy)?.let { put(BlockId.HERO, it) }
+            almostDone(visible, copy)?.let { put(BlockId.ALMOST_DONE, it) }
+            returnBlock(visible, now, copy)?.let { put(BlockId.RETURN, it) }
+            nextInSeries?.let { put(BlockId.NEXT_IN_SERIES, nextInSeries(it, copy)) }
+            travel(visible, copy)?.let { put(BlockId.TRAVEL, it) }
+            shortBooks(visible, copy)?.let { put(BlockId.SHORT, it) }
+            favoriteAuthors(visible, copy)?.let { put(BlockId.FAVORITE_AUTHORS, it) }
+            recentlyAdded(visible, now, copy)?.let { put(BlockId.RECENTLY_ADDED, it) }
+            finished(visible, finishedWorkIds, copy)?.let { put(BlockId.FINISHED, it) }
         }
 
         val order = effectiveOrder(prefs)
@@ -128,29 +152,30 @@ object ListenComposer {
     }
 
     /** Block 1 — the hero: the most recently listened, not-yet-completed book. */
-    private fun hero(library: List<LibraryBook>): Block? {
+    private fun hero(library: List<LibraryBook>, copy: ListenCopy): Block? {
         val book = library
             .filter { it.progress != null && !it.isCompleted && it.percent < 1f }
             .maxByOrNull { it.lastListenedAt }
             ?: return null
-        return Block(BlockId.HERO, "Продовжити слухати", reason = null, books = listOf(book))
+        return Block(BlockId.HERO, copy.title(BlockId.HERO), reason = null, books = listOf(book))
     }
 
     /** Block 2 — «Майже дочитали»: ≥ 80 % through, not completed. */
-    private fun almostDone(library: List<LibraryBook>): Block? {
+    private fun almostDone(library: List<LibraryBook>, copy: ListenCopy): Block? {
         val books = library
             .filter { it.progress != null && !it.isCompleted && it.percent >= 0.8f && it.percent < 1f }
             .sortedByDescending { it.percent }
         if (books.isEmpty()) return null
-        val reason = books.first().let {
-            // UK product copy (pure module, JVM-tested — see UK_REMAINING_TIME_UNITS).
-            "До кінця ${formatRemainingTime(it.remainingSeconds, UK_REMAINING_TIME_UNITS)}"
-        }
-        return Block(BlockId.ALMOST_DONE, "Майже дочитали", reason = reason, books = books)
+        return Block(
+            BlockId.ALMOST_DONE,
+            copy.title(BlockId.ALMOST_DONE),
+            reason = copy.almostDoneReason(books.first().remainingSeconds),
+            books = books
+        )
     }
 
     /** Block 3 — «Поверніться»: touched progress, but dormant for 14+ days. */
-    private fun returnBlock(library: List<LibraryBook>, now: Long): Block? {
+    private fun returnBlock(library: List<LibraryBook>, now: Long, copy: ListenCopy): Block? {
         val books = library
             .filter {
                 it.progress != null && !it.isCompleted &&
@@ -161,14 +186,14 @@ object ListenComposer {
         val days = ((now - books.first().lastListenedAt) / (24 * 3600 * 1000L)).toInt()
         return Block(
             BlockId.RETURN,
-            "Поверніться",
-            reason = "Ви слухали $days ${pluralDays(days)} тому",
+            copy.title(BlockId.RETURN),
+            reason = copy.returnReason(days),
             books = books
         )
     }
 
     /** Block 4 — «Далі по серії»: the next volume of the hero's cycle (#57). */
-    private fun nextInSeries(next: AudiobookEntity): Block? {
+    private fun nextInSeries(next: AudiobookEntity, copy: ListenCopy): Block? {
         val book = buildLibraryBooks(
             books = listOf(next),
             progressList = emptyList(),
@@ -176,50 +201,63 @@ object ListenComposer {
         ).first()
         return Block(
             BlockId.NEXT_IN_SERIES,
-            "Продовжити серію",
-            reason = next.seriesTitle?.takeIf { it.isNotBlank() }?.let { "Наступний том: $it" },
+            copy.title(BlockId.NEXT_IN_SERIES),
+            reason = next.seriesTitle?.takeIf { it.isNotBlank() }?.let { copy.nextVolumeReason(it) },
             books = listOf(book)
         )
     }
 
     /** Block 5 — «Готово до поїздки»: downloaded books play offline (#59). */
-    private fun travel(library: List<LibraryBook>): Block? {
+    private fun travel(library: List<LibraryBook>, copy: ListenCopy): Block? {
         val books = library.filter { it.book.isDownloaded }.sortedByDescending { it.lastListenedAt }
         if (books.isEmpty()) return null
-        return Block(BlockId.TRAVEL, "Готово до поїздки", reason = "Завантажено · працює офлайн", books = books)
+        return Block(
+            BlockId.TRAVEL,
+            copy.title(BlockId.TRAVEL),
+            reason = copy.offlineReadyReason(),
+            books = books
+        )
     }
 
     /** Block 6 — «Щось коротке»: total duration ≤ 3 h. */
-    private fun shortBooks(library: List<LibraryBook>): Block? {
+    private fun shortBooks(library: List<LibraryBook>, copy: ListenCopy): Block? {
         val maxSec = SHORT_BOOK_MAX_HOURS * 3600L
         val books = library
             .filter { it.totalDurationSeconds in 1L..maxSec }
             .sortedBy { it.totalDurationSeconds }
         if (books.isEmpty()) return null
-        val hours = books.first().totalDurationSeconds / 3600.0
-        val label = if (hours < 1.0) "менше години" else "~${kotlin.math.round(hours)} год"
-        return Block(BlockId.SHORT, "Щось коротке", reason = "$label прослуховування", books = books)
+        return Block(
+            BlockId.SHORT,
+            copy.title(BlockId.SHORT),
+            reason = copy.shortReason(books.first().totalDurationSeconds),
+            books = books
+        )
     }
 
     /** Block 7 — «Улюблені автори / диктори»: favourite books, most-listened first. */
-    private fun favoriteAuthors(library: List<LibraryBook>): Block? {
+    private fun favoriteAuthors(library: List<LibraryBook>, copy: ListenCopy): Block? {
         val books = library.filter { it.book.isFavorite }.sortedByDescending { it.lastListenedAt }
         if (books.isEmpty()) return null
         return Block(
             BlockId.FAVORITE_AUTHORS,
-            "Улюблені автори",
-            reason = "Ви часто слухаєте цього автора",
+            copy.title(BlockId.FAVORITE_AUTHORS),
+            reason = copy.favoriteAuthorReason(),
             books = books
         )
     }
 
     /** Block 8 — «Нещодавно додані»: created within the last week. */
-    private fun recentlyAdded(library: List<LibraryBook>, now: Long): Block? {
+    private fun recentlyAdded(library: List<LibraryBook>, now: Long, copy: ListenCopy): Block? {
         val books = library
             .filter { it.book.createdAt > 0L && now - it.book.createdAt <= RECENT_ADDED_DAYS * 24 * 3600 * 1000L }
             .sortedByDescending { it.book.createdAt }
         if (books.isEmpty()) return null
-        return Block(BlockId.RECENTLY_ADDED, "Нещодавно додані", reason = "Додано цього тижня", books = books)
+        return Block(
+            BlockId.RECENTLY_ADDED,
+            copy.title(BlockId.RECENTLY_ADDED),
+            reason = copy.addedThisWeekReason(),
+            books = books
+        )
     }
 
     /**
@@ -240,37 +278,23 @@ object ListenComposer {
      * A readthrough-only book has no progress clock, so it sorts last rather
      * than being dropped.
      */
-    private fun finished(library: List<LibraryBook>, finishedWorkIds: Set<String>): Block? {
+    private fun finished(
+        library: List<LibraryBook>,
+        finishedWorkIds: Set<String>,
+        copy: ListenCopy
+    ): Block? {
         val books = library
             .filter { it.isCompleted || it.book.id in finishedWorkIds }
             .sortedByDescending { it.lastListenedAt }
         if (books.isEmpty()) return null
         return Block(
             BlockId.FINISHED,
-            "Прослухані",
-            reason = "Завершено: ${books.size}",
+            copy.title(BlockId.FINISHED),
+            reason = copy.finishedReason(books.size),
             books = books
         )
     }
 
-    private fun pluralDays(days: Int): String = when {
-        days % 10 == 1 && days % 100 != 11 -> "день"
-        days % 10 in 2..4 && days % 100 !in 12..14 -> "дні"
-        else -> "днів"
-    }
-}
-
-/**
- * spec-28 (#201) — the «Наступна частина» context caption for the
- * «Далі у серії» shelf card: WHICH part of the series is next. The volume
- * number when the series numbers its books, else the plain context line.
- * The series NAME rides in the block header reason («Наступний том: …»).
- * The one-tap play triangle is NOT restored (ADR-0018 forbids it on the
- * shelf card) — only the context returns.
- */
-fun nextSeriesPartCaption(book: LibraryBook): String {
-    val index = book.book.seriesIndex
-    return if (index != null && index > 0) "Частина $index" else "Наступна частина"
 }
 
 /**

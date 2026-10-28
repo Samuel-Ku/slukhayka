@@ -1628,9 +1628,20 @@ class MainViewModel @JvmOverloads constructor(
             library = books,
             nextInSeries = seriesBook,
             prefs = listenPrefs,
-            finishedWorkIds = finishedWorkIds
+            finishedWorkIds = finishedWorkIds,
+            // #1478 — every shelf word comes from resources for the CURRENT
+            // locale; the composer itself carries no user-facing copy.
+            copy = com.slukhayka.audiobooks.ui.library.ResourceListenCopy(
+                getApplication<Application>().resources
+            )
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** #1478 — the «Наступна частина» caption of the next-in-series shelf card. */
+    fun listenPartCaption(book: com.slukhayka.audiobooks.ui.library.LibraryBook): String =
+        com.slukhayka.audiobooks.ui.library.ResourceListenCopy(
+            getApplication<Application>().resources
+        ).nextSeriesPartCaption(book)
 
     /** The blocks the user hid — the UI shows a restore row when all are hidden. */
     val hiddenListenBlocks: StateFlow<Set<com.slukhayka.audiobooks.ui.library.ListenComposer.BlockId>> =

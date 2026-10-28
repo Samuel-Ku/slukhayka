@@ -299,10 +299,11 @@ fun SubmissionSheetContent(
         }
         // #1487 slice 2 — an unknown page the app could not turn into a card:
         // the honest door is the listener's own browser, not a silent WebView.
-        if (state is SubmissionUiState.Refused && state.browserUrl != null && onOpenBrowser != null) {
+        val browserUrl = (state as? SubmissionUiState.Refused)?.browserUrl
+        if (browserUrl != null && onOpenBrowser != null) {
             Spacer(modifier = Modifier.height(12.dp))
             OutlinedButton(
-                onClick = { onOpenBrowser(state.browserUrl) },
+                onClick = { onOpenBrowser(browserUrl) },
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("submission_open_browser")

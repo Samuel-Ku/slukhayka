@@ -48,7 +48,8 @@ Limits, named:
 
 Exit codes: 0 — remote command succeeded; 1 — remote command failed; 2 — bad
 usage / preflight could not run; 3 — ssh preflight failed; 4 — remote command
-timed out (remote `timeout` returns 124); 5 — slot/status subcommand failed.
+timed out (remote `timeout` returns 124); 5 — slot/status or kill-orphans
+subcommand failed; 130 — interrupted locally (the remote group is stopped first).
 Env: REMOTE_RUN_SSH — path to ssh (default `ssh`; tests point it at a fake).
 """
 
@@ -56,6 +57,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -67,6 +69,11 @@ SSH = os.environ.get("REMOTE_RUN_SSH", "ssh")
 SSH_OPTIONS = ("-T", "-o", "BatchMode=yes", "-o", "ConnectTimeout=15")
 JOB_DIR = "$HOME/.swarm-jobs"
 TAG_PREFIX = "remote-run-"
+# The tag lands in a remote shell word, a file name and a /proc marker. Only
+# these characters are accepted; the prefix check alone let `--tag
+# 'remote-run-x; true'` end the shell early (and report exit 0 without running
+# the command), which is the injection this pattern exists to stop.
+TAG_RE = re.compile(r"^remote-run-[A-Za-z0-9._-]+$")
 TIMEOUT_EXIT = 124
 
 
@@ -94,7 +101,7 @@ def remote_stop(tag: str) -> str:
 if [ -f "$p" ]; then
   pid=$(cat "$p" 2>/dev/null || true)
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-    if tr '\\0' '\\n' < /proc/"$pid"/environ 2>/dev/null | grep -qx 'REMOTE_RUN_TAG={tag}'; then
+    if tr '\\0' '\\n' < /proc/"$pid"/environ 2>/dev/null | grep -Fqx 'REMOTE_RUN_TAG={tag}'; then
       kill -TERM -- -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
       sleep 2
       kill -KILL -- -"$pid" 2>/dev/null || true
@@ -112,24 +119,35 @@ fi"""
 
 
 def remote_status(directory: str, slot_root: str | None) -> str:
-    root_arg = slot_root or directory
+    if slot_root is not None:
+        root_setup = f"root={quote(slot_root)}"
+    else:
+        root_setup = (
+            "root=''\n"
+            f"repo=$(git -C {quote(directory)} rev-parse --path-format=absolute "
+            f"--git-common-dir 2>/dev/null || true)\n"
+            '[ -n "$repo" ] && root=$(dirname "$repo")'
+        )
     return (
-        f"root={quote(root_arg)}\n"
-        f"repo=$(git -C {quote(directory)} rev-parse --path-format=absolute "
-        f"--git-common-dir 2>/dev/null || true)\n"
-        f"[ -n \"$repo\" ] && root=$(dirname \"$repo\")\n"
-        f"if [ -f \"$root/scripts/build-slot-status.py\" ]; then "
-        f"python3 \"$root/scripts/build-slot-status.py\" --root \"$root\"; "
-        f'else echo "remote-run: build-slot-status.py на воркері немає"; fi\n'
-        f"found=no\n"
+        f"{root_setup}\n"
+        "slot_rc=0\n"
+        'if [ -f "$root/scripts/build-slot-status.py" ]; then\n'
+        '  python3 "$root/scripts/build-slot-status.py" --root "$root"\n'
+        "  slot_rc=$?\n"
+        "else\n"
+        '  echo "remote-run: build-slot-status.py на воркері немає" >&2\n'
+        "  slot_rc=5\n"
+        "fi\n"
+        "found=no\n"
         f"for p in {JOB_DIR}/{TAG_PREFIX}*.pid; do\n"
-        f"  [ -f \"$p\" ] || continue\n"
-        f"  found=yes\n"
-        f"  pid=$(cat \"$p\" 2>/dev/null || true)\n"
-        f"  echo \"pid-file $(basename \"$p\") pid=${{pid:-?}}\"\n"
-        f"  [ -n \"$pid\" ] && tr '\\0' ' ' < /proc/\"$pid\"/cmdline 2>/dev/null | head -c 300 && echo\n"
-        f"done\n"
-        f'[ "$found" = yes ] || echo "remote-run: власних pid-файлів немає"'
+        '  [ -f "$p" ] || continue\n'
+        "  found=yes\n"
+        '  pid=$(cat "$p" 2>/dev/null || true)\n'
+        '  echo "pid-file $(basename "$p") pid=${pid:-?}"\n'
+        "  [ -n \"$pid\" ] && tr '\\0' ' ' < /proc/\"$pid\"/cmdline 2>/dev/null | head -c 300 && echo\n"
+        "done\n"
+        '[ "$found" = yes ] || echo "remote-run: власних pid-файлів немає"\n'
+        "exit $slot_rc"
     )
 
 
@@ -137,16 +155,17 @@ def remote_kill_orphans() -> str:
     return f"""killed=0
 for p in {JOB_DIR}/{TAG_PREFIX}*.pid; do
   [ -f "$p" ] || continue
+  tag=$(basename "$p" .pid)
   pid=$(cat "$p" 2>/dev/null || true)
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
-    if tr '\\0' '\\n' < /proc/"$pid"/environ 2>/dev/null | grep -q '^REMOTE_RUN_TAG=remote-run-'; then
+    if tr '\\0' '\\n' < /proc/"$pid"/environ 2>/dev/null | grep -Fqx "REMOTE_RUN_TAG=$tag"; then
       kill -TERM -- -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
       sleep 2
       kill -KILL -- -"$pid" 2>/dev/null || true
       echo "remote-run: погашено осиротілу групу $pid ($(basename "$p"))"
       killed=$((killed + 1))
     else
-      echo "remote-run: pid $pid не наш — лишаю (файл $(basename "$p"))"
+      echo "remote-run: pid $pid не наш для $tag — лишаю (файл $(basename "$p"))"
       continue
     fi
   else
@@ -154,7 +173,8 @@ for p in {JOB_DIR}/{TAG_PREFIX}*.pid; do
   fi
   rm -f "$p"
 done
-echo "remote-run: осиротілих груп погашено: $killed\""""
+echo "remote-run: осиротілих груп погашено: $killed"
+"""
 
 
 def ssh(host: str, command: str) -> subprocess.CompletedProcess:
@@ -269,7 +289,8 @@ def main(argv: list[str]) -> int:
             print(f"FAIL  {error}", file=sys.stderr)
             return 3
         if result.returncode != 0:
-            print(result.stdout or result.stderr, file=sys.stderr)
+            print(result.stdout, end="", file=sys.stderr)
+            print(result.stderr, end="", file=sys.stderr)
             return 5
         print(result.stdout, end="")
         return 0
@@ -284,14 +305,20 @@ def main(argv: list[str]) -> int:
             print(f"FAIL  {error}", file=sys.stderr)
             return 3
         if result.returncode != 0:
-            print(result.stdout or result.stderr, file=sys.stderr)
+            print(result.stdout, end="", file=sys.stderr)
+            print(result.stderr, end="", file=sys.stderr)
             return 5
         print(result.stdout, end="")
         return 0
 
     tag = args.tag or default_tag()
-    if not tag.startswith(TAG_PREFIX):
-        print(f"FAIL  --tag мусить починатися з '{TAG_PREFIX}' (інакше --kill-orphans його не знайде)", file=sys.stderr)
+    if not TAG_RE.fullmatch(tag):
+        print(
+            f"FAIL  --tag мусить мати вигляд '{TAG_PREFIX}<літери/цифри/._->': "
+            "ім'я потрапляє в shell, pid-файл і маркер /proc, тож пробіли, лапки, ';' "
+            "і '$' заборонені",
+            file=sys.stderr,
+        )
         return 2
     job = remote_job(tag, args.dir, args.timeout, args.command)
     stop_cmd = remote_stop(tag)

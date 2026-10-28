@@ -47,7 +47,10 @@ if mode == "timeout":
     print("remote timeout", file=sys.stderr)
     sys.exit(124)
 print(os.environ.get("FAKE_SSH_STDOUT", "remote-ok"))
-sys.exit(0)
+code = int(os.environ.get("FAKE_SSH_COMMAND_EXIT", "0"))
+if code:
+    print(os.environ.get("FAKE_SSH_STDERR", ""), end="", file=sys.stderr)
+sys.exit(code)
 """
 
 HOST = "worker@example.invalid"
@@ -145,7 +148,8 @@ class RemoteRunTest(unittest.TestCase):
         self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
         calls = self.ssh_calls()
         self.assertEqual(2, len(calls))  # preflight + kill-orphans
-        self.assertIn("REMOTE_RUN_TAG=remote-run-", calls[-1])
+        self.assertIn("REMOTE_RUN_TAG=$tag", calls[-1])
+        self.assertIn("grep -Fqx", calls[-1])
         self.assertIn("kill -TERM", calls[-1])
 
     def test_status_and_kill_orphans_are_mutually_exclusive(self):
@@ -157,6 +161,98 @@ class RemoteRunTest(unittest.TestCase):
         completed = self.run_cli(HOST, "--dir", DIR, "--tag", "other", "--", "true")
         self.assertEqual(2, completed.returncode)
         self.assertIn("remote-run-", completed.stderr)
+
+    def test_a_tag_cannot_inject_shell_syntax(self):
+        """The tag lands in the remote shell; only the safe alphabet is allowed."""
+        for tag in ("remote-run-x; true", "remote-run-x y", "remote-run-x$(touch /tmp/pwned)"):
+            with self.subTest(tag=tag):
+                completed = self.run_cli(
+                    HOST, "--dir", DIR, "--tag", tag, "--", "true",
+                )
+                self.assertEqual(2, completed.returncode, completed.stdout + completed.stderr)
+                self.assertIn("заборонені", completed.stderr)
+        self.assertEqual([], self.ssh_calls(), "injection must not reach ssh")
+
+    def test_status_surfaces_a_failing_slot_script(self):
+        completed = self.run_cli(
+            HOST, "--dir", DIR, "--status",
+            FAKE_SSH_COMMAND_EXIT="5",
+            FAKE_SSH_STDERR="slot script: cannot read /proc\n",
+        )
+        self.assertEqual(5, completed.returncode, completed.stdout + completed.stderr)
+        self.assertIn("slot script", completed.stderr)
+
+    def test_status_dry_run_honours_the_slot_root_override(self):
+        completed = self.run_cli(
+            HOST, "--dir", DIR, "--status", "--slot-root", "/custom/root", "--dry-run",
+        )
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertIn("root=/custom/root", completed.stdout)
+        self.assertNotIn("--git-common-dir", completed.stdout)
+
+    def test_status_dry_run_derives_the_root_when_not_overridden(self):
+        completed = self.run_cli(HOST, "--dir", DIR, "--status", "--dry-run")
+        self.assertEqual(0, completed.returncode, completed.stderr)
+        self.assertIn("--git-common-dir", completed.stdout)
+
+    def test_kill_orphans_spares_a_pid_file_of_another_tag(self):
+        module = self.load_module()
+        tag_file = "remote-run-A"
+        process = subprocess.Popen(
+            ["sleep", "30"],
+            env={"PATH": "/usr/bin:/bin", "REMOTE_RUN_TAG": "remote-run-B"},
+        )
+        try:
+            jobs = Path(self.temp) / ".swarm-jobs"
+            jobs.mkdir()
+            (jobs / f"{tag_file}.pid").write_text(str(process.pid), encoding="utf-8")
+            result = subprocess.run(
+                ["bash", "-c", module.remote_kill_orphans()],
+                capture_output=True, text=True, check=False,
+                env={"PATH": "/usr/bin:/bin", "HOME": self.temp, "LC_ALL": "C"},
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertIsNone(process.poll(), "a PID marked with another tag must survive")
+            self.assertTrue((jobs / f"{tag_file}.pid").exists(), "the foreign pid file is left for a human")
+        finally:
+            process.kill()
+            process.wait()
+
+    def test_kill_orphans_kills_the_group_of_its_own_tag(self):
+        module = self.load_module()
+        tag = "remote-run-C"
+        process = subprocess.Popen(
+            ["sleep", "30"],
+            env={"PATH": "/usr/bin:/bin", "REMOTE_RUN_TAG": tag},
+            start_new_session=True,
+        )
+        try:
+            jobs = Path(self.temp) / ".swarm-jobs"
+            jobs.mkdir()
+            (jobs / f"{tag}.pid").write_text(str(process.pid), encoding="utf-8")
+            result = subprocess.run(
+                ["bash", "-c", module.remote_kill_orphans()],
+                capture_output=True, text=True, check=False,
+                env={"PATH": "/usr/bin:/bin", "HOME": self.temp, "LC_ALL": "C"},
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertIn("погашено", result.stdout)
+            process.wait(timeout=5)
+            self.assertIsNotNone(process.poll())
+            self.assertFalse((jobs / f"{tag}.pid").exists())
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+
+    def load_module(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "remote_run_module", REPO_ROOT / "scripts" / "swarm" / "remote_run.py",
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
 
     def test_a_missing_command_is_refused(self):
         completed = self.run_cli(HOST, "--dir", DIR)

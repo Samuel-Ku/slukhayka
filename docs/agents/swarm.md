@@ -192,7 +192,7 @@ ssh.
 ```sh
 scripts/swarm/remote-run.sh user@host --dir ~/swarm/slukhayka/.worktrees/<смуга> -- \
   ../gt scripts/test-changed.sh
-scripts/swarm/remote-run.sh user@host --status        # build-слот + власні pid-файли
+scripts/swarm/remote-run.sh user@host --dir ~/swarm/slukhayka/.worktrees/<смуга> --status  # слот + pid-файли
 scripts/swarm/remote-run.sh user@host --kill-orphans  # погасити свої осиротілі групи
 scripts/swarm/remote-run.sh user@host --dir … --dry-run -- <команда>  # лише надрукувати
 ```

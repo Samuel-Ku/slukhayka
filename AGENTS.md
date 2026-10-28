@@ -131,9 +131,10 @@ run means `-Ptest.selectedClasses=<FQCN,...>`.
 A hand-picked class list proves nothing about the rest of its partition, so
 narrow by **path**, never by class: `scripts/test-changed.sh` maps changed
 paths to the partitions that cover them. A change under `app/src/main/java/`
-also compiles `:app:compileDebugAndroidTestKotlin` first: the device suites live
-in `app/src/androidTest/` and a public composable signature can break that
-compile while every JVM partition stays green. For a changed production package that
+that the selector maps to partitions also compiles `:app:compileDebugAndroidTestKotlin`
+first: the device suites live in `app/src/androidTest/` and a public composable
+signature can break that compile while every JVM partition stays green. The
+full-suite fallback is unchanged and does not run this compile. For a changed production package that
 map is the deepest package at or above it that has tests, taken whole, plus the
 tests declared directly in each package above that one — a `ui.components`
 change reaches `ui`'s own tests, not the rest of `ui` — and a path no test

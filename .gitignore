@@ -67,3 +67,5 @@ scripts/rules-matrix/*-debug.log
 
 # робочі теки сварму (логи, промпти, TMPDIR) — не вміст репозиторію
 /.cache-tmp/
+# remote-run.sh local logs (scripts/swarm/remote_run.py)
+.remote-runs/

@@ -12,9 +12,10 @@
 - `scripts/check_guidance_freshness.py` — порівнює `AGENTS.md`/`CONTRIBUTING.md`/
   `docs/agents/**`/`docs/CODEMAPS/**` робочої копії з `origin/main`; запускай у
   довгоживучій смузі, де правила могли відстати
-- `scripts/test-changed.sh` для змін у `app/src/main/java/` додатково компілює
-  `:app:compileDebugAndroidTestKotlin` — публічна Compose-сигнатура може
-  зламати пристрійні сюїти, які локально інакше не компілюються
+- `scripts/test-changed.sh` для змін у `app/src/main/java/`, які мапляться на
+  партиції, додатково компілює `:app:compileDebugAndroidTestKotlin` — публічна
+  Compose-сигнатура може зламати пристрійні сюїти, які локально інакше не
+  компілюються (fallback на повний набір не змінювався)
 - `scripts/run-instrumented-suites.sh` — інструментовані accessibility/UI-сюїти
   на підключеному емуляторі чи пристрої; у CI біжить лише один клас, тож межа
   прогону й рецепт AVD — у `docs/runbooks/instrumented-suites.md`

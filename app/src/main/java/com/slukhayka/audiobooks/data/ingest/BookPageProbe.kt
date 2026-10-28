@@ -53,6 +53,22 @@ object BookPageProbe {
     /** A page bigger than this is not a book page the probe should chew on. */
     const val MAX_HTML_CHARS = 2 * 1024 * 1024
 
+    /** The transport reads at most this many BYTES before the parser sees it. */
+    const val MAX_HTML_BYTES = 2 * 1024 * 1024
+
+    private val MEDIA_EXTENSIONS = setOf("mp3", "m4a", "aac", "ogg", "opus")
+
+    /**
+     * #1487 slice 2 — a link that IS an audio file, not a page. It needs no
+     * page request at all: the import becomes a one-chapter card whose chapter
+     * is the URL itself. Keeps big binary bodies out of the page probe.
+     */
+    fun isDirectMediaUrl(url: String): Boolean {
+        val path = runCatching { URI(url).path }.getOrNull().orEmpty()
+        val name = path.substringAfterLast('/').lowercase()
+        return name.substringAfterLast('.') in MEDIA_EXTENSIONS && name.contains('.')
+    }
+
     private val META_TAG = Regex("<meta\\b[^>]*>", RegexOption.IGNORE_CASE)
     private val ATTR = Regex("([A-Za-z_:][-A-Za-z0-9_:.]*)\\s*=\\s*[\"']([^\"']*)[\"']")
     private val TITLE_TAG = Regex(
@@ -63,7 +79,12 @@ object BookPageProbe {
         "<script\\b[^>]*type\\s*=\\s*[\"']application/ld\\+json[\"'][^>]*>(.*?)</script>",
         setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
     )
-    private val MEDIA_TAG = Regex("<(?:audio|source)\\b[^>]*>", RegexOption.IGNORE_CASE)
+    private val AUDIO_TAG = Regex("<audio\\b[^>]*>", RegexOption.IGNORE_CASE)
+    private val AUDIO_BLOCK = Regex(
+        "<audio\\b[^>]*>(.*?)</audio>",
+        setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL)
+    )
+    private val SOURCE_TAG = Regex("<source\\b[^>]*>", RegexOption.IGNORE_CASE)
     private val JSON_CONTENT_URL = Regex(
         "\"contentUrl\"\\s*:\\s*\"([^\"]+)\"",
         RegexOption.IGNORE_CASE
@@ -146,11 +167,22 @@ object BookPageProbe {
             if (resolved in seen) return
             seen[resolved] = ProbedAudio(resolved, title?.trim()?.takeIf { it.isNotBlank() })
         }
-        // 1. The page's own media elements (the strongest signal: an ordered list).
-        for (tag in MEDIA_TAG.findAll(html)) {
+        // 1. The page's own AUDIO elements (the strongest signal: an ordered
+        // list). `<source>` is read only INSIDE an `<audio>` block — a
+        // `<video><source>` is a video, not an audiobook chapter.
+        for (block in AUDIO_BLOCK.findAll(html)) {
+            val opening = AUDIO_TAG.find(block.value)?.value ?: continue
+            val attrs = attributes(opening)
+            attrs["src"]?.let { add(it, attrs["title"] ?: attrs["data-title"] ?: attrs["aria-label"]) }
+            for (source in SOURCE_TAG.findAll(block.groupValues[1])) {
+                val sourceAttrs = attributes(source.value)
+                sourceAttrs["src"]?.let { add(it, sourceAttrs["title"] ?: attrs["title"]) }
+            }
+        }
+        // A self-closing `<audio src=…>` without a closing tag.
+        for (tag in AUDIO_TAG.findAll(html)) {
             val attrs = attributes(tag.value)
-            val src = attrs["src"] ?: continue
-            add(src, attrs["title"] ?: attrs["data-title"] ?: attrs["aria-label"])
+            attrs["src"]?.let { add(it, attrs["title"] ?: attrs["data-title"] ?: attrs["aria-label"]) }
         }
         // 2. schema.org contentUrl (JSON-LD) — the playlist form.
         for (match in JSON_CONTENT_URL.findAll(jsonLd)) {

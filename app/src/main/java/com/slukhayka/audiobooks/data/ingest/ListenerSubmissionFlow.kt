@@ -574,14 +574,36 @@ class ListenerSubmissionFlow(
         val url = KnownSourceLinkResolver.canonicalUrl(rawUrl) ?: return Start.Unsupported
         if (!runCatching { isOnline() }.getOrDefault(true)) return defer(url)
         val remaining = remainingToday()
-        val probe = probePage ?: return Start.Refused(Reason.PAGE_UNREADABLE, remaining, url)
-        val page = try {
-            probe(url)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            null
-        } ?: return Start.Refused(Reason.PAGE_UNREADABLE, remaining, url)
+        // A link that IS an audio file needs no page request: the card is the
+        // file, one chapter. Keeps large binary bodies out of the probe.
+        val page = if (BookPageProbe.isDirectMediaUrl(url)) {
+            val rawName = url.substringAfterLast('/').substringBefore('?').substringBeforeLast('.')
+            val decoded = runCatching {
+                java.net.URLDecoder.decode(rawName.replace('+', ' '), "UTF-8")
+            }.getOrNull()
+            val title = decoded?.replace('-', ' ')?.trim()
+            if (title.isNullOrBlank()) return Start.Refused(Reason.PAGE_UNREADABLE, remaining, url)
+            ProbedPage(
+                url = url,
+                title = title,
+                author = null,
+                coverImageUrl = null,
+                description = null,
+                audios = listOf(ProbedAudio(url))
+            )
+        } else {
+            val probe = probePage ?: return Start.Refused(Reason.PAGE_UNREADABLE, remaining, url)
+            try {
+                probe(url)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            } ?: return Start.Refused(Reason.PAGE_UNREADABLE, remaining, url)
+        }
+        // An unidentified page cannot be an honest card (its MergeKey would be
+        // blank); refuse with the browser door instead of inventing a title.
+        if (page.title.isNullOrBlank()) return Start.Refused(Reason.PAGE_UNREADABLE, remaining, url)
         if (page.audios.isEmpty()) return Start.Refused(Reason.PAGE_NO_AUDIO, remaining, url)
         val importer = importProbedPage ?: return Start.Refused(Reason.IMPORT_FAILED, remaining)
         val imported = try {

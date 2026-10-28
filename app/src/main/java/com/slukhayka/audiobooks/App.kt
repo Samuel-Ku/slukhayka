@@ -641,18 +641,48 @@ class App : Application() {
                     )
                 }
             },
-            // #1487 (slice 2) — ONE gated request for a page of an unknown
-            // host (LISTENER_ACTION: a tap never starves behind background
-            // work); the parser is pure and the card stays local.
+            // #1487 (slice 2) — ONE request for a page of an unknown host,
+            // through the SAME politeness gate (the gate serves arbitrary
+            // hosts; `HttpFetcher` only routes REGISTERED source hosts itself),
+            // with a hard 2 MB byte cap before the parser ever sees the body.
             probePage = { url ->
-                val html = runCatching {
-                    com.slukhayka.audiobooks.data.source.HttpFetcher().getText(
-                        url,
-                        emptyMap(),
-                        com.slukhayka.audiobooks.data.source.SourceRequestClass.LISTENER_ACTION,
-                        0L
-                    )
-                }.getOrNull()
+                suspend fun boundedRead(): String? {
+                    val stream = runCatching {
+                        com.slukhayka.audiobooks.data.source.HttpFetcher().getStream(url)
+                    }.getOrNull() ?: return null
+                    return stream.use { input ->
+                        val buffer = java.io.ByteArrayOutputStream()
+                        val chunk = ByteArray(16 * 1024)
+                        var total = 0
+                        while (true) {
+                            val read = input.read(chunk)
+                            if (read < 0) break
+                            total += read
+                            if (total > com.slukhayka.audiobooks.data.ingest.BookPageProbe.MAX_HTML_BYTES) {
+                                return null
+                            }
+                            buffer.write(chunk, 0, read)
+                        }
+                        buffer.toString(Charsets.UTF_8.name())
+                    }
+                }
+                val gate = com.slukhayka.audiobooks.data.source.SourceGateProvider.current
+                val html = if (gate == null) {
+                    runCatching { boundedRead() }.getOrNull()
+                } else {
+                    when (
+                        val outcome = gate.run(
+                            url,
+                            com.slukhayka.audiobooks.data.source.SourceRequestClass.LISTENER_ACTION,
+                            0L,
+                            canWait = true
+                        ) { boundedRead() }
+                    ) {
+                        is com.slukhayka.audiobooks.data.source.GateOutcome.Fresh -> outcome.value
+                        is com.slukhayka.audiobooks.data.source.GateOutcome.Fetched -> outcome.value
+                        else -> null
+                    }
+                }
                 if (html.isNullOrBlank()) {
                     null
                 } else {

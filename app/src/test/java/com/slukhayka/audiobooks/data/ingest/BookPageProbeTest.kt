@@ -104,6 +104,33 @@ class BookPageProbeTest {
     }
 
     @Test
+    fun `a video source is not an audiobook chapter`() {
+        val html = """
+            <html><body>
+            <video controls>
+              <source src="https://cdn.example/video.mp4" type="video/mp4">
+            </video>
+            <audio controls>
+              <source src="https://cdn.example/audio.mp3" type="audio/mpeg">
+            </audio>
+            </body></html>
+        """.trimIndent()
+
+        assertEquals(
+            listOf("https://cdn.example/audio.mp3"),
+            BookPageProbe.parse(html, pageUrl)!!.audios.map { it.url }
+        )
+    }
+
+    @Test
+    fun `a direct media url is recognised without a page request`() {
+        assertTrue(BookPageProbe.isDirectMediaUrl("https://cdn.example/part-1.mp3"))
+        assertTrue(BookPageProbe.isDirectMediaUrl("https://cdn.example/part.M4A?x=1"))
+        assertTrue(!BookPageProbe.isDirectMediaUrl("https://unknown-site.example/book"))
+        assertTrue(!BookPageProbe.isDirectMediaUrl("https://unknown-site.example/mp3"))
+    }
+
+    @Test
     fun `a readable page without audio keeps its facts and no chapters`() {
         val html = """
             <html><head><meta property="og:title" content="Книга без аудіо"></head></html>

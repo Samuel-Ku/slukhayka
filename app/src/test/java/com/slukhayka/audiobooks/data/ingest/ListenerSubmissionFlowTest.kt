@@ -71,10 +71,12 @@ class ListenerSubmissionFlowTest {
         var probeCalls = 0
         val probedUrls = mutableListOf<String>()
         var probedImportCalls = 0
+        val probedPages = mutableListOf<ProbedPage>()
 
         val probedImporter: (suspend (ProbedPage) -> ListenerSubmissionFlow.ImportOutcome?)? =
             { page ->
                 probedImportCalls++
+                probedPages += page
                 probedImport
             }
 
@@ -546,9 +548,9 @@ class ListenerSubmissionFlowTest {
             ListenerSubmissionFlow.Start.Refused(
                 ListenerSubmissionFlow.Reason.PAGE_UNREADABLE,
                 10,
-                "https://example.com/x.mp3"
+                "https://example.com/book"
             ),
-            harness.flow.submit("https://example.com/x.mp3")
+            harness.flow.submit("https://example.com/book")
         )
         assertEquals(ListenerSubmissionFlow.Start.Unsupported, harness.flow.submit("   "))
         assertEquals(ListenerSubmissionFlow.Start.Unsupported, harness.flow.submit("file:///tmp/book.mp3"))
@@ -1248,5 +1250,40 @@ class ListenerSubmissionFlowTest {
             harness.flow.deferredSubmissions().map { it.url }
         )
         assertEquals(0, harness.probeCalls)
+    }
+
+    @Test
+    fun `a direct audio link becomes a one-chapter card without a page request`() = runTest {
+        val harness = Harness()
+
+        val start = harness.flow.submit("https://cdn.example/Part%20one.mp3")
+
+        assertTrue(start is ListenerSubmissionFlow.Start.Imported)
+        assertTrue((start as ListenerSubmissionFlow.Start.Imported).probedPage)
+        // The file IS the chapter: no page was fetched for it.
+        assertEquals(0, harness.probeCalls)
+        assertEquals(1, harness.probedImportCalls)
+        val page = harness.probedPages.single()
+        assertEquals("Part one", page.title)
+        assertEquals(listOf("https://cdn.example/Part%20one.mp3"), page.audios.map { it.url })
+    }
+
+    @Test
+    fun `an unidentified page is refused instead of imported without a title`() = runTest {
+        val harness = Harness(
+            probedPage = probedBook.copy(title = null)
+        )
+
+        val start = harness.flow.submit("https://unknown-site.example/book")
+
+        assertEquals(
+            ListenerSubmissionFlow.Start.Refused(
+                ListenerSubmissionFlow.Reason.PAGE_UNREADABLE,
+                10,
+                "https://unknown-site.example/book"
+            ),
+            start
+        )
+        assertEquals(0, harness.probedImportCalls)
     }
 }

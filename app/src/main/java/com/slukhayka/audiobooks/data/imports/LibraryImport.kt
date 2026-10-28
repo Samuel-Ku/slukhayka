@@ -213,7 +213,11 @@ class LibraryImport(
                 rating = detail.rating,
                 observedAt = System.currentTimeMillis()
             )
-            val narrator = MetadataAssertions.normalizeClaimedText(detail.narrator) ?: "$sourceId narrator"
+            // #1487 slice 2 — the internal `unknown` marker is not a source
+            // name: a fabricated «unknown narrator» would be DISPLAYED as a
+            // person (BookDisplay blanks only registered-source placeholders).
+            val narrator = MetadataAssertions.normalizeClaimedText(detail.narrator)
+                ?: if (sourceId == com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID) "" else "$sourceId narrator"
             val language = com.slukhayka.audiobooks.data.LanguageCode.normalize(
                 detail.language.ifBlank { sourceAdapters.firstOrNull { it.sourceId == sourceId }?.contentLanguage.orEmpty() }
             ).orEmpty()
@@ -275,13 +279,20 @@ class LibraryImport(
                 val book = AudiobookEntity(
                     id = bookId,
                     title = MetadataAssertions.normalizeTitle(detail.title, detail.author),
-                    author = MetadataAssertions.normalizeClaimedText(detail.author) ?: sourceId,
+                    author = MetadataAssertions.normalizeClaimedText(detail.author)
+                        ?: if (sourceId == com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID) "" else sourceId,
                     narrator = narrator,
                     // #264: the claimed description passes the same one-rule
                     // treatment as the title — SEO templates scrub to empty
                     // and fall back to the honest source phrase.
                     description = MetadataAssertions.normalizeDescription(detail.description)
-                        .ifBlank { "Аудіокнига з джерела $sourceId" },
+                        .ifBlank {
+                            if (sourceId == com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID) {
+                                ""
+                            } else {
+                                "Аудіокнига з джерела $sourceId"
+                            }
+                        },
                     coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
                     coverImageUrl = MetadataAssertions.coverDelta(detail.coverImageUrl),
                     genre = detail.genres.joinToString(" · ").ifBlank { "Каталог" },
@@ -576,6 +587,43 @@ class LibraryImport(
                 } else null
             }
         }
+
+    /**
+     * #1487 (slice 2) — persists a PUBLIC page of a host no source claims.
+     *
+     * The page was fetched and parsed on the device by the shared probe
+     * (`BookPageProbe`); this door only materialises it through the ordinary
+     * import core (same MergeKey/Edition dedup as every source) under the
+     * internal [com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID] marker
+     * the UI already hides. The page is NOT a resolved catalogue Source:
+     * [writeBackProfile] stays false (no shared-base write, ADR-0028/0035) and
+     * nothing is published — a listener's local card only. Null on an empty
+     * playlist or a non-http track, never a fabricated card.
+     */
+    suspend fun importProbedPage(
+        detail: com.slukhayka.audiobooks.data.source.SourceBookDetail,
+        onNewBookImported: ((AudiobookEntity) -> Unit)? = null
+    ): AudiobookEntity? = withContext(Dispatchers.IO) {
+        if (detail.chapters.isEmpty()) return@withContext null
+        if (detail.chapters.any { !it.streamUrl.isPlayableSourceUrl() }) return@withContext null
+        // An unidentified page has no honest MergeKey: never import it as a
+        // book with an empty title.
+        if (detail.title.isBlank()) return@withContext null
+        // Duplicate by canonical URL: the same page is the same card, even if
+        // its title claim differs between visits.
+        dao.getSourceByUrl(detail.url)?.bookId?.let { bookId ->
+            return@withContext dao.getAudiobookById(bookId)?.toAudiobookEntity()
+        }
+        runCatching {
+            importBookFromSource(
+                sourceId = com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID,
+                detail = detail,
+                writeBackProfile = false,
+                origin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.EXPLICIT_SAVE,
+                onNewBookImported = onNewBookImported
+            )
+        }.getOrNull()
+    }
 
     /**
      * #477 — ONE best-effort direct page fetch of a browser source (4read),

@@ -1040,6 +1040,7 @@ fun LibraryScreen(
                 channelCard = channelCard,
                 isChannelLink = viewModel::isChannelLink,
                 isKnownSourceLink = viewModel::isKnownSourceLink,
+                onOpenBrowser = viewModel::openWebFallback,
                 onOpenChannel = { viewModel.openChannelCard(it) },
                 channelCallbacks = ChannelCardCallbacks(
                     onClose = { viewModel.closeChannelCard() },

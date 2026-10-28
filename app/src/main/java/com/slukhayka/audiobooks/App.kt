@@ -640,6 +640,62 @@ class App : Application() {
                         sourceId = link.sourceId
                     )
                 }
+            },
+            // #1487 (slice 2) — ONE request for a page of an unknown host,
+            // through the SAME politeness gate (the gate serves arbitrary
+            // hosts; `HttpFetcher` only routes REGISTERED source hosts itself),
+            // with a hard 2 MB byte cap before the parser ever sees the body.
+            probePage = { url ->
+                suspend fun boundedRead(): String? = runCatching {
+                    com.slukhayka.audiobooks.data.source.HttpFetcher().getTextBounded(
+                        url,
+                        com.slukhayka.audiobooks.data.ingest.BookPageProbe.MAX_HTML_BYTES
+                    )
+                }.getOrNull()?.takeIf { it.isNotBlank() }
+                val gate = com.slukhayka.audiobooks.data.source.SourceGateProvider.current
+                val html = if (gate == null) {
+                    runCatching { boundedRead() }.getOrNull()
+                } else {
+                    when (
+                        val outcome = gate.run(
+                            url,
+                            com.slukhayka.audiobooks.data.source.SourceRequestClass.LISTENER_ACTION,
+                            0L,
+                            canWait = true
+                        ) { boundedRead() }
+                    ) {
+                        is com.slukhayka.audiobooks.data.source.GateOutcome.Fresh -> outcome.value
+                        is com.slukhayka.audiobooks.data.source.GateOutcome.Fetched -> outcome.value
+                        else -> null
+                    }
+                }
+                if (html.isNullOrBlank()) {
+                    null
+                } else {
+                    com.slukhayka.audiobooks.data.ingest.BookPageProbe.parse(html, url)
+                }
+            },
+            importProbedPage = { page ->
+                var isNew = false
+                val entity = runCatching {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                        libraryImport.importProbedPage(
+                            page.toSourceBookDetail(),
+                            onNewBookImported = { isNew = true }
+                        )
+                    }
+                }.getOrNull()
+                entity?.let {
+                    com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportOutcome(
+                        result = if (isNew) {
+                            com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportResult.IMPORTED
+                        } else {
+                            com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportResult.ALREADY_ADDED
+                        },
+                        bookId = it.id,
+                        sourceId = com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID
+                    )
+                }
             }
         )
     }

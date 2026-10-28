@@ -938,14 +938,18 @@ class MainViewModel @JvmOverloads constructor(
                     // Spec-53 T3 — no autoplay: the sheet offers one
                     // explicit «Слухати зараз» action; the awaiting badge
                     // keeps the promise visible until then.
-                    _submissionState.value =
-                        SubmissionUiState.Imported(start.publishable, start.knownSource)
+                    _submissionState.value = SubmissionUiState.Imported(
+                        start.publishable,
+                        start.knownSource,
+                        start.probedPage
+                    )
                 }
             }
             is ListenerSubmissionFlow.Start.MetadataPublished ->
                 _submissionState.value = SubmissionUiState.MetadataPublished
             is ListenerSubmissionFlow.Start.Refused ->
-                _submissionState.value = SubmissionUiState.Refused(start.reason)
+                _submissionState.value =
+                    SubmissionUiState.Refused(start.reason, start.browserUrl)
             is ListenerSubmissionFlow.Start.Deferred ->
                 _submissionState.value = SubmissionUiState.Deferred
             is ListenerSubmissionFlow.Start.ChannelLink ->

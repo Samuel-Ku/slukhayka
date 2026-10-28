@@ -76,6 +76,13 @@ class ListenerSubmissionFlow(
      * not offer the known-source path at all.
      */
     private val importKnownSource: (suspend (KnownSourceLink) -> ImportOutcome?)? = null,
+    /**
+     * #1487 slice 2 — reads ONE public page of an unknown host (the composition
+     * owns the single gated request); null = unreadable.
+     */
+    private val probePage: (suspend (String) -> ProbedPage?)? = null,
+    /** #1487 slice 2 — persists a probed page through the ordinary import path. */
+    private val importProbedPage: (suspend (ProbedPage) -> ImportOutcome?)? = null,
 ) {
 
     /** The shape of the paste. */
@@ -85,6 +92,9 @@ class ListenerSubmissionFlow(
 
         /** #1487 — a book page of a known source, imported like search does. */
         SOURCE,
+
+        /** #1487 slice 2 — a public page of an unknown host, probed on device. */
+        PAGE,
         UNSUPPORTED
     }
 
@@ -181,7 +191,13 @@ class ListenerSubmissionFlow(
         NOT_VERIFIED,
         SHARED_BASE_UNAVAILABLE,
         /** #836 — the curator rejected this link: it can never return. */
-        REJECTED
+        REJECTED,
+
+        /** #1487 slice 2 — the page of an unknown host could not be read. */
+        PAGE_UNREADABLE,
+
+        /** #1487 slice 2 — the page was readable but carries no playable audio. */
+        PAGE_NO_AUDIO
     }
 
     /** The result of starting one submission. */
@@ -204,7 +220,13 @@ class ListenerSubmissionFlow(
              * source's catalogue). The sheet must not claim a missing shared
              * base: that is a different reason for `publishable = false`.
              */
-            val knownSource: Boolean = false
+            val knownSource: Boolean = false,
+            /**
+             * #1487 slice 2 — the card came from a probed page of an UNKNOWN
+             * host (not a catalogue source). The sheet must say so honestly:
+             * no shared-catalogue promise, quality is the site's business.
+             */
+            val probedPage: Boolean = false
         ) : Start
 
         /**
@@ -218,7 +240,16 @@ class ListenerSubmissionFlow(
             val mergeKey: String? = null
         ) : Start
 
-        data class Refused(val reason: Reason, val remainingToday: Int) : Start
+        /**
+         * #1487 slice 2 — an unknown page refused with its canonical URL: the
+         * sheet offers «відкрити у браузері» so the listener can see the page
+         * the app honestly could not turn into a card.
+         */
+        data class Refused(
+            val reason: Reason,
+            val remainingToday: Int,
+            val browserUrl: String? = null
+        ) : Start
 
         /**
          * Spec-53 T8 — the link was pasted without a network. It is stored in
@@ -281,6 +312,9 @@ class ListenerSubmissionFlow(
             YOUTUBE_URL.containsMatchIn(url) -> Kind.YOUTUBE
             TELEGRAM_URL.containsMatchIn(url) -> Kind.TELEGRAM
             resolveKnownSource(url) != null -> Kind.SOURCE
+            // #1487 slice 2 — any other http(s) page with a real path is a
+            // probe candidate; the probe itself decides read/no-audio/playable.
+            KnownSourceLinkResolver.canonicalUrl(url) != null -> Kind.PAGE
             else -> Kind.UNSUPPORTED
         }
     }
@@ -332,9 +366,9 @@ class ListenerSubmissionFlow(
             Kind.UNSUPPORTED -> Start.Unsupported
             Kind.YOUTUBE -> submitYouTube(url, remaining, edits, selectedWatchUrls)
             Kind.TELEGRAM -> submitTelegram(url, remaining)
-            // A canonical YouTube/TG URL can never resolve as a source page:
-            // the branch above handles those before this `when` is reached.
-            Kind.SOURCE -> Start.Unsupported
+            // A canonical YouTube/TG URL can never resolve as a source or a
+            // probed page: the branch above handles those before this `when`.
+            Kind.SOURCE, Kind.PAGE -> Start.Unsupported
         }
     }
 
@@ -346,7 +380,7 @@ class ListenerSubmissionFlow(
      * source's catalogue. Offline keeps the visible deferral queue.
      */
     private suspend fun submitKnownSource(rawUrl: String): Start {
-        val link = resolveKnownSource(rawUrl) ?: return Start.Unsupported
+        val link = resolveKnownSource(rawUrl) ?: return submitProbedPage(rawUrl)
         if (!runCatching { isOnline() }.getOrDefault(true)) return defer(link.url)
         val remaining = remainingToday()
         val importer = importKnownSource ?: return Start.Refused(Reason.IMPORT_FAILED, remaining)
@@ -409,7 +443,7 @@ class ListenerSubmissionFlow(
             Kind.TELEGRAM -> previewTelegram(url)
             // #1487 — a source page has no engine preview card; the import
             // parses the page itself and the sheet reports its honest state.
-            Kind.SOURCE -> null
+            Kind.SOURCE, Kind.PAGE -> null
             Kind.UNSUPPORTED -> null
         }
     }
@@ -526,6 +560,74 @@ class ListenerSubmissionFlow(
             results += outcome
         }
         return results
+    }
+
+    /**
+     * #1487 (slice 2) — a public page of a host no source claims: ONE gated
+     * request through [probePage]; a playable page imports through
+     * [importProbedPage] (local card under the internal `unknown` marker, no
+     * publication, no shared-base write), a readable page without audio refuses
+     * with [Reason.PAGE_NO_AUDIO], an unreadable one with
+     * [Reason.PAGE_UNREADABLE] — both offer the browser door.
+     */
+    private suspend fun submitProbedPage(rawUrl: String): Start {
+        val url = KnownSourceLinkResolver.canonicalUrl(rawUrl) ?: return Start.Unsupported
+        if (!runCatching { isOnline() }.getOrDefault(true)) return defer(url)
+        val remaining = remainingToday()
+        // A link that IS an audio file needs no page request: the card is the
+        // file, one chapter. Keeps large binary bodies out of the probe.
+        val page = if (BookPageProbe.isDirectMediaUrl(url)) {
+            val rawName = url.substringAfterLast('/').substringBefore('?').substringBeforeLast('.')
+            val decoded = runCatching {
+                java.net.URLDecoder.decode(rawName.replace('+', ' '), "UTF-8")
+            }.getOrNull()
+            val title = decoded?.replace('-', ' ')?.trim()
+            if (title.isNullOrBlank()) return Start.Refused(Reason.PAGE_UNREADABLE, remaining, url)
+            ProbedPage(
+                url = url,
+                title = title,
+                author = null,
+                coverImageUrl = null,
+                description = null,
+                audios = listOf(ProbedAudio(url))
+            )
+        } else {
+            val probe = probePage ?: return Start.Refused(Reason.PAGE_UNREADABLE, remaining, url)
+            try {
+                probe(url)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            } ?: return Start.Refused(Reason.PAGE_UNREADABLE, remaining, url)
+        }
+        // An unidentified page cannot be an honest card (its MergeKey would be
+        // blank); refuse with the browser door instead of inventing a title.
+        if (page.title.isNullOrBlank()) return Start.Refused(Reason.PAGE_UNREADABLE, remaining, url)
+        if (page.audios.isEmpty()) return Start.Refused(Reason.PAGE_NO_AUDIO, remaining, url)
+        val importer = importProbedPage ?: return Start.Refused(Reason.IMPORT_FAILED, remaining)
+        val imported = try {
+            importer(page)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        } ?: return Start.Refused(Reason.IMPORT_FAILED, remaining)
+        return when (imported.result) {
+            ImportResult.IMPORTED, ImportResult.ALREADY_ADDED -> {
+                val bookId = imported.bookId ?: return Start.Refused(Reason.IMPORT_FAILED, remaining)
+                Start.Imported(
+                    bookId = bookId,
+                    sourceId = imported.sourceId ?: com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID,
+                    publishable = false,
+                    remainingToday = remaining,
+                    alreadyInLibrary = imported.result == ImportResult.ALREADY_ADDED,
+                    probedPage = true
+                )
+            }
+            ImportResult.METADATA_FAILED -> Start.Refused(Reason.PAGE_UNREADABLE, remaining, url)
+            ImportResult.NO_PLAYABLE_TRACKS -> Start.Refused(Reason.PAGE_NO_AUDIO, remaining, url)
+        }
     }
 
     private suspend fun submitYouTube(

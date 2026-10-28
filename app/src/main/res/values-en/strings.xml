@@ -488,6 +488,7 @@
     <string name="submission_status_imported">Book added. Listen to it — once it really plays, it joins the shared catalog.</string>
     <string name="submission_status_imported_local">Book added locally. The shared base is unavailable — nothing will be published.</string>
     <string name="submission_status_imported_catalog">Book added from a known source. It already lives in that source’s catalog — nothing to publish.</string>
+    <string name="submission_status_imported_probed">Book added from the source page. This is not Sluchajka’s catalog: quality and availability are the site’s.</string>
     <string name="submission_status_published">Published to the shared catalog.</string>
     <string name="submission_status_metadata_published">Metadata published. Audio behind this link needs a login — others will see the honest unavailable state.</string>
     <string name="submission_status_refused_limit">The daily submission limit is reached.</string>
@@ -577,6 +578,9 @@
     <string name="submission_open_book">Open the book</string>
     <string name="submission_status_refused_not_verified">Publishing needs a real playback.</string>
     <string name="submission_status_refused_unavailable">The shared base is unavailable.</string>
+    <string name="submission_status_refused_page_unreadable">The page could not be read. Open it in your browser — it may carry audio.</string>
+    <string name="submission_status_refused_page_no_audio">The page opened but no audio was found on it. Open it in your browser.</string>
+    <string name="submission_open_in_browser">Open in browser</string>
     <string name="submission_listen_now">Listen now</string>
     <string name="submission_awaiting_badge">Awaiting</string>
     <!-- Spec-53 T5: the TG card's honest state — the preview has no audio. -->

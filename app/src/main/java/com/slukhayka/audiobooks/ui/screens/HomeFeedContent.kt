@@ -7,9 +7,14 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.FilterAltOff
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -44,12 +49,14 @@ import com.slukhayka.audiobooks.ui.catalog.CatalogCardFailure
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.CycleCard
+import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.NavigationChip
 import com.slukhayka.audiobooks.ui.components.OpenWebSourceRow
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 import com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign
+import kotlinx.coroutines.launch
 
 /**
  * spec-28 (#203) — the Огляд feed body, extracted from HomeScreen as a
@@ -499,7 +506,15 @@ fun LazyListScope.homeFeedContent(
             onOpenContentLanguages = onOpenContentLanguages
         )
     }
-    if (workFeedItems.itemCount == 0 && workFeedItems.loadState.refresh is LoadState.Loading) {
+    // #1509: the feed must account for every terminal state, not only the
+    // first-page spinner. An empty pager under the toolbar read as "nothing
+    // here" even when the refresh had failed; and a filter that matched
+    // nothing was indistinguishable from an empty catalogue. Loading keeps
+    // its old spinner (AC3).
+    val feedRefresh = workFeedItems.loadState.refresh
+    val feedFiltersActive = feedGenreFilters.isNotEmpty() ||
+        feedDurationFilters.isNotEmpty() || feedSharedLibraryOnly
+    if (workFeedItems.itemCount == 0 && feedRefresh is LoadState.Loading) {
         item {
             Box(
                 modifier = Modifier
@@ -509,6 +524,73 @@ fun LazyListScope.homeFeedContent(
             ) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             }
+        }
+    } else if (workFeedItems.itemCount == 0 && feedRefresh is LoadState.Error) {
+        item {
+            EmptyState(
+                icon = Icons.Default.CloudOff,
+                title = stringResource(R.string.feed_refresh_error_title),
+                body = stringResource(R.string.feed_refresh_error_body),
+                modifier = Modifier.testTag("feed_refresh_error")
+            ) {
+                FeedRefreshButton(
+                    tag = "feed_refresh_retry",
+                    label = stringResource(R.string.feed_refresh_retry),
+                    items = workFeedItems,
+                    retry = true
+                )
+            }
+        }
+    } else if (workFeedItems.itemCount == 0 && feedFiltersActive) {
+        item {
+            EmptyState(
+                icon = Icons.Default.FilterAltOff,
+                title = stringResource(R.string.feed_filters_empty_title),
+                body = stringResource(R.string.feed_filters_empty_body),
+                modifier = Modifier.testTag("feed_filters_empty")
+            ) {
+                Button(
+                    onClick = {
+                        onSetFeedGenreFilters(emptySet())
+                        onSetFeedDurationFilters(emptySet())
+                        onSetFeedSharedLibraryOnly(false)
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("feed_filters_reset")
+                ) {
+                    Text(stringResource(R.string.feed_reset_all))
+                }
+            }
+        }
+    } else if (workFeedItems.itemCount == 0) {
+        item {
+            EmptyState(
+                icon = Icons.Default.MenuBook,
+                title = stringResource(R.string.feed_empty_title),
+                body = stringResource(R.string.feed_empty_body),
+                modifier = Modifier.testTag("feed_empty")
+            ) {
+                FeedRefreshButton(
+                    tag = "feed_empty_refresh",
+                    label = stringResource(R.string.feed_empty_refresh),
+                    items = workFeedItems,
+                    retry = false
+                )
+            }
+        }
+    }
+    // A refresh can also fail while rows are already on screen: say so and
+    // keep the rows (AC2) instead of replacing them with an error.
+    if (workFeedItems.itemCount > 0 && feedRefresh is LoadState.Error) {
+        item {
+            Text(
+                text = stringResource(R.string.feed_refresh_error_body),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .testTag("feed_refresh_error_banner")
+                    .semantics { liveRegion = LiveRegionMode.Polite }
+            )
         }
     }
     // Paging-compose 3.3 removed LazyListScope.items(LazyPagingItems);
@@ -692,5 +774,30 @@ fun LazyListScope.homeFeedContent(
             )
         }
         else -> Unit
+    }
+}
+
+/** Retry/refresh action shared by the feed's empty and error states (#1509). */
+@Composable
+private fun FeedRefreshButton(
+    tag: String,
+    label: String,
+    items: LazyPagingItems<WorkFeedRow>,
+    retry: Boolean
+) {
+    val scope = rememberCoroutineScope()
+    Button(
+        onClick = {
+            if (retry) {
+                items.retry()
+            } else {
+                scope.launch { items.refresh() }
+            }
+        },
+        modifier = Modifier.heightIn(min = 48.dp).testTag(tag)
+    ) {
+        Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(label)
     }
 }

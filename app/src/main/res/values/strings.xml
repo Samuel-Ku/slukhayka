@@ -45,6 +45,14 @@
     <string name="feed_sort_title">За назвою</string>
     <string name="feed_filters">Фільтри</string>
     <string name="feed_all_genres">Усі жанри</string>
+    <string name="feed_empty_title">Творів ще немає</string>
+    <string name="feed_empty_body">Каталог ще не приніс жодного твору. Онови стрічку — або заглянь у «Медіатеку».</string>
+    <string name="feed_empty_refresh">Оновити</string>
+    <string name="feed_filters_empty_title">Нічого не знайдено</string>
+    <string name="feed_filters_empty_body">Жоден твір не відповідає вибраним фільтрам.</string>
+    <string name="feed_refresh_error_title">Не вдалося оновити стрічку</string>
+    <string name="feed_refresh_error_body">Уже показані твори лишилися. Спробуй ще раз.</string>
+    <string name="feed_refresh_retry">Повторити</string>
     <string name="feed_reset_all">Скинути все</string>
     <string name="feed_done">Готово</string>
     <!-- v1.4 EN/UK chrome (E3 + «Огляд rails → ресурси»): the feed's section

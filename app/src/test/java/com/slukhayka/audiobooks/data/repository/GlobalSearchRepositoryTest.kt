@@ -165,6 +165,8 @@ class GlobalSearchRepositoryTest {
     @Test
     fun `wave badges show the display names - spec-47 T5 registration`() {
         assertEquals("Audiobook.co.ua", sourceDisplayName("audiobookcoua"))
+        // #1532 — the internal marker is not a name to show.
+        assertEquals("", sourceDisplayName(com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID))
         assertEquals("Читайло", sourceDisplayName("chytaylo"))
         assertEquals("Ukrainian Audiobooks", sourceDisplayName("ukrainianaudiobooks"))
         assertEquals("Knigi-Online", sourceDisplayName("knigionline"))

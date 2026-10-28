@@ -192,8 +192,10 @@ class PlayerAccessibilityTest {
             )
         composeTestRule.onNodeWithTag("chapter_progress_visual_row", useUnmergedTree = true)
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.HideFromAccessibility, Unit))
+        // F7: the duplicate book time/percent row is gone; the read-only
+        // book line stays the ruler.
         composeTestRule.onNodeWithTag("book_progress_visual_row", useUnmergedTree = true)
-            .assert(SemanticsMatcher.expectValue(SemanticsProperties.HideFromAccessibility, Unit))
+            .assertDoesNotExist()
         composeTestRule.onNodeWithTag("player_progress_slider")
             .assert(
                 SemanticsMatcher.keyIsDefined(SemanticsProperties.LiveRegion).not()
@@ -219,8 +221,10 @@ class PlayerAccessibilityTest {
             progressUi = unknownProgress
         )
 
+        // F7 removed the duplicate book time row: the chapter row is the one
+        // place that states an unknown duration.
         composeTestRule.onAllNodesWithText("Тривалість невідома", useUnmergedTree = true)
-            .assertCountEquals(2)
+            .assertCountEquals(1)
         composeTestRule.onAllNodesWithText("00:00  /  00:00", useUnmergedTree = true)
             .assertCountEquals(0)
         composeTestRule.onNodeWithTag("player_progress_slider")
@@ -294,8 +298,9 @@ class PlayerAccessibilityTest {
             .assertContentDescriptionEquals("Швидкість відтворення: 1,0 раза")
         composeTestRule.onNodeWithTag("speed_chip_value", useUnmergedTree = true)
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.HideFromAccessibility, Unit))
+        // F7/F32: one line per tool — the second «Швидкість» label is gone.
         composeTestRule.onNodeWithTag("speed_chip_label", useUnmergedTree = true)
-            .assert(SemanticsMatcher.expectValue(SemanticsProperties.HideFromAccessibility, Unit))
+            .assertDoesNotExist()
 
         listOf(
             ToolExpectation(

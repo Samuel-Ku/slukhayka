@@ -219,6 +219,11 @@ class PaperInkTokensTest {
         assertEquals(272.dp, PaperInkDimens.CoverPlayerWidth)
         assertEquals(408.dp, PaperInkDimens.CoverPlayerHeight)
         assertEquals(44.dp, PaperInkDimens.PlayerSeekHeight)
+        // F8 (аудит 2026-10-28): прототип дає play-кнопці 80×72 і глиф 28–30.
+        assertEquals(80.dp, PaperInkDimens.PlayerPlayButtonWidth)
+        assertEquals(72.dp, PaperInkDimens.PlayerPlayButton)
+        assertEquals(30.dp, PaperInkDimens.PlayerPlayGlyph)
+        assertEquals(30.dp, PaperInkDimens.PlayerTransportGlyph)
         assertEquals(8.dp, PaperInkDimens.RadiusMicro)
         assertEquals(28.dp, PaperInkDimens.RadiusXl)
         assertEquals(999.dp, PaperInkDimens.RadiusFull)

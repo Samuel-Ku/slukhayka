@@ -1148,7 +1148,8 @@ private fun PlayerScreenContentBody(
                         }
                     )
                 }
-                Spacer(Modifier.height(AppDimens.SpaceLg))
+                // F7 — one inter-row gap went: the freed height belongs to the
+                // artwork slot (the audit's 272 dp cover budget).
                 DualProgress(
                     progress = progress,
                     chapterPositionSeconds = playerState.currentPositionMs / 1000L,
@@ -1161,7 +1162,7 @@ private fun PlayerScreenContentBody(
                     onShowAllBookmarks = onShowAllBookmarks
                 )
 
-                Spacer(Modifier.height(AppDimens.SpaceMd))
+                Spacer(Modifier.height(2.dp))
                 TransportControls(
                     bookTitle = book.title,
                     currentChapterTitle = currentChapterTitle,
@@ -1190,7 +1191,8 @@ private fun PlayerScreenContentBody(
                     }
                 }
 
-                Spacer(Modifier.height(AppDimens.SpaceMd))
+                // F7 — the quick-tools row sits right under the transport;
+                // the 12 dp gap was artwork height.
                 QuickTools(
                     speed = playerState.playbackSpeed,
                     timerMinutes = playerState.sleepTimerMinutes,
@@ -1307,7 +1309,13 @@ private fun ColumnScope.PlayerArtworkPane(
         // The responsive contract from spec-24 T6 / #385 is preserved: the
         // cover still shrinks with the container and stays inside its slot
         // (`player_tight_viewport` pins it).
-        val coverWidth = (maxWidth * 0.67f).coerceAtMost(PaperInkDimens.CoverPlayerWidth)
+        // F7 (аудит 2026-10-28): спека міряє 67 % від ШИРИНИ ЕКРАНА, а не від
+        // вузького слота з page-полями: 0.67 × 411 = 275 → кап 272. Стара
+        // формула давала 0.67 × 379 = 254 ще ДО обмеження висотою.
+        val screenWidth = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp
+        val coverWidth = (screenWidth * 0.67f)
+            .coerceAtMost(PaperInkDimens.CoverPlayerWidth)
+            .coerceAtMost(maxWidth)
         val coverHeight = (coverWidth / coverAspect).coerceAtMost(maxHeight)
         Surface(
             shape = RoundedCornerShape(PaperInkDimens.RadiusLarge),
@@ -1345,7 +1353,6 @@ private fun ColumnScope.PlayerArtworkPane(
         }
     }
 
-    Spacer(Modifier.height(AppDimens.SpaceSm))
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -1393,7 +1400,8 @@ private fun ColumnScope.PlayerArtworkPane(
                 overflow = TextOverflow.Ellipsis
             )
         }
-        Spacer(Modifier.height(AppDimens.SpaceSm))
+        // F7 — the chapter line follows the author directly; the second
+        // 8 dp spacer spent artwork height on air.
         Text(
             text = currentChapterTitle,
             style = MaterialTheme.typography.titleSmall,
@@ -1426,7 +1434,9 @@ private fun PlayerTopBar(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .heightIn(min = 64.dp)
+            // F7 — 48 dp header line: the controls inside are 48 dp targets,
+            // so the line itself carries no air; the height belongs to the art.
+            .heightIn(min = 48.dp)
             .padding(horizontal = AppDimens.SpaceSm),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1536,39 +1546,11 @@ private fun DualProgress(
         inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
     )
     Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .testTag("book_progress_visual_row")
-                .semantics { hideFromAccessibility() },
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            if (hasBookDuration) {
-                Text(
-                    text = MainViewModel.formatTime(progress.bookPositionSeconds),
-                    style = PaperInkType.TimerXL,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    text = " / ${MainViewModel.formatTime(progress.bookDurationSeconds)}",
-                    style = PaperInkType.Meta,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 5.dp),
-                )
-                Spacer(modifier = Modifier.weight(1f))
-                Text(
-                    text = "${(progress.bookFraction.coerceIn(0f, 1f) * 100).toInt()} %",
-                    style = PaperInkType.Timer,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else {
-                Text(
-                    text = unknownDuration,
-                    style = PaperInkType.Meta,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
+        // F7 (аудит 2026-10-28) — the book's read-only time+percent row went
+        // away: it duplicated the chapter time below, ate ~40 dp of the ONLY
+        // flexible slot, and the spec keeps ONE seek (chapter). The read-only
+        // book line stays as the part/bookmark ruler, so TalkBack can still
+        // read the book position.
         BookProgressLine(
             progress = progress,
             positionLabel = bookPositionLabel,
@@ -1578,7 +1560,7 @@ private fun DualProgress(
             onJumpToBookmark = onJumpToBookmark,
             onShowAllBookmarks = onShowAllBookmarks,
         )
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(2.dp))
         Row(
             Modifier
                 .fillMaxWidth()
@@ -1682,10 +1664,14 @@ private fun BookProgressLine(
     val inactiveMarker = MaterialTheme.colorScheme.onSurfaceVariant
     val bookmarkColor = MaterialTheme.colorScheme.tertiary
     val trackColor = MaterialTheme.colorScheme.outlineVariant
+    // F7 — the read-only book ruler is 24 dp tall (it carries no controls),
+    // EXCEPT when it holds the last-bookmark target, whose 48 dp touch target
+    // still needs the 44 dp row.
+    val lineHeight = if (bookmarkTarget != null) 44.dp else 14.dp
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(44.dp)
+            .height(lineHeight)
             .semantics {
                 contentDescription = positionLabel
                 stateDescription = timeDescription
@@ -1858,7 +1844,12 @@ private fun TransportControls(
             // the player title's 28 sp against the prototype's 29 px.
             shape = RoundedCornerShape(PaperInkDimens.RadiusLarge),
             modifier = Modifier
-                .size(PaperInkDimens.PlayerPlayButton)
+                // F8 — the prototype's box is 80×72, not a square: the extra
+                // width is what makes it read as a deliberate control.
+                .size(
+                    width = PaperInkDimens.PlayerPlayButtonWidth,
+                    height = PaperInkDimens.PlayerPlayButton,
+                )
                 .semantics {
                     contentDescription = playDescription
                     stateDescription = playbackStateDescription
@@ -1872,7 +1863,8 @@ private fun TransportControls(
             Icon(
                 if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                 contentDescription = null,
-                modifier = Modifier.size(40.dp)
+                // F8 — прототип: play-глиф 28 dp; 40 dp перевантажував кнопку.
+                modifier = Modifier.size(PaperInkDimens.PlayerPlayGlyph)
             )
         }
         SeekButton(
@@ -1910,7 +1902,11 @@ private fun TransportIcon(icon: androidx.compose.ui.graphics.vector.ImageVector,
             .size(PaperInkDimens.PlayerTransportTarget)
             .semantics { contentDescription = description }
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(28.dp))
+        Icon(
+            icon,
+            contentDescription = null,
+            modifier = Modifier.size(PaperInkDimens.PlayerTransportGlyph)
+        )
     }
 }
 
@@ -2040,18 +2036,17 @@ private fun RowScope.QuickTool(
     val toolDescription = accessibilityState?.let {
         stringResource(R.string.a11y_player_tool_state, accessibilityLabel, it)
     } ?: accessibilityLabel
-    Column(
+    // F7/F32 (аудит 2026-10-28) — ONE line per tool: the icon and its value
+    // share a row. The old column stacked «1.0×» over «Швидкість», which broke
+    // the shared baseline of the four tools and spent ~20 dp of the artwork
+    // slot on a word the screen reader already carries in the description.
+    Row(
         modifier = Modifier
             .weight(1f)
-            // #885 (wave 3) — the prototype's tool slot is `min-height:60px`
-            // with a 21 px glyph (`.sl-tools button`, `:1205-1207`). The app
-            // used 72 dp and 24 dp: a markedly heavier row for four small
-            // controls. 60 dp stays well above the 48 dp floor (ADR-0044),
-            // so this is density, not a smaller target.
-            .heightIn(min = 60.dp)
+            .heightIn(min = 48.dp)
             .focusRequester(focusRequester)
-            // A physical Android FocusRequester needs an explicit target;
-            // clickable alone is not sufficient for modal return focus.
+            // A physical FocusRequester needs an explicit target; clickable
+            // alone is not sufficient for modal return focus.
             .focusable()
             .clip(RoundedCornerShape(AppDimens.RadiusCard))
             .clickable(onClick = onClick)
@@ -2060,33 +2055,26 @@ private fun RowScope.QuickTool(
             }
             .padding(vertical = AppDimens.SpaceSm)
             .testTag(testTag),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(21.dp))
-        Spacer(Modifier.height(AppDimens.SpaceXs))
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(21.dp),
+        )
+        Spacer(Modifier.width(AppDimens.SpaceXs))
         Text(
             visualValue ?: visualLabel,
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 2,
-            textAlign = TextAlign.Center,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier
                 .testTag("${testTag}_value")
-                .semantics { hideFromAccessibility() }
+                .semantics { hideFromAccessibility() },
         )
-        if (visualValue != null) {
-            Text(
-                visualLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .testTag("${testTag}_label")
-                    .semantics { hideFromAccessibility() }
-            )
-        }
     }
 }
 

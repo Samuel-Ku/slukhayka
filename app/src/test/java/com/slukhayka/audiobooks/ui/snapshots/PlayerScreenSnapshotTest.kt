@@ -119,6 +119,19 @@ class PlayerScreenSnapshotTest {
         )
     }
 
+    // F7 (аудит 2026-10-28, вимога власника): обкладинку НЕ зменшувати —
+    // на телефоні 411×905 вона мусить бути спеко-розміру 272×408, а не
+    // затиснуті висотою 198. До фіксу цей тест падає (≈198), після — проходить.
+    @Test
+    fun player_cover_keeps_the_spec_272_dp_on_a_phone() {
+        setPlayerContent()
+        val cover = composeTestRule.onNodeWithTag("player_cover").fetchSemanticsNode().boundsInRoot
+        val widthDp = with(composeTestRule.density) { cover.width.toDp() }
+        val heightDp = with(composeTestRule.density) { cover.height.toDp() }
+        assertEquals("cover width was ${widthDp.value} dp", 272f, widthDp.value, 2f)
+        assertEquals("cover height was ${heightDp.value} dp", 408f, heightDp.value, 2f)
+    }
+
     // Spec-24 T6 (#167): the player fits ONE screen. In a viewport far shorter
     // than the Pixel-8 device there is no scrollable column, every control is
     // still visible, and the cover shrinks while keeping its 2:3 aspect ratio.

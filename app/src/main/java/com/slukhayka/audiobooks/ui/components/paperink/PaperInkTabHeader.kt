@@ -99,10 +99,7 @@ fun PaperInkTabHeader(
             Spacer(modifier = Modifier.width(4.dp))
         }
         Column(
-            modifier = Modifier
-                .weight(1f)
-                .then(if (headingTestTag != null) Modifier.testTag(headingTestTag) else Modifier)
-                .semantics { heading() },
+            modifier = Modifier.weight(1f),
         ) {
             if (!compact && showBrandMark) {
                 Row(
@@ -122,17 +119,25 @@ fun PaperInkTabHeader(
                     )
                 }
             }
+            // The heading IS this node: its tag, its `heading()` semantics and
+            // its entry focus live on the title Text, so a screen reader and a
+            // test both name/land on the same element at 200 % text.
             Text(
                 text = title,
                 style = if (compact) PaperInkType.SectionTitle else PaperInkType.ScreenTitle,
                 color = colorScheme.onSurface,
                 maxLines = if (compact) 1 else 2,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                modifier = if (returnFocusRequester != null) {
-                    Modifier.focusRequester(returnFocusRequester).focusable()
-                } else {
-                    Modifier
-                },
+                modifier = Modifier
+                    .then(if (headingTestTag != null) Modifier.testTag(headingTestTag) else Modifier)
+                    .then(
+                        if (returnFocusRequester != null) {
+                            Modifier.focusRequester(returnFocusRequester).focusable()
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .semantics { heading() },
             )
             if (!compact && subtitle != null) {
                 Text(

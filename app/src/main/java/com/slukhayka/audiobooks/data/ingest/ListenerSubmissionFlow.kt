@@ -260,8 +260,15 @@ class ListenerSubmissionFlow(
     }
 
 
-    /** #1487 — true when the link is a book page of a registered source. */
-    fun isKnownSourceLink(rawUrl: String): Boolean = resolveKnownSource(rawUrl.trim()) != null
+    /**
+     * #1487 — true when the link is a book page of a registered source.
+     *
+     * Delegates to [classify] on purpose: the registry claims `t.me` too (the
+     * `telegram` source's home host), so a bare resolver check would classify
+     * a Telegram post as a source page and hide its working preview. YouTube
+     * and Telegram are checked FIRST, exactly as in [submit].
+     */
+    fun isKnownSourceLink(rawUrl: String): Boolean = classify(rawUrl) == Kind.SOURCE
 
     /**
      * YouTube hosts (watch, short, playlist, music), Telegram preview links,

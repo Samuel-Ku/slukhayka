@@ -36,6 +36,8 @@ class ListenerSubmissionFlowTest {
         online: Boolean = true,
         /** #1487 — the registry answer for the pasted book page, or null. */
         knownLink: KnownSourceLink? = null,
+        /** #1487 — override the resolver (tests the REAL `sourceIdForUrl`). */
+        knownResolver: ((String) -> KnownSourceLink?)? = null,
         /** #1487 — what the ordinary source import returns for that page. */
         knownImport: ListenerSubmissionFlow.ImportOutcome? = ListenerSubmissionFlow.ImportOutcome(
             result = ListenerSubmissionFlow.ImportResult.IMPORTED,
@@ -94,7 +96,7 @@ class ListenerSubmissionFlowTest {
             submitterId = { submitter },
             store = stateStore,
             isOnline = { online },
-            resolveKnownSource = { url ->
+            resolveKnownSource = knownResolver ?: { url ->
                 knownLink?.takeIf { KnownSourceLinkResolver.canonicalUrl(url) == it.url }
             },
             importKnownSource = knownImporter
@@ -971,6 +973,33 @@ class ListenerSubmissionFlowTest {
         // The two existing paths are not reclassified by the new branch.
         assertEquals(ListenerSubmissionFlow.Kind.YOUTUBE, harness.flow.classify(youtube))
         assertEquals(ListenerSubmissionFlow.Kind.TELEGRAM, harness.flow.classify(tgPost))
+    }
+
+    @Test
+    fun `telegram stays telegram even though the registry claims the t me host`() {
+        // The regression the first review caught: the registry has a
+        // `telegram` source with homeUrl t.me/slukhayka, so a bare resolver
+        // check would hide the WORKING Telegram preview. The predicate must
+        // keep classify's order — YouTube/Telegram first.
+        val harness = Harness(
+            knownResolver = { url ->
+                KnownSourceLinkResolver.resolve(url) {
+                    com.slukhayka.audiobooks.data.source.sourceIdForUrl(it)
+                }
+            }
+        )
+
+        assertFalse(harness.flow.isKnownSourceLink("https://t.me/slukhayka/42"))
+        assertEquals(
+            ListenerSubmissionFlow.Kind.TELEGRAM,
+            harness.flow.classify("https://t.me/slukhayka/42")
+        )
+        assertFalse(harness.flow.isKnownSourceLink("https://youtu.be/abc12345678"))
+        assertTrue(harness.flow.isKnownSourceLink("https://audiobook.co.ua/doktor-son"))
+        assertEquals(
+            ListenerSubmissionFlow.Kind.SOURCE,
+            harness.flow.classify("https://audiobook.co.ua/doktor-son")
+        )
     }
 
     @Test

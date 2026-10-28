@@ -65,6 +65,22 @@ class BookPageProbeTest {
     }
 
     @Test
+    fun `json ld contentUrl is the only door to a stream url without a media extension`() {
+        // A playlist endpoint (`/stream/42`) carries no `.mp3` suffix, so the
+        // bare-URL scan cannot see it: only the schema.org contentUrl does.
+        val html = """
+            <html><head><script type="application/ld+json">
+            {"@type":"AudioObject","contentUrl":"https://cdn.example/stream/42"}
+            </script></head></html>
+        """.trimIndent()
+
+        assertEquals(
+            listOf("https://cdn.example/stream/42"),
+            BookPageProbe.parse(html, pageUrl)!!.audios.map { it.url }
+        )
+    }
+
+    @Test
     fun `bare media urls in the markup are found and deduplicated`() {
         val html = """
             <html><body>

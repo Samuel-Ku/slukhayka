@@ -6,6 +6,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -58,7 +59,7 @@ class FeedEmptyStatesTest {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     val feedFlow = remember { MutableStateFlow(PagingData.empty<WorkFeedRow>()) }
                     val feedItems = feedFlow.collectAsLazyPagingItems()
-                    LazyColumn(modifier = Modifier.fillMaxSize().androidx.compose.ui.platform.testTag("feed_test_list")) {
+                    LazyColumn(modifier = Modifier.fillMaxSize().testTag("feed_test_list")) {
                         homeFeedContent(
                             isCatalogLoading = false,
                             hasLibraryBooks = true,
@@ -147,7 +148,7 @@ class FeedEmptyStatesTest {
                         Pager(PagingConfig(pageSize = 10, initialLoadSize = 10)) { source }
                     }
                     val feedItems = pager.flow.collectAsLazyPagingItems()
-                    LazyColumn(modifier = Modifier.fillMaxSize().androidx.compose.ui.platform.testTag("feed_test_list")) {
+                    LazyColumn(modifier = Modifier.fillMaxSize().testTag("feed_test_list")) {
                         homeFeedContent(
                             isCatalogLoading = false,
                             hasLibraryBooks = true,

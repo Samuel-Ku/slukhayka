@@ -699,6 +699,8 @@ fun PlayerScreenContent(
     fallbackCandidates: List<com.slukhayka.audiobooks.data.editions.FallbackCandidate> = emptyList(),
     onSelectFallback: (com.slukhayka.audiobooks.data.editions.FallbackCandidate) -> Unit = {},
     alwaysInk: Boolean = true,
+    /** #1474 — the temporary tap-series sum, or null when no series is open. */
+    seekSumLabel: String? = null,
 ) {
     PlayerInkSurface(alwaysInk = alwaysInk) {
         PlayerScreenContentBody(

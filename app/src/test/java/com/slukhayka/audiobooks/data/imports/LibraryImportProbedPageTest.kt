@@ -97,6 +97,9 @@ class LibraryImportProbedPageTest {
             1,
             dao.getSourcesForBookSync(first.id).count { it.type == "unknown" }
         )
+        // The URL identity wins over a changed title claim: a re-probe must not
+        // silently rewrite the card the listener already has.
+        assertEquals("Неначе сон", dao.getAudiobookById(first.id)!!.title)
     }
 
     @Test

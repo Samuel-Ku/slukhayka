@@ -92,7 +92,13 @@ class SettingsDestinationScaffoldTest {
             .action
             ?.invoke(results)
         val layout = requireNotNull(results.firstOrNull()) { "the heading never reported its layout" }
-        assertEquals("the pushed title must wrap, not ellipsize", 2, layout.lineCount)
+        assertEquals(
+            "DIAG lines=${layout.lineCount} maxLines=${layout.layoutInput.maxLines} " +
+                "overflow=${layout.hasVisualOverflow} width=${layout.size.width} " +
+                "height=${layout.size.height} text=${layout.layoutInput.text}",
+            2,
+            layout.lineCount,
+        )
         assertEquals("no line may be visually clipped at 200 %", false, layout.hasVisualOverflow)
     }
 

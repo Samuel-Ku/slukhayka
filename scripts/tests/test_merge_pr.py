@@ -304,6 +304,34 @@ class MergePrTest(unittest.TestCase):
         self.assertIn("переписувати те, що його перевіряє", result.stderr)
         self.assertEqual([], self.merge_calls())
 
+    def test_a_renamed_gate_file_is_still_refused(self):
+        """A pure rename carries the gate path only in previous_filename."""
+        files_pages = [[{
+            "filename": "scripts/merge-pr-renamed.sh",
+            "previous_filename": "scripts/merge-pr.sh",
+        }]]
+
+        result = self.gate(pr=pr_payload(files=()), files_pages=files_pages)
+
+        self.assertEqual(1, result.returncode, result.stdout)
+        self.assertIn("переписувати те, що його перевіряє", result.stderr)
+        self.assertEqual([], self.merge_calls())
+
+    def test_a_non_string_previous_filename_is_an_unknown(self):
+        """A field we cannot read is not "no rename" (null included)."""
+        for bad in (None, 123, "", []):
+            with self.subTest(previous=bad):
+                files_pages = [[{
+                    "filename": "app/src/main/java/X.kt",
+                    "previous_filename": bad,
+                }]]
+
+                result = self.gate(pr=pr_payload(files=()), files_pages=files_pages)
+
+                self.assertEqual(1, result.returncode, result.stdout)
+                self.assertIn("previous_filename is not a path", result.stderr)
+                self.assertEqual([], self.merge_calls())
+
     def test_a_file_list_read_failure_refuses_instead_of_skipping_the_check(self):
         """A failed files read used to skip check 1b silently — that is fail-open."""
         result = self.gate(pr=pr_payload(files=("app/src/main/java/X.kt",)),

@@ -62,7 +62,9 @@ sealed interface SubmissionUiState {
      */
     data class Imported(
         val publishable: Boolean,
-        val knownSource: Boolean = false
+        val knownSource: Boolean = false,
+        /** #1487 slice 2 — the card came from a probed page of an unknown host. */
+        val probedPage: Boolean = false
     ) : SubmissionUiState
 
     /**
@@ -84,7 +86,11 @@ sealed interface SubmissionUiState {
      * the publication waits for tomorrow and needs no second playback.
      */
     data object DeferredPublication : SubmissionUiState
-    data class Refused(val reason: ListenerSubmissionFlow.Reason) : SubmissionUiState
+    data class Refused(
+        val reason: ListenerSubmissionFlow.Reason,
+        /** #1487 slice 2 — the canonical page URL the browser door opens. */
+        val browserUrl: String? = null
+    ) : SubmissionUiState
     data object Unsupported : SubmissionUiState
 }
 
@@ -582,6 +588,7 @@ private fun submissionStatusText(state: SubmissionUiState): String? = when (stat
     SubmissionUiState.Idle -> null
     SubmissionUiState.Working -> stringResource(R.string.submission_status_working)
     is SubmissionUiState.Imported -> when {
+        state.probedPage -> stringResource(R.string.submission_status_imported_probed)
         state.knownSource -> stringResource(R.string.submission_status_imported_catalog)
         state.publishable -> stringResource(R.string.submission_status_imported)
         else -> stringResource(R.string.submission_status_imported_local)

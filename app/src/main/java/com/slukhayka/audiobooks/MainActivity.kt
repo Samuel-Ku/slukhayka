@@ -103,9 +103,12 @@ import com.slukhayka.audiobooks.ui.components.paperink.PaperInkNavigationBar
 import com.slukhayka.audiobooks.ui.theme.AppThemeMode
 import com.slukhayka.audiobooks.ui.theme.AppearancePreferencesStore
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.ColorContrast
+import com.slukhayka.audiobooks.ui.theme.PaperInkSystemBars
 import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
 import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
-import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
+import com.slukhayka.audiobooks.ui.theme.systemBarAppearanceFor
+import com.slukhayka.audiobooks.ui.theme.systemBarsDarkTheme
 
 internal enum class SecondaryBookParent {
     SERIES,
@@ -415,6 +418,21 @@ fun AudiobookApp(
         currentState = fullPlayerTransition.currentState,
         targetState = fullPlayerTransition.targetState
     )
+    // F2 of the 2026-10-28 device audit — the system bars are chrome of the
+    // CHOSEN theme, not of the system theme. `enableEdgeToEdge()` alone reads
+    // Configuration.uiMode, so a forced «Папір» over a dark system drew white
+    // icons on paper (1.05:1) and left the legacy window colour as a visible
+    // band above the new paper body. Resolved once here, where both inputs
+    // live: the outer legacy scheme states the app-wide choice, and the
+    // full-screen player is the product's known always-ink exception.
+    val appDarkTheme = ColorContrast.relativeLuminance(MaterialTheme.colorScheme.background) < 0.5
+    val systemBarsDark = systemBarsDarkTheme(
+        appDarkTheme = appDarkTheme,
+        fullPlayerOverlayVisible = fullPlayerOverlayVisible,
+        playerAlwaysInk = playerAlwaysInk,
+    )
+    PaperInkSystemBars(darkTheme = systemBarsDark)
+    val systemBarsGround = systemBarAppearanceFor(systemBarsDark).ground
     var fullPlayerContentPresent by remember { mutableStateOf(false) }
     val playerState by viewModel.playerState.collectAsState()
     val miniPlayerDismissed by viewModel.miniPlayerDismissed.collectAsState()
@@ -1123,6 +1141,10 @@ fun AudiobookApp(
                         firstChoiceVisible || narrationSwitchPrompt != null ||
                         showcasePreview != null
                 ),
+            // F2 — the ground BEHIND the edge-to-edge bars comes from the same
+            // resolved palette as the bar glyphs, so the strip above the status
+            // bar cannot show legacy paper above a paper-ink body.
+            containerColor = systemBarsGround,
             snackbarHost = {
                 SnackbarHost(achievementSnackbar,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp))

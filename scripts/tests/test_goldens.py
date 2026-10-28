@@ -103,12 +103,23 @@ class GoldensScriptTest(unittest.TestCase):
             self.invocations(),
         )
 
-    def test_verify_passes_verify_and_not_record(self):
+    def test_verify_enables_the_verify_task_not_record(self):
+        """record=false alone is None in Roborazzi: verify must be true."""
         result = self.run_goldens("verify", "com.example.SnapshotTest")
         self.assertEqual(0, result.returncode, result.stderr)
         arguments = self.invocations()
-        self.assertIn("-Proborazzi.test.record=false", arguments)
-        self.assertNotIn("-Proborazzi.test.record=true", arguments)
+        self.assertIn("-Proborazzi.test.verify=true", arguments)
+        self.assertFalse(any(arg.startswith("-Proborazzi.test.record=") for arg in arguments))
+
+    def test_two_classes_are_joined_with_a_comma(self):
+        result = self.run_goldens(
+            "record", "com.example.FirstSnapshotTest", "com.example.SecondSnapshotTest",
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn(
+            "-Ptest.selectedClasses=com.example.FirstSnapshotTest,com.example.SecondSnapshotTest",
+            self.invocations(),
+        )
 
     def test_record_all_is_explicit_and_drops_the_class_filter(self):
         result = self.run_goldens("record", "--all")
@@ -145,6 +156,21 @@ class GoldensScriptTest(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertIn("new.png", result.stdout)
         self.assertIn("файлів змінено: 1", result.stdout)
+
+    def test_a_failed_run_still_lists_the_rewritten_goldens(self):
+        """The list matters most when the run failed: it is the evidence."""
+        result = self.run_goldens(
+            "record", "com.example.SnapshotTest",
+            GOLDENS_TEST_NEW_PNG="new.png", GOLDENS_TEST_EXIT="5",
+        )
+        self.assertEqual(5, result.returncode, result.stderr)
+        self.assertIn("new.png", result.stdout)
+        self.assertIn("файлів змінено: 1", result.stdout)
+
+    def test_usage_does_not_print_the_set_line(self):
+        result = self.run_goldens("--help")
+        self.assertEqual(0, result.returncode)
+        self.assertNotIn("set -euo pipefail", result.stdout)
 
     def test_pin_prints_the_digest_and_the_guard_pair(self):
         digest = hashlib.sha256(b"golden-bytes").hexdigest()

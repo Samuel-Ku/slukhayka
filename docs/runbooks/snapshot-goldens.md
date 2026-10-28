@@ -32,9 +32,12 @@ scripts/goldens.sh pin library_redesign_grid.png   # sha256 + пара 32+32 д�
 - `record`/`verify` ідуть через `scripts/test-all.sh` з
   `SLUKHAYKA_GRADLE_ARGS_FILE`, тобто той самий JDK-21/резолвер і слот, що й
   решта прогонів; `-Ptest.selectedClasses=…` обмежує набір, `--all` його
-  знімає лише за явним прапорцем.
+  знімає лише за явним прапорцем. Режим ставить **свою** властивість:
+  `-Proborazzi.test.record=true` або `-Proborazzi.test.verify=true`;
+  `record=false` сам по собі — це `None`, тобто тихий no-op, а не перевірка.
 - Після прогону скрипт друкує `git status` по `app/src/test/snapshots/` —
-  включно з **новими** нетрекнутими PNG (`git diff` їх не бачить).
+  включно з **новими** нетрекнутими PNG (`git diff` їх не бачить), і робить це
+  навіть коли прогін упав: саме тоді список переписаних еталонів і є доказом.
 - `pin` лише друкує digest і готову пару для
   `SnapshotGoldenBytesGuardTest`; сам guard-файл він не редагує: оновлення
   піна лишається окремим свідомим рішенням у тому ж коміті.

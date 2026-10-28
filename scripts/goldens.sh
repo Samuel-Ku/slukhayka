@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Roborazzi goldens: one command for record / verify / pin.
 #
-# Why. A design-refresh session made 52 record and 48 verify invocations, each
-# an ssh call plus a build-slot turn, and then updated nine guard digests by
+# Why. A design-refresh session made dozens of record and verify invocations, each
+# an ssh call plus a build-slot turn, and then updated the snapshot guard digests by
 # hand. The flags themselves are easy to get wrong silently: without
 # `-Proborazzi.test.record=true|verify=true` a snapshot test does nothing and
 # looks green (docs/runbooks/snapshot-goldens.md).
 #
 # Usage:
-#   scripts/goldens.sh record <Class|Class#method ...>
-#   scripts/goldens.sh verify <Class|Class#method ...>
+#   scripts/goldens.sh record <Class ...>
+#   scripts/goldens.sh verify <Class ...>
 #   scripts/goldens.sh record --all        # explicit full-set record
 #   scripts/goldens.sh verify --all
 #   scripts/goldens.sh pin <file ...>      # sha256 + 32+32 pair for the guard
@@ -33,7 +33,8 @@ snapshots_rel="app/src/test/snapshots"
 snapshots="$root/$snapshots_rel"
 
 usage() {
-  sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  awk 'NR >= 2 && NR <= 40 { if ($0 ~ /^set -euo/) exit; print }' "${BASH_SOURCE[0]}" \
+    | sed 's/^# \{0,1\}//'
 }
 
 refuse() {
@@ -77,9 +78,19 @@ case "$command_name" in
     else
       printf 'goldens: %s --all (повний набір — перевір, що це справді потрібно)\n' "$command_name"
     fi
-    printf '%s\n' "-Proborazzi.test.record=$([[ $command_name == record ]] && echo true || echo false)" >>"$args_file"
+    # Roborazzi enables a task only when its own property is "true": record=true
+    # does NOT enable verify, and record=false alone is None (a silent no-op).
+    if [[ $command_name == record ]]; then
+      printf '%s\n' '-Proborazzi.test.record=true' >>"$args_file"
+    else
+      printf '%s\n' '-Proborazzi.test.verify=true' >>"$args_file"
+    fi
+    # Capture the Gradle status WITHOUT letting `set -e` skip the report: a
+    # failed run is exactly when the list of rewritten goldens matters most.
+    set +e
     SLUKHAYKA_GRADLE_ARGS_FILE="$args_file" "$root/scripts/test-all.sh"
     rc=$?
+    set -e
     changed=$(git -C "$root" status --porcelain -- "$snapshots_rel" || true)
     if [[ -n "$changed" ]]; then
       printf 'goldens: змінені еталони:\n%s\n' "$changed"

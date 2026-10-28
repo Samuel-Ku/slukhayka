@@ -482,24 +482,45 @@ fi
 # його власний вердикт, і той «позеленів» би сам.
 GATE_PATHS='^\.github/workflows/|^scripts/merge-pr\.sh$|^scripts/review-pass\.sh$|^scripts/review_gate\.py$'
 if [ "${MERGE_PR_ALLOW_GATE_EDITS:-0}" != "1" ]; then
-  if "$GH" pr view "$PR_NUMBER" --json files >"$TMP/gate-files.json" 2>/dev/null; then
-    TOUCHED="$(python3 - "$TMP/gate-files.json" <<'PYGATE'
+  # `gh pr view --json files` caps at 100 files and does not say so (#1490 had
+  # 151 changed files). A gate edit hidden in the tail would pass check 1b, so
+  # the list is read through the paginated REST API and a failed read is an
+  # unknown, not a silent skip.
+  if ! "$GH" api --paginate --slurp "repos/{owner}/{repo}/pulls/$PR_NUMBER/files" \
+      >"$TMP/gate-files.json" 2>"$TMP/gate-files.err"; then
+    sed 's/^/      /' "$TMP/gate-files.err" >&2 || true
+    refuse "PR #$PR_NUMBER: не вдалося прочитати список файлів (gh api) — невідомо, чи PR редагує гейт." \
+      "перевір `gh auth status` і що gh ≥ 2.43 (--slurp); PR не змінено"
+  fi
+  if ! TOUCHED="$(python3 - "$TMP/gate-files.json" <<'PYGATE'
 import json
 import sys
 
 try:
-    data = json.load(open(sys.argv[1], encoding="utf-8"))
-except Exception:
-    raise SystemExit(0)
-for item in data.get("files") or []:
-    if isinstance(item, dict) and item.get("path"):
+    pages = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception as error:
+    print("bad files page: %s" % error, file=sys.stderr)
+    raise SystemExit(2)
+if not isinstance(pages, list):
+    print("bad files page: not a list of pages", file=sys.stderr)
+    raise SystemExit(2)
+for page in pages:
+    if not isinstance(page, list):
+        print("bad files page: a page is not a list", file=sys.stderr)
+        raise SystemExit(2)
+    for item in page:
+        if not isinstance(item, dict) or not item.get("path"):
+            print("bad files page: item without path", file=sys.stderr)
+            raise SystemExit(2)
         print(item["path"])
 PYGATE
-)"
-    if printf '%s\n' "$TOUCHED" | grep -qE "$GATE_PATHS"; then
-      refuse "PR #$PR_NUMBER змінює сам гейт (.github/workflows/ або scripts/merge-pr.sh|review-pass.sh|review_gate.py): дерево PR не може переписувати те, що його перевіряє (#1338)." \
-        "якщо це справді потрібно — MERGE_PR_ALLOW_GATE_EDITS=1 scripts/merge-pr.sh $PR_NUMBER, і скажи вголос, що гейт змінено"
-    fi
+  )"; then
+    refuse "PR #$PR_NUMBER: список файлів прочитано, але не розібрано — невідомо, чи PR редагує гейт." \
+      "перевір форму відповіді gh api (--paginate --slurp) і повтори scripts/merge-pr.sh $PR_NUMBER"
+  fi
+  if printf '%s\n' "$TOUCHED" | grep -qE "$GATE_PATHS"; then
+    refuse "PR #$PR_NUMBER змінює сам гейт (.github/workflows/ або scripts/merge-pr.sh|review-pass.sh|review_gate.py): дерево PR не може переписувати те, що його перевіряє (#1338)." \
+      "якщо це справді потрібно — MERGE_PR_ALLOW_GATE_EDITS=1 scripts/merge-pr.sh $PR_NUMBER, і скажи вголос, що гейт змінено"
   fi
 fi
 

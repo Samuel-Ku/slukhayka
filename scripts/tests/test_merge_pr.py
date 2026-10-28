@@ -153,6 +153,13 @@ case "$sub" in
       */timeline) cat "$FAKE_GH_DIR/timeline.json" ;;
       *check-runs*) cat "$FAKE_GH_DIR/check-runs.json" ;;
       */commits) cat "$FAKE_GH_DIR/commits.json" ;;
+      */pulls/*/files)
+        if [ "${FAKE_GH_FILES_ERROR:-0}" -ne 0 ]; then
+          printf 'gh: cannot list PR files (HTTP 500)\n' >&2
+          exit "${FAKE_GH_FILES_ERROR}"
+        fi
+        cat "$FAKE_GH_DIR/files.json"
+        ;;
       *) cat "$FAKE_GH_DIR/repo.json" ;;
     esac
     ;;
@@ -284,6 +291,36 @@ class MergePrTest(unittest.TestCase):
         """Межа не має бити по звичайних PR: лише гейтові шляхи."""
         result = self.gate(pr=pr_payload(files=("app/src/main/java/X.kt",)))
         self.assertNotIn("переписувати те, що його перевіряє", result.stderr)
+
+    def test_a_gate_edit_on_a_later_files_page_is_still_refused(self):
+        """#1514: `gh pr view --json files` caps at 100; the gate edit may be 101st."""
+        first_page = [{"path": "app/src/main/java/com/slukhayka/File%02d.kt" % index}
+                      for index in range(100)]
+        files_pages = [first_page, [{"path": "scripts/merge-pr.sh"}]]
+
+        result = self.gate(pr=pr_payload(files=()), files_pages=files_pages)
+
+        self.assertEqual(1, result.returncode, result.stdout)
+        self.assertIn("переписувати те, що його перевіряє", result.stderr)
+        self.assertEqual([], self.merge_calls())
+
+    def test_a_file_list_read_failure_refuses_instead_of_skipping_the_check(self):
+        """A failed files read used to skip check 1b silently — that is fail-open."""
+        result = self.gate(pr=pr_payload(files=("app/src/main/java/X.kt",)),
+                           env_extra={"FAKE_GH_FILES_ERROR": "1"})
+
+        self.assertEqual(1, result.returncode, result.stdout)
+        self.assertIn("не вдалося прочитати список файлів", result.stderr)
+        self.assertIn("PR не змінено", result.stderr)
+        self.assertEqual([], self.merge_calls())
+
+    def test_an_unexpected_files_page_shape_refuses(self):
+        """Unknown shape is an unknown, not "no gate files"."""
+        result = self.gate(pr=pr_payload(files=()), files_pages={"not": "pages"})
+
+        self.assertEqual(1, result.returncode, result.stdout)
+        self.assertIn("не розібрано", result.stderr)
+        self.assertEqual([], self.merge_calls())
 
     def test_a_pr_that_rewrites_the_verdict_check_is_refused(self):
         """#1492: скрипт, що публікує вердикт, — частина гейта, не «звичайний код».
@@ -425,7 +462,7 @@ class MergePrTest(unittest.TestCase):
         )
 
     def gate(self, *flags, pr=None, timeline=None, check_runs=None, commits=None,
-             repo=None, label_in_repo=True, env_extra=None):
+             repo=None, label_in_repo=True, env_extra=None, files_pages=None):
         """Записує фікстури й запускає гейт на PR з фікстури.
 
         Типово — зелений PR зі свіжим вердиктом; кожен тест міняє рівно те,
@@ -433,12 +470,15 @@ class MergePrTest(unittest.TestCase):
         збігався з тим, що тест насправді моделює.
         """
         payload = pr_payload() if pr is None else pr
+        if files_pages is None:
+            files_pages = [[{"path": item["path"]} for item in payload.get("files") or []]]
         fixtures = {
             "pr.json": payload,
             "timeline.json": page(labeled()) if timeline is None else timeline,
             "check-runs.json": check_runs_page(*history()) if check_runs is None else check_runs,
             "commits.json": [[rest_commit()]] if commits is None else commits,
             "repo.json": {"delete_branch_on_merge": False} if repo is None else repo,
+            "files.json": files_pages,
         }
         for name, value in fixtures.items():
             (self.fixtures / name).write_text(json.dumps(value), encoding="utf-8")

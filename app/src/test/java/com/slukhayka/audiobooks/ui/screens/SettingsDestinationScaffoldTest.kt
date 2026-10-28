@@ -11,7 +11,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
-import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.text.TextLayoutResult
@@ -88,8 +87,6 @@ class SettingsDestinationScaffoldTest {
             "storage_destination_screen_heading",
             useUnmergedTree = true,
         )
-        heading.assert(SemanticsMatcher.keyIsDefined(SemanticsActions.GetTextLayoutResult))
-
         val results = mutableListOf<TextLayoutResult>()
         heading.fetchSemanticsNode().config[SemanticsActions.GetTextLayoutResult]
             .action

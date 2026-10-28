@@ -163,6 +163,16 @@ fun PaperInkHeroCard(
     playContentDescription: String? = null,
     cardContentDescription: String? = null,
     eyebrowHeading: Boolean = false,
+    /**
+     * Real artwork for the cover slot, or null for the paper letter placeholder.
+     *
+     * F29 of the 2026-10-28 device audit: the «Продовжити слухати» hero — the
+     * main card of the app — drew a letter tile while the same Work had real
+     * art on every other surface. The primitive stays typography-agnostic: the
+     * caller owns image loading/resolution and this card owns the slot, its
+     * size (104×156) and its radius, so the shelf rhythm cannot drift.
+     */
+    cover: (@Composable () -> Unit)? = null,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     Surface(
@@ -198,15 +208,37 @@ fun PaperInkHeroCard(
             Row(
                 modifier = Modifier.fillMaxSize().padding(16.dp),
             ) {
-                PaperInkCover(
-                    title = title,
-                    modifier = Modifier
-                        .width(PaperInkDimens.CoverHeroWidth)
-                        .height(PaperInkDimens.CoverHeroHeight)
-                        // The title below states the book; the letter is decoration.
-                        .clearAndSetSemantics { },
-                    radius = PaperInkDimens.RadiusSmall,
-                )
+                if (cover != null) {
+                    // The artwork slot keeps the card's OWN size and radius so
+                    // the shelf rhythm cannot drift with the image source.
+                    Box(
+                        modifier = Modifier
+                            .width(PaperInkDimens.CoverHeroWidth)
+                            .height(PaperInkDimens.CoverHeroHeight)
+                            .clip(RoundedCornerShape(PaperInkDimens.RadiusSmall))
+                            .testTag("hero_cover_art"),
+                    ) {
+                        cover()
+                    }
+                } else {
+                    // No art: the pre-fix path is kept EXACTLY, so a Work that
+                    // has no cover cannot change the card's pixels (the golden
+                    // stays the witness of the fallback).
+                    PaperInkCover(
+                        title = title,
+                        modifier = Modifier
+                            .width(PaperInkDimens.CoverHeroWidth)
+                            .height(PaperInkDimens.CoverHeroHeight)
+                            // The title below states the book; the letter is
+                            // decoration. The tag MUST come before the clear:
+                            // `clearAndSetSemantics` wipes the semantics set on
+                            // the same node, so tagging after it left the
+                            // fallback unaddressable (CI caught it).
+                            .testTag("hero_cover_placeholder")
+                            .clearAndSetSemantics { },
+                        radius = PaperInkDimens.RadiusSmall,
+                    )
+                }
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
                     Text(

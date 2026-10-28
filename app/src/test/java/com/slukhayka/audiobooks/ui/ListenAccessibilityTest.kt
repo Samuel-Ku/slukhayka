@@ -307,7 +307,9 @@ class ListenAccessibilityTest {
             .assertHeightIsAtLeast(24.dp)
         compose.onNodeWithContentDescription("Відкрити книгу: ${book.title}")
             .assertHeightIsAtLeast(24.dp)
-        compose.onNodeWithText("ПРОДОВЖИТИ СЛУХАТИ")
+        // F29 (audit 2026-10-28): the eyebrow is sentence case; the direction
+        // forbids caps on the smallest size (§3.2).
+        compose.onNodeWithText("Продовжити слухати")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Heading, Unit))
         compose.onNodeWithContentDescription(book.title, useUnmergedTree = true)
             .assertDoesNotExist()

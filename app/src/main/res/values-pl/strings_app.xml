@@ -746,7 +746,7 @@
     <string name="listen_chapter_position">Rozdział %1$d · %2$s</string>
     <string name="listen_empty_body">Tu pojawi się Twoja bieżąca książka, gdy tylko zaczniesz słuchać.</string>
     <string name="listen_empty_title">Kontynuuj słuchanie</string>
-    <string name="listen_hero_overline">KONTYNUUJ SŁUCHANIE</string>
+    <string name="listen_hero_overline">Kontynuuj słuchanie</string>
     <string name="listen_manage_shelves">Zarządzaj półkami</string>
     <string name="listen_progress_percent">%1$d%%</string>
     <string name="listen_remaining_h">Pozostało %1$d godz</string>

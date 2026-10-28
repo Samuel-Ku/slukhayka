@@ -33,7 +33,18 @@ class ListenerSubmissionFlowTest {
         stateStore: SubmissionStateStore = InMemorySubmissionStateStore(),
         importWatching: (suspend (String, ListenerSubmissionFlow.TgIdentity) -> ListenerSubmissionFlow.WatchingImport)? = null,
         watchSource: (suspend (String, String) -> Unit)? = null,
-        online: Boolean = true
+        online: Boolean = true,
+        /** #1487 — the registry answer for the pasted book page, or null. */
+        knownLink: KnownSourceLink? = null,
+        /** #1487 — override the resolver (tests the REAL `sourceIdForUrl`). */
+        knownResolver: ((String) -> KnownSourceLink?)? = null,
+        /** #1487 — what the ordinary source import returns for that page. */
+        knownImport: ListenerSubmissionFlow.ImportOutcome? = ListenerSubmissionFlow.ImportOutcome(
+            result = ListenerSubmissionFlow.ImportResult.IMPORTED,
+            bookId = "book-known",
+            sourceId = "audiobookcoua"
+        ),
+        withKnownImporter: Boolean = true
     ) {
         val store = FakeSharedBookMetaStore()
         val verification = SubmissionVerification { 1_000L }
@@ -43,6 +54,21 @@ class ListenerSubmissionFlowTest {
         var fetchCalls = 0
         var importCalls = 0
         var tgCalls = 0
+
+        /** #1487 — how often the known-source import seam was reached, and with what. */
+        var knownImportCalls = 0
+        val knownImportedUrls = mutableListOf<String>()
+
+        val knownImporter: (suspend (KnownSourceLink) -> ListenerSubmissionFlow.ImportOutcome?)? =
+            if (withKnownImporter) {
+                { link ->
+                    knownImportCalls++
+                    knownImportedUrls += link.url
+                    knownImport
+                }
+            } else {
+                null
+            }
 
         /** Spec-53 T6 — exactly which url reached the engine. */
         val fetchedUrls = mutableListOf<String>()
@@ -69,7 +95,11 @@ class ListenerSubmissionFlowTest {
             remainingToday = { remaining },
             submitterId = { submitter },
             store = stateStore,
-            isOnline = { online }
+            isOnline = { online },
+            resolveKnownSource = knownResolver ?: { url ->
+                knownLink?.takeIf { KnownSourceLinkResolver.canonicalUrl(url) == it.url }
+            },
+            importKnownSource = knownImporter
         )
     }
 
@@ -923,5 +953,134 @@ class ListenerSubmissionFlowTest {
         assertEquals(listOf(ListenerSubmissionFlow.Verdict.PendingModeration), verdicts)
         assertEquals("no duplicate document", 1, harness.store.submissionPuts.size)
         assertTrue(harness.flow.deferredPublicationBookIds().isEmpty())
+    }
+
+    // --- #1487 (slice 1): a book page of a known source --------------------
+
+    private val knownBook = KnownSourceLink(
+        sourceId = "audiobookcoua",
+        url = "https://audiobook.co.ua/doktor-son-stiven-king"
+    )
+
+    private val knownBookLink = "https://audiobook.co.ua/doktor-son-stiven-king/"
+
+    @Test
+    fun `a known source book page is classified as a source link`() {
+        val harness = Harness(knownLink = knownBook)
+
+        assertEquals(ListenerSubmissionFlow.Kind.SOURCE, harness.flow.classify(knownBookLink))
+        assertEquals(ListenerSubmissionFlow.Kind.SOURCE, harness.flow.classify(knownBook.url))
+        // The two existing paths are not reclassified by the new branch.
+        assertEquals(ListenerSubmissionFlow.Kind.YOUTUBE, harness.flow.classify(youtube))
+        assertEquals(ListenerSubmissionFlow.Kind.TELEGRAM, harness.flow.classify(tgPost))
+    }
+
+    @Test
+    fun `telegram stays telegram even though the registry claims the t me host`() {
+        // The regression the first review caught: the registry has a
+        // `telegram` source with homeUrl t.me/slukhayka, so a bare resolver
+        // check would hide the WORKING Telegram preview. The predicate must
+        // keep classify's order — YouTube/Telegram first.
+        val harness = Harness(
+            knownResolver = { url ->
+                KnownSourceLinkResolver.resolve(url) {
+                    com.slukhayka.audiobooks.data.source.sourceIdForUrl(it)
+                }
+            }
+        )
+
+        assertFalse(harness.flow.isKnownSourceLink("https://t.me/slukhayka/42"))
+        assertEquals(
+            ListenerSubmissionFlow.Kind.TELEGRAM,
+            harness.flow.classify("https://t.me/slukhayka/42")
+        )
+        assertFalse(harness.flow.isKnownSourceLink("https://youtu.be/abc12345678"))
+        assertTrue(harness.flow.isKnownSourceLink("https://audiobook.co.ua/doktor-son"))
+        assertEquals(
+            ListenerSubmissionFlow.Kind.SOURCE,
+            harness.flow.classify("https://audiobook.co.ua/doktor-son")
+        )
+    }
+
+    @Test
+    fun `a known source page imports like the ordinary door and never publishes`() = runTest {
+        val harness = Harness(knownLink = knownBook)
+
+        val start = harness.flow.submit(knownBookLink)
+
+        assertTrue(start is ListenerSubmissionFlow.Start.Imported)
+        start as ListenerSubmissionFlow.Start.Imported
+        assertEquals("book-known", start.bookId)
+        assertEquals("audiobookcoua", start.sourceId)
+        // Not a listener submission: the catalogue already has the book.
+        assertFalse(start.publishable)
+        assertFalse(start.alreadyInLibrary)
+        assertTrue(start.knownSource)
+        assertEquals(10, start.remainingToday)
+        assertEquals(1, harness.knownImportCalls)
+        assertEquals(listOf(knownBook.url), harness.knownImportedUrls)
+        // The YouTube engine was never asked: the two paths stay separate.
+        assertEquals(0, harness.fetchCalls)
+        assertEquals(0, harness.importCalls)
+    }
+
+    @Test
+    fun `a known source page already in the library says so`() = runTest {
+        val harness = Harness(
+            knownLink = knownBook,
+            knownImport = ListenerSubmissionFlow.ImportOutcome(
+                result = ListenerSubmissionFlow.ImportResult.ALREADY_ADDED,
+                bookId = "book-known",
+                sourceId = "audiobookcoua"
+            )
+        )
+
+        val start = harness.flow.submit(knownBookLink)
+
+        assertTrue(start is ListenerSubmissionFlow.Start.Imported)
+        assertTrue((start as ListenerSubmissionFlow.Start.Imported).alreadyInLibrary)
+    }
+
+    @Test
+    fun `a failed known source import is refused rather than unsupported`() = runTest {
+        val harness = Harness(
+            knownLink = knownBook,
+            knownImport = null
+        )
+
+        val start = harness.flow.submit(knownBookLink)
+
+        assertTrue(start is ListenerSubmissionFlow.Start.Refused)
+        assertEquals(
+            ListenerSubmissionFlow.Reason.IMPORT_FAILED,
+            (start as ListenerSubmissionFlow.Start.Refused).reason
+        )
+    }
+
+    @Test
+    fun `a known source page without an import seam is an honest import failure`() = runTest {
+        val harness = Harness(knownLink = knownBook, withKnownImporter = false)
+
+        val start = harness.flow.submit(knownBookLink)
+
+        assertTrue(start is ListenerSubmissionFlow.Start.Refused)
+        assertEquals(
+            ListenerSubmissionFlow.Reason.IMPORT_FAILED,
+            (start as ListenerSubmissionFlow.Start.Refused).reason
+        )
+    }
+
+    @Test
+    fun `a known source page pasted offline waits in the visible queue`() = runTest {
+        val harness = Harness(knownLink = knownBook, online = false)
+
+        val start = harness.flow.submit(knownBookLink)
+
+        assertTrue(start is ListenerSubmissionFlow.Start.Deferred)
+        assertEquals(
+            listOf(knownBook.url),
+            harness.flow.deferredSubmissions().map { it.url }
+        )
+        assertEquals(0, harness.knownImportCalls)
     }
 }

@@ -1039,6 +1039,7 @@ fun LibraryScreen(
                 // Spec-53 T10 — the whole-channel selection card.
                 channelCard = channelCard,
                 isChannelLink = viewModel::isChannelLink,
+                isKnownSourceLink = viewModel::isKnownSourceLink,
                 onOpenChannel = { viewModel.openChannelCard(it) },
                 channelCallbacks = ChannelCardCallbacks(
                     onClose = { viewModel.closeChannelCard() },

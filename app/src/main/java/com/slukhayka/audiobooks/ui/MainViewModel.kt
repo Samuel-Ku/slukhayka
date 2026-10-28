@@ -846,6 +846,9 @@ class MainViewModel @JvmOverloads constructor(
     /** Spec-53 T10 — pure check the sheet uses to offer the channel card's door. */
     fun isChannelLink(url: String): Boolean = listenerSubmissionFlow.isChannelLink(url)
 
+    /** #1487 — a known-source book page has no engine preview; the sheet hides its button. */
+    fun isKnownSourceLink(url: String): Boolean = listenerSubmissionFlow.isKnownSourceLink(url)
+
     /** Spec-53 T8 — the visible offline queue of pasted links. */
     private val _deferredSubmissions = MutableStateFlow<List<SubmissionState>>(emptyList())
     val deferredSubmissions: StateFlow<List<SubmissionState>> = _deferredSubmissions.asStateFlow()
@@ -935,7 +938,8 @@ class MainViewModel @JvmOverloads constructor(
                     // Spec-53 T3 — no autoplay: the sheet offers one
                     // explicit «Слухати зараз» action; the awaiting badge
                     // keeps the promise visible until then.
-                    _submissionState.value = SubmissionUiState.Imported(start.publishable)
+                    _submissionState.value =
+                        SubmissionUiState.Imported(start.publishable, start.knownSource)
                 }
             }
             is ListenerSubmissionFlow.Start.MetadataPublished ->

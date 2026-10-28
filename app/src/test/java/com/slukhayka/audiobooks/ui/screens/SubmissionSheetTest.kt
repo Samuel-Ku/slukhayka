@@ -36,7 +36,8 @@ class SubmissionSheetTest {
         onSubmit: (String) -> Unit = {},
         preview: ListenerSubmissionFlow.SubmissionPreview? = null,
         onPreview: ((String) -> Unit)? = null,
-        onSubmitWithEdits: ((String, ListenerSubmissionFlow.PreviewEdits) -> Unit)? = null
+        onSubmitWithEdits: ((String, ListenerSubmissionFlow.PreviewEdits) -> Unit)? = null,
+        isKnownSourceLink: ((String) -> Boolean)? = null
     ) {
         compose.setContent {
             AudiobookTheme {
@@ -47,6 +48,7 @@ class SubmissionSheetTest {
                     preview = preview,
                     onPreview = onPreview,
                     onSubmitWithEdits = onSubmitWithEdits,
+                    isKnownSourceLink = isKnownSourceLink,
                     includePaneSemantics = false
                 )
             }
@@ -181,8 +183,33 @@ class SubmissionSheetTest {
     fun `an unsupported link explains what is accepted`() {
         show(SubmissionUiState.Unsupported)
         compose.onNodeWithText(
-            "Це посилання не підтримується. Надішліть YouTube-відео, плейлист або пост Telegram."
+            "Це посилання не підтримується. Надішліть YouTube-відео, плейлист, пост Telegram або сторінку книги з відомого джерела."
         ).assertExists()
+    }
+
+    @Test
+    fun `an imported known-source page says the catalogue already has it`() {
+        show(SubmissionUiState.Imported(publishable = false, knownSource = true))
+        compose.onNodeWithText(
+            "Книгу з відомого джерела додано до медіатеки. Вона вже є в каталозі джерела — публікувати нічого."
+        ).assertExists()
+    }
+
+    @Test
+    fun `a known source page offers submit but no engine preview`() {
+        // #1487 — the page is parsed by the import itself; the yt-dlp preview
+        // would be a dead click, so its door is not offered at all.
+        show(SubmissionUiState.Idle, onPreview = {}, isKnownSourceLink = { true })
+
+        compose.onNodeWithTag("submission_preview").assertDoesNotExist()
+        compose.onNodeWithTag("submission_submit").assertExists()
+    }
+
+    @Test
+    fun `an ordinary link keeps the preview door`() {
+        show(SubmissionUiState.Idle, onPreview = {}, isKnownSourceLink = { false })
+
+        compose.onNodeWithTag("submission_preview").assertExists()
     }
 
     @Test

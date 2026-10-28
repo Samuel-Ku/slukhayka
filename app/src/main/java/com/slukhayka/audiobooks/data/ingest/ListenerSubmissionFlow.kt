@@ -4,7 +4,8 @@ import kotlinx.coroutines.CancellationException
 
 /**
  * ADR-0035 / #604/#605/#606 — the ONE listener-submission flow behind the
- * «Надіслати посилання» door: a pasted YouTube or Telegram link becomes a
+ * «Надіслати посилання» door: a pasted YouTube, Telegram or known-source
+ * book-page link becomes a
  * local Source, a real playback verdict makes it publishable, and the
  * shared base gets the Source + metadata deltas — never audio.
  *
@@ -63,10 +64,29 @@ class ListenerSubmissionFlow(
      * the link was unreadable.
      */
     private val isOnline: suspend () -> Boolean = { true },
+    /**
+     * #1487 (slice 1) — the pasted link is a BOOK PAGE of a registered source
+     * (`KnownSourceLinkResolver` in production). Null keeps today's
+     * `Unsupported` for every host the registry does not claim.
+     */
+    private val resolveKnownSource: (String) -> KnownSourceLink? = { null },
+    /**
+     * #1487 (slice 1) — imports that page through the ordinary source door
+     * (`LibraryImport.importFromSourceUrl`). Null means the composition does
+     * not offer the known-source path at all.
+     */
+    private val importKnownSource: (suspend (KnownSourceLink) -> ImportOutcome?)? = null,
 ) {
 
     /** The shape of the paste. */
-    enum class Kind { YOUTUBE, TELEGRAM, UNSUPPORTED }
+    enum class Kind {
+        YOUTUBE,
+        TELEGRAM,
+
+        /** #1487 — a book page of a known source, imported like search does. */
+        SOURCE,
+        UNSUPPORTED
+    }
 
     /** The import door's outcome with the ids the verdict seam needs. */
     data class ImportOutcome(
@@ -177,7 +197,14 @@ class ListenerSubmissionFlow(
              * sheet says so and offers «Відкрити книгу» instead of pretending
              * a fresh import happened.
              */
-            val alreadyInLibrary: Boolean = false
+            val alreadyInLibrary: Boolean = false,
+            /**
+             * #1487 — the copy came from a BOOK PAGE of a known source, so
+             * there is nothing to publish (the book already lives in that
+             * source's catalogue). The sheet must not claim a missing shared
+             * base: that is a different reason for `publishable = false`.
+             */
+            val knownSource: Boolean = false
         ) : Start
 
         /**
@@ -233,12 +260,27 @@ class ListenerSubmissionFlow(
     }
 
 
-    /** YouTube hosts (watch, short, playlist, music) versus Telegram preview links. */
+    /**
+     * #1487 — true when the link is a book page of a registered source.
+     *
+     * Delegates to [classify] on purpose: the registry claims `t.me` too (the
+     * `telegram` source's home host), so a bare resolver check would classify
+     * a Telegram post as a source page and hide its working preview. YouTube
+     * and Telegram are checked FIRST, exactly as in [submit].
+     */
+    fun isKnownSourceLink(rawUrl: String): Boolean = classify(rawUrl) == Kind.SOURCE
+
+    /**
+     * YouTube hosts (watch, short, playlist, music), Telegram preview links,
+     * and #1487 — book pages of known sources. The source hosts are read
+     * through [resolveKnownSource], i.e. the registry, never a second table.
+     */
     fun classify(rawUrl: String): Kind {
         val url = rawUrl.trim()
         return when {
             YOUTUBE_URL.containsMatchIn(url) -> Kind.YOUTUBE
             TELEGRAM_URL.containsMatchIn(url) -> Kind.TELEGRAM
+            resolveKnownSource(url) != null -> Kind.SOURCE
             else -> Kind.UNSUPPORTED
         }
     }
@@ -271,7 +313,9 @@ class ListenerSubmissionFlow(
     ): Start {
         // Spec-53 T6 — one canonical form per link, so dedup and identity are
         // real: every live YouTube shape and every TG query string lands here.
-        val url = SubmissionUrlCanonicalizer.canonical(rawUrl) ?: return Start.Unsupported
+        // #1487 — a catalogue page has no YouTube/TG canonical form, so it is
+        // routed separately and the two existing paths stay untouched.
+        val url = SubmissionUrlCanonicalizer.canonical(rawUrl) ?: return submitKnownSource(rawUrl)
         // Spec-53 T8 — a paste without a network waits, visibly.
         if (!runCatching { isOnline() }.getOrDefault(true)) return defer(url)
         // Spec-53 T10 — a channel is picked, never auto-imported. Before the
@@ -288,6 +332,45 @@ class ListenerSubmissionFlow(
             Kind.UNSUPPORTED -> Start.Unsupported
             Kind.YOUTUBE -> submitYouTube(url, remaining, edits, selectedWatchUrls)
             Kind.TELEGRAM -> submitTelegram(url, remaining)
+            // A canonical YouTube/TG URL can never resolve as a source page:
+            // the branch above handles those before this `when` is reached.
+            Kind.SOURCE -> Start.Unsupported
+        }
+    }
+
+    /**
+     * #1487 (slice 1) — a pasted book page of a known source. No daily budget
+     * is spent (the budget guards new SOURCES; this is an import from the
+     * catalogue, the same act as a search result tap) and nothing is
+     * published (`publishable = false`): the book already lives in that
+     * source's catalogue. Offline keeps the visible deferral queue.
+     */
+    private suspend fun submitKnownSource(rawUrl: String): Start {
+        val link = resolveKnownSource(rawUrl) ?: return Start.Unsupported
+        if (!runCatching { isOnline() }.getOrDefault(true)) return defer(link.url)
+        val remaining = remainingToday()
+        val importer = importKnownSource ?: return Start.Refused(Reason.IMPORT_FAILED, remaining)
+        val imported = try {
+            importer(link)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        } ?: return Start.Refused(Reason.IMPORT_FAILED, remaining)
+        return when (imported.result) {
+            ImportResult.IMPORTED, ImportResult.ALREADY_ADDED -> {
+                val bookId = imported.bookId ?: return Start.Refused(Reason.IMPORT_FAILED, remaining)
+                Start.Imported(
+                    bookId = bookId,
+                    sourceId = imported.sourceId ?: link.sourceId,
+                    publishable = false,
+                    remainingToday = remaining,
+                    alreadyInLibrary = imported.result == ImportResult.ALREADY_ADDED,
+                    knownSource = true
+                )
+            }
+            ImportResult.METADATA_FAILED -> Start.Refused(Reason.METADATA_FAILED, remaining)
+            ImportResult.NO_PLAYABLE_TRACKS -> Start.Refused(Reason.NO_PLAYABLE_TRACKS, remaining)
         }
     }
 
@@ -324,6 +407,9 @@ class ListenerSubmissionFlow(
         return when (classify(url)) {
             Kind.YOUTUBE -> previewYouTube(url)
             Kind.TELEGRAM -> previewTelegram(url)
+            // #1487 — a source page has no engine preview card; the import
+            // parses the page itself and the sheet reports its honest state.
+            Kind.SOURCE -> null
             Kind.UNSUPPORTED -> null
         }
     }

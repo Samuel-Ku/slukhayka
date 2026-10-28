@@ -1,6 +1,5 @@
 package com.slukhayka.audiobooks.ui.screens
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,7 +26,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -635,18 +633,14 @@ fun ListenHeroCard(
     // the book page and the player. The card now takes the artwork from the
     // same sources (`coverDrawableRes` for local imports, the shared Coil route
     // for remote covers) and keeps the paper letter only as the real fallback.
-    val heroCover: (@Composable () -> Unit)? = when {
-        book.coverDrawableRes != 0 -> {
-            {
-                Image(
-                    painter = painterResource(book.coverDrawableRes),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
-        !book.coverImageUrl.isNullOrBlank() -> {
+    // The hero takes the SAME shared Coil route every other surface uses. A
+    // raw `painterResource(coverDrawableRes)` is NOT used here on purpose: a
+    // seeded drawable can fail to decode on device (verified: a bad JPG in the
+    // import fixture threw ResourceResolutionException and killed the app on
+    // launch), while Coil degrades to the placeholder instead. Drawable-backed
+    // imports keep the paper letter until the hero loader handles resource ids.
+    val heroCover: (@Composable () -> Unit)? =
+        if (!book.coverImageUrl.isNullOrBlank()) {
             {
                 BookCoverImage(
                     book = book,
@@ -657,9 +651,9 @@ fun ListenHeroCard(
                     typographicFallback = false,
                 )
             }
+        } else {
+            null
         }
-        else -> null
-    }
 
     // Plan 2026-2027, step 3: the hero is the first block migrated block by
     // block. It carries its own «Папір і голос» theme until the whole tab

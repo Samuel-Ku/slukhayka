@@ -43,7 +43,7 @@ class ListenHeroCoverTest {
 
     @Test
     fun `the hero shows the Work's real artwork when it has any`() {
-        showHero(book.copy(coverDrawableRes = R.drawable.ic_launcher_foreground))
+        showHero(book.copy(coverImageUrl = "https://example.invalid/cover.jpg"))
 
         compose.onNodeWithTag("hero_cover_art", useUnmergedTree = true).assertExists()
         compose.onNodeWithTag("hero_cover_placeholder", useUnmergedTree = true).assertDoesNotExist()
@@ -56,6 +56,22 @@ class ListenHeroCoverTest {
 
         compose.onNodeWithTag("hero_cover_placeholder", useUnmergedTree = true).assertExists()
         compose.onNodeWithTag("hero_cover_art", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    // The #997 fixture drawable is a known-broken JPEG (0 JPEG markers). Before
+    // the fix the hero fed it to `painterResource` and the whole app died with
+    // ResourceResolutionException on launch — the real device crash this test
+    // now pins: a bad local drawable must degrade to the paper letter.
+    @Test
+    fun `a broken local drawable never crashes the hero`() {
+        showHero(
+            book.copy(
+                coverImageUrl = null,
+                coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
+            )
+        )
+
+        compose.onNodeWithTag("hero_cover_placeholder", useUnmergedTree = true).assertExists()
     }
 
     private fun showHero(work: com.slukhayka.audiobooks.data.db.AudiobookEntity) {

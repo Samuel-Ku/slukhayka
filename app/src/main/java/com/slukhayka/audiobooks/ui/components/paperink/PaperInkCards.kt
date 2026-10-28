@@ -229,9 +229,13 @@ fun PaperInkHeroCard(
                         modifier = Modifier
                             .width(PaperInkDimens.CoverHeroWidth)
                             .height(PaperInkDimens.CoverHeroHeight)
-                            // The title below states the book; the letter is decoration.
-                            .clearAndSetSemantics { }
-                            .testTag("hero_cover_placeholder"),
+                            // The title below states the book; the letter is
+                            // decoration. The tag MUST come before the clear:
+                            // `clearAndSetSemantics` wipes the semantics set on
+                            // the same node, so tagging after it left the
+                            // fallback unaddressable (CI caught it).
+                            .testTag("hero_cover_placeholder")
+                            .clearAndSetSemantics { },
                         radius = PaperInkDimens.RadiusSmall,
                     )
                 }

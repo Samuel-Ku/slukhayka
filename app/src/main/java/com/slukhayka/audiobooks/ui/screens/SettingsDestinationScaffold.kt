@@ -12,6 +12,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
@@ -120,6 +121,8 @@ internal fun SettingsDestinationScaffold(
     content: @Composable (PaddingValues) -> Unit
 ) {
     val title = stringResource(destination.titleRes)
+    // 200 % text parity with the legacy header: two lines at fontScale ≥ 2.
+    val largeText = LocalDensity.current.fontScale >= 2f
     // Focus contract: entering a pushed screen focuses its title, exactly as
     // the legacy TopAppBar did, so TalkBack announces the new pane.
     val headingFocusRequester = remember { FocusRequester() }
@@ -144,6 +147,7 @@ internal fun SettingsDestinationScaffold(
                     onBackClick = onBackClick,
                     headingTestTag = destination.headingTag,
                     returnFocusRequester = headingFocusRequester,
+                    maxTitleLines = if (largeText) 2 else 1,
                 )
             },
             containerColor = MaterialTheme.colorScheme.background,

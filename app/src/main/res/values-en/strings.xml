@@ -47,7 +47,7 @@
     <string name="feed_empty_refresh">Refresh</string>
     <string name="feed_filters_empty_title">Nothing found</string>
     <string name="feed_filters_empty_body">No work matches the selected filters.</string>
-    <string name="feed_refresh_error_empty_body">The feed didn't load. Check your connection and try again.</string>
+    <string name="feed_refresh_error_empty_body">The feed didn\'t load. Check your connection and try again.</string>
     <string name="feed_refresh_error_title">Couldn\'t refresh the feed</string>
     <string name="feed_refresh_error_body">The works already shown are still here. Try again.</string>
     <string name="feed_refresh_retry">Retry</string>

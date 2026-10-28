@@ -145,8 +145,16 @@ private fun hostOfUrl(url: String): String? = try {
     null
 }
 
-/** Human-readable source label for badges — the registry display name. */
-fun sourceDisplayName(sourceId: String): String = SourceRegistry.displayName(sourceId)
+/**
+ * Human-readable source label for badges — the registry display name.
+ *
+ * #1532 — the internal [UNKNOWN_SOURCE_ID] marker is not a name: it returns an
+ * empty label, and every badge/chip hides itself on blank. A probed page of an
+ * unknown host is a real card, but «unknown» must never be printed as if it
+ * were a registered source.
+ */
+fun sourceDisplayName(sourceId: String): String =
+    if (sourceId == UNKNOWN_SOURCE_ID) "" else SourceRegistry.displayName(sourceId)
 
 /**
  * Merges raw per-source matches into one card per Work. Deterministic: cards

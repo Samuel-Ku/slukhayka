@@ -101,4 +101,39 @@ class LibraryNewArrivalsTest {
         assertTrue(LibraryNewArrivals.project(emptyList()).isEmpty())
         assertTrue(LibraryNewArrivals.project(many, limit = 0).isEmpty())
     }
+
+    @Test
+    fun probedPageCardHasNoSourceChip() {
+        // #1532 — an unknown-host page is a real card, but the internal marker
+        // must not become a chip label («unknown»).
+        val arrivals = LibraryNewArrivals.project(
+            listOf(
+                book(
+                    "web",
+                    "Неначе сон",
+                    sourceUrl = "https://unknown-site.example/book",
+                    createdAt = 5L
+                )
+            )
+        )
+
+        assertEquals(1, arrivals.size)
+        assertEquals("", arrivals.single().sourceName)
+    }
+
+    @Test
+    fun knownSourceCardsKeepTheirNames() {
+        val arrivals = LibraryNewArrivals.project(
+            listOf(
+                book(
+                    "snd",
+                    "Пасажир",
+                    sourceUrl = "https://sound-books.net/pasazhir.html",
+                    createdAt = 5L
+                )
+            )
+        )
+
+        assertEquals("Sound-Books", arrivals.single().sourceName)
+    }
 }

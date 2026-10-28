@@ -640,6 +640,46 @@ class App : Application() {
                         sourceId = link.sourceId
                     )
                 }
+            },
+            // #1487 (slice 2) — ONE gated request for a page of an unknown
+            // host (LISTENER_ACTION: a tap never starves behind background
+            // work); the parser is pure and the card stays local.
+            probePage = { url ->
+                val html = runCatching {
+                    com.slukhayka.audiobooks.data.source.HttpFetcher().getText(
+                        url,
+                        emptyMap(),
+                        com.slukhayka.audiobooks.data.source.SourceRequestClass.LISTENER_ACTION,
+                        0L
+                    )
+                }.getOrNull()
+                if (html.isNullOrBlank()) {
+                    null
+                } else {
+                    com.slukhayka.audiobooks.data.ingest.BookPageProbe.parse(html, url)
+                }
+            },
+            importProbedPage = { page ->
+                var isNew = false
+                val entity = runCatching {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                        libraryImport.importProbedPage(
+                            page.toSourceBookDetail(),
+                            onNewBookImported = { isNew = true }
+                        )
+                    }
+                }.getOrNull()
+                entity?.let {
+                    com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportOutcome(
+                        result = if (isNew) {
+                            com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportResult.IMPORTED
+                        } else {
+                            com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow.ImportResult.ALREADY_ADDED
+                        },
+                        bookId = it.id,
+                        sourceId = com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID
+                    )
+                }
             }
         )
     }

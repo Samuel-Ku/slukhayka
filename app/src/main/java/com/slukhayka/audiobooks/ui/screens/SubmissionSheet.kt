@@ -122,6 +122,8 @@ fun SubmissionSheet(
     isChannelLink: ((String) -> Boolean)? = null,
     /** #1487 — a known-source book page is imported directly: no preview card. */
     isKnownSourceLink: ((String) -> Boolean)? = null,
+    /** #1487 slice 2 — opens the refused page in the system browser. */
+    onOpenBrowser: ((String) -> Unit)? = null,
     onOpenChannel: ((String) -> Unit)? = null,
     channelCallbacks: ChannelCardCallbacks? = null,
     /** Spec-53 T11 — the playlist preview's selection and its doors. */
@@ -158,6 +160,7 @@ fun SubmissionSheet(
             channelCard = channelCard,
             isChannelLink = isChannelLink,
             isKnownSourceLink = isKnownSourceLink,
+            onOpenBrowser = onOpenBrowser,
             onOpenChannel = onOpenChannel,
             channelCallbacks = channelCallbacks,
             playlistSelection = playlistSelection,
@@ -191,6 +194,8 @@ fun SubmissionSheetContent(
     isChannelLink: ((String) -> Boolean)? = null,
     /** #1487 — a known-source book page is imported directly: no preview card. */
     isKnownSourceLink: ((String) -> Boolean)? = null,
+    /** #1487 slice 2 — opens the refused page in the system browser. */
+    onOpenBrowser: ((String) -> Unit)? = null,
     onOpenChannel: ((String) -> Unit)? = null,
     channelCallbacks: ChannelCardCallbacks? = null,
     /** Spec-53 T11 — the playlist preview's selection and its doors. */
@@ -291,6 +296,19 @@ fun SubmissionSheetContent(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.testTag("submission_status")
             )
+        }
+        // #1487 slice 2 — an unknown page the app could not turn into a card:
+        // the honest door is the listener's own browser, not a silent WebView.
+        if (state is SubmissionUiState.Refused && state.browserUrl != null && onOpenBrowser != null) {
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedButton(
+                onClick = { onOpenBrowser(state.browserUrl) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("submission_open_browser")
+            ) {
+                Text(stringResource(R.string.submission_open_in_browser))
+            }
         }
         // Spec-53 T3 — the one explicit action after an import; no autoplay.
         if (state is SubmissionUiState.Imported && onListen != null) {
@@ -588,4 +606,7 @@ private fun submissionRefusalRes(reason: ListenerSubmissionFlow.Reason): Int = w
     ListenerSubmissionFlow.Reason.NOT_VERIFIED -> R.string.submission_status_refused_not_verified
     ListenerSubmissionFlow.Reason.REJECTED -> R.string.submission_status_refused_rejected
     ListenerSubmissionFlow.Reason.SHARED_BASE_UNAVAILABLE -> R.string.submission_status_refused_unavailable
+    // #1487 slice 2 — an unknown page: read failed, or no playable audio.
+    ListenerSubmissionFlow.Reason.PAGE_UNREADABLE -> R.string.submission_status_refused_page_unreadable
+    ListenerSubmissionFlow.Reason.PAGE_NO_AUDIO -> R.string.submission_status_refused_page_no_audio
 }

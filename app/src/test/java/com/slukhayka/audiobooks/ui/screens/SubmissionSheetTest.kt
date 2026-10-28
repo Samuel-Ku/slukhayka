@@ -37,7 +37,8 @@ class SubmissionSheetTest {
         preview: ListenerSubmissionFlow.SubmissionPreview? = null,
         onPreview: ((String) -> Unit)? = null,
         onSubmitWithEdits: ((String, ListenerSubmissionFlow.PreviewEdits) -> Unit)? = null,
-        isKnownSourceLink: ((String) -> Boolean)? = null
+        isKnownSourceLink: ((String) -> Boolean)? = null,
+        onOpenBrowser: ((String) -> Unit)? = null
     ) {
         compose.setContent {
             AudiobookTheme {
@@ -49,6 +50,7 @@ class SubmissionSheetTest {
                     onPreview = onPreview,
                     onSubmitWithEdits = onSubmitWithEdits,
                     isKnownSourceLink = isKnownSourceLink,
+                    onOpenBrowser = onOpenBrowser,
                     includePaneSemantics = false
                 )
             }
@@ -192,6 +194,42 @@ class SubmissionSheetTest {
         show(SubmissionUiState.Imported(publishable = false, knownSource = true))
         compose.onNodeWithText(
             "Книгу з відомого джерела додано до медіатеки. Вона вже є в каталозі джерела — публікувати нічого."
+        ).assertExists()
+    }
+
+    // --- #1487 (slice 2): a probed page of an unknown host -------------------
+
+    @Test
+    fun `a refused page offers the browser door and hands it the url`() {
+        var opened: String? = null
+        show(
+            SubmissionUiState.Refused(
+                ListenerSubmissionFlow.Reason.PAGE_NO_AUDIO,
+                "https://unknown-site.example/book"
+            ),
+            onOpenBrowser = { opened = it }
+        )
+
+        compose.onNodeWithText(
+            "Сторінка відкрилася, але аудіо на ній не знайдено. Відкрийте її у браузері."
+        ).assertExists()
+        compose.onNodeWithTag("submission_open_browser").assertExists().performClick()
+        assertEquals("https://unknown-site.example/book", opened)
+    }
+
+    @Test
+    fun `a refusal without a page url has no browser door`() {
+        show(SubmissionUiState.Refused(ListenerSubmissionFlow.Reason.IMPORT_FAILED))
+
+        compose.onNodeWithTag("submission_open_browser").assertDoesNotExist()
+    }
+
+    @Test
+    fun `an imported probed page says it is not a catalogue card`() {
+        show(SubmissionUiState.Imported(publishable = false, probedPage = true))
+
+        compose.onNodeWithText(
+            "Книгу додано зі сторінки джерела. Це не каталог Слухайки: якість і доступність залежать від сайту."
         ).assertExists()
     }
 

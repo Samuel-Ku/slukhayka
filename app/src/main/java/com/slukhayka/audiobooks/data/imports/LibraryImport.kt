@@ -578,6 +578,35 @@ class LibraryImport(
         }
 
     /**
+     * #1487 (slice 2) — persists a PUBLIC page of a host no source claims.
+     *
+     * The page was fetched and parsed on the device by the shared probe
+     * (`BookPageProbe`); this door only materialises it through the ordinary
+     * import core (same MergeKey/Edition dedup as every source) under the
+     * internal [com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID] marker
+     * the UI already hides. The page is NOT a resolved catalogue Source:
+     * [writeBackProfile] stays false (no shared-base write, ADR-0028/0035) and
+     * nothing is published — a listener's local card only. Null on an empty
+     * playlist or a non-http track, never a fabricated card.
+     */
+    suspend fun importProbedPage(
+        detail: com.slukhayka.audiobooks.data.source.SourceBookDetail,
+        onNewBookImported: ((AudiobookEntity) -> Unit)? = null
+    ): AudiobookEntity? = withContext(Dispatchers.IO) {
+        if (detail.chapters.isEmpty()) return@withContext null
+        if (detail.chapters.any { !it.streamUrl.isPlayableSourceUrl() }) return@withContext null
+        runCatching {
+            importBookFromSource(
+                sourceId = com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID,
+                detail = detail,
+                writeBackProfile = false,
+                origin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.EXPLICIT_SAVE,
+                onNewBookImported = onNewBookImported
+            )
+        }.getOrNull()
+    }
+
+    /**
      * #477 — ONE best-effort direct page fetch of a browser source (4read),
      * reached only from the catalogue tap right before the browser door.
      * Unlike [importFromSourceUrl] this door skips the verified-profile gate

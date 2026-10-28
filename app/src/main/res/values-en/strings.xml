@@ -433,7 +433,7 @@
     <string name="a11y_submission_pane">Submit a link</string>
     <string name="a11y_submission_close">Close</string>
     <string name="submission_sheet_title">Submit a link</string>
-    <string name="submission_sheet_subtitle">A YouTube video, a playlist, a Telegram post, or a book page from a known source. The book lands in your library right away; a video or a post reaches the shared catalog after it really plays.</string>
+    <string name="submission_sheet_subtitle">A YouTube video, a playlist, a Telegram post, or a book page from a known source. The book lands in your library right away.</string>
     <string name="submission_url_label">Link</string>
     <string name="submission_remaining">Submissions left today: %1$d</string>
     <string name="submission_submit_action">Add now</string>

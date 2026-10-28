@@ -490,7 +490,7 @@
     <string name="a11y_submission_pane">Надіслати посилання</string>
     <string name="a11y_submission_close">Закрити</string>
     <string name="submission_sheet_title">Надіслати посилання</string>
-    <string name="submission_sheet_subtitle">YouTube-відео, плейлист, пост Telegram або сторінка книги з відомого джерела. Книга з’явиться у медіатеці одразу, а відео й пост — у спільному каталозі після реального програвання.</string>
+    <string name="submission_sheet_subtitle">YouTube-відео, плейлист, пост Telegram або сторінка книги з відомого джерела. Книга з’явиться у медіатеці одразу.</string>
     <string name="submission_url_label">Посилання</string>
     <string name="submission_remaining">Залишилось надсилань сьогодні: %1$d</string>
     <string name="submission_submit_action">Додати одразу</string>

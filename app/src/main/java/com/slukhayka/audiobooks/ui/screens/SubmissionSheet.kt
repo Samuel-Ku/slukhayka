@@ -89,9 +89,10 @@ sealed interface SubmissionUiState {
 }
 
 /**
- * The one «надіслати посилання» door: paste a YouTube video/playlist or a
- * Telegram post, submit, and follow the honest state. Publication happens
- * only after the imported copy really plays — the sheet says so plainly.
+ * The one «надіслати посилання» door: paste a YouTube video/playlist, a
+ * Telegram post or a book page of a known source, submit, and follow the
+ * honest state. Publication happens only after the imported copy really plays
+ * (a catalogue page has nothing to publish at all) — the sheet says so plainly.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -119,6 +120,8 @@ fun SubmissionSheet(
     /** Spec-53 T10 — the whole-channel selection card and its doors. */
     channelCard: ChannelCardState? = null,
     isChannelLink: ((String) -> Boolean)? = null,
+    /** #1487 — a known-source book page is imported directly: no preview card. */
+    isKnownSourceLink: ((String) -> Boolean)? = null,
     onOpenChannel: ((String) -> Unit)? = null,
     channelCallbacks: ChannelCardCallbacks? = null,
     /** Spec-53 T11 — the playlist preview's selection and its doors. */
@@ -154,6 +157,7 @@ fun SubmissionSheet(
             onSubmitWithEdits = onSubmitWithEdits,
             channelCard = channelCard,
             isChannelLink = isChannelLink,
+            isKnownSourceLink = isKnownSourceLink,
             onOpenChannel = onOpenChannel,
             channelCallbacks = channelCallbacks,
             playlistSelection = playlistSelection,
@@ -185,6 +189,8 @@ fun SubmissionSheetContent(
     /** Spec-53 T10 — the whole-channel selection card and its doors. */
     channelCard: ChannelCardState? = null,
     isChannelLink: ((String) -> Boolean)? = null,
+    /** #1487 — a known-source book page is imported directly: no preview card. */
+    isKnownSourceLink: ((String) -> Boolean)? = null,
     onOpenChannel: ((String) -> Unit)? = null,
     channelCallbacks: ChannelCardCallbacks? = null,
     /** Spec-53 T11 — the playlist preview's selection and its doors. */
@@ -373,7 +379,7 @@ fun SubmissionSheetContent(
                 ) {
                     Text(stringResource(R.string.submission_channel_open))
                 }
-            } else if (onPreview != null) {
+            } else if (onPreview != null && isKnownSourceLink?.invoke(url.trim()) != true) {
                 OutlinedButton(
                     onClick = { onPreview(url.trim()) },
                     enabled = url.isNotBlank() && state !is SubmissionUiState.Working,

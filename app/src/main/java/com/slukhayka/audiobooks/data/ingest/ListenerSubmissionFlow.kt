@@ -4,7 +4,8 @@ import kotlinx.coroutines.CancellationException
 
 /**
  * ADR-0035 / #604/#605/#606 — the ONE listener-submission flow behind the
- * «Надіслати посилання» door: a pasted YouTube or Telegram link becomes a
+ * «Надіслати посилання» door: a pasted YouTube, Telegram or known-source
+ * book-page link becomes a
  * local Source, a real playback verdict makes it publishable, and the
  * shared base gets the Source + metadata deltas — never audio.
  *
@@ -258,6 +259,9 @@ class ListenerSubmissionFlow(
         data object NoPending : Verdict
     }
 
+
+    /** #1487 — true when the link is a book page of a registered source. */
+    fun isKnownSourceLink(rawUrl: String): Boolean = resolveKnownSource(rawUrl.trim()) != null
 
     /**
      * YouTube hosts (watch, short, playlist, music), Telegram preview links,

@@ -467,7 +467,7 @@
     <string name="submission_preview_single_video">jedno wideo</string>
     <string name="submission_preview_telegram">Post Telegram</string>
     <string name="submission_remaining">Pozostałe zgłoszenia na dziś: %1$d</string>
-    <string name="submission_sheet_subtitle">Film YouTube, playlista, post Telegram lub strona książki ze znanego źródła. Książka pojawi się w bibliotece od razu, a film i post — we wspólnym katalogu po rzeczywistym odtworzeniu.</string>
+    <string name="submission_sheet_subtitle">Film YouTube, playlista, post Telegram lub strona książki ze znanego źródła. Książka pojawi się w bibliotece od razu.</string>
     <string name="submission_sheet_title">Wyślij link</string>
     <string name="submission_status_already_in_library">Już w bibliotece.</string>
     <string name="submission_status_deferred">Brak sieci — link odłożony. Przetworzę go, gdy pojawi się połączenie.</string>

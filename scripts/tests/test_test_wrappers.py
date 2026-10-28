@@ -348,6 +348,29 @@ class FullSuiteWrapperTest(unittest.TestCase):
         self.assertIn("com.slukhayka.audiobooks.player.SmartRewindTest", invocations)
         self.assertNotIn(":app:testComposeRoborazzi", invocations)
 
+    def test_android_change_also_compiles_the_device_suite(self):
+        """Public Kotlin change compiles androidTest before the partitions."""
+        self.write_gradle()
+
+        result = subprocess.run(
+            [
+                "bash",
+                str(TEST_CHANGED),
+                "--changed-file",
+                "app/src/main/java/com/slukhayka/audiobooks/ui/screens/SettingsScreen.kt",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=self.environment(java_home=self.java_home),
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("compiling :app:compileDebugAndroidTestKotlin", result.stdout)
+        invocations = self.gradle_log.read_text(encoding="utf-8")
+        self.assertIn(":app:compileDebugAndroidTestKotlin", invocations)
+        self.assertIn(":app:testPureJvm", invocations)
+
     def test_documentation_only_change_runs_nothing(self):
         self.write_gradle()
 

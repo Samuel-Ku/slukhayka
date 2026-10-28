@@ -531,7 +531,7 @@ fun LazyListScope.homeFeedContent(
             EmptyState(
                 icon = Icons.Default.CloudOff,
                 title = stringResource(R.string.feed_refresh_error_title),
-                body = stringResource(R.string.feed_refresh_error_body),
+                body = stringResource(R.string.feed_refresh_error_empty_body),
                 modifier = Modifier.testTag("feed_refresh_error")
             ) {
                 FeedRefreshButton(
@@ -583,15 +583,28 @@ fun LazyListScope.homeFeedContent(
     // keep the rows (AC2) instead of replacing them with an error.
     if (workFeedItems.itemCount > 0 && feedRefresh is LoadState.Error) {
         item {
-            Text(
-                text = stringResource(R.string.feed_refresh_error_body),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
+            Row(
                 modifier = Modifier
+                    .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .testTag("feed_refresh_error_banner")
-                    .semantics { liveRegion = LiveRegionMode.Polite }
-            )
+                    .testTag("feed_refresh_error_banner"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.feed_refresh_error_body),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier
+                        .weight(1f)
+                        .semantics { liveRegion = LiveRegionMode.Polite }
+                )
+                TextButton(
+                    onClick = { workFeedItems.retry() },
+                    modifier = Modifier.testTag("feed_refresh_error_banner_retry")
+                ) {
+                    Text(stringResource(R.string.feed_refresh_retry))
+                }
+            }
         }
     }
     // Paging-compose 3.3 removed LazyListScope.items(LazyPagingItems);

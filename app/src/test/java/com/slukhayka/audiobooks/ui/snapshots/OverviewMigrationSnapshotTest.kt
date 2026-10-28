@@ -151,6 +151,8 @@ class OverviewMigrationSnapshotTest {
         composeTestRule.onNodeWithTag("home_search_input").assertIsDisplayed()
         val surface = composeTestRule.onNodeWithTag("home_search_surface")
             .getUnclippedBoundsInRoot()
+        // The PR quotes this line as the measured 52 dp (see the test XML).
+        println("overview-migration: search surface = ${surface.height}")
         assertTrue(
             "the paper search row must be 52 dp tall, was ${surface.height}",
             surface.height >= 51.5.dp && surface.height <= 52.5.dp
@@ -170,6 +172,7 @@ class OverviewMigrationSnapshotTest {
         chips.assertIsDisplayed()
         val firstContentTop = composeTestRule.onNodeWithTag(firstContentTag)
             .getUnclippedBoundsInRoot().top
+        println("overview-migration: first content top = ${firstContentTop.value} dp")
         assertTrue(
             "the first curated card sits at ${firstContentTop.value} dp from the top; " +
                 "the migration target is ≤ $firstContentCeiling dp (it was ≈703 dp before)",
@@ -227,6 +230,7 @@ class OverviewMigrationSnapshotTest {
 
         val banner = composeTestRule.onNodeWithTag("app_update_banner")
             .getUnclippedBoundsInRoot()
+        println("overview-migration: update banner top = ${banner.top.value} dp, height = ${banner.height}")
         assertTrue(
             "the update row must stay ≤56 dp tall, was ${banner.height}",
             banner.height <= 56.dp

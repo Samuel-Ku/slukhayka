@@ -10,10 +10,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.height
 import androidx.paging.PagingData
@@ -34,6 +36,12 @@ import com.slukhayka.audiobooks.ui.screens.homeFeedContent
 import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertTrue
+import java.io.File
+import javax.imageio.ImageIO
+import kotlin.math.abs
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -58,8 +66,15 @@ import org.robolectric.annotation.GraphicsMode
  *    scrolls instead of cutting the last chip with no hint;
  *  - [update_banner_is_one_compact_paper_row] — F20/F5: ≤56 dp, localised,
  *    one action, and BELOW the first curated shelf;
+ *  - [typical_query…]-guards: the TYPED query must stay readable in both
+ *    materials — `BasicTextField` does not read `LocalContentColor`, so the
+ *    pre-review version rendered it in platform black on the ink surface
+ *    (≈1.2:1). The golden is re-recorded here and the rendered pixels are
+ *    measured against WCAG AA, so a blind re-record cannot mask it again;
  *  - two goldens (`overview_light` / `overview_dark`) — the recorded first
- *    screen of the migrated tab, both materials.
+ *    screen of the migrated tab, both materials (the dark one carries the
+ *    typed query, so it is a distinct frame rather than a copy of
+ *    `home_feed_phone_fold`).
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -73,6 +88,9 @@ class OverviewMigrationSnapshotTest {
     private val firstContentCeiling = 350f
 
     private val firstContentTag = "recommended_r1"
+
+    /** A real query, not a placeholder — the typed state is what the review broke. */
+    private val typedQuery = "Шевченко"
 
     private val recommendations = listOf(
         RecommendationEngine.Recommendation(
@@ -206,9 +224,21 @@ class OverviewMigrationSnapshotTest {
 
         // F26: on a phone the navigation row is wider than the screen, so the
         // right-edge fade must be present — the last chip is never silently
-        // cut off. The fade disappears once the row scrolls to the end, which
-        // the widget-level test below pins.
+        // cut off. The row-level test below pins the other half: at the end of
+        // the scroll the fade is GONE, so it really is an affordance.
         composeTestRule.onNodeWithTag("home_chips_scroll_hint").assertExists()
+    }
+
+    @Test
+    fun chips_scroll_hint_disappears_at_the_end_of_the_row() {
+        renderOverview(dark = false)
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("home_chips_row")
+            .performScrollToNode(hasTestTag("navigation_chip_Колекції"))
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("home_chips_scroll_hint").assertDoesNotExist()
     }
 
     @Test
@@ -261,6 +291,83 @@ class OverviewMigrationSnapshotTest {
         composeTestRule.onNodeWithText("Zaktualizuj").assertExists()
     }
 
+    /**
+     * Review blocker (#1542) — the TYPED query was rendered in platform black
+     * on the ink surface (≈1.2:1): `BasicTextField` paints with the style it
+     * gets and does not fall back to `LocalContentColor`. A re-recorded golden
+     * cannot notice a colour that the whole suite already accepted, so this
+     * test reads the rendered pixels of the field itself and measures WCAG
+     * contrast between the background and the most contrasting glyph pixel.
+     *
+     * The captures are also the committed typed-state goldens
+     * (`home_search_typed_light.png` / `_dark.png`); in record mode the file
+     * is written before it is read, so a bad re-record fails HERE instead of
+     * being laundered into the baseline.
+     */
+    @Test
+    fun typed_query_text_is_readable_in_both_themes() {
+        assertTypedQueryContrast(dark = false, golden = "home_search_typed_light.png")
+        assertTypedQueryContrast(dark = true, golden = "home_search_typed_dark.png")
+    }
+
+    private fun assertTypedQueryContrast(dark: Boolean, golden: String) {
+        renderOverview(dark = dark, searchQuery = typedQuery)
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText(typedQuery).assertExists()
+
+        val file = File("src/test/snapshots/$golden")
+        composeTestRule.onNodeWithTag("home_search_input")
+            .captureRoboImage(filePath = file.path)
+        val image = requireNotNull(ImageIO.read(file)) {
+            "the typed-query golden $golden was neither recorded nor committed"
+        }
+
+        val occurrences = HashMap<Int, Int>()
+        var darkest = 1.0
+        var lightest = 0.0
+        for (y in 0 until image.height) {
+            for (x in 0 until image.width) {
+                val argb = image.getRGB(x, y) or (0xFF shl 24)
+                occurrences.merge(argb, 1, Int::plus)
+                val luminance = relativeLuminance(argb)
+                darkest = min(darkest, luminance)
+                lightest = max(lightest, luminance)
+            }
+        }
+        val background = occurrences.maxByOrNull { it.value }!!.key
+        val backgroundLuminance = relativeLuminance(background)
+        // The glyph pixel is whichever extreme is further from the background.
+        val textLuminance =
+            if (abs(backgroundLuminance - darkest) > abs(backgroundLuminance - lightest)) {
+                darkest
+            } else {
+                lightest
+            }
+        val contrast = (max(backgroundLuminance, textLuminance) + 0.05) /
+            (min(backgroundLuminance, textLuminance) + 0.05)
+        println(
+            "overview-migration: typed query contrast = ${"%.2f".format(contrast)}:1 " +
+                "(${if (dark) "ink" else "paper"})"
+        )
+        assertTrue(
+            "the typed search query is only ${"%.2f".format(contrast)}:1 against its field " +
+                "in the ${if (dark) "ink" else "paper"} theme — WCAG AA needs ≥4.5:1 " +
+                "(the pre-review bug rendered platform black on the ink surface)",
+            contrast >= 4.5
+        )
+    }
+
+    /** WCAG 2.x relative luminance of an opaque ARGB colour. */
+    private fun relativeLuminance(argb: Int): Double {
+        fun channel(value: Int): Double {
+            val s = value / 255.0
+            return if (s <= 0.04045) s / 12.92 else ((s + 0.055) / 1.055).pow(2.4)
+        }
+        return 0.2126 * channel((argb shr 16) and 0xFF) +
+            0.7152 * channel((argb shr 8) and 0xFF) +
+            0.0722 * channel(argb and 0xFF)
+    }
+
     @Test
     fun overview_light_golden() {
         renderOverview(dark = false)
@@ -272,8 +379,12 @@ class OverviewMigrationSnapshotTest {
 
     @Test
     fun overview_dark_golden() {
-        renderOverview(dark = true)
+        // The dark frame carries the typed query on purpose: it is the ink
+        // version of the review blocker, and it keeps this golden distinct
+        // from `home_feed_phone_fold.png` (same feed, no header).
+        renderOverview(dark = true, searchQuery = typedQuery)
         composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText(typedQuery).assertExists()
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/overview_dark.png"
         )
@@ -300,6 +411,7 @@ class OverviewMigrationSnapshotTest {
     private fun renderOverview(
         dark: Boolean,
         banner: (@Composable () -> Unit)? = null,
+        searchQuery: String = "",
     ) {
         composeTestRule.setContent {
             PaperInkTheme(darkTheme = dark) {
@@ -312,7 +424,7 @@ class OverviewMigrationSnapshotTest {
                     LazyColumn(modifier = Modifier.fillMaxSize().testTag("home_screen")) {
                         item {
                             HomeHeader(
-                                searchQuery = "",
+                                searchQuery = searchQuery,
                                 onRefresh = {},
                                 onSearchQueryChange = {}
                             )

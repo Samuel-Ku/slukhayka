@@ -838,7 +838,13 @@ private fun PaperSearchField(
             value = query,
             onValueChange = onQueryChange,
             singleLine = true,
-            textStyle = hintStyle,
+            // Review blocker (#1542): `BasicTextField` draws with the style it is
+            // given and does NOT fall back to `LocalContentColor`, so an unstyled
+            // `textStyle` rendered the typed query in the platform default black
+            // (#000) — ≈1.2:1 on the ink surface. The ink colour is explicit, and
+            // `typed_query_text_is_readable_in_both_themes` pins the rendered
+            // contrast so a re-record cannot hide it again.
+            textStyle = hintStyle.copy(color = MaterialTheme.colorScheme.onSurface),
             cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             modifier = Modifier
                 .weight(1f)
@@ -1161,6 +1167,7 @@ fun CatalogNavRow(
     ) {
         LazyRow(
             state = chipsState,
+            modifier = Modifier.testTag("home_chips_row"),
             contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {

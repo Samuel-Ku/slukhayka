@@ -2,7 +2,6 @@ package com.slukhayka.audiobooks.ui.screens.collections
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,7 +18,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -28,6 +26,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.collections.ListenerCollection
+import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 
 /**
@@ -44,6 +44,13 @@ fun CollectionDetailContent(
     onRemoveBook: (bookId: String) -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * #1505 — the stored position keeps only `bookId` (spec 2026-09-10), so the
+     * name is resolved at render time from the local library; a book outside it
+     * falls back to a human line, never the raw id.
+     */
+    booksById: Map<String, AudiobookEntity> = emptyMap(),
+    onOpenBook: (bookId: String) -> Unit = {},
     /**
      * #1154 — reports the INTENT to publish. The confirmation itself belongs to
      * the caller, so this stays a presenter: it never publishes anything by
@@ -92,31 +99,26 @@ fun CollectionDetailContent(
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(collection.items, key = { it.bookId }) { item ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 48.dp)
-                            .testTag("collection_item_${item.bookId}"),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.padding(start = 16.dp)) {
-                            Text(text = item.bookId, style = MaterialTheme.typography.bodyLarge)
-                            if (item.reason.isNotBlank()) {
-                                Text(
-                                    text = item.reason,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                    val book = booksById[item.bookId]
+                    // ADR-0033: the collection item IS the canonical BookRow —
+                    // the stored fact is a bookId, the rendered fact is a book.
+                    BookRow(
+                        title = book?.title ?: stringResource(R.string.collection_item_unknown),
+                        book = book,
+                        coverUrl = book?.coverImageUrl,
+                        author = book?.author?.takeIf { it.isNotBlank() },
+                        stats = item.reason.takeIf { it.isNotBlank() },
+                        onClick = book?.let { resolved -> { onOpenBook(resolved.id) } },
+                        testTag = "collection_item_${item.bookId}",
+                        trailing = {
+                            TextButton(
+                                onClick = { onRemoveBook(item.bookId) },
+                                modifier = Modifier
+                                    .heightIn(min = 48.dp)
+                                    .testTag("collection_item_remove_${item.bookId}")
+                            ) { Text(stringResource(R.string.collection_remove_book)) }
                         }
-                        Spacer(Modifier.weight(1f))
-                        TextButton(
-                            onClick = { onRemoveBook(item.bookId) },
-                            modifier = Modifier
-                                .heightIn(min = 48.dp)
-                                .testTag("collection_item_remove_${item.bookId}")
-                        ) { Text(stringResource(R.string.collection_remove_book)) }
-                    }
+                    )
                 }
             }
         }

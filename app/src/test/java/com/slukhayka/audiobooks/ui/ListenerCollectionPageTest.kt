@@ -8,6 +8,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import com.slukhayka.audiobooks.data.collections.ListenerCollection
 import com.slukhayka.audiobooks.data.collections.ListenerCollectionItem
+import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.ui.screens.collections.ListenerCollectionPage
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import java.io.File
@@ -56,7 +57,9 @@ class ListenerCollectionPageTest {
         onClose: () -> Unit = {},
         onRemoveBook: (String, String) -> Unit = { _, _ -> },
         onDelete: (String) -> Unit = {},
-        onPublish: (String, String) -> Unit = { _, _ -> }
+        onPublish: (String, String) -> Unit = { _, _ -> },
+        booksById: Map<String, AudiobookEntity> = emptyMap(),
+        onOpenBook: (String) -> Unit = {}
     ) {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
@@ -66,7 +69,9 @@ class ListenerCollectionPageTest {
                     onClose = onClose,
                     onRemoveBook = onRemoveBook,
                     onDelete = onDelete,
-                    onPublish = onPublish
+                    onPublish = onPublish,
+                    booksById = booksById,
+                    onOpenBook = onOpenBook
                 )
             }
         }
@@ -80,6 +85,27 @@ class ListenerCollectionPageTest {
         composeTestRule.onNodeWithTag("collection_detail").assertIsDisplayed()
         composeTestRule.onNodeWithText("Магія").assertIsDisplayed()
         composeTestRule.onNodeWithTag("collection_item_book-a").assertIsDisplayed()
+    }
+
+    @Test
+    fun `the page resolves names and opens a book from the collection`() {
+        var opened: String? = null
+        setPage(
+            collections = listOf(collection("c1")),
+            openId = "c1",
+            booksById = mapOf(
+                "book-a" to AudiobookEntity(
+                    id = "book-a", title = "Місто", author = "Валер'ян Підмогильний",
+                    narrator = "", description = "", coverDrawableRes = 0,
+                    genre = "", sourceUrl = "https://example.invalid/book-a"
+                )
+            ),
+            onOpenBook = { opened = it }
+        )
+
+        composeTestRule.onNodeWithText("Місто").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("collection_item_book-a").performClick()
+        assertEquals("book-a", opened)
     }
 
     @Test

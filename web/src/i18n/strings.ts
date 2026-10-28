@@ -171,6 +171,8 @@ const uk = {
   searching: "Шукаємо…",
   nothingFound: "Нічого не знайшли.",
   sourceFailed: "Джерело не відповіло спробуйте пізніше.",
+  partialSourcesFailed:
+    "Частина джерел не відповіла. Показано доступні результати.",
   loadingCatalog: "Завантажуємо об’єднаний каталог…",
   cachedCatalogNotice:
     "Показуємо останній збережений каталог{date}. Оновлення тимчасово недоступне.",
@@ -564,6 +566,8 @@ const en: Strings = {
   searching: "Searching…",
   nothingFound: "Nothing found.",
   sourceFailed: "The source did not answer — try later.",
+  partialSourcesFailed:
+    "Some sources did not answer. Showing the results that are available.",
   loadingCatalog: "Loading the combined catalog…",
   cachedCatalogNotice:
     "Showing the last saved catalog{date}. Updating is temporarily unavailable.",

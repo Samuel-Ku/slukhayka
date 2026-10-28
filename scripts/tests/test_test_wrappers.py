@@ -348,6 +348,63 @@ class FullSuiteWrapperTest(unittest.TestCase):
         self.assertIn("com.slukhayka.audiobooks.player.SmartRewindTest", invocations)
         self.assertNotIn(":app:testComposeRoborazzi", invocations)
 
+    def test_android_change_also_compiles_the_device_suite(self):
+        """Public Kotlin change compiles androidTest before the partitions."""
+        self.write_gradle()
+
+        result = subprocess.run(
+            [
+                "bash",
+                str(TEST_CHANGED),
+                "--changed-file",
+                "app/src/main/java/com/slukhayka/audiobooks/ui/screens/SettingsScreen.kt",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=self.environment(java_home=self.java_home),
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("compiling :app:compileDebugAndroidTestKotlin", result.stdout)
+        invocations = self.gradle_log.read_text(encoding="utf-8").splitlines()
+        self.assertIn(":app:testPureJvm", "\n".join(invocations))
+        compile_index = next(
+            (index for index, line in enumerate(invocations)
+             if ":app:compileDebugAndroidTestKotlin" in line), None,
+        )
+        partition_index = next(
+            (index for index, line in enumerate(invocations)
+             if ":app:testPureJvm" in line), None,
+        )
+        self.assertIsNotNone(compile_index, invocations)
+        self.assertIsNotNone(partition_index, invocations)
+        self.assertLess(compile_index, partition_index, "compile must run before partitions")
+
+    def test_a_non_java_change_does_not_compile_the_device_suite(self):
+        """The gate is scoped to app/src/main/java, not to every Gradle run."""
+        self.write_gradle()
+
+        result = subprocess.run(
+            [
+                "bash",
+                str(TEST_CHANGED),
+                "--changed-file",
+                "app/src/main/res/values/strings.xml",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=self.environment(java_home=self.java_home),
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        invocations = (
+            self.gradle_log.read_text(encoding="utf-8")
+            if self.gradle_log.exists() else ""
+        )
+        self.assertNotIn(":app:compileDebugAndroidTestKotlin", invocations)
+
     def test_documentation_only_change_runs_nothing(self):
         self.write_gradle()
 

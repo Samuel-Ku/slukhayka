@@ -97,6 +97,24 @@ if [[ $(python3 -c 'import json,sys; payload=json.loads(sys.argv[1]); print("yes
   exit 0
 fi
 
+# Production Kotlin also compiles against app/src/androidTest (the device
+# accessibility suites, run only in CI). A changed public Compose signature can
+# break that compile while every JVM partition stays green — #1499 paid a
+# ~20-minute CI round for exactly that. Run the cheap compile BEFORE the
+# partitions, through the same JDK-21/resolver path the suite uses.
+androidtest_compile=no
+for path in "${changed_files[@]}"; do
+  case "$path" in
+    app/src/main/java/*) androidtest_compile=yes ;;
+  esac
+done
+if [[ $androidtest_compile == yes ]]; then
+  printf '%s\n' "Production Kotlin changed: also compiling :app:compileDebugAndroidTestKotlin"
+  printf '%s\n' :app:compileDebugAndroidTestKotlin > "$scratch/gradle-arguments"
+  SLUKHAYKA_GRADLE_ARGS_FILE="$scratch/gradle-arguments" \
+    "$repo_root/scripts/test-all.sh" || exit $?
+fi
+
 python3 -c '
 import json, sys
 payload = json.loads(sys.argv[1])

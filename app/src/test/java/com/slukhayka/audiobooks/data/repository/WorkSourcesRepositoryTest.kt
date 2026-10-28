@@ -159,6 +159,42 @@ class WorkSourcesRepositoryTest {
         assertTrue(rows.single().streamOnly)
     }
 
+    // --- #1528: a probed page's internal `unknown` marker is not a source ---
+
+    @Test
+    fun `a probed work never renders the raw unknown marker as a source row`() = runBlocking {
+        val catalog = catalog()
+        val work = WorkEntity(
+            id = "w-probed-1",
+            mergeKey = "неначе сон|",
+            title = "Неначе сон",
+            author = "",
+            addedAt = 0L
+        )
+        dao.upsertWork(work)
+        dao.upsertWorkSource(
+            WorkSourceEntity(
+                id = "w-probed-1|unknown|1",
+                workId = work.id,
+                sourceId = "unknown",
+                sourceUrl = "https://unknown-site.example/book",
+                streamOnly = false,
+                addedAt = 0L
+            )
+        )
+        libraryBook("lib-probed", "Неначе сон", "https://unknown-site.example/book", workId = work.id)
+
+        assertEquals(0, catalog.sourcesForBook("lib-probed").size)
+    }
+
+    @Test
+    fun `a pre-merge unknown-host row renders no source row either`() = runBlocking {
+        val catalog = catalog()
+        libraryBook("lib-web", "Неначе сон", "https://unknown-site.example/book")
+
+        assertEquals(0, catalog.sourcesForBook("lib-web").size)
+    }
+
     @Test
     fun `unknown book yields no sources`() = runBlocking {
         val catalog = catalog()

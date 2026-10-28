@@ -1093,9 +1093,14 @@ fun LibraryScreen(
     // its tap into `openCollectionId`, and nothing read it, so a collection
     // could be created and listed but never opened. The state lives here, in the
     // screen's own scope, because this page covers the screen.
+    val collectionBooksById = remember(libraryBooks) {
+        libraryBooks.associate { it.book.id to it.book }
+    }
     ListenerCollectionPage(
         collections = listenerCollections,
         openId = openCollectionId,
+        booksById = collectionBooksById,
+        onOpenBook = onBookClick,
         onClose = { openCollectionId = null },
         onRemoveBook = viewModel::removeBookFromCollection,
         onDelete = { collectionId ->

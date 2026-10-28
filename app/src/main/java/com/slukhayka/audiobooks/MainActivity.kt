@@ -106,7 +106,6 @@ import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.slukhayka.audiobooks.ui.theme.ColorContrast
 import com.slukhayka.audiobooks.ui.theme.PaperInkSystemBars
 import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
-import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import com.slukhayka.audiobooks.ui.theme.systemBarAppearanceFor
 import com.slukhayka.audiobooks.ui.theme.systemBarsDarkTheme
 
@@ -1517,7 +1516,7 @@ fun AudiobookApp(
                             // screen moved onto «Папір і голос». The other roots
                             // keep the legacy theme until their own migration, so a
                             // half-migrated screen cannot leak into another tab.
-                            SelectedTab.LISTEN -> PaperInkTheme { ListenScreen(
+                            SelectedTab.LISTEN -> PaperInkThemedContent { ListenScreen(
                                 // #958 — the gear opens Settings from THIS root,
                                 // wired exactly as EXPLORE, LIBRARY and FRIENDS
                                 // already are (ADR-0049: the gear sits in the SAME
@@ -1545,7 +1544,7 @@ fun AudiobookApp(
                             // Plan 2026-2027: «Огляд» is the next screen on the
                             // direction. The header/search/chips are migrated;
                             // the rails follow while they keep their layout.
-                            SelectedTab.EXPLORE -> PaperInkTheme { HomeScreen(
+                            SelectedTab.EXPLORE -> PaperInkThemedContent { HomeScreen(
                                 // #860 — the gear opens Settings from THIS root.
                                 onOpenSettings = {
                                     settingsReturnTab = SelectedTab.EXPLORE

@@ -95,6 +95,9 @@ in `app/src/test/snapshots/`. Two visual vocabularies coexist on purpose
 (legacy v1.4 and paper); shared components render the paper branch only behind
 `LocalPaperInkDesign`.
 
+Recording/verifying goldens: `scripts/goldens.sh record|verify|pin` (flags, selected classes, changed-file list, guard digests); the baseline
+and CI-gate details are in `docs/runbooks/snapshot-goldens.md`.
+
 ## The merge gate
 
 `scripts/merge-pr.sh` — green checks and a fresh `review:pass`, or no merge

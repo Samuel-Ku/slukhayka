@@ -401,6 +401,7 @@ SCANNED = (
     "scripts/check-migration-slot.sh",
     "scripts/dependency-licenses.sh",
     "scripts/generate-keystore.sh",
+    "scripts/goldens.sh",
     "scripts/merge-pr.sh",
     "scripts/mutate.sh",
     "scripts/new-lane.sh",

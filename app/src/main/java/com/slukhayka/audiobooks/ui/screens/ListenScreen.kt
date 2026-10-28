@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -26,6 +27,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -44,6 +46,8 @@ import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.adaptive.rememberIsLandscapePhoneWindow
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.AppTabHeader
+import com.slukhayka.audiobooks.ui.components.BookCoverImage
+import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
@@ -626,10 +630,40 @@ fun ListenHeroCard(
     // «Слухати далі» on every hero in the app.
     val resumeDescription = stringResource(R.string.a11y_resume_work, book.title)
 
+    // F29 of the 2026-10-28 device audit — the hero is the app's MAIN card, and
+    // it drew a letter tile while the same Work had real art on the shelves,
+    // the book page and the player. The card now takes the artwork from the
+    // same sources (`coverDrawableRes` for local imports, the shared Coil route
+    // for remote covers) and keeps the paper letter only as the real fallback.
+    val heroCover: (@Composable () -> Unit)? = when {
+        book.coverDrawableRes != 0 -> {
+            {
+                Image(
+                    painter = painterResource(book.coverDrawableRes),
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+        !book.coverImageUrl.isNullOrBlank() -> {
+            {
+                BookCoverImage(
+                    book = book,
+                    semantics = BookCoverSemantics.Decorative,
+                    modifier = Modifier.fillMaxSize(),
+                    // The hero states title/author beside the art; a typographic
+                    // fallback there would repeat them (and collide at 200 %).
+                    typographicFallback = false,
+                )
+            }
+        }
+        else -> null
+    }
+
     // Plan 2026-2027, step 3: the hero is the first block migrated block by
     // block. It carries its own «Папір і голос» theme until the whole tab
-    // switches at the root; the cover is a paper placeholder until the real
-    // Coil image is wired through this primitive.
+    // switches at the root.
     PaperInkThemedContent {
         PaperInkHeroCard(
             title = book.title,
@@ -672,7 +706,8 @@ fun ListenHeroCard(
             playContentDescription = resumeDescription,
             cardContentDescription = stringResource(R.string.a11y_open_work, book.title),
             eyebrow = stringResource(R.string.listen_hero_overline),
-            eyebrowHeading = true
+            eyebrowHeading = true,
+            cover = heroCover
         )
     }
 }

@@ -213,7 +213,7 @@
     <string name="timer_remaining_countdown">Remaining: %1$d:%2$02d</string>
 
     <!-- v1.4 (ADR-0033): Listen hero chrome. -->
-    <string name="listen_hero_overline">RESUME LISTENING</string>
+    <string name="listen_hero_overline">Resume listening</string>
 
     <!-- #1478 — shelf titles and reasons come from resources, not ListenComposer code. -->
     <string name="listen_shelf_hero">Continue listening</string>

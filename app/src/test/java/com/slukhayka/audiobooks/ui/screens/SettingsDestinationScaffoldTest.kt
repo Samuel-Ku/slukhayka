@@ -88,15 +88,18 @@ class SettingsDestinationScaffoldTest {
             "storage_destination_screen_heading",
             useUnmergedTree = true,
         )
+        val node = heading.fetchSemanticsNode()
         val results = mutableListOf<TextLayoutResult>()
-        heading.fetchSemanticsNode().config[SemanticsActions.GetTextLayoutResult]
+        node.config[SemanticsActions.GetTextLayoutResult]
             .action
             ?.invoke(results)
         val layout = requireNotNull(results.firstOrNull()) { "the heading never reported its layout" }
         assertEquals(
             "DIAG lines=${layout.lineCount} maxLines=${layout.layoutInput.maxLines} " +
-                "overflow=${layout.hasVisualOverflow} width=${layout.size.width} " +
-                "height=${layout.size.height} text=${layout.layoutInput.text}",
+                "overflow=${layout.hasVisualOverflow} layoutW=${layout.size.width} " +
+                "layoutH=${layout.size.height} nodeBounds=${node.boundsInRoot} " +
+                "constraints=${layout.layoutInput.constraints} " +
+                "rootBounds=${compose.onRoot().fetchSemanticsNode().boundsInRoot}",
             2,
             layout.lineCount,
         )

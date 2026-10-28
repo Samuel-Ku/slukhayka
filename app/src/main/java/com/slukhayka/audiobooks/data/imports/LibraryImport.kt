@@ -612,7 +612,7 @@ class LibraryImport(
         // Duplicate by canonical URL: the same page is the same card, even if
         // its title claim differs between visits.
         dao.getSourceByUrl(detail.url)?.bookId?.let { bookId ->
-            return@withContext dao.getAudiobookById(bookId)
+            return@withContext dao.getAudiobookById(bookId)?.toAudiobookEntity()
         }
         runCatching {
             importBookFromSource(

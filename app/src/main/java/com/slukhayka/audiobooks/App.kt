@@ -646,26 +646,12 @@ class App : Application() {
             // hosts; `HttpFetcher` only routes REGISTERED source hosts itself),
             // with a hard 2 MB byte cap before the parser ever sees the body.
             probePage = { url ->
-                suspend fun boundedRead(): String? {
-                    val stream = runCatching {
-                        com.slukhayka.audiobooks.data.source.HttpFetcher().getStream(url)
-                    }.getOrNull() ?: return null
-                    return stream.use { input ->
-                        val buffer = java.io.ByteArrayOutputStream()
-                        val chunk = ByteArray(16 * 1024)
-                        var total = 0
-                        while (true) {
-                            val read = input.read(chunk)
-                            if (read < 0) break
-                            total += read
-                            if (total > com.slukhayka.audiobooks.data.ingest.BookPageProbe.MAX_HTML_BYTES) {
-                                return null
-                            }
-                            buffer.write(chunk, 0, read)
-                        }
-                        buffer.toString(Charsets.UTF_8.name())
-                    }
-                }
+                suspend fun boundedRead(): String? = runCatching {
+                    com.slukhayka.audiobooks.data.source.HttpFetcher().getTextBounded(
+                        url,
+                        com.slukhayka.audiobooks.data.ingest.BookPageProbe.MAX_HTML_BYTES
+                    )
+                }.getOrNull()?.takeIf { it.isNotBlank() }
                 val gate = com.slukhayka.audiobooks.data.source.SourceGateProvider.current
                 val html = if (gate == null) {
                     runCatching { boundedRead() }.getOrNull()

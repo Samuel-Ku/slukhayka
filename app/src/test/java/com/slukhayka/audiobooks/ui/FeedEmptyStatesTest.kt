@@ -7,10 +7,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -56,7 +58,7 @@ class FeedEmptyStatesTest {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     val feedFlow = remember { MutableStateFlow(PagingData.empty<WorkFeedRow>()) }
                     val feedItems = feedFlow.collectAsLazyPagingItems()
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(modifier = Modifier.fillMaxSize().androidx.compose.ui.platform.testTag("feed_test_list")) {
                         homeFeedContent(
                             isCatalogLoading = false,
                             hasLibraryBooks = true,
@@ -95,10 +97,17 @@ class FeedEmptyStatesTest {
         compose.waitForIdle()
     }
 
+    private fun scrollTo(tag: String) {
+        compose.onNodeWithTag("feed_test_list")
+            .performScrollToNode(hasTestTag(tag))
+        compose.waitForIdle()
+    }
+
     @Test
     fun anEmptyFeedShowsTheCanonicalEmptyState() {
         setEmptyFeed()
 
+        scrollTo("feed_empty")
         compose.onNodeWithTag("feed_empty").assertIsDisplayed()
         compose.onNodeWithTag("feed_empty_refresh").assertIsDisplayed()
         compose.onNodeWithTag("feed_filters_empty").assertDoesNotExist()
@@ -118,6 +127,7 @@ class FeedEmptyStatesTest {
             onShared = { shared = it }
         )
 
+        scrollTo("feed_filters_empty")
         compose.onNodeWithTag("feed_filters_empty").assertIsDisplayed()
         compose.onNodeWithTag("feed_empty").assertDoesNotExist()
         compose.onNodeWithTag("feed_filters_reset").performClick()
@@ -137,7 +147,7 @@ class FeedEmptyStatesTest {
                         Pager(PagingConfig(pageSize = 10, initialLoadSize = 10)) { source }
                     }
                     val feedItems = pager.flow.collectAsLazyPagingItems()
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    LazyColumn(modifier = Modifier.fillMaxSize().androidx.compose.ui.platform.testTag("feed_test_list")) {
                         homeFeedContent(
                             isCatalogLoading = false,
                             hasLibraryBooks = true,
@@ -169,10 +179,9 @@ class FeedEmptyStatesTest {
                 }
             }
         }
-        compose.waitUntil(timeoutMillis = 5_000) {
-            source.attempts >= 1 &&
-                compose.onAllNodesWithTag("feed_refresh_error").fetchSemanticsNodes().isNotEmpty()
-        }
+        compose.waitUntil(timeoutMillis = 5_000) { source.attempts >= 1 }
+        compose.waitForIdle()
+        scrollTo("feed_refresh_error")
         compose.onNodeWithTag("feed_refresh_retry").assertIsDisplayed()
 
         compose.onNodeWithTag("feed_refresh_retry").performClick()

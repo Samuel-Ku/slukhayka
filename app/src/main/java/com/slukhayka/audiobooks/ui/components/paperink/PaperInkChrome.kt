@@ -249,14 +249,19 @@ fun PaperInkNavigationBar(
                                     // Unselected tabs carry no pill: a tonal
                                     // box on the same ground would read as a
                                     // shadow the direction does not use.
-                                    if (selected) colorScheme.primaryContainer else Color.Transparent,
+                                    // Selected: the muted verdigris FILL, not a
+                                    // tonal container — the audit measured
+                                    // `primaryContainer` on paper at 1.09:1
+                                    // (1.49:1 in ink), so the state was
+                                    // invisible (WCAG 1.4.11 wants 3:1).
+                                    if (selected) colorScheme.primary else Color.Transparent,
                                 ),
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
                                 imageVector = item.icon,
                                 contentDescription = null,
-                                tint = if (selected) colorScheme.onPrimaryContainer else colorScheme.onSurfaceVariant,
+                                tint = if (selected) colorScheme.onPrimary else colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(23.dp),
                             )
                         }

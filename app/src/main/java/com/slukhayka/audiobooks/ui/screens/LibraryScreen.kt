@@ -1483,9 +1483,14 @@ internal fun LibraryContinueCard(
     ) {
         Column(modifier = Modifier.padding(AppDimens.SpaceLg)) {
             Text(
-                text = stringResource(R.string.lib_continue_label).uppercase(),
+                // F12 (audit 2026-10-28) — the direction forbids caps (§3.2),
+                // and the resource is sentence case now; `.uppercase()` would
+                // put the loudest register on the smallest size again.
+                text = stringResource(R.string.lib_continue_label),
                 style = PaperInkType.TrackingLabel,
-                color = MaterialTheme.colorScheme.tertiary
+                // F4 — amber AS TEXT: `tertiary` (Lamp #A96A12) is the graphic
+                // accent and measures 3.80:1 on paper; the text role is 6.2:1.
+                color = PaperInkColors.lampText
             )
             Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
             Row(
@@ -2401,7 +2406,8 @@ fun LibraryBookCard(
                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                                     maxLines = 1,
                                     softWrap = false,
-                                    color = MaterialTheme.colorScheme.tertiary,
+                                    // F4 — text, so the text role; `tertiary` is the graphic lamp.
+                                    color = PaperInkColors.lampText,
                                     modifier = Modifier.testTag("submission_watching_badge_${book.book.id}")
                                 )
                             }
@@ -3146,7 +3152,8 @@ fun ImportPreviewDialog(
                                         suggestion?.existingTitle ?: existingBook
                                     ),
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.tertiary
+                                    // F4 — body text: the lamp graphic role fails 4.5:1.
+                                    color = PaperInkColors.lampText
                                 )
                             }
                         }

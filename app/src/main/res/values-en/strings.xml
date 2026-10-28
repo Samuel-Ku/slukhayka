@@ -650,7 +650,7 @@
     <string name="lib_grid_pane_too_narrow">The pane is too narrow for two columns — tiles in one</string>
     <string name="lib_audiobook_fallback">Audiobook</string>
     <string name="lib_source_local">Local</string>
-    <string name="lib_continue_label">CONTINUE</string>
+    <string name="lib_continue_label">Continue</string>
     <string name="lib_progress_percent">Listened %1$d%%</string>
     <string name="lib_listen_continue">Listen on</string>
     <string name="lib_listen_continue_remaining">Listen on · %1$s</string>

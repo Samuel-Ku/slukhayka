@@ -717,7 +717,7 @@
     <string name="lib_grid_pane_too_narrow">Панель завузька для двох колонок — плитки в один стовпчик</string>
     <string name="lib_audiobook_fallback">Аудіокнига</string>
     <string name="lib_source_local">Локальна</string>
-    <string name="lib_continue_label">ПРОДОВЖИТИ</string>
+    <string name="lib_continue_label">Продовжити</string>
     <string name="lib_progress_percent">Прослухано %1$d%%</string>
     <string name="lib_listen_continue">Слухати далі</string>
     <string name="lib_listen_continue_remaining">Слухати далі · %1$s</string>

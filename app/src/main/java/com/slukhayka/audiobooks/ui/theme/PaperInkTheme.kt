@@ -4,8 +4,10 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Color
 
 /**
  * The «Папір і голос» theme, applied subtree-first while screens migrate.
@@ -38,6 +40,38 @@ val LocalPaperInkDesign = staticCompositionLocalOf { false }
  */
 val LocalContentDensity = staticCompositionLocalOf { ContentDensity.COMFORTABLE }
 
+/**
+ * True inside a [PaperInkTheme] subtree whose scheme is «Чорнило».
+ *
+ * Material3's [androidx.compose.material3.ColorScheme] has no slot for the
+ * direction's extra roles, and guessing the scheme from a background colour
+ * would break the moment a block is wrapped in a tonal surface. The theme
+ * itself states the answer, so [PaperInkColors] can read it.
+ */
+val LocalPaperInkDarkTheme = staticCompositionLocalOf { false }
+
+/**
+ * «Папір і голос» roles that Material3's ColorScheme has no slot for.
+ *
+ * Spec §3.1 splits the sound accent in two: `lamp` is the GRAPHIC role
+ * (progress, play, rings — 3:1 is enough) and `lamp-ink` is the TEXT role
+ * (11–12 sp copy must clear 4.5:1). Using `tertiary` for text silently dragged
+ * `#A96A12` onto paper at 3.80:1 (F4 of the 2026-10-28 device audit), so text
+ * reads this role instead.
+ */
+object PaperInkColors {
+
+    /** Amber as TEXT: `LampInk` on paper (6.2:1), `LampNight` on ink (11.3:1). */
+    val lampText: Color
+        @Composable
+        @ReadOnlyComposable
+        get() = lampTextFor(LocalPaperInkDarkTheme.current)
+}
+
+/** The scheme-independent half of [PaperInkColors.lampText], for tests and callers outside composition. */
+internal fun lampTextFor(darkTheme: Boolean): Color =
+    if (darkTheme) PaperInkPalette.LampNight else PaperInkPalette.LampInk
+
 @Composable
 fun PaperInkTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -46,7 +80,10 @@ fun PaperInkTheme(
     val colorScheme = remember(darkTheme) {
         if (darkTheme) paperInkDarkScheme() else paperInkLightScheme()
     }
-    CompositionLocalProvider(LocalPaperInkDesign provides true) {
+    CompositionLocalProvider(
+        LocalPaperInkDesign provides true,
+        LocalPaperInkDarkTheme provides darkTheme,
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = PaperInkType.typography,

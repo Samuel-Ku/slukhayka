@@ -177,8 +177,13 @@ private fun ThemeChoiceRow(
                         .height(36.dp)
                         .clip(CircleShape)
                         .background(
+                            // F3 — the selected state must be visible: a tonal
+                            // `primaryContainer` sat 1.09:1 from paper and
+                            // 1.49:1 from ink, under WCAG 1.4.11's 3:1. The
+                            // muted verdigris `primary` fill is 6.6:1 (paper)
+                            // and reads as a state, not as decoration.
                             if (selected) {
-                                MaterialTheme.colorScheme.primaryContainer
+                                MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.surfaceVariant
                             }
@@ -202,7 +207,7 @@ private fun ThemeChoiceRow(
                         ),
                         style = PaperInkType.Label,
                         color = if (selected) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
+                            MaterialTheme.colorScheme.onPrimary
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         },
@@ -243,8 +248,11 @@ private fun DensityChoiceRow(
                         .height(36.dp)
                         .clip(CircleShape)
                         .background(
+                            // F3 — same state fix as the theme row: the muted
+                            // verdigris fill, visible at 6.6:1, instead of a
+                            // 1.09:1 tonal container.
                             if (selected) {
-                                MaterialTheme.colorScheme.primaryContainer
+                                MaterialTheme.colorScheme.primary
                             } else {
                                 MaterialTheme.colorScheme.surfaceVariant
                             }
@@ -267,7 +275,7 @@ private fun DensityChoiceRow(
                         ),
                         style = PaperInkType.Label,
                         color = if (selected) {
-                            MaterialTheme.colorScheme.onPrimaryContainer
+                            MaterialTheme.colorScheme.onPrimary
                         } else {
                             MaterialTheme.colorScheme.onSurfaceVariant
                         },

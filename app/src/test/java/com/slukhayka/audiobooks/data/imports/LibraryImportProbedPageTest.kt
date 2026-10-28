@@ -87,7 +87,9 @@ class LibraryImportProbedPageTest {
     @Test
     fun `the same canonical url is the same card on a second probe`() = runBlocking {
         val first = imports().importProbedPage(detail())!!
-        val second = imports().importProbedPage(detail(title = "Неначе сон (інша назва)"))!!
+        // A DIFFERENT title claim would normally fork a second MergeKey card —
+        // the URL identity is what pins the same page to the same card.
+        val second = imports().importProbedPage(detail(title = "Інша книга"))!!
 
         assertEquals(first.id, second.id)
         assertEquals(1, dao.getAllAudiobooks().first().size)

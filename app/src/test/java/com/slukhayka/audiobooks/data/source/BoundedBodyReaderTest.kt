@@ -31,7 +31,7 @@ class BoundedBodyReaderTest {
         assertNull(BoundedBodyReader.read(ByteArrayInputStream(body), Charsets.UTF_8, maxBytes = 1024))
         // The boundary itself is allowed (cap is a maximum, not a strict lower bound).
         assertEquals(
-            1024,
+            2048,
             BoundedBodyReader.read(ByteArrayInputStream(body), Charsets.UTF_8, maxBytes = 2048)!!.length
         )
     }

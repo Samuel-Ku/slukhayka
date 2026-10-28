@@ -19,6 +19,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
+import androidx.paging.LoadState
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -246,8 +247,14 @@ class FeedEmptyStatesTest {
                     }
                     val feedItems = pager.flow.collectAsLazyPagingItems()
                     var refreshStarted by remember { mutableStateOf(false) }
-                    LaunchedEffect(feedItems.itemCount) {
-                        if (feedItems.itemCount > 0 && !refreshStarted) {
+                    // Wait until the initial load has FINISHED: calling
+                    // refresh() while Paging still reports a refresh in
+                    // progress throws IllegalStateException (PageFetcher).
+                    LaunchedEffect(feedItems.itemCount, feedItems.loadState.refresh) {
+                        if (feedItems.itemCount > 0 &&
+                            feedItems.loadState.refresh is LoadState.NotLoading &&
+                            !refreshStarted
+                        ) {
                             refreshStarted = true
                             feedItems.refresh()
                         }

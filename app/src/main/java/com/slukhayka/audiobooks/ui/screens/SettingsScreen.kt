@@ -11,8 +11,6 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,6 +26,9 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcon
+import com.slukhayka.audiobooks.ui.icons.PaperInkIconSizes
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
 import com.slukhayka.audiobooks.ui.theme.AppThemeMode
@@ -342,11 +343,11 @@ private fun SettingsRow(
             .padding(vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
+        PaperInkIcon(
             imageVector = destination.icon,
             contentDescription = null,
+            size = PaperInkIconSizes.Inline,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(21.dp),
         )
         Spacer(modifier = Modifier.width(14.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -362,11 +363,11 @@ private fun SettingsRow(
             )
         }
         Spacer(modifier = Modifier.width(8.dp))
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+        PaperInkIcon(
+            imageVector = PaperInkIcons.ChevronRight,
             contentDescription = null,
+            size = PaperInkIconSizes.Inline,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp),
         )
     }
 }

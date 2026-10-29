@@ -25,6 +25,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 /**
  * F10 of the 2026-10-28 device audit — pushed settings destinations were the
@@ -36,6 +37,10 @@ import org.robolectric.annotation.Config
  * visible back.
  */
 @RunWith(RobolectricTestRunner::class)
+// NATIVE graphics: without it Robolectric's text metrics are degenerate
+// (a whole title measured 24 px wide), so a clipping assertion would be a
+// lie in either direction.
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [35], qualifiers = "uk-rUA-w411dp-h891dp")
 class SettingsDestinationScaffoldTest {
 

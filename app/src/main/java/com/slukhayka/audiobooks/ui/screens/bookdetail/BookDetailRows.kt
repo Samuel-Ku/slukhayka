@@ -281,7 +281,7 @@ fun ChapterRowItem(
                 // selectable; the rest carry a checkbox.
                 if (isDownloadedCopy) {
                     Icon(
-                        imageVector = Icons.Default.CloudDone,
+                        imageVector = PaperInkIcons.Downloaded,
                         contentDescription = stringResource(
                             R.string.book_detail_chapter_already_downloaded,
                             chapter.title
@@ -310,8 +310,8 @@ fun ChapterRowItem(
 
                 Icon(
                     imageVector = when {
-                        paperInk && isPlaying -> Icons.Default.Pause
-                        paperInk -> Icons.Default.PlayArrow
+                        paperInk && isPlaying -> PaperInkIcons.Pause
+                        paperInk -> PaperInkIcons.Play
                         isPlaying -> Icons.Default.PauseCircle
                         else -> PaperInkIcons.Play
                     },

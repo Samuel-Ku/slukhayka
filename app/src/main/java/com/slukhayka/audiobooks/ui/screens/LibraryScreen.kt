@@ -2113,7 +2113,7 @@ private fun LibraryCoverOfflineBadge(
                     )
             )
             Icon(
-                imageVector = Icons.Default.CloudDone,
+                imageVector = PaperInkIcons.Downloaded,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.size(15.dp)
@@ -2164,7 +2164,7 @@ private fun LibraryInlineOfflineBadge(
             modifier = Modifier.testTag("library_partial_badge_${book.book.id}")
         )
         OfflineState.FULL -> Icon(
-            imageVector = Icons.Default.CloudDone,
+            imageVector = PaperInkIcons.Downloaded,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.secondary,
             modifier = Modifier

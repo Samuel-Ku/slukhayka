@@ -131,7 +131,7 @@ class PublishedCollectionsBlockTest {
             )
         )
 
-        composeTestRule.onNodeWithText("★ 4.5 · 2 оцінки").assertIsDisplayed()
+        composeTestRule.onNodeWithText("4.5 · 2 оцінки").assertIsDisplayed()
     }
 
     @Test
@@ -139,6 +139,6 @@ class PublishedCollectionsBlockTest {
         setBlock(rows = listOf(PublishedCollectionRow("doc-1", "Магія", 3, "Слухач")))
 
         composeTestRule.onNodeWithText("Ще без оцінок").assertIsDisplayed()
-        composeTestRule.onNodeWithText("★ 0.0 · 0 оцінок").assertDoesNotExist()
+        composeTestRule.onNodeWithText("0.0 · 0 оцінок").assertDoesNotExist()
     }
 }

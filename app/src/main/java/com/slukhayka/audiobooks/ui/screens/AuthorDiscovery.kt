@@ -17,8 +17,6 @@ import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.theme.AppDimens
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Warning

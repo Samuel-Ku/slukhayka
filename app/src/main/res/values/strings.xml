@@ -112,6 +112,8 @@
     <string name="browser_clear_session_consequence">Потрібно буде знову увійти або пройти перевірку лише для цього джерела. Сесії інших джерел залишаться.</string>
     <string name="browser_fix_structure_question">Виправити структуру книги?</string>
     <string name="browser_fix">Виправити</string>
+    <string name="browser_category_label">Категорія</string>
+    <string name="browser_add_category_action">Додати категорію до Огляду</string>
     <string name="browser_address_hint">Введіть адресу…</string>
     <string name="browser_got_it">Зрозуміло</string>
     <string name="browser_in_browser">В браузері</string>
@@ -403,7 +405,7 @@
     <string name="book_detail_series_pill">«%1$s»</string>
     <string name="book_detail_series_pill_index">«%1$s» • Кн. %2$d</string>
     <string name="book_detail_universe_line">Всесвіт: «%1$s»</string>
-    <string name="book_detail_source_rating">Оцінка джерела: ★ %1$s</string>
+    <string name="book_detail_source_rating">Оцінка джерела: %1$s</string>
     <string name="book_detail_source_narrator">Озвучує за даними джерела: %1$s</string>
     <string name="book_detail_source_genres">Жанри за даними джерела: %1$s</string>
     <string name="book_detail_source_description">Інший опис від джерела: %1$s</string>

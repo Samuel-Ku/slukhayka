@@ -1,7 +1,11 @@
 package com.slukhayka.audiobooks.data.achievements
 
+import kotlinx.coroutines.ContinuationInterceptor
+import kotlinx.coroutines.CoroutineContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.MainCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
@@ -133,12 +137,14 @@ class AchievementEngineTest {
      * dispatcher (`MainViewModel.listenerTitle` is a `stateIn(viewModelScope)`),
      * while the progress chain re-matches the whole own library on every Room
      * invalidation. #1570 measured 1.5–1.8 s of main-thread work per emission,
-     * so this pin is about WHERE the transform runs, not what it returns: the
-     * upstream flow must execute somewhere other than the collecting dispatcher.
+     * so this pin is about WHERE the transform runs, not what it returns.
      *
-     * The collecting dispatcher is a real single thread named after the test, so
-     * the assertion fails if the transform leaks onto it (the pre-#1572 code ran
-     * the whole chain in the collector's context).
+     * The collecting dispatcher is a real single thread installed as
+     * `Dispatchers.Main`; the fake source records the `ContinuationInterceptor`
+     * of the context it actually runs in. The assertion is on the dispatcher
+     * identity, not on a thread name: coroutine debug mode appends
+     * ` @coroutine#N` to thread names, and a name comparison once let the
+     * pre-#1572 code pass this very test (mutation `no-flowon` survived).
      */
     @Test fun `the progress transform never runs on the collecting main dispatcher`() {
         val mainExecutor = Executors.newSingleThreadExecutor { runnable ->
@@ -147,10 +153,10 @@ class AchievementEngineTest {
         val mainDispatcher = mainExecutor.asCoroutineDispatcher()
         Dispatchers.setMain(mainDispatcher)
         try {
-            val threads = Collections.synchronizedList(mutableListOf<String>())
+            val contexts = Collections.synchronizedList(mutableListOf<CoroutineContext>())
             val source = AchievementProgressSource {
                 flow {
-                    threads += Thread.currentThread().name
+                    contexts += currentCoroutineContext()
                     emit(AchievementProgress(explicitBooks = 1))
                 }
             }
@@ -159,9 +165,14 @@ class AchievementEngineTest {
                 withContext(Dispatchers.Main) { engine.snapshot.first() }
             }
             assertEquals(1L, snapshot.explicitBooks)
+            assertTrue("the progress transform never ran", contexts.isNotEmpty())
             assertTrue(
-                "the whole progress transform ran on the collecting dispatcher: $threads",
-                threads.none { name -> name == "t1572-test-main" }
+                "the whole progress transform ran on the collecting Main dispatcher: " +
+                    contexts.map { it[ContinuationInterceptor] },
+                contexts.none { context ->
+                    val interceptor = context[ContinuationInterceptor]
+                    interceptor is MainCoroutineDispatcher || interceptor === Dispatchers.Main
+                }
             )
         } finally {
             Dispatchers.resetMain()

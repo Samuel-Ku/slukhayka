@@ -66,6 +66,11 @@ fun PaperInkTabHeader(
     returnFocusRequester: FocusRequester? = null,
     // A pushed screen (Settings) needs a visible way back, not only system Back.
     onBackClick: (() -> Unit)? = null,
+    // F10 review (200 % text, then 320 dp, then 180 %): a compact pushed
+    // header may wrap to three lines — short titles still take one, longer
+    // ones grow the header instead of ellipsizing (min 56 dp stays the floor;
+    // the legacy contract was 112 dp at 200 %). The pushed screen passes 3.
+    maxTitleLines: Int? = null,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     Row(
@@ -99,10 +104,7 @@ fun PaperInkTabHeader(
             Spacer(modifier = Modifier.width(4.dp))
         }
         Column(
-            modifier = Modifier
-                .weight(1f)
-                .then(if (headingTestTag != null) Modifier.testTag(headingTestTag) else Modifier)
-                .semantics { heading() },
+            modifier = Modifier.weight(1f),
         ) {
             if (!compact && showBrandMark) {
                 Row(
@@ -122,17 +124,25 @@ fun PaperInkTabHeader(
                     )
                 }
             }
+            // The heading IS this node: its tag, its `heading()` semantics and
+            // its entry focus live on the title Text, so a screen reader and a
+            // test both name/land on the same element at 200 % text.
             Text(
                 text = title,
                 style = if (compact) PaperInkType.SectionTitle else PaperInkType.ScreenTitle,
                 color = colorScheme.onSurface,
-                maxLines = if (compact) 1 else 2,
+                maxLines = maxTitleLines ?: if (compact) 1 else 2,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                modifier = if (returnFocusRequester != null) {
-                    Modifier.focusRequester(returnFocusRequester).focusable()
-                } else {
-                    Modifier
-                },
+                modifier = Modifier
+                    .then(if (headingTestTag != null) Modifier.testTag(headingTestTag) else Modifier)
+                    .then(
+                        if (returnFocusRequester != null) {
+                            Modifier.focusRequester(returnFocusRequester).focusable()
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .semantics { heading() },
             )
             if (!compact && subtitle != null) {
                 Text(

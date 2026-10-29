@@ -1,39 +1,24 @@
 package com.slukhayka.audiobooks.ui.screens
 
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
+import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
 
 internal enum class SettingsDestination(
     val titleRes: Int,
@@ -111,8 +96,22 @@ internal enum class SettingsDestination(
     )
 }
 
-/** Shared chrome and entry-focus contract for pushed settings destinations. */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Shared chrome and entry-focus contract for pushed settings destinations.
+ *
+ * F10 of the 2026-10-28 device audit: the settings ROOT is «Папір і голос»
+ * (brand mark, 34 sp title, paper ground) while every pushed destination was a
+ * legacy M3 `TopAppBar` — 21 sp system font over the same paper list, a
+ * different vocabulary one tap away. The seven destinations now live in the
+ * SAME theme as Settings, and their header is the ONE pushed-screen header:
+ * [PaperInkTabHeader] in `compact` mode (56 dp, SectionTitle, visible back) —
+ * the pattern the direction already names for sub-screens.
+ *
+ * The BODIES of these screens are still legacy components: this change is the
+ * chrome+theme seam, so their lists now read the paper palette (whose contrast
+ * pairs are pinned by `PaperInkTokensTest`) while their own type/layout
+ * migration stays a separate step. That limit is named in the PR, not hidden.
+ */
 @Composable
 internal fun SettingsDestinationScaffold(
     destination: SettingsDestination,
@@ -121,68 +120,39 @@ internal fun SettingsDestinationScaffold(
     content: @Composable (PaddingValues) -> Unit
 ) {
     val title = stringResource(destination.titleRes)
+    // Focus contract: entering a pushed screen focuses its title, exactly as
+    // the legacy TopAppBar did, so TalkBack announces the new pane.
     val headingFocusRequester = remember { FocusRequester() }
-    val largeText = LocalDensity.current.fontScale >= 2f
-    val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
-
     LaunchedEffect(title) {
         withFrameNanos { }
         headingFocusRequester.requestFocus()
     }
 
-    Scaffold(
-        modifier = Modifier
-            .testTag(destination.paneTag)
-            .accessibilityPane(title)
-            .accessibilityModalBackground(modalVisible),
-        topBar = {
-            TopAppBar(
-                windowInsets = WindowInsets(0, 0, 0, 0),
-                expandedHeight = when {
-                    paperInk && largeText -> 112.dp
-                    paperInk -> 56.dp
-                    largeText -> 112.dp
-                    else -> 64.dp
-                },
-                title = {
-                    Text(
-                        text = title,
-                        maxLines = if (largeText) 2 else 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = if (paperInk) {
-                            com.slukhayka.audiobooks.ui.theme.PaperInkType.SectionTitle
-                        } else {
-                            MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold
-                            )
-                        },
-                        modifier = Modifier
-                            .focusRequester(headingFocusRequester)
-                            .focusable()
-                            .testTag(destination.headingTag)
-                            .semantics { heading() }
-                    )
-                },
-                navigationIcon = {
-                    IconButton(
-                        onClick = onBackClick,
-                        modifier = Modifier.defaultMinSize(
-                            minWidth = 48.dp,
-                            minHeight = 48.dp
-                        )
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.action_back)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
+    PaperInkThemedContent {
+        Scaffold(
+            modifier = Modifier
+                .testTag(destination.paneTag)
+                .accessibilityPane(title)
+                .accessibilityModalBackground(modalVisible),
+            topBar = {
+                PaperInkTabHeader(
+                    title = title,
+                    // A pushed screen: compact, no wordmark (the brand belongs
+                    // to roots), the visible way back. The title may wrap to
+                    // THREE lines: at 320 dp «Завантаження та памʼять» already
+                    // needs two at 1×, and «Персональні рекомендації» needs
+                    // three from ~1.8×; the header grows with its content
+                    // instead of ellipsizing (56 dp stays the floor).
+                    compact = true,
+                    showBrandMark = false,
+                    onBackClick = onBackClick,
+                    headingTestTag = destination.headingTag,
+                    returnFocusRequester = headingFocusRequester,
+                    maxTitleLines = 3,
                 )
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background,
-        content = content
-    )
+            },
+            containerColor = MaterialTheme.colorScheme.background,
+            content = content
+        )
+    }
 }

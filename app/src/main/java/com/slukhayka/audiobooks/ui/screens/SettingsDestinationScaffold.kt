@@ -12,7 +12,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
@@ -121,8 +120,6 @@ internal fun SettingsDestinationScaffold(
     content: @Composable (PaddingValues) -> Unit
 ) {
     val title = stringResource(destination.titleRes)
-    // 200 % text parity with the legacy header: two lines at fontScale ≥ 2.
-    val largeText = LocalDensity.current.fontScale >= 2f
     // Focus contract: entering a pushed screen focuses its title, exactly as
     // the legacy TopAppBar did, so TalkBack announces the new pane.
     val headingFocusRequester = remember { FocusRequester() }
@@ -141,16 +138,17 @@ internal fun SettingsDestinationScaffold(
                 PaperInkTabHeader(
                     title = title,
                     // A pushed screen: compact, no wordmark (the brand belongs
-                    // to roots), the visible way back. The title may wrap — at
-                    // 320 dp a 21 sp label already needs two lines for
-                    // «Завантаження та памʼять», and at 200 % three — so the
-                    // header grows with its content instead of ellipsizing.
+                    // to roots), the visible way back. The title may wrap to
+                    // THREE lines: at 320 dp «Завантаження та памʼять» already
+                    // needs two at 1×, and «Персональні рекомендації» needs
+                    // three from ~1.8×; the header grows with its content
+                    // instead of ellipsizing (56 dp stays the floor).
                     compact = true,
                     showBrandMark = false,
                     onBackClick = onBackClick,
                     headingTestTag = destination.headingTag,
                     returnFocusRequester = headingFocusRequester,
-                    maxTitleLines = if (largeText) 3 else 2,
+                    maxTitleLines = 3,
                 )
             },
             containerColor = MaterialTheme.colorScheme.background,

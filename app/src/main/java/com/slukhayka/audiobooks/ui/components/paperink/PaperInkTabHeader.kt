@@ -66,10 +66,10 @@ fun PaperInkTabHeader(
     returnFocusRequester: FocusRequester? = null,
     // A pushed screen (Settings) needs a visible way back, not only system Back.
     onBackClick: (() -> Unit)? = null,
-    // F10 review (200 % text): a compact pushed header is one line by default,
-    // but at fontScale ≥ 2 the title must wrap to two lines instead of
-    // ellipsizing — the header grows with its content (min 56 dp stays the
-    // floor, the old contract was 112 dp at 200 %).
+    // F10 review (200 % text, then 320 dp, then 180 %): a compact pushed
+    // header may wrap to three lines — short titles still take one, longer
+    // ones grow the header instead of ellipsizing (min 56 dp stays the floor;
+    // the legacy contract was 112 dp at 200 %). The pushed screen passes 3.
     maxTitleLines: Int? = null,
 ) {
     val colorScheme = MaterialTheme.colorScheme

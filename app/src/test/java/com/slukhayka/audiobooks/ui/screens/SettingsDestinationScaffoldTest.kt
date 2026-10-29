@@ -75,7 +75,7 @@ class SettingsDestinationScaffoldTest {
         assertHeadingNotClipped(
             destination = SettingsDestination.Storage,
             fontScale = 1f,
-            expectedMaxLines = 2,
+            expectedMaxLines = 3,
         )
     }
 
@@ -84,6 +84,19 @@ class SettingsDestinationScaffoldTest {
         assertHeadingNotClipped(
             destination = SettingsDestination.Storage,
             fontScale = 2f,
+            expectedMaxLines = 3,
+        )
+    }
+
+    // The reviewer's 180–190 % window: at 1.8× «Персональні рекомендації» is
+    // ~484 dp and does not fit two 456 dp lines, so a `>= 2f` threshold would
+    // ellipsize it. Three lines are allowed at EVERY scale, which makes the
+    // window disappear rather than moving it.
+    @Test
+    fun `the recommendations title is not clipped at 320 dp at one hundred eighty percent text`() {
+        assertHeadingNotClipped(
+            destination = SettingsDestination.Recommendations,
+            fontScale = 1.8f,
             expectedMaxLines = 3,
         )
     }
@@ -102,7 +115,7 @@ class SettingsDestinationScaffoldTest {
         val layout = layoutOf(SettingsDestination.NetworkPrivacy, fontScale = 1f, width = 411)
         val diag = "lines=${layout.lineCount} maxLines=${layout.layoutInput.maxLines} " +
             "width=${layout.size.width}"
-        assertEquals(diag, 2, layout.layoutInput.maxLines)
+        assertEquals(diag, 3, layout.layoutInput.maxLines)
         assertEquals(diag, 1, layout.lineCount)
         assertEquals(diag, false, layout.isLineEllipsized(0))
     }

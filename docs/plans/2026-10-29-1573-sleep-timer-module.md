@@ -18,8 +18,10 @@
 2. **Інжектовані адаптери:** `SleepTicker` (прод: `CountDownSleepTicker` на
    `CountDownTimer`, 1-секундний такт) і `ShakeSource` (прод:
    `ShakeDetectorSource` на акселерометрі); тести керують тактами вручну.
-3. **Порти ефектів `SleepTimerEffects`:** `onState`, `setVolume`, `pause`,
-   `writeAutoBookmark`, `recordTimerStop`, `emitNotice`,
+3. **Порти ефектів `SleepTimerEffects`:** `onState`, `setFadeVolume`
+   (cast-aware, як старий tick), `restoreVolume` (лише локальний engine, як
+   старий cancel/extend), `restoreVolumeAfterFinish` (cast-aware, як старий
+   `onFinish`), `pause`, `writeAutoBookmark`, `recordTimerStop`, `emitNotice`,
    `onEndOfChapterArmed`, `stopContext`. Менеджер лише постачає їх і делегує
    публічні команди; стан модуль видає СИНХРОННО, тож `PlayerState`
    оновлюється в момент такту (без корутинного стрибка й тестових гонок).

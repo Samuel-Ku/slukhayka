@@ -30,7 +30,6 @@ import com.slukhayka.audiobooks.data.collections.CollectionRating
 import com.slukhayka.audiobooks.data.collections.PublishedCollection
 import com.slukhayka.audiobooks.data.collections.PublishedCollectionItem
 import com.slukhayka.audiobooks.ui.screens.ReviewStarsRow
-import java.util.Locale
 
 /**
  * Spec-51 (#692/#694) — someone else's VISIBLE collection, as a listener reads

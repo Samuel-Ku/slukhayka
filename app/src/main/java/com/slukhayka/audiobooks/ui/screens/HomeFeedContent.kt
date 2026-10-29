@@ -9,7 +9,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -775,7 +774,7 @@ fun LazyListScope.homeFeedContent(
                             modifier = Modifier.size(AppDimens.TouchTarget)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.PlayArrow,
+                                imageVector = PaperInkIcons.Play,
                                 contentDescription = listenDescription,
                                 tint = if (LocalPaperInkDesign.current) {
                                     MaterialTheme.colorScheme.tertiary

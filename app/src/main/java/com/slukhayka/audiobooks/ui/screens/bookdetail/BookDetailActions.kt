@@ -265,7 +265,7 @@ private fun BookDetailPlayButton(
             .semantics { contentDescription = actionDescription }
     ) {
         Icon(
-            imageVector = Icons.Default.PlayArrow,
+            imageVector = PaperInkIcons.Play,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onTertiary,
         )

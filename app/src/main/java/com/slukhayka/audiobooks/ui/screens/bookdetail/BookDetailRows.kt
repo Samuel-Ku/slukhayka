@@ -309,12 +309,7 @@ fun ChapterRowItem(
                 }
 
                 Icon(
-                    imageVector = when {
-                        paperInk && isPlaying -> PaperInkIcons.Pause
-                        paperInk -> PaperInkIcons.Play
-                        isPlaying -> Icons.Default.PauseCircle
-                        else -> PaperInkIcons.Play
-                    },
+                    imageVector = if (isPlaying) PaperInkIcons.Pause else PaperInkIcons.Play,
                     contentDescription = null,
                     tint = if (paperInk) {
                         MaterialTheme.colorScheme.tertiary
@@ -400,7 +395,7 @@ fun BookmarkRowItem(
                 modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.PlayArrow,
+                    imageVector = PaperInkIcons.Play,
                     contentDescription = jumpLabel,
                     tint = MaterialTheme.colorScheme.primary
                 )

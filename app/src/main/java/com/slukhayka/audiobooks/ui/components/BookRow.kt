@@ -20,8 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -511,7 +509,7 @@ fun BookRow(
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             ) {
                 Icon(
-                    imageVector = Icons.Default.PlayArrow,
+                    imageVector = PaperInkIcons.Play,
                     contentDescription = stringResource(R.string.a11y_play_work, book.title),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(24.dp)

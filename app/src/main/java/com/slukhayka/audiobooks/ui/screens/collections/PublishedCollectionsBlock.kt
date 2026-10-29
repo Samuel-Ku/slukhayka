@@ -20,7 +20,6 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
-import java.util.Locale
 
 /** One published collection as the Library shows it. */
 data class PublishedCollectionRow(

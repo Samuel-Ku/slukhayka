@@ -1599,7 +1599,7 @@ internal fun LibraryContinueCard(
                 ),
             ) {
                 Icon(
-                    imageVector = Icons.Default.PlayArrow,
+                    imageVector = PaperInkIcons.Play,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onTertiary,
                     modifier = Modifier.size(22.dp)
@@ -2833,7 +2833,7 @@ fun GlobalBookmarkItem(
                     .testTag("bookmark_jump_${bookmark.id}")
             ) {
                 Icon(
-                    imageVector = Icons.Default.PlayArrow,
+                    imageVector = PaperInkIcons.Play,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary
                 )

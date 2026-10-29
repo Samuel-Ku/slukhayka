@@ -6,7 +6,11 @@ import java.io.File
 import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -81,7 +85,7 @@ class AchievementSnapshotSource(
      */
     private val isScamSource: (String) -> Boolean =
         com.slukhayka.audiobooks.data.source.SourceRegistry::isScam
-) : AchievementProgressSource {
+) : AchievementProgressSource, AchievementSnapshot {
     /** #701 — the doors «Усі двері» asks about: every registered source but the scam ones. */
     private val requiredDoors: Set<String> = registeredSourceIds.filterNot(isScamSource).toSet()
     private val counters = combine(dao.observeExplicitBooks(), dao.observeVerifiedListeningMillis(),
@@ -312,5 +316,29 @@ class AchievementSnapshotSource(
             knownSeriesMemberships = topology.second)
     }
     private val local = LocalAchievementProgressSource(aggregates, store.observeFacts())
+
+    /**
+     * #1574 — the owned snapshot. Starts empty and moves ONLY through
+     * [refresh]; nothing observes the tower hot any more, so a Room write that
+     * no caller pulled changes neither the board nor the title.
+     */
+    private val snapshotState = MutableStateFlow(AchievementProgress())
+    override val snapshot: StateFlow<AchievementProgress> = snapshotState.asStateFlow()
+
+    /**
+     * #1574 — ONE whole-snapshot pass. The cold tower is collected exactly
+     * once (`first()`), so every field is computed from the same database
+     * moment, and the result is published atomically.
+     *
+     * Kept as the single `observe()` implementation too: the existing award
+     * tests read this cold seam directly, and [refresh] is defined in terms of
+     * it rather than a second copy of the pipeline.
+     */
+    override suspend fun refresh(): AchievementProgress {
+        val next = local.observe().distinctUntilChanged().first()
+        snapshotState.value = next
+        return next
+    }
+
     override fun observe() = local.observe().distinctUntilChanged()
 }

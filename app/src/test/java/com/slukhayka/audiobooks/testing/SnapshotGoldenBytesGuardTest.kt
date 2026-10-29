@@ -69,6 +69,13 @@ import java.security.MessageDigest
  * guarded by `OverviewMigrationSnapshotTest.typed_query_text_is_readable_in_ink_theme`
  * (measured 14.0:1) instead of by a reviewer's eye.
  *
+ * **2026-10-29 — follow-up #1549 (20 dp rails + card width):** ONE pin moved,
+ * `home_feed_phone_fold`, and for the card width rather than the padding: the
+ * «Новинки» shelf card used to be clamped to the legacy 120 dp by a wrapper on
+ * a paper 132 dp rail, which rendered a 120×198 cover (a stretched 2:3). The
+ * card now sizes itself (132×198); the diff is ~0.7 % of pixels, the header and
+ * the other eight pins are byte-identical.
+ *
  * This guard does not bless those bytes — it pins them. They are exactly the
  * files a blind «оновили золота» commit touches, and nothing else in the
  * repository would notice: the compare step in `.github/workflows/ci.yml` runs

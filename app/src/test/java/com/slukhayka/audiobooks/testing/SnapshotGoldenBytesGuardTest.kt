@@ -612,36 +612,55 @@ class SnapshotGoldenBytesGuardTest {
          * both, so all three moved; `player_tight_viewport` also keeps its
          * shrink contract.
          */
+        /**
+         * ## Six re-pinned on 2026-10-29 (F25 of the 2026-10-28 audit)
+         *
+         * `PaperInkTabHeader` kept the wordmark and the title in ONE Column, so
+         * the gear and the back arrow centred on the brand+title block — 8 dp
+         * above the title's centre. The wordmark is now its own row, the
+         * trailing actions centre on the TITLE line (the Library root also has
+         * a subtitle, which now sits under the title line instead of pulling
+         * the actions down), and a no-brand header keeps its content centred
+         * in the 104 dp floor.
+         *
+         * Six of the #977 pins show a root header and moved for exactly that
+         * reason: `explore_header_collapsed/expanded`, `home_feed_phone_fold`
+         * and the three `library_redesign_*` (F30a had just changed the
+         * Library goldens too — the re-record happened on the rebased tree, so
+         * both changes are in these bytes). The three player pins did NOT
+         * move — the player has no tab header. Recorded by the
+         * `record-snapshots` workflow, not locally.
+         */
         val PINS = listOf(
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "collapsed.png",
-                "71a67dfd01c0d0107b0fa6133e1edd0f" + "c04fb780afe8265dec4ff3b68a621358"
+                "4023dd538380dabfeb6069b12726e132" + "a897e38cd87e73f6c32b4ee805315f35"
             ),
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "expanded.png",
-                "b1d7a28802feea1458a1e0cbc83e7045" + "c050665c02e7aabf4b2cb95b4813ea5b"
+                "bda1e7e0a673c8c94afae15b826654c6" + "0dac3e97f0b62812733726a42e8400a7"
             ),
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",
                 "home_feed_" + "phone_fold.png",
-                "ec17d20bd2a4a3528dcee385c7ece625" + "0d11f3ecc46168b1b242311d74cd8c7b"
+                "e101f5feed2aedc4e6f27160f021d90d" + "c238c0d66b184a22d22deeeaf166d386"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "98d33e148244a522021f1234d37c8166" + "e0b3d140f825ecef5c670dbf8d38dad3"
+                "ff2730a8e57bc3b0df1952cc1bb97bf1" + "2a9a79a871b0a4dec25c1c468e1598b2"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "30cffb0eb8761331af49626c1c0877b7" + "f188f5a9ce2c2a10a6a632c1fcf441af"
+                "7fcd12f1a45e8675a55b35cd55998f4a" + "b29778ca01ce0d47c2c892126902fa59"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "45be0570430383fd16adb1fdfed54dc4" + "ea899462167be53a99a42457492bf1a9"
+                "1b78ad3220147bccc0bd09817cc75a11" + "962954752058972f4eb6d3d1007d1c38"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

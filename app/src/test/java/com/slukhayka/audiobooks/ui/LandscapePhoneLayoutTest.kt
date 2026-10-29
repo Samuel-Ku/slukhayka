@@ -322,6 +322,36 @@ class LandscapePhoneLayoutTest {
     }
 
     /**
+     * #1474 — the temporary tap-series sum must NOT steal height from the fixed
+     * landscape column: with the undo row also visible, the QuickTools row must
+     * still be laid out (that zero-height row is the #962 defect class).
+     */
+    @Test
+    fun `the landscape player keeps every control while the tap sum and undo row are visible`() {
+        showLandscapePlayer(seekSumLabel = "+1:30", undoFromPositionMs = 100_000L)
+
+        listOf("speed_chip", "sleep_timer_chip", "add_bookmark_chip", "chapters_chip")
+            .forEach { tag ->
+                val bounds = composeTestRule.onNodeWithTag(tag, useUnmergedTree = true)
+                    .getUnclippedBoundsInRoot()
+                assertTrue(
+                    "$tag was never laid out while the tap sum + undo row are visible: " +
+                        "bounds=[${bounds.left},${bounds.top}][${bounds.right},${bounds.bottom}]",
+                    (bounds.right.value - bounds.left.value) > 0f &&
+                        (bounds.bottom.value - bounds.top.value) > 0f
+                )
+            }
+
+        val sum = composeTestRule.onNodeWithTag("player_seek_sum", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot()
+        assertTrue(
+            "the tap sum was never laid out: bounds=[${sum.left},${sum.top}][${sum.right},${sum.bottom}]",
+            (sum.right.value - sum.left.value) > 0f &&
+                (sum.bottom.value - sum.top.value) > 0f
+        )
+    }
+
+    /**
      * #962 B2 — the transport row is NOT clipped by the bottom edge, and the
      * play button is fully inside the window.
      */
@@ -359,7 +389,10 @@ class LandscapePhoneLayoutTest {
         )
     }
 
-    private fun showLandscapePlayer() {
+    private fun showLandscapePlayer(
+        seekSumLabel: String? = null,
+        undoFromPositionMs: Long? = null
+    ) {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 Surface(modifier = Modifier, color = MaterialTheme.colorScheme.background) {
@@ -370,7 +403,14 @@ class LandscapePhoneLayoutTest {
                         )
                     ) {
                         PlayerScreenContent(
-                            playerState = landscapePlayerState,
+                            playerState = if (undoFromPositionMs != null) {
+                                landscapePlayerState.copy(
+                                    canUndoSeek = true,
+                                    undoFromPositionMs = undoFromPositionMs
+                                )
+                            } else {
+                                landscapePlayerState
+                            },
                             book = landscapeBook,
                             currentChapterTitle = landscapeChapters[1].title,
                             progress = calculatePlayerProgress(
@@ -396,7 +436,8 @@ class LandscapePhoneLayoutTest {
                             onSpeed = {},
                             onTimer = {},
                             onBookmark = {},
-                            onChapters = {}
+                            onChapters = {},
+                            seekSumLabel = seekSumLabel
                         )
                     }
                 }

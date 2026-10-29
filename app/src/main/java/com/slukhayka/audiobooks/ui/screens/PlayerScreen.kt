@@ -289,6 +289,75 @@ fun PlayerScreen(
             playerState.currentStreamUrl.let { it.startsWith("https://") || it.startsWith("http://") }
     }
 
+    // #1474 — the temporary «sum of one tap series»: built from the ACTUAL
+    // position shift of each «−15 s / +30 s» tap (clamped by the chapter
+    // start/end), reset by a drag or a chapter switch (a playback pause is NOT
+    // a reset: a tap after the idle window simply starts a new series), and
+    // announced ONCE when the series ends instead of on every tap.
+    val seekSumMs = remember { mutableLongStateOf(0L) }
+    val seekLastTapAt = remember { mutableLongStateOf(0L) }
+    val seekLastChapter = remember { mutableIntStateOf(-1) }
+    val seekSumVisible = remember { mutableStateOf(false) }
+    val seekSumVersion = remember { mutableIntStateOf(0) }
+    val seekSumContext = androidx.compose.ui.platform.LocalContext.current
+    val seekSumView = androidx.compose.ui.platform.LocalView.current
+    fun resetSeekSum() {
+        seekSumVisible.value = false
+        seekSumMs.longValue = 0L
+        seekLastTapAt.longValue = 0L
+        seekLastChapter.intValue = -1
+    }
+
+    fun recordSeekTap(deltaMs: Long) {
+        val state = viewModel.playerManager.playerState.value
+        val target = (state.currentPositionMs + deltaMs).coerceIn(0L, state.durationMs)
+        val actual = target - state.currentPositionMs
+        val now = android.os.SystemClock.elapsedRealtime()
+        seekSumMs.longValue = SeekSum.accumulate(
+            previousSumMs = seekSumMs.longValue,
+            lastTapAtMs = seekLastTapAt.longValue,
+            previousChapterIndex = seekLastChapter.intValue,
+            nowMs = now,
+            chapterIndex = state.currentChapterIndex,
+            actualDeltaMs = actual
+        )
+        seekLastTapAt.longValue = now
+        seekLastChapter.intValue = state.currentChapterIndex
+        // A sub-second shift is not worth a «+0:00» label.
+        seekSumVisible.value = kotlin.math.abs(seekSumMs.longValue) >= 1_000L
+        seekSumVersion.intValue++
+    }
+
+    androidx.compose.runtime.LaunchedEffect(playerState.currentChapterIndex) { resetSeekSum() }
+    // The VISUAL sum is brief. The announcement waits for the SERIES to end
+    // (the idle window), so a tap in the 1.8–2.5 s gap cannot make TalkBack
+    // speak two sums of one logical series.
+    androidx.compose.runtime.LaunchedEffect(seekSumVersion.intValue) {
+        if (!seekSumVisible.value) return@LaunchedEffect
+        val version = seekSumVersion.intValue
+        kotlinx.coroutines.delay(SeekSum.VISIBLE_MS)
+        if (seekSumVersion.intValue == version && seekSumVisible.value) {
+            seekSumVisible.value = false
+        }
+    }
+    androidx.compose.runtime.LaunchedEffect(seekSumVersion.intValue) {
+        if (!seekSumVisible.value) return@LaunchedEffect
+        val version = seekSumVersion.intValue
+        val lastTapAt = seekLastTapAt.longValue
+        kotlinx.coroutines.delay(SeekSum.SERIES_IDLE_MS + 50L)
+        if (
+            seekSumVersion.intValue == version &&
+            seekLastTapAt.longValue == lastTapAt &&
+            kotlin.math.abs(seekSumMs.longValue) >= 1_000L
+        ) {
+            val spoken = seekSumContext.getString(
+                com.slukhayka.audiobooks.R.string.player_seek_sum_a11y,
+                SeekSum.format(seekSumMs.longValue)
+            )
+            seekSumView.announceForAccessibility(spoken)
+        }
+    }
+    val seekSumLabel = if (seekSumVisible.value) SeekSum.format(seekSumMs.longValue) else null
     var activeTool by rememberSaveable { mutableStateOf<PlayerQuickTool?>(null) }
     var showDebugOverlay by rememberSaveable { mutableStateOf(false) }
     var artworkAccent by remember(book.id) { mutableStateOf<Color?>(null) }
@@ -371,6 +440,7 @@ fun PlayerScreen(
             progress = progress,
             artworkAccent = artworkAccent,
             artworkAspect = artworkAspect,
+            seekSumLabel = seekSumLabel,
             onArtworkLoaded = {
                 artworkAccent = extractArtworkAccent(it)
                 val iw = it.intrinsicWidth
@@ -385,9 +455,11 @@ fun PlayerScreen(
             onToggleFavorite = { scope.launch { libraryEntries.toggleFavorite(book.id, !book.isFavorite) } },
             onToggleDebug = { showDebugOverlay = !showDebugOverlay },
             onSeek = { fraction ->
+                resetSeekSum()
                 viewModel.playerManager.seekTo((fraction * playerState.durationMs).toLong())
             },
             onBookSeek = { fraction ->
+                resetSeekSum()
                 calculateBookSeekTarget(
                     chapters = playerState.chapters,
                     currentChapterIndex = playerState.currentChapterIndex,
@@ -407,7 +479,10 @@ fun PlayerScreen(
                 }
             },
             onPreviousChapter = viewModel.playerManager::previousChapter,
-            onBack = { viewModel.playerManager.skipBackward(15) },
+            onBack = {
+                recordSeekTap(-15_000L)
+                viewModel.playerManager.skipBackward(15)
+            },
             onPlayPause = {
                 val current = viewModel.playerManager.playerState.value
                 viewModel.togglePlaybackFromPlayer(
@@ -416,7 +491,10 @@ fun PlayerScreen(
                     current.currentPositionMs
                 )
             },
-            onForward = { viewModel.playerManager.skipForward(30) },
+            onForward = {
+                recordSeekTap(30_000L)
+                viewModel.playerManager.skipForward(30)
+            },
             onNextChapter = viewModel.playerManager::nextChapter,
             onUndoSeek = viewModel.playerManager::undoLastSeek,
             onSpeed = { activeTool = PlayerQuickTool.Speed },
@@ -639,6 +717,8 @@ fun PlayerScreenContent(
     fallbackCandidates: List<com.slukhayka.audiobooks.data.editions.FallbackCandidate> = emptyList(),
     onSelectFallback: (com.slukhayka.audiobooks.data.editions.FallbackCandidate) -> Unit = {},
     alwaysInk: Boolean = true,
+    /** #1474 — the temporary tap-series sum, or null when no series is open. */
+    seekSumLabel: String? = null,
 ) {
     PlayerInkSurface(alwaysInk = alwaysInk) {
         PlayerScreenContentBody(
@@ -674,6 +754,7 @@ fun PlayerScreenContent(
             onFindAnotherSource = onFindAnotherSource,
             fallbackCandidates = fallbackCandidates,
             onSelectFallback = onSelectFallback,
+            seekSumLabel = seekSumLabel
         )
     }
 }
@@ -712,7 +793,9 @@ private fun PlayerScreenContentBody(
     onFindAnotherSource: () -> Unit = {},
     // #530 — the ordered fallback offer of #519's action; empty renders nothing.
     fallbackCandidates: List<com.slukhayka.audiobooks.data.editions.FallbackCandidate> = emptyList(),
-    onSelectFallback: (com.slukhayka.audiobooks.data.editions.FallbackCandidate) -> Unit = {}
+    onSelectFallback: (com.slukhayka.audiobooks.data.editions.FallbackCandidate) -> Unit = {},
+    /** #1474 — the temporary tap-series sum, or null when no series is open. */
+    seekSumLabel: String? = null
 ) {
     val background = MaterialTheme.colorScheme.background
     // One saturated accent for sound; verdigris stays for quiet actions.
@@ -877,6 +960,7 @@ private fun PlayerScreenContentBody(
                                             // Issue #381: під час резолюції стріму кнопка не має
                                             // промовляти застаріле «Призупинено».
                                             isBuffering = playerState.isBuffering,
+                                            seekSumLabel = seekSumLabel,
                                             onPreviousChapter = onPreviousChapter,
                                             onBack = onBack,
                                             onPlayPause = onPlayPause,
@@ -1085,6 +1169,7 @@ private fun PlayerScreenContentBody(
                     // Issue #381: під час резолюції стріму кнопка не має
                     // промовляти застаріле «Призупинено».
                     isBuffering = playerState.isBuffering,
+                    seekSumLabel = seekSumLabel,
                     onPreviousChapter = onPreviousChapter,
                     onBack = onBack,
                     onPlayPause = onPlayPause,
@@ -1706,6 +1791,8 @@ private fun TransportControls(
     currentChapterTitle: String,
     isPlaying: Boolean,
     isBuffering: Boolean,
+    /** #1474 — the temporary tap-series sum, or null when no series is open. */
+    seekSumLabel: String?,
     onPreviousChapter: () -> Unit,
     onBack: () -> Unit,
     onPlayPause: () -> Unit,
@@ -1741,11 +1828,16 @@ private fun TransportControls(
         bookTitle,
         currentChapterTitle
     )
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    // #1474 — the sum floats OVER the transport row, it must not add height:
+    // the landscape column is fixed and the undo row can already fill it
+    // (a zero-height QuickTools row is exactly the #962 defect class this
+    // screen's layout test fences).
+    Box(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
         TransportIcon(Icons.Default.SkipPrevious, previousDescription, onPreviousChapter)
         // Spec-27 (#207, BUG-012): the seek buttons carry a visible label
         // («15 с»/«30 с») below the icon. Mirroring Replay keeps both seek
@@ -1791,6 +1883,22 @@ private fun TransportControls(
             mirrorIcon = true
         )
         TransportIcon(Icons.Default.SkipNext, nextDescription, onNextChapter)
+        }
+        // Temporary and closest to the action: it is not a second clock and
+        // never argues with the «Return to …» rewind-undo row.
+        if (seekSumLabel != null) {
+            Text(
+                text = seekSumLabel,
+                style = MaterialTheme.typography.labelLarge.copy(
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
+                ),
+                color = MaterialTheme.colorScheme.tertiary,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .offset(y = (-28).dp)
+                    .testTag("player_seek_sum")
+            )
+        }
     }
 }
 

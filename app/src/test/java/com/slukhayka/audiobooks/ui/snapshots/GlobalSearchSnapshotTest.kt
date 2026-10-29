@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
@@ -156,6 +157,46 @@ class GlobalSearchSnapshotTest {
         }
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/global_search_source_badge.png"
+        )
+    }
+
+    // F33 of the 2026-10-28 device audit — the empty search used to draw SIX
+    // blocks: «У вашій медіатеці (0)» + «Знайдені книги (0)» headers, the live
+    // status, the partial-catalogue note and an M3 empty state with a
+    // `SearchOff` placeholder glyph. The canonical state is ONE statement in
+    // type (Literata 20 + Meta) with no glyph.
+    @Test
+    fun empty_search_is_one_statement_without_counted_headers() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                GlobalSearchSurface {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        searchResultsContent(
+                            localBooks = emptyList(),
+                            globalResults = emptyList(),
+                            liveSearchActive = true,
+                            isGlobalLoading = false,
+                            globalError = false,
+                            onOpenLocalBook = {},
+                            onPlayLocalBook = {},
+                            onOpenGlobalResult = {},
+                            catalogCardActionState = CatalogCardActionState.Idle,
+                            onOpenCatalogBrowser = {},
+                            onPreflightGlobalResult = {}
+                        )
+                    }
+                }
+            }
+        }
+        composeTestRule.onNodeWithText("Нічого не знайдено").assertExists()
+        composeTestRule.onNodeWithTag("search_no_results").assertExists()
+        composeTestRule.onNodeWithTag("search_library_header").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("search_sources_header").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("global_search_status").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("empty_state_icon", useUnmergedTree = true)
+            .assertDoesNotExist()
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/search_empty_state.png"
         )
     }
 }

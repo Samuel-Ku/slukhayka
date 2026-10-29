@@ -1,7 +1,7 @@
 package com.slukhayka.audiobooks.data.achievements
 
-import kotlinx.coroutines.ContinuationInterceptor
-import kotlinx.coroutines.CoroutineContext
+import kotlin.coroutines.ContinuationInterceptor
+import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher

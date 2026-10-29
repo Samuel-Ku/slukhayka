@@ -101,6 +101,7 @@
     <string name="collection_with_book_title">Kolekcje z tą książką</string>
     <string name="collection_your_rating">Twoja ocena</string>
     <string name="collections_index_empty">Kolekcje pojawią się po pobraniu katalogu.</string>
+    <string name="collections_index_refresh">Odśwież katalog</string>
     <string name="collections_index_title">Kolekcje</string>
     <string name="collections_rail_title">Kolekcje słuchaczy</string>
     <string name="curator_profile_empty">Ten kurator nie ma jeszcze widocznych kolekcji</string>

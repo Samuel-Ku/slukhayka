@@ -22,6 +22,7 @@ import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.theme.*
+import kotlinx.coroutines.launch
 
 /**
  * spec-28 (#190) — the «Колекції» index: every matched smart collection
@@ -38,6 +39,7 @@ fun CollectionsIndexScreen(
     onBookClick: (GlobalSearchResult) -> Unit
 ) {
     val collections by viewModel.collectionsIndex.collectAsState()
+    val scope = rememberCoroutineScope()
 
     // spec-28 (#202): the chrome is the shared index scaffold — title, back
     // arrow, insets and container colour live in one place; only the content
@@ -49,6 +51,13 @@ fun CollectionsIndexScreen(
         CollectionsIndexContent(
             collections = collections,
             onBookClick = onBookClick,
+            // #1606 — the honest next action for an empty index: the same
+            // union refresh the Огляд composition runs.
+            onRefreshCatalog = {
+                scope.launch {
+                    com.slukhayka.audiobooks.App.instance.sourceCatalog.refreshUnifiedCatalog()
+                }
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
@@ -67,16 +76,24 @@ fun CollectionsIndexScreen(
 fun CollectionsIndexContent(
     collections: List<CollectionMatcher.MatchedCollection>,
     onBookClick: (GlobalSearchResult) -> Unit,
+    onRefreshCatalog: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (collections.isEmpty()) {
         // No matched collections: the shared index placeholder, never a crash
-        // — the union may simply not have synced yet (spec-28 #202).
+        // — the union may simply not have synced yet (spec-28 #202). #1606:
+        // an empty index must offer the way out, not just tell the listener to
+        // wait; one action, the same union refresh the Огляд runs.
         EmptyState(
             icon = PaperInkIcons.Book,
             title = stringResource(R.string.collections_index_empty),
             body = "",
-            modifier = modifier.testTag("collections_index_screen")
+            modifier = modifier.testTag("collections_index_screen"),
+            actions = {
+                TextButton(onClick = onRefreshCatalog) {
+                    Text(stringResource(R.string.collections_index_refresh))
+                }
+            }
         )
         return
     }

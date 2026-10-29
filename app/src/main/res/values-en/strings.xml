@@ -62,6 +62,7 @@
     <string name="people_narrators_title">Narrators</string>
     <string name="collections_index_title">Collections</string>
     <string name="collections_index_empty">Collections will appear once the catalogue has loaded.</string>
+    <string name="collections_index_refresh">Refresh catalogue</string>
     <string name="listen_empty_title">Keep listening</string>
     <string name="listen_empty_body">Your current book will appear here as soon as you start listening.</string>
     <string name="feed_genres">Genres</string>

@@ -88,7 +88,7 @@ class CollectionsIndexSnapshotTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 CollectionsIndexSurface {
-                    CollectionsIndexContent(collections = collections, onBookClick = {})
+                    CollectionsIndexContent(collections = collections, onBookClick = {}, onRefreshCatalog = {})
                 }
             }
         }
@@ -110,7 +110,7 @@ class CollectionsIndexSnapshotTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 CollectionsIndexSurface {
-                    CollectionsIndexContent(collections = emptyList(), onBookClick = {})
+                    CollectionsIndexContent(collections = emptyList(), onBookClick = {}, onRefreshCatalog = {})
                 }
             }
         }
@@ -129,12 +129,33 @@ class CollectionsIndexSnapshotTest {
     }
 
     @Test
+    fun collections_index_empty_state_offers_the_catalog_refresh() {
+        var refreshes = 0
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                CollectionsIndexSurface {
+                    CollectionsIndexContent(
+                        collections = emptyList(),
+                        onBookClick = {},
+                        onRefreshCatalog = { refreshes++ }
+                    )
+                }
+            }
+        }
+
+        // #1606 — an empty index must not be a dead end: one action, the same
+        // union refresh the Огляд runs.
+        composeTestRule.onNodeWithText("Оновити каталог").performClick()
+        assertEquals(1, refreshes)
+    }
+
+    @Test
     fun collection_book_tap_forwards_the_result() {
         var opened: GlobalSearchResult? = null
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 CollectionsIndexSurface {
-                    CollectionsIndexContent(collections = collections, onBookClick = { opened = it })
+                    CollectionsIndexContent(collections = collections, onBookClick = { opened = it }, onRefreshCatalog = {})
                 }
             }
         }

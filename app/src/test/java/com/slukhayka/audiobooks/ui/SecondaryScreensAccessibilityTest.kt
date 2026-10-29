@@ -662,7 +662,8 @@ class SecondaryScreensAccessibilityTest {
                     Box(Modifier.width(320.dp).height(480.dp)) {
                         CollectionsIndexContent(
                             collections = listOf(collection),
-                            onBookClick = {}
+                            onBookClick = {},
+                            onRefreshCatalog = {}
                         )
                     }
                 }

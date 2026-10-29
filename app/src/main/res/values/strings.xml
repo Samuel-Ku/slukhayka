@@ -340,6 +340,7 @@
     <string name="people_narrators_title">Виконавці</string>
     <string name="collections_index_title">Колекції</string>
     <string name="collections_index_empty">Колекції з\'являться після завантаження каталогу.</string>
+    <string name="collections_index_refresh">Оновити каталог</string>
     <!-- spec-46 T16 (#577): the Слухати fresh-install empty state. -->
     <string name="listen_empty_title">Продовжити слухати</string>
     <string name="listen_empty_body">Тут з\'явиться ваша поточна книга, щойно ви почнете слухати.</string>

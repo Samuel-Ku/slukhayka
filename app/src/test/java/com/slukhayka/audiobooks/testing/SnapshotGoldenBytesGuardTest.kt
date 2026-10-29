@@ -573,6 +573,25 @@ class SnapshotGoldenBytesGuardTest {
          * `:app:testComposeRoborazzi` verify reported ZERO changed images
          * outside the recorded set.
          *
+         *
+         * ## One header and three library frames re-pinned on 2026-10-29 (#1554)
+         *
+         * Two distinct icon moves, measured frame by frame:
+         *  - `explore_header_expanded` — the search field's clear affordance is
+         *    the family's `Close` X instead of Material `Clear`; the WHOLE delta
+         *    is 32 pixels inside a 31×31 box at `+947+348`, the clear button.
+         *    The collapsed header has no clear button and did not move (AE=0).
+         *  - `library_redesign_browsing` (39×357 at `+193+1629`),
+         *    `library_redesign_dense` (39×232 at `+997+1182`) and
+         *    `library_redesign_grid` (552×28 at `+469+1596`) — the downloaded
+         *    badge in the library rows is now the family's `Downloaded` glyph
+         *    instead of M3 `CloudDone`, so those rows moved, while every other
+         *    pixel stayed identical.
+         *
+         * The remaining pins kept AE=0, and a full `:app:testComposeRoborazzi`
+         * verify against the re-recorded set reported ZERO changed images
+         * outside the recorded set.
+         *
          */
         val PINS = listOf(
             Pin(
@@ -593,17 +612,17 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "8beda722885c51191b9d09adbd45eaea" + "e3910d9cdabd825b62137ff96055cac5"
+                "74e63635623105414fa9602233c88701" + "1b80e38f1bde0ef078329d4b9d7e158f"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "2d68881d7df1d0004a38e6a3ba6495db" + "a13db729cd0bd1cc8c138613e64b895f"
+                "104cf9adcc0ac36e0329ec497f4dd10d" + "38a2ef0885781339013a7a54b8ae9c6b"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "3f39b11bd4c4732294cc6e7d92783bea" + "0622d91686a386130452baf882632437"
+                "fbab0d63690005f05d3baf5aefe34c37" + "b6374e6b6770db1682bd93a503c2ad3d"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

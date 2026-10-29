@@ -174,6 +174,7 @@ class CanonicalStateFacadesBehaviorTest {
                 CollectionsIndexContent(
                     collections = emptyList(),
                     onBookClick = {},
+                    onRefreshCatalog = {},
                     modifier = Modifier.fillMaxSize()
                 )
             }

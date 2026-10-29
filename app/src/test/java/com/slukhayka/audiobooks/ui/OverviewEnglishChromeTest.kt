@@ -87,7 +87,7 @@ class OverviewEnglishChromeTest {
     @Test
     fun theCollectionsIndexPlaceholderSpeaksEnglish() {
         composeTestRule.setContent {
-            chrome { CollectionsIndexContent(collections = emptyList(), onBookClick = {}) }
+            chrome { CollectionsIndexContent(collections = emptyList(), onBookClick = {}, onRefreshCatalog = {}) }
         }
 
         assertChromeHasNoCyrillic()

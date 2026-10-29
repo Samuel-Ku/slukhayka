@@ -2526,28 +2526,27 @@ class MainViewModel @JvmOverloads constructor(
     }
 
     // spec-28 (#190): the «Колекції» index — every matched smart collection
-    // with its books. Same seam as the series/top-100/people index: one
-    // read-only StateFlow plus an open/close pair. The list is a snapshot of
-    // the matched collections at open time; the module flow
-    // ([SourceCatalog.smartCollections]) recomputes them on every union
-    // refresh, so reopening after a refresh shows the fresh list. Tapping a
-    // book resolves-and-plays exactly like the inline Огляд cards.
-    private val _collectionsIndexOpen = MutableStateFlow(false)
-    val collectionsIndexOpen: StateFlow<Boolean> = _collectionsIndexOpen.asStateFlow()
-
-    private val _collectionsIndex =
-        MutableStateFlow<List<com.slukhayka.audiobooks.data.collections.CollectionMatcher.MatchedCollection>>(emptyList())
-    val collectionsIndex: StateFlow<List<com.slukhayka.audiobooks.data.collections.CollectionMatcher.MatchedCollection>> =
-        _collectionsIndex.asStateFlow()
+    // with its books. Same open/close seam as the series/top-100/people index;
+    // since #1606 the list is LIVE while the screen is open (the Огляд already
+    // collects the same flow), instead of a snapshot frozen at open time.
+    // Tapping a book resolves-and-plays exactly like the inline Огляд cards.
+    private val collectionsIndexModule by lazy {
+        com.slukhayka.audiobooks.ui.collections.CollectionsIndexModule(
+            matchedCollections = sourceCatalog.smartCollections,
+            scope = viewModelScope
+        )
+    }
+    val collectionsIndexOpen: StateFlow<Boolean> get() = collectionsIndexModule.isOpen
+    val collectionsIndex:
+        StateFlow<List<com.slukhayka.audiobooks.data.collections.CollectionMatcher.MatchedCollection>>
+        get() = collectionsIndexModule.collections
 
     fun openCollectionsIndex() {
-        _collectionsIndex.value = sourceCatalog.smartCollections.value
-        _collectionsIndexOpen.value = true
+        collectionsIndexModule.open()
     }
 
     fun closeCollectionsIndex() {
-        _collectionsIndexOpen.value = false
-        _collectionsIndex.value = emptyList()
+        collectionsIndexModule.close()
     }
 
     // spec-28 (#194): the «Завантаження та пам'ять» destination — the

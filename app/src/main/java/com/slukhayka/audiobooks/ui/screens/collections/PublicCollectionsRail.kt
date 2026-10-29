@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.achievements.ShowcaseAwardSnapshot
 import com.slukhayka.audiobooks.ui.components.EmptyStateRow
+import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
 import java.util.Locale
 
 /** The real average line, or the honest absence — one rule for every surface. */
@@ -80,12 +81,12 @@ fun PublicCollectionsRail(
             text = stringResource(R.string.collections_rail_title),
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = PaperInkDimens.SpacePage)
                 .semantics { heading() }
         )
         Spacer(Modifier.height(8.dp))
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
+            contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(rows, key = { it.documentId }) { row ->

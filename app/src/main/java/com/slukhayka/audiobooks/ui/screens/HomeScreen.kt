@@ -57,7 +57,6 @@ import coil.request.ImageRequest
 import com.slukhayka.audiobooks.ui.components.CycleCard
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.PosterCard
-import com.slukhayka.audiobooks.ui.components.PosterWidth
 import com.slukhayka.audiobooks.ui.components.applySourceCoverHeaders
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
@@ -988,10 +987,10 @@ fun NewArrivalsRail(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(arrivals, key = { it.workKey }) { arrival ->
-                Column(
-                    modifier = Modifier.width(PosterWidth),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+                // Sized by the card itself: legacy 120 dp, paper shelf 132 dp.
+                // A fixed `width(PosterWidth)` here squeezed the paper cover to
+                // 120×198 (a stretched 2:3) — see #1546.
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     PosterCard(book = arrival.book, onClick = { onBookClick(arrival.book) })
                     if (arrival.sourceName.isNotBlank()) {
                         Spacer(modifier = Modifier.height(4.dp))

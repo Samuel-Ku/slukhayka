@@ -1283,16 +1283,6 @@
             column="13"/>
     </issue>
 
-    <issue
-        id="MissingTranslation"
-        message="&quot;home_search_placeholder&quot; is not translated in &quot;pl&quot; (Polish)"
-        errorLine1="    &lt;string name=&quot;home_search_placeholder&quot;>Пошук книги або автора…&lt;/string>"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="39"
-            column="13"/>
-    </issue>
 
     <issue
         id="MissingTranslation"
@@ -1393,27 +1383,7 @@
             column="13"/>
     </issue>
 
-    <issue
-        id="MissingTranslation"
-        message="&quot;feed_quick_links&quot; is not translated in &quot;pl&quot; (Polish)"
-        errorLine1="    &lt;string name=&quot;feed_quick_links&quot;>Швидкі переходи&lt;/string>"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="52"
-            column="13"/>
-    </issue>
 
-    <issue
-        id="MissingTranslation"
-        message="&quot;feed_for_you&quot; is not translated in &quot;pl&quot; (Polish)"
-        errorLine1="    &lt;string name=&quot;feed_for_you&quot;>Для вас&lt;/string>"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="53"
-            column="13"/>
-    </issue>
 
     <issue
         id="MissingTranslation"
@@ -1448,16 +1418,6 @@
             column="13"/>
     </issue>
 
-    <issue
-        id="MissingTranslation"
-        message="&quot;feed_discover&quot; is not translated in &quot;pl&quot; (Polish)"
-        errorLine1="    &lt;string name=&quot;feed_discover&quot;>Відкрити нове&lt;/string>"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="57"
-            column="13"/>
-    </issue>
 
     <issue
         id="MissingTranslation"
@@ -3736,16 +3696,6 @@
             column="13"/>
     </issue>
 
-    <issue
-        id="MissingTranslation"
-        message="&quot;home_no_personal_picks&quot; is not translated in &quot;pl&quot; (Polish)"
-        errorLine1="    &lt;string name=&quot;home_no_personal_picks&quot;>Персональних добірок поки немає.&lt;/string>"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="313"
-            column="13"/>
-    </issue>
 
     <issue
         id="MissingTranslation"

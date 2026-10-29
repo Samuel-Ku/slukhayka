@@ -437,8 +437,9 @@ private fun AchievementRegistryRow(
     } else {
         val rowProgress = AchievementPresentation.progress(progress, definition)
         when (rowProgress.unit) {
-            AchievementPresentation.Unit.HOURS -> stringResource(
-                R.string.achievements_progress_hours,
+            AchievementPresentation.Unit.HOURS -> pluralStringResource(
+                R.plurals.achievements_progress_hours,
+                rowProgress.targetHours.toInt(),
                 rowProgress.currentHours,
                 rowProgress.targetHours,
             )

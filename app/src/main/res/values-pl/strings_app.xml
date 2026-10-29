@@ -366,7 +366,12 @@
     <!-- F18 — panel bohatera, statusy rejestru i pasek bieżącego tygodnia. -->
     <string name="achievements_status_earned">Zdobyte</string>
     <string name="achievements_progress_count">%1$d z %2$d</string>
-    <string name="achievements_progress_hours">%1$d z %2$d godz.</string>
+    <plurals name="achievements_progress_hours">
+        <item quantity="one">%1$d z %2$d godz.</item>
+        <item quantity="few">%1$d z %2$d godz.</item>
+        <item quantity="many">%1$d z %2$d godz.</item>
+        <item quantity="other">%1$d z %2$d godz.</item>
+    </plurals>
     <plurals name="achievements_hero_caption">
         <item quantity="one">z %1$d odznaki</item>
         <item quantity="few">z %1$d odznak</item>

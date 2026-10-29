@@ -894,7 +894,11 @@
     <!-- F18 — hero-панель, статуси реєстру й смуга поточного тижня. -->
     <string name="achievements_status_earned">Здобуто</string>
     <string name="achievements_progress_count">%1$d із %2$d</string>
-    <string name="achievements_progress_hours">%1$d із %2$d год</string>
+    <plurals name="achievements_progress_hours">
+        <item quantity="one">%1$d із %2$d год.</item>
+        <item quantity="few">%1$d із %2$d год.</item>
+        <item quantity="other">%1$d із %2$d год.</item>
+    </plurals>
     <plurals name="achievements_hero_caption">
         <item quantity="one">із %1$d відзнаки</item>
         <item quantity="few">із %1$d відзнак</item>

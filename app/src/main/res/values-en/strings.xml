@@ -823,7 +823,10 @@
     <!-- F18 — the hero panel, registry statuses and the current-week strip. -->
     <string name="achievements_status_earned">Earned</string>
     <string name="achievements_progress_count">%1$d of %2$d</string>
-    <string name="achievements_progress_hours">%1$d of %2$d h</string>
+    <plurals name="achievements_progress_hours">
+        <item quantity="one">%1$d of %2$d h</item>
+        <item quantity="other">%1$d of %2$d h</item>
+    </plurals>
     <plurals name="achievements_hero_caption">
         <item quantity="one">of %1$d award</item>
         <item quantity="other">of %1$d awards</item>

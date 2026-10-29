@@ -116,6 +116,10 @@ class PaperInkTokensTest {
         listOf(light to "light", dark to "dark").forEach { (scheme, name) ->
             assertGraphic(name, "selected/background", scheme.primary, scheme.background)
             assertText(name, "onSelected/selected", scheme.onPrimary, scheme.primary)
+            // The pill also has to read against the UNSELECTED well it sits in
+            // (`surfaceVariant`), not only against the page ground — an 11 sp
+            // label next to an unselected pill was the F3 defect.
+            assertGraphic(name, "selected/unselected", scheme.primary, scheme.surfaceVariant)
         }
     }
 

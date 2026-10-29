@@ -526,8 +526,10 @@ class SnapshotGoldenBytesGuardTest {
          *  - F3: the selected pill is `primary` + `onPrimary` instead of the
          *    low-contrast `primaryContainer` (measured < 1.5:1 in the paper
          *    scheme);
-         *  - F4: the continue-card text moved from `tertiary` (verdigris) to
-         *    `PaperInkColors.lampText` — the sound cue is amber, not green;
+         *  - F4: the continue-card text moved from the graphic `tertiary`
+         *    (Lamp, 3:1) to the text-safe `PaperInkColors.lampText`
+         *    (LampInk/LampNight) — the amber cue at a readable value, not the
+         *    low-contrast graphic one;
          *  - F12: the card label is sentence case, not CAPS.
          *
          * The other seven #977 pins did NOT move, which is the read-not-refresh

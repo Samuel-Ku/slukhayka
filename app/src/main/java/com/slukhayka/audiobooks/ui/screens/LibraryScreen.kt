@@ -2437,7 +2437,10 @@ fun LibraryBookCard(
                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
                                     color = when (submissionBadge) {
                                         SubmissionBadge.REJECTED -> MaterialTheme.colorScheme.error
-                                        SubmissionBadge.IN_SHARED_BASE -> MaterialTheme.colorScheme.tertiary
+                                        // F4 — the amber cue as TEXT: `tertiary` is the
+                                        // graphic Lamp (3:1), 11 sp on paper measured
+                                        // 3.80:1; lampText is the readable amber.
+                                        SubmissionBadge.IN_SHARED_BASE -> PaperInkColors.lampText
                                         else -> MaterialTheme.colorScheme.secondary
                                     },
                                     maxLines = 1,

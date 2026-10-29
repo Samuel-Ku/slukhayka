@@ -48,6 +48,27 @@ import java.security.MessageDigest
  * with the reason in its body. The mechanism below is unchanged: a later blind
  * re-record still cannot move them silently.
  *
+ * **2026-10-28 — «Огляд» migration (#1536, F5/F6/F19/F20/F24/F26):** exactly
+ * THREE of the nine moved, and each is a surface the migration touches:
+ * `explore_header_*` (the header now carries the 52 dp paper search row
+ * instead of the ≈69 dp M3 `OutlinedTextField` with its label+placeholder) and
+ * `home_feed_phone_fold` (the first screen lost the legacy update banner and
+ * the two GROUP captions, and every rail moved from the 16 dp legacy grid to
+ * the direction's 20 dp). The six library/player pins kept their bytes — read
+ * and compared, not assumed: the same recording run (CI `record-snapshots`
+ * workflow 40771225524, the runner that verifies) left them byte-identical,
+ * which is evidence the migration did not repaint unrelated surfaces. The new
+ * `overview_light`/`overview_dark` goldens are not in this pin set: a new
+ * golden is added to the suite deliberately, not as a drift.
+ *
+ * Same day, the independent review of #1542 found that `explore_header_expanded`
+ * had legitimately recorded a defect: the TYPED query rendered in platform
+ * black on the ink surface (≈1.2:1), because `BasicTextField` does not read
+ * `LocalContentColor`. Fixing it moved that one golden a second time (0.04 %
+ * of pixels — the glyphs only) and the explicit `onSurface` colour is now
+ * guarded by `OverviewMigrationSnapshotTest.typed_query_text_is_readable_in_ink_theme`
+ * (measured 14.0:1) instead of by a reviewer's eye.
+ *
  * This guard does not bless those bytes — it pins them. They are exactly the
  * files a blind «оновили золота» commit touches, and nothing else in the
  * repository would notice: the compare step in `.github/workflows/ci.yml` runs
@@ -477,17 +498,17 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "collapsed.png",
-                "c236f7db34e7541ed7ca9a572381471e" + "30aa005143ec6feb2062128201bb3fbc"
+                "30d8cdca462444b7d508424e060b8842" + "aad96547b92590d453fd7217f62599ea"
             ),
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "expanded.png",
-                "62a7823ace0937c0c2da8200e805c219" + "99b4d23d7a0b9a1b2b206a94701fbe0e"
+                "4dba3f69f37e95307b8601f2284458ec" + "e478428b807b9efc959979fe51b35ac2"
             ),
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",
                 "home_feed_" + "phone_fold.png",
-                "114c47cb46b299d5877132340d088c4f" + "5238f5a215204a826524c7d9ea3bd7fa"
+                "5e1b9cf533151e5831d389c08f63e33d" + "f4d7c8bf0e3b1f0ca12d97dae90c6c30"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",

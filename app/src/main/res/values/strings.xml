@@ -36,7 +36,6 @@
     <string name="book_detail_browser_needed">Потрібен браузер</string>
     <!-- Spec-45 (#405) T10 (#498): visible UI literals migrated from hardcoded
          strings, grouped by screen. values/ stays the fallback. -->
-    <string name="home_search_placeholder">Пошук книги або автора…</string>
     <string name="home_not_recommend">Не рекомендувати…</string>
     <!-- #486 — the per-Source badge on a «джерело радить» recommendation card. -->
     <string name="home_recommendation_source_badge">Джерело радить · %1$s</string>
@@ -58,12 +57,9 @@
     <string name="feed_done">Готово</string>
     <!-- v1.4 EN/UK chrome (E3 + «Огляд rails → ресурси»): the feed's section
          headers and search doors moved off hardcoded strings. -->
-    <string name="feed_quick_links">Швидкі переходи</string>
-    <string name="feed_for_you">Для вас</string>
     <string name="feed_your_cycles">Ваші цикли</string>
     <string name="feed_similar_cycles">Схожі цикли</string>
     <string name="feed_recommended_for_you">Рекомендовано для вас</string>
-    <string name="feed_discover">Відкрити нове</string>
     <string name="feed_genres">Жанри</string>
     <string name="feed_duration">Тривалість</string>
     <string name="home_new_arrivals">Новинки</string>
@@ -140,6 +136,8 @@
     <string name="feed_recommendation_consent_body">Локальні рекомендації вже працюють приватно. За окремою згодою майбутнє спільне навчання використовуватиме лише тижневе оновлення п’яти ваг — без книг та історії.</string>
     <string name="feed_more">Докладніше</string>
     <string name="update_hide">Приховати</string>
+    <string name="update_available_title">Доступна версія %1$s</string>
+    <string name="update_available_action">Оновити</string>
     <string name="speed_default_for_all">Стандарт для всіх</string>
     <string name="book_detail_mark_listened">Позначити прослуханим</string>
     <string name="book_detail_unmark_listened">Зняти позначку</string>
@@ -356,7 +354,6 @@
     <string name="a11y_people_new_mark_seen">Позначити новинки переглянутими</string>
     <string name="home_search_no_results">Нічого не знайдено</string>
     <string name="home_search_no_results_hint">Спробуйте змінити запит або фільтр.</string>
-    <string name="home_no_personal_picks">Персональних добірок поки немає.</string>
     <string name="home_personal_picks_loading">Готуємо персональні добірки…</string>
 
     <!-- v1.4 (ADR-0033): book-page section headers and source chrome. -->

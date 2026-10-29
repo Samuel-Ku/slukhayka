@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -30,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -331,6 +333,23 @@ fun HomeScreen(
     // Text-search mode: genre filtering has one home in the feed sheet.
     val inSearchMode = searchQuery.isNotBlank()
 
+    // F5 — the rare «update available» action is a compact paper row emitted
+    // below the curated shelves (never the first thing on the screen). The
+    // download hands off to the browser on the release's direct apk link.
+    val updateBannerSlot: (@Composable () -> Unit)? = availableRelease?.let { release ->
+        {
+            UpdateBanner(
+                update = release,
+                onDownload = {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(release.apkUrl))
+                    )
+                },
+                onDismiss = updateChecker::dismiss
+            )
+        }
+    }
+
     HomeModalUnderlay(
         modalVisible = showRecommendationDisclosure || showWorkFeedFilters,
         modifier = Modifier.fillMaxSize()
@@ -389,24 +408,11 @@ fun HomeScreen(
             // final endless feed, pinned by HomeFeedOrderSnapshotTest. The body lives in
             // [homeFeedContent] so the order is stateless and testable.
 
-            // Spec-36 T1 (#244): the non-blocking update banner sits above
-            // every content row; «Завантажити» hands off to the browser on
-            // the release's direct apk link.
-            availableRelease?.let { release ->
-                item(key = "app_update_banner") {
-                    UpdateBanner(
-                        update = release,
-                        onDownload = {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(release.apkUrl))
-                            )
-                        },
-                        onDismiss = updateChecker::dismiss
-                    )
-                }
-            }
-
+            // Spec-36 T1 (#244) + F5: the update banner is a RARE action, so
+            // it no longer stands above the first shelf — it rides the feed
+            // body as a compact row emitted below the curated shelves.
             homeFeedContent(
+                updateBanner = updateBannerSlot,
                 isCatalogLoading = isCatalogLoading,
                 hasLibraryBooks = allBooks.isNotEmpty(),
                 sections = sections,
@@ -689,7 +695,7 @@ fun GlobalSearchStatus(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(horizontal = PaperInkDimens.SpacePage, vertical = PaperInkDimens.SpaceMd)
             .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }
             .testTag("global_search_status"),
         verticalAlignment = Alignment.CenterVertically,
@@ -771,50 +777,111 @@ fun HomeHeader(
                 },
             )
 
-            Spacer(modifier = Modifier.height(PaperInkDimens.SpaceLg))
+            Spacer(modifier = Modifier.height(PaperInkDimens.SpaceSm))
 
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = onSearchQueryChange,
-                label = { Text(searchFieldLabel) },
-                placeholder = { Text(stringResource(R.string.home_search_placeholder)) },
-                textStyle = PaperInkType.Body,
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                },
-                trailingIcon = {
-                    // The field stays; ✕ only empties it (US-2).
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(
-                            onClick = { onSearchQueryChange("") },
-                            modifier = Modifier.testTag("home_search_clear")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Clear,
-                                contentDescription = stringResource(R.string.a11y_clear_search),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = PaperInkDimens.SpacePage)
-                    .heightIn(min = 52.dp)
-                    .testTag("home_search_input"),
-                shape = RoundedCornerShape(PaperInkDimens.RadiusMedium),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedContainerColor = MaterialTheme.colorScheme.surface,
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                ),
-                singleLine = true
+            PaperSearchField(
+                query = searchQuery,
+                onQueryChange = onSearchQueryChange,
+                hint = searchFieldLabel,
             )
+        }
+    }
+}
+
+/**
+ * F24/F6 — the «Огляд» search surface of the direction: ONE 52 dp paper row
+ * (Search 22 dp + a single hint + the 48 dp ✕), radius 16, 1 dp `LineStrong`
+ * border. The legacy M3 `OutlinedTextField` was ≈69 dp because its floating
+ * label and its placeholder said almost the same thing; the label and the
+ * screen-reader name now come from [hint], so nothing is duplicated.
+ *
+ * The tag sits on the text field itself (`home_search_input`) because the
+ * instrumented search-return test types into it; [home_search_surface] is the
+ * measured 52 dp chrome for layout assertions.
+ */
+@Composable
+private fun PaperSearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    hint: String,
+    modifier: Modifier = Modifier,
+) {
+    val hintStyle = PaperInkType.Body.copy(
+        fontSize = 15.sp,
+        lineHeight = 20.sp,
+        fontWeight = FontWeight.Normal,
+    )
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = PaperInkDimens.SpacePage)
+            .heightIn(min = 52.dp)
+            .clip(RoundedCornerShape(PaperInkDimens.RadiusMedium))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline,
+                shape = RoundedCornerShape(PaperInkDimens.RadiusMedium),
+            )
+            .testTag("home_search_surface"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Default.Search,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .padding(start = 14.dp, end = 10.dp)
+                .size(22.dp),
+        )
+        BasicTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            singleLine = true,
+            // Review blocker (#1542): `BasicTextField` draws with the style it is
+            // given and does NOT fall back to `LocalContentColor`, so an unstyled
+            // `textStyle` rendered the typed query in the platform default black
+            // (#000) — ≈1.2:1 on the ink surface. The ink colour is explicit, and
+            // `typed_query_text_is_readable_in_both_themes` pins the rendered
+            // contrast so a re-record cannot hide it again.
+            textStyle = hintStyle.copy(color = MaterialTheme.colorScheme.onSurface),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = PaperInkDimens.TouchTarget)
+                .testTag("home_search_input"),
+            decorationBox = { innerTextField ->
+                Box(contentAlignment = Alignment.CenterStart) {
+                    if (query.isEmpty()) {
+                        Text(
+                            text = hint,
+                            style = hintStyle,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    innerTextField()
+                }
+            },
+        )
+        // The field stays; ✕ only empties it (US-2).
+        if (query.isNotEmpty()) {
+            IconButton(
+                onClick = { onQueryChange("") },
+                modifier = Modifier
+                    .size(PaperInkDimens.TouchTarget)
+                    .testTag("home_search_clear"),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Clear,
+                    contentDescription = stringResource(R.string.a11y_clear_search),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        } else {
+            Spacer(modifier = Modifier.width(6.dp))
         }
     }
 }
@@ -850,7 +917,7 @@ fun DurationSection(
         if (shortBooks.isNotEmpty()) {
             AppSectionHeader(title = stringResource(R.string.home_short_books))
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
+                contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.testTag("duration_short_row")
             ) {
@@ -875,7 +942,7 @@ fun DurationSection(
         if (longBooks.isNotEmpty()) {
             AppSectionHeader(title = stringResource(R.string.home_long_books))
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
+                contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.testTag("duration_long_row")
             ) {
@@ -917,7 +984,7 @@ fun NewArrivalsRail(
     Column(modifier = modifier.testTag("new_arrivals_rail")) {
         AppSectionHeader(title = stringResource(R.string.home_new_arrivals))
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
+            contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(arrivals, key = { it.workKey }) { arrival ->
@@ -965,7 +1032,7 @@ fun PeopleNewArrivalsRail(
             }
         )
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
+            contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(results, key = { it.key }) { result ->
@@ -1085,58 +1152,92 @@ fun CatalogNavRow(
     // spec-46 T16 (#577): every chip label is chrome and comes from the
     // resources; the people chips carry a stable PeopleKindType, never the
     // localized title, so an English run opens the same index.
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    //
+    // F26/F6: 20 dp page padding (the direction's grid, not the legacy 16) and
+    // a right-edge fade that appears only while the row can still scroll, so
+    // the last chip never looks cut off without a hint that the row moves.
+    val chipsState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val showScrollHint by remember {
+        derivedStateOf { chipsState.canScrollForward }
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = PaperInkDimens.SpaceMd, bottom = PaperInkDimens.SpaceXs)
     ) {
-        item {
-            NavigationChip(title = stringResource(R.string.catalog_nav_rating), onClick = onTop100Click)
-        }
-        item {
-            NavigationChip(
-                title = stringResource(R.string.people_narrators_title),
-                onClick = {
-                    // #736 — the narrator index is local (the Медіатека), so a
-                    // PeopleKind carries no provider URL anymore.
-                    onPeopleClick(
-                        com.slukhayka.audiobooks.ui.PeopleKind(
-                            com.slukhayka.audiobooks.ui.PeopleKindType.NARRATORS,
-                            url = ""
+        LazyRow(
+            state = chipsState,
+            modifier = Modifier.testTag("home_chips_row"),
+            contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            item {
+                NavigationChip(title = stringResource(R.string.catalog_nav_rating), onClick = onTop100Click)
+            }
+            item {
+                NavigationChip(
+                    title = stringResource(R.string.people_narrators_title),
+                    onClick = {
+                        // #736 — the narrator index is local (the Медіатека), so a
+                        // PeopleKind carries no provider URL anymore.
+                        onPeopleClick(
+                            com.slukhayka.audiobooks.ui.PeopleKind(
+                                com.slukhayka.audiobooks.ui.PeopleKindType.NARRATORS,
+                                url = ""
+                            )
                         )
-                    )
-                }
-            )
-        }
-        item {
-            NavigationChip(
-                title = stringResource(R.string.author_index_title),
-                onClick = {
-                    onPeopleClick(
-                        com.slukhayka.audiobooks.ui.PeopleKind(
-                            com.slukhayka.audiobooks.ui.PeopleKindType.AUTHORS,
-                            url = ""
+                    }
+                )
+            }
+            item {
+                NavigationChip(
+                    title = stringResource(R.string.author_index_title),
+                    onClick = {
+                        onPeopleClick(
+                            com.slukhayka.audiobooks.ui.PeopleKind(
+                                com.slukhayka.audiobooks.ui.PeopleKindType.AUTHORS,
+                                url = ""
+                            )
                         )
-                    )
-                }
-            )
+                    }
+                )
+            }
+            // spec-28 (#189): «Серії» — a pushed index of every series aggregated
+            // from the catalogue sections (the «Цикли» row), deduplicated by URL.
+            // Tapping a series opens the existing series page.
+            item {
+                NavigationChip(
+                    title = stringResource(R.string.series_index_title),
+                    onClick = onSeriesClick
+                )
+            }
+            // spec-28 (#190): «Колекції» — a pushed index of every matched smart
+            // collection; tapping a book resolves-and-plays exactly like the
+            // inline collection cards.
+            item {
+                NavigationChip(
+                    title = stringResource(R.string.collections_index_title),
+                    onClick = onCollectionsClick
+                )
+            }
         }
-        // spec-28 (#189): «Серії» — a pushed index of every series aggregated
-        // from the catalogue sections (the «Цикли» row), deduplicated by URL.
-        // Tapping a series opens the existing series page.
-        item {
-            NavigationChip(
-                title = stringResource(R.string.series_index_title),
-                onClick = onSeriesClick
-            )
-        }
-        // spec-28 (#190): «Колекції» — a pushed index of every matched smart
-        // collection; tapping a book resolves-and-plays exactly like the
-        // inline collection cards.
-        item {
-            NavigationChip(
-                title = stringResource(R.string.collections_index_title),
-                onClick = onCollectionsClick
-            )
+        if (showScrollHint) {
+            Box(modifier = Modifier.matchParentSize().testTag("home_chips_scroll_hint")) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .fillMaxHeight()
+                        .width(32.dp)
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    MaterialTheme.colorScheme.background,
+                                )
+                            )
+                        )
+                )
+            }
         }
     }
 }

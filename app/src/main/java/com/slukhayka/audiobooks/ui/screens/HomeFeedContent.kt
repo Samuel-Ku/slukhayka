@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -57,6 +58,8 @@ import com.slukhayka.audiobooks.ui.components.OpenWebSourceRow
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 import com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign
+import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
+import com.slukhayka.audiobooks.ui.theme.PaperInkType
 import kotlinx.coroutines.launch
 
 /**
@@ -138,7 +141,10 @@ fun LazyListScope.homeFeedContent(
     onPreflightRecommendedBook: (String) -> Unit = {},
     onPreflightWorkFeedRow: (WorkFeedRow) -> Unit = {},
     onOpenGlobalSearchResult: (GlobalSearchResult) -> Unit = { result -> onBookClick(result.key) },
-    onOpenCatalogBook: (CatalogBook) -> Unit = { onBookClick(it.id) }
+    onOpenCatalogBook: (CatalogBook) -> Unit = { onBookClick(it.id) },
+    // F5 — the rare «update available» row is supplied by the screen and
+    // emitted below the first curated shelf, never above the search row.
+    updateBanner: (@Composable () -> Unit)? = null
 ) {
     // Loading spinner while the catalogue syncs on a fresh start.
     if (isCatalogLoading && !hasLibraryBooks && sections.isEmpty()) {
@@ -177,14 +183,26 @@ fun LazyListScope.homeFeedContent(
         }
     }
 
+    // F5 — the update banner is a rare action, so it rides BELOW the first
+    // curated shelf instead of above the search row (spec §4: a rare action
+    // never stands first). Emitted once, at the first shelf that renders; the
+    // caller passes null when everything is current.
+    var updateBannerEmitted = false
+    fun emitUpdateBanner() {
+        if (updateBannerEmitted) return
+        updateBannerEmitted = true
+        updateBanner?.let { banner ->
+            item(key = "app_update_banner") { banner() }
+        }
+    }
+
     // Catalogue navigation — the site's header menu: Рейтинг,
     // Виконавці (narrators) and Автори (authors), plus the spec-28
     // «Серії» (#189) and «Колекції» (#190) indexes. ADR-0018: these
     // NAVIGATE, so they are NavigationChips (filled, no outline) —
-    // never filter-shaped chips.
-    item {
-        AppSectionHeader(title = stringResource(R.string.feed_quick_links))
-    }
+    // never filter-shaped chips. They follow the search row directly: a
+    // separate «Швидкі переходи» caption above five self-describing chips was
+    // pure chrome (F5), so it is gone.
     item {
         CatalogNavRow(
             onTop100Click = onOpenTop100,
@@ -194,20 +212,24 @@ fun LazyListScope.homeFeedContent(
         )
     }
 
+    // F19 — one heading level: screen → section → card. The old GROUP headers
+    // («Для вас», «Відкрити нове») repeated that level without adding
+    // information (and «Відкрити нове» stood right above «Новинки» with no
+    // element between them), so only real shelves are headings now. An empty
+    // group renders nothing at all; while the personal shelves are still being
+    // computed, one quiet line says so.
     val hasForYouContent = personalCycles.isNotEmpty() ||
         similarCycles.isNotEmpty() || recommendedBooks.isNotEmpty() || showRecommendationConsent
-    item { AppSectionHeader(title = stringResource(R.string.feed_for_you), level = com.slukhayka.audiobooks.ui.components.SectionHeaderLevel.GROUP) }
-    if (!hasForYouContent) {
+    if (!hasForYouContent && !recommendationsReady) {
         item {
             Text(
-                text = if (recommendationsReady) {
-                    stringResource(R.string.home_no_personal_picks)
-                } else {
-                    stringResource(R.string.home_personal_picks_loading)
-                },
-                style = MaterialTheme.typography.bodyMedium,
+                text = stringResource(R.string.home_personal_picks_loading),
+                style = PaperInkType.Meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                modifier = Modifier.padding(
+                    horizontal = PaperInkDimens.SpacePage,
+                    vertical = PaperInkDimens.SpaceSm,
+                )
             )
         }
     }
@@ -222,7 +244,7 @@ fun LazyListScope.homeFeedContent(
         }
         item {
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
+                contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(personalCycles, key = { it.url }) { cycle ->
@@ -245,6 +267,7 @@ fun LazyListScope.homeFeedContent(
                 }
             }
         }
+        emitUpdateBanner()
     }
 
     // Spec-39 T2 (#262): «схожі цикли» — the recommendation engine's top
@@ -257,7 +280,7 @@ fun LazyListScope.homeFeedContent(
         }
         item {
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
+                contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(similarCycles, key = { it.url }) { cycle ->
@@ -275,6 +298,7 @@ fun LazyListScope.homeFeedContent(
                 }
             }
         }
+        emitUpdateBanner()
     }
 
     // Spec-19 Track A: «Рекомендовано для вас» — on-device, local
@@ -287,7 +311,7 @@ fun LazyListScope.homeFeedContent(
         }
         item {
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
+                contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(recommendedBooks, key = { it.candidate.id }) { rec ->
@@ -302,31 +326,54 @@ fun LazyListScope.homeFeedContent(
                 }
             }
         }
+        emitUpdateBanner()
     }
     if (showRecommendationConsent) {
         item(key = "recommendation_consent_card") {
-            ElevatedCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(stringResource(R.string.feed_help_recommendations), style = MaterialTheme.typography.titleSmall)
+            // F6 — no generic M3 `ElevatedCard` on the paper root: the consent
+            // prompt is the same quiet page surface as every other paper card.
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = PaperInkDimens.SpacePage),
+                shape = RoundedCornerShape(PaperInkDimens.RadiusMedium),
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                Column(Modifier.padding(PaperInkDimens.SpaceLg)) {
+                    Text(
+                        stringResource(R.string.feed_help_recommendations),
+                        style = PaperInkType.RowTitle,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
                     Text(
                         stringResource(R.string.feed_recommendation_consent_body),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = PaperInkType.Meta,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        TextButton(onClick = onDeclineRecommendationConsent) { Text(stringResource(R.string.recommendation_disclosure_decline)) }
+                        TextButton(onClick = onDeclineRecommendationConsent) {
+                            Text(
+                                stringResource(R.string.recommendation_disclosure_decline),
+                                style = PaperInkType.Label,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         TextButton(
                             onClick = onOpenRecommendationConsent,
                             modifier = recommendationDisclosureTriggerModifier
-                        ) { Text(stringResource(R.string.feed_more)) }
+                        ) {
+                            Text(
+                                stringResource(R.string.feed_more),
+                                style = PaperInkType.Label,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                     }
                 }
             }
         }
+        emitUpdateBanner()
     }
-
-    // Editorial and catalogue shelves form the second top-level group.
-    item { AppSectionHeader(title = stringResource(R.string.feed_discover), level = com.slukhayka.audiobooks.ui.components.SectionHeaderLevel.GROUP) }
 
     if (peopleNewArrivals.results.isNotEmpty()) {
         item {
@@ -337,6 +384,7 @@ fun LazyListScope.homeFeedContent(
                 onMarkSeen = onMarkPeopleNewArrivalsSeen
             )
         }
+        emitUpdateBanner()
     }
 
     // ADR-0041 / #733: «Новинки» — the one library-first new-arrivals rail:
@@ -351,6 +399,7 @@ fun LazyListScope.homeFeedContent(
                 onBookClick = { book -> onBookClick(book.id) }
             )
         }
+        emitUpdateBanner()
     }
 
     // #523 — collective blocks: a locally persisted source snapshot rendered
@@ -360,6 +409,7 @@ fun LazyListScope.homeFeedContent(
         item(key = "collective_block_${block.blockKey}") {
             CollectiveBlockRail(block = block, onCardClick = onOpenCollectiveCard)
         }
+        emitUpdateBanner()
     }
 
     // spec-18 T3: «За тривалістю» — «Короткі» and «Довгі» cover rows
@@ -376,6 +426,7 @@ fun LazyListScope.homeFeedContent(
             onPreflight = onPreflightCatalogBook
         )
     }
+    emitUpdateBanner()
 
     // Catalogue rows parsed from the 4read.org homepage. Spec-9: the
     // Continue-Listening card moved to the Слухати tab. Spec-28
@@ -395,7 +446,7 @@ fun LazyListScope.homeFeedContent(
             }
             item {
                 LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(section.books, key = { it.id.ifBlank { it.url } }) { book ->
@@ -418,6 +469,7 @@ fun LazyListScope.homeFeedContent(
                     }
                 }
             }
+            emitUpdateBanner()
         }
         if (section.series.isNotEmpty()) {
             item {
@@ -425,7 +477,7 @@ fun LazyListScope.homeFeedContent(
             }
             item {
                 LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(section.series, key = { it.url }) { series ->
@@ -439,6 +491,7 @@ fun LazyListScope.homeFeedContent(
                     }
                 }
             }
+            emitUpdateBanner()
         }
     }
 
@@ -459,7 +512,7 @@ fun LazyListScope.homeFeedContent(
             }
             item {
                 LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(collection.books, key = { it.key }) { result ->
@@ -476,6 +529,7 @@ fun LazyListScope.homeFeedContent(
                     }
                 }
             }
+            emitUpdateBanner()
         }
     }
 
@@ -498,7 +552,12 @@ fun LazyListScope.homeFeedContent(
     // entire catalogue. The feed remains the last element.
     if (publicCollectionsRail != null) {
         item(key = "public_collections_rail") { publicCollectionsRail() }
+        emitUpdateBanner()
     }
+
+    // F5 fallback: a screen with no curated shelf at all still shows the
+    // compact update row once, right above the endless feed.
+    emitUpdateBanner()
 
     // spec-42 T1 (#302): compact controls are the one home for feed sort and
     // genre. The persisted, Room-backed Work Pager remains the LAST element
@@ -599,7 +658,7 @@ fun LazyListScope.homeFeedContent(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = PaperInkDimens.SpacePage, vertical = 8.dp)
                     .testTag("feed_refresh_error_banner"),
                 verticalAlignment = Alignment.CenterVertically
             ) {

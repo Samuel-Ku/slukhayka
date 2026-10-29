@@ -174,18 +174,15 @@
     <string name="fallback_kind_other_edition">Inna wersja lektorska</string>
     <string name="fallback_kind_same_edition">To samo czytanie</string>
     <string name="feed_all_genres">Wszystkie gatunki</string>
-    <string name="feed_discover">Odkrywaj nowe</string>
     <string name="feed_done">Gotowe</string>
     <string name="feed_duration">Czas trwania</string>
     <string name="feed_filters">Filtry</string>
-    <string name="feed_for_you">Dla Ciebie</string>
     <string name="feed_genres">Gatunki</string>
     <string name="feed_help_recommendations">Pomóc rekomendacjom stawać się lepszymi?</string>
     <string name="feed_more">Więcej</string>
     <string name="feed_origin_filter_heading">Pochodzenie</string>
     <string name="feed_origin_only_shared">Tylko ze wspólnej biblioteki</string>
     <string name="feed_origin_shared_library">Ze wspólnej biblioteki</string>
-    <string name="feed_quick_links">Szybkie przejścia</string>
     <string name="feed_recommendation_consent_body">Lokalne rekomendacje już działają prywatnie. Za osobną zgodą przyszłe wspólne uczenie będzie używać tylko tygodniowej aktualizacji pięciu wag — bez książek i historii.</string>
     <string name="feed_recommended_for_you">Polecane dla Ciebie</string>
     <string name="feed_empty_title">Jeszcze nie ma utworów</string>
@@ -228,7 +225,6 @@
     <string name="home_long_books">Długie — od 10 godzin</string>
     <string name="home_more_books_on">Więcej książek w %1$s</string>
     <string name="home_new_arrivals">Nowości</string>
-    <string name="home_no_personal_picks">Na razie brak osobistych kolekcji.</string>
     <string name="home_not_recommend">Nie polecaj…</string>
     <string name="home_open">Otwórz</string>
     <string name="home_people_new_arrivals">Nowe od Twoich autorów/lektorów</string>
@@ -245,7 +241,6 @@
     <string name="home_search_no_results_hint">Spróbuj zmienić zapytanie lub filtr.</string>
     <string name="home_search_partial_catalogue">Źródła mogą pokazywać tylko część swoich książek.</string>
     <string name="home_search_partial_failure">Część źródeł nie odpowiedziała. Pokazano dostępne wyniki.</string>
-    <string name="home_search_placeholder">Szukaj książki lub autora…</string>
     <string name="home_search_retry">Spróbuj ponownie</string>
     <string name="home_short_books">Krótkie — do 5 godzin</string>
     <string name="manual_add_author">Autor</string>
@@ -504,4 +499,6 @@
     <string name="submission_submit_action">Dodaj od razu</string>
     <string name="submission_url_label">Link</string>
     <string name="update_hide">Ukryj</string>
+    <string name="update_available_title">Dostępna wersja %1$s</string>
+    <string name="update_available_action">Zaktualizuj</string>
 </resources>

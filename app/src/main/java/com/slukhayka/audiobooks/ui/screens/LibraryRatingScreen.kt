@@ -7,10 +7,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,6 +22,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.EmptyState
@@ -90,7 +87,7 @@ fun LibraryRatingScreen(
                     item {
                         val loadingLabel = stringResource(R.string.secondary_loading)
                         EmptyState(
-                            icon = Icons.Filled.Info,
+                            icon = PaperInkIcons.Info,
                             title = loadingLabel,
                             body = "",
                             iconContent = {
@@ -111,7 +108,7 @@ fun LibraryRatingScreen(
                 loadFailed -> {
                     item {
                         EmptyState(
-                            icon = Icons.Filled.Warning,
+                            icon = PaperInkIcons.Alert,
                             title = stringResource(R.string.secondary_library_rating_error),
                             body = "",
                             stateDescription = stringResource(R.string.secondary_state_error),
@@ -125,7 +122,7 @@ fun LibraryRatingScreen(
                 rows.isEmpty() -> {
                     item {
                         EmptyState(
-                            icon = Icons.Filled.Info,
+                            icon = PaperInkIcons.Info,
                             title = stringResource(R.string.secondary_library_rating_empty),
                             body = "",
                             modifier = Modifier
@@ -177,7 +174,7 @@ fun LibraryRatingScreen(
                                     modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.PlayArrow,
+                                        imageVector = PaperInkIcons.Play,
                                         contentDescription = stringResource(R.string.secondary_play_book, row.book.title),
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(26.dp)

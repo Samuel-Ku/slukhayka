@@ -9,8 +9,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -145,7 +143,7 @@ fun PersonWorksContent(
                 // canonical full EmptyState — icon, message and the error
                 // flavour announcing itself, never a bare Text.
                 icon = if (loadFailed) {
-                    Icons.Default.Warning
+                    PaperInkIcons.Alert
                 } else {
                     PaperInkIcons.Book
                 },

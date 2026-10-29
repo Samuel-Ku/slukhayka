@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -38,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.ingest.ChannelCardState
 import com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow
 import com.slukhayka.audiobooks.data.ingest.SubmissionState
@@ -248,7 +247,7 @@ fun SubmissionSheetContent(
                     onClick = onClose,
                     modifier = Modifier.size(48.dp).testTag("submission_sheet_close")
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.a11y_submission_close))
+                    Icon(PaperInkIcons.Close, contentDescription = stringResource(R.string.a11y_submission_close))
                 }
             }
         }

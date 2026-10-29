@@ -12,8 +12,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Inbox
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -34,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.ingest.ChannelCardState
 import com.slukhayka.audiobooks.data.ingest.ChannelItemKind
 import com.slukhayka.audiobooks.data.ingest.ChannelSelectionPolicy
@@ -120,7 +120,7 @@ fun ChannelImportCard(
             // empty state (icon + message + its one action) — no bare Text
             // followed by a floating button.
             EmptyStateRow(
-                icon = Icons.Default.Warning,
+                icon = PaperInkIcons.Alert,
                 title = stringResource(R.string.submission_channel_failed),
                 body = "",
                 modifier = Modifier.testTag("channel_failed"),
@@ -154,7 +154,7 @@ fun ChannelImportCard(
             if (state.items.isEmpty()) {
                 // spec-46 T16 (#577): canonical compact state, not a bare Text.
                 EmptyStateRow(
-                    icon = Icons.Default.Inbox,
+                    icon = Icons.Outlined.Inbox,
                     title = stringResource(R.string.submission_channel_empty),
                     body = "",
                     modifier = Modifier.testTag("channel_empty")

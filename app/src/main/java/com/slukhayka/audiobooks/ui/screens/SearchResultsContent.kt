@@ -7,20 +7,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
@@ -184,7 +181,7 @@ fun LazyListScope.searchResultsContent(
     if (nothingAnywhere) {
         item(key = "search_no_results") {
             EmptyState(
-                icon = Icons.Default.SearchOff,
+                icon = Icons.Outlined.SearchOff,
                 title = stringResource(R.string.home_search_no_results),
                 body = stringResource(R.string.home_search_no_results_hint),
                 modifier = Modifier.semantics(mergeDescendants = true) {

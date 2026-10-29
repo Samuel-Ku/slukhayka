@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -68,6 +67,7 @@ import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.library.siblingNarrations
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.data.reviews.ReviewSaveResult
@@ -265,7 +265,7 @@ private fun BookDetailPlayButton(
             .semantics { contentDescription = actionDescription }
     ) {
         Icon(
-            imageVector = Icons.Default.PlayArrow,
+            imageVector = PaperInkIcons.Play,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onTertiary,
         )
@@ -347,9 +347,9 @@ private fun BookDetailDownloadButton(
             Spacer(modifier = Modifier.width(4.dp))
             Icon(
                 imageVector = if (action == BookDetailDownloadAction.Remove) {
-                    Icons.Default.CloudDone
+                    PaperInkIcons.Downloaded
                 } else {
-                    Icons.Default.CloudDownload
+                    PaperInkIcons.Download
                 },
                 contentDescription = null,
                 modifier = Modifier.size(16.dp)

@@ -511,7 +511,7 @@
     <string name="book_detail_source_heading_many">Źródła</string>
     <string name="book_detail_source_heading_one">Źródło</string>
     <string name="book_detail_source_narrator">Czyta według źródła: %1$s</string>
-    <string name="book_detail_source_rating">Ocena źródła: ★ %1$s</string>
+    <string name="book_detail_source_rating">Ocena źródła: %1$s</string>
     <string name="book_detail_source_stream_only">%1$s, tylko streaming</string>
     <string name="book_detail_source_summary">Źródło %1$s dla «%2$s»</string>
     <string name="book_detail_stop_watching">Przestań obserwować</string>

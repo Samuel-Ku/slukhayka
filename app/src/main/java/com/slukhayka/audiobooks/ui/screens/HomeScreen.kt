@@ -20,7 +20,6 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -62,6 +61,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
@@ -873,7 +873,7 @@ private fun PaperSearchField(
                     .testTag("home_search_clear"),
             ) {
                 Icon(
-                    imageVector = Icons.Default.Clear,
+                    imageVector = PaperInkIcons.Close,
                     contentDescription = stringResource(R.string.a11y_clear_search),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(20.dp),
@@ -1254,7 +1254,7 @@ fun EmptyCatalogState(
     onImportClick: () -> Unit
 ) {
     EmptyState(
-        icon = Icons.Default.MenuBook,
+        icon = PaperInkIcons.Book,
         title = stringResource(R.string.home_empty_catalog_title),
         body = stringResource(R.string.home_empty_catalog_body)
     ) {
@@ -1357,7 +1357,7 @@ fun WorkFeedFilters(
                             .testTag("feed_sort")
                     ) {
                         if (compact) {
-                            Icon(Icons.Default.Sort, contentDescription = null)
+                            Icon(PaperInkIcons.Sort, contentDescription = null)
                         } else {
                             Text(
                                 sortLabel,
@@ -1401,7 +1401,7 @@ fun WorkFeedFilters(
                     },
                     label = {
                         if (compact) {
-                            Icon(Icons.Default.Tune, null, Modifier.size(if (paperInk) 18.dp else 24.dp))
+                            Icon(PaperInkIcons.Filter, null, Modifier.size(if (paperInk) 18.dp else 24.dp))
                         } else {
                             Text(
                                 filtersLabel,
@@ -1413,7 +1413,7 @@ fun WorkFeedFilters(
                     },
                     leadingIcon = if (compact) null else { {
                         Icon(
-                            imageVector = Icons.Default.Tune,
+                            imageVector = PaperInkIcons.Filter,
                             contentDescription = null,
                             modifier = Modifier.size(
                                 if (paperInk) 18.dp else FilterChipDefaults.IconSize

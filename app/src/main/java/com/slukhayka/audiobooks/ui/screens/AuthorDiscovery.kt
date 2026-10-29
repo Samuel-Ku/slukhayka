@@ -15,10 +15,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.theme.AppDimens
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
@@ -184,7 +182,7 @@ fun AuthorsIndexContent(
 ) {
     if (authors.isEmpty()) {
         EmptyState(
-            icon = Icons.AutoMirrored.Filled.MenuBook,
+            icon = PaperInkIcons.Book,
             title = stringResource(R.string.author_empty_catalog),
             body = "",
             modifier = modifier.testTag("authors_index")
@@ -244,7 +242,7 @@ fun CanonicalAuthorContent(
     }
     if (works.isEmpty()) {
         EmptyState(
-            icon = Icons.AutoMirrored.Filled.MenuBook,
+            icon = PaperInkIcons.Book,
             title = stringResource(R.string.author_empty_works),
             body = "",
             modifier = modifier.testTag("canonical_author_page")
@@ -289,7 +287,7 @@ fun CanonicalAuthorContent(
                 if (ownedWorkIds != null && work.id !in ownedWorkIds) {
                     MetadataChip(text = stringResource(R.string.author_mirror_neighbour))
                 }
-                Icon(Icons.Default.ChevronRight, contentDescription = null)
+                Icon(PaperInkIcons.ChevronRight, contentDescription = null)
             }
         }
     }
@@ -320,6 +318,6 @@ private fun AuthorRow(author: AuthorSummary, onClick: () -> Unit) {
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(PaperInkIcons.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

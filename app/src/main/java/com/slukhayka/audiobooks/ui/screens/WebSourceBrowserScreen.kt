@@ -13,8 +13,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -40,6 +38,8 @@ import androidx.webkit.ProxyController
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcon
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.privacy.WebViewSessionPrivacy
 import com.slukhayka.audiobooks.data.privacy.BrowserDnsProxy
 import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
@@ -543,7 +543,7 @@ fun WebSourceBrowserScreen(
                                 .semantics { contentDescription = actionLabels.closeSource }
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                imageVector = PaperInkIcons.ChevronLeft,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
@@ -556,7 +556,7 @@ fun WebSourceBrowserScreen(
                                 .semantics { contentDescription = actionLabels.back }
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                imageVector = PaperInkIcons.ChevronLeft,
                                 contentDescription = null,
                                 tint = if (canGoBack) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                             )
@@ -569,7 +569,7 @@ fun WebSourceBrowserScreen(
                                 .semantics { contentDescription = actionLabels.forward }
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                imageVector = PaperInkIcons.ChevronRight,
                                 contentDescription = null,
                                 tint = if (canGoForward) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                             )
@@ -637,16 +637,33 @@ fun WebSourceBrowserScreen(
                 // #528 — the category door on its OWN row: one action = one
                 // category page on «Огляд», the next page behind its own tap.
                 Row(modifier = Modifier.fillMaxWidth()) {
+                    val addCategoryDescription =
+                        stringResource(R.string.browser_add_category_action)
                     TextButton(
                         onClick = { addCurrentCategoryToFeed() },
                         modifier = Modifier.semantics {
-                            contentDescription = "Додати категорію до Огляду"
+                            contentDescription = addCategoryDescription
                         }
                     ) {
-                        Text(
-                            text = "Категорія → Огляд",
-                            style = MaterialTheme.typography.labelMedium
-                        )
+                        // F21: no «→» character and no hardcoded Ukrainian —
+                        // the two labels are resources and the direction is the
+                        // family's own chevron, as in the prototype.
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = stringResource(R.string.browser_category_label),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                            PaperInkIcon(
+                                imageVector = PaperInkIcons.ChevronRight,
+                                contentDescription = null,
+                                size = 16.dp,
+                                modifier = Modifier.padding(horizontal = 4.dp),
+                            )
+                            Text(
+                                text = stringResource(R.string.nav_explore),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
                     }
                 }
 

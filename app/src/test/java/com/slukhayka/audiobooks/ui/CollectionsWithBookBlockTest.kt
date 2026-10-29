@@ -42,7 +42,7 @@ class CollectionsWithBookBlockTest {
         composeTestRule.onNodeWithText("Добірки з цією книгою").assertIsDisplayed()
         composeTestRule.onNodeWithText("Магія").assertIsDisplayed()
         composeTestRule.onNodeWithText("добірка слухача Слухач").assertIsDisplayed()
-        composeTestRule.onNodeWithText("★ 4.5 · 2 оцінки").assertIsDisplayed()
+        composeTestRule.onNodeWithText("4.5 · 2 оцінки").assertIsDisplayed()
     }
 
     @Test
@@ -50,7 +50,7 @@ class CollectionsWithBookBlockTest {
         setContent(listOf(unrated))
 
         composeTestRule.onNodeWithText("Ще без оцінок").assertIsDisplayed()
-        composeTestRule.onNodeWithText("★ 0.0 · 0 оцінок").assertDoesNotExist()
+        composeTestRule.onNodeWithText("0.0 · 0 оцінок").assertDoesNotExist()
     }
 
     @Test

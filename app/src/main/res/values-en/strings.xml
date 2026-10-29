@@ -114,6 +114,8 @@
     <string name="browser_clear_session_consequence">You will need to sign in or verify again for this source only. Other sources\' sessions stay.</string>
     <string name="browser_fix_structure_question">Fix book structure?</string>
     <string name="browser_fix">Fix</string>
+    <string name="browser_category_label">Category</string>
+    <string name="browser_add_category_action">Add the category to Explore</string>
     <string name="browser_address_hint">Enter an address…</string>
     <string name="browser_got_it">Got it</string>
     <string name="browser_in_browser">In browser</string>
@@ -372,7 +374,7 @@
     <string name="book_detail_series_pill">“%1$s”</string>
     <string name="book_detail_series_pill_index">“%1$s” • Book %2$d</string>
     <string name="book_detail_universe_line">Universe: “%1$s”</string>
-    <string name="book_detail_source_rating">Source rating: ★ %1$s</string>
+    <string name="book_detail_source_rating">Source rating: %1$s</string>
     <string name="book_detail_source_narrator">Narrated by (source data): %1$s</string>
     <string name="book_detail_source_genres">Genres (source data): %1$s</string>
     <string name="book_detail_source_description">Different description from the source: %1$s</string>

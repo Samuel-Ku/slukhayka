@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -68,6 +67,7 @@ import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.screens.BookDetailLinkOrigin
 import com.slukhayka.audiobooks.ui.screens.PersonBookmarkControl
 import com.slukhayka.audiobooks.ui.screens.BookDetailPresentation
@@ -481,7 +481,7 @@ fun WorkSourceRowCard(
         title = source.name,
         leading = {
             Icon(
-                imageVector = if (source.selectable) Icons.Default.PlayArrow else Icons.Default.Public,
+                imageVector = if (source.selectable) PaperInkIcons.Play else Icons.Default.Public,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
@@ -512,6 +512,7 @@ fun WorkSourceRowCard(
                 "%.1f".format(java.util.Locale.US, rating)
             )
         },
+        statsIcon = if (source.rating != null) PaperInkIcons.Star else null,
         footnoteInColumn = true,
         footnote = {
             source.differingNarrator?.let { narrator ->

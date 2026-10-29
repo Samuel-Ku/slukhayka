@@ -20,7 +20,6 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
-import java.util.Locale
 
 /** One published collection as the Library shows it. */
 data class PublishedCollectionRow(
@@ -98,16 +97,8 @@ fun PublishedCollectionsBlock(
                 // #694 — the rating summary travels with every collection card.
                 val average = row.average
                 if (average != null) {
-                    val votes = pluralStringResource(
-                        R.plurals.library_rating_votes,
-                        row.ratingCount,
-                        row.ratingCount
-                    )
-                    Text(
-                        text = String.format(Locale.US, "★ %.1f · %s", average, votes),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    // F21: one shared line (icon + value), not a second «★» text.
+                    CollectionRatingLine(average = average, ratingCount = row.ratingCount)
                 } else {
                     Text(
                         text = stringResource(R.string.collection_no_ratings),

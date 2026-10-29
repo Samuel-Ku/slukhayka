@@ -70,6 +70,7 @@ import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.library.siblingNarrations
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.data.reviews.ReviewSaveResult
@@ -280,7 +281,7 @@ fun ChapterRowItem(
                 // selectable; the rest carry a checkbox.
                 if (isDownloadedCopy) {
                     Icon(
-                        imageVector = Icons.Default.CloudDone,
+                        imageVector = PaperInkIcons.Downloaded,
                         contentDescription = stringResource(
                             R.string.book_detail_chapter_already_downloaded,
                             chapter.title
@@ -308,12 +309,7 @@ fun ChapterRowItem(
                 }
 
                 Icon(
-                    imageVector = when {
-                        paperInk && isPlaying -> Icons.Default.Pause
-                        paperInk -> Icons.Default.PlayArrow
-                        isPlaying -> Icons.Default.PauseCircle
-                        else -> Icons.Default.PlayCircle
-                    },
+                    imageVector = if (isPlaying) PaperInkIcons.Pause else PaperInkIcons.Play,
                     contentDescription = null,
                     tint = if (paperInk) {
                         MaterialTheme.colorScheme.tertiary
@@ -399,7 +395,7 @@ fun BookmarkRowItem(
                 modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.PlayArrow,
+                    imageVector = PaperInkIcons.Play,
                     contentDescription = jumpLabel,
                     tint = MaterialTheme.colorScheme.primary
                 )

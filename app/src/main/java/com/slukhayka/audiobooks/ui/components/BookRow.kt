@@ -20,9 +20,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudDone
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -33,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
@@ -48,6 +46,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcon
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.theme.AppDimens
@@ -121,6 +121,8 @@ fun BookRow(
     genre: String? = null,
     author: String? = null,
     stats: String? = null,
+    /** Optional glyph before [stats]: the rating star is an icon, not a «★» character. */
+    statsIcon: ImageVector? = null,
     badges: (@Composable RowScope.() -> Unit)? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null,
     progress: Float? = null,
@@ -344,17 +346,37 @@ fun BookRow(
                         )
                     }
                     if (!stats.isNullOrBlank()) {
-                        Text(
-                            text = stats,
-                            style = if (paperInk) {
-                                com.slukhayka.audiobooks.ui.theme.PaperInkType.Micro
-                            } else {
-                                MaterialTheme.typography.labelSmall
-                            },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        val statsStyle = if (paperInk) {
+                            com.slukhayka.audiobooks.ui.theme.PaperInkType.Micro
+                        } else {
+                            MaterialTheme.typography.labelSmall
+                        }
+                        if (statsIcon != null) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                PaperInkIcon(
+                                    imageVector = statsIcon,
+                                    contentDescription = null,
+                                    size = 14.dp,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    text = stats,
+                                    style = statsStyle,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = stats,
+                                style = statsStyle,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                     if (progress != null && progress > 0f) {
                         LinearProgressIndicator(
@@ -467,7 +489,7 @@ fun BookRow(
             if (book.isDownloaded) {
                 Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
                 Icon(
-                    imageVector = Icons.Default.CloudDone,
+                    imageVector = PaperInkIcons.Downloaded,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.secondary,
                     modifier = Modifier.size(14.dp)
@@ -487,7 +509,7 @@ fun BookRow(
                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             ) {
                 Icon(
-                    imageVector = Icons.Default.PlayArrow,
+                    imageVector = PaperInkIcons.Play,
                     contentDescription = stringResource(R.string.a11y_play_work, book.title),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(24.dp)

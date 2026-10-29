@@ -61,7 +61,7 @@ class PublicCollectionsRailTest {
 
         composeTestRule.onNodeWithText("Добірки слухачів").assertIsDisplayed()
         composeTestRule.onNodeWithText("Магія").assertIsDisplayed()
-        composeTestRule.onNodeWithText("★ 4.5 · 2 оцінки").assertIsDisplayed()
+        composeTestRule.onNodeWithText("4.5 · 2 оцінки").assertIsDisplayed()
 
         // #1546 — the rail lives on the Огляд paper root: 20 dp page grid,
         // not the legacy 16 dp one.

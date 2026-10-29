@@ -92,6 +92,8 @@
     <string name="bookdetail_precedes">Poprzedza: «%1$s»</string>
     <string name="bookmark_book_unavailable">Nie znaleziono już tej książki w bibliotece — zakładka pozostała po poprzedniej kopii.</string>
     <string name="bookmark_chapter_gone">Rozdział tej zakładki już nie istnieje w książce — otwieram od miejsca, w którym przerwałeś.</string>
+    <string name="browser_category_label">Kategoria</string>
+    <string name="browser_add_category_action">Dodaj kategorię do Przeglądu</string>
     <string name="browser_address_hint">Wpisz adres…</string>
     <string name="browser_clear_session">Wyczyść sesję %1$s</string>
     <string name="browser_clear_session_consequence">Będzie trzeba ponownie się zalogować lub przejść weryfikację tylko dla tego źródła. Sesje innych źródeł pozostaną.</string>

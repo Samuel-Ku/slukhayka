@@ -22,8 +22,6 @@ import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -66,6 +64,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.reviews.ListenerReview
 import com.slukhayka.audiobooks.data.reviews.ListenerReviewLimits
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
@@ -131,7 +130,7 @@ fun ReviewStarsRow(
 @Composable
 private fun StarIcon(filled: Boolean, size: Int) {
     Icon(
-        imageVector = if (filled) Icons.Default.Star else Icons.Default.StarBorder,
+        imageVector = if (filled) PaperInkIcons.Star else PaperInkIcons.StarOutline,
         contentDescription = null,
         tint = if (com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current) {
             MaterialTheme.colorScheme.tertiary

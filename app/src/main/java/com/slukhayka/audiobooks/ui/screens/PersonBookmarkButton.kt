@@ -4,9 +4,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -28,6 +25,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 
 /**
  * #400 — ★/☆ bookmark button for a person (author or narrator).
@@ -83,7 +81,7 @@ fun PersonBookmarkButton(
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            imageVector = if (isBookmarked) Icons.Default.Star else Icons.Default.StarBorder,
+            imageVector = if (isBookmarked) PaperInkIcons.Star else PaperInkIcons.StarOutline,
             contentDescription = null,
             tint = if (isBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier

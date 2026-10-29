@@ -11,12 +11,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
-import java.util.Locale
 
 /** One curated collection as the book page shows it. */
 data class CollectionWithBookRow(
@@ -74,12 +72,8 @@ fun CollectionsWithBookBlock(
                 )
                 val average = row.average
                 if (average != null) {
-                    val votes = pluralStringResource(R.plurals.library_rating_votes, row.ratingCount, row.ratingCount)
-                    Text(
-                        text = String.format(Locale.US, "★ %.1f · %s", average, votes),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    // F21: one shared line (icon + value), not a second «★» text.
+                    CollectionRatingLine(average = average, ratingCount = row.ratingCount)
                 } else {
                     Text(
                         text = stringResource(R.string.collection_no_ratings),

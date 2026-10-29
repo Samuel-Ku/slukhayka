@@ -562,6 +562,26 @@ class SnapshotGoldenBytesGuardTest {
          * glyphs with the icon system's 20 dp set. `player_tight_viewport`
          * still pins the shrink contract: in a short viewport the cover is
          * height-clamped and keeps its 2:3 ratio.
+         *
+         * ## One header and three library frames re-pinned on 2026-10-29 (#1554)
+         *
+         * Two distinct icon moves, measured frame by frame:
+         *  - `explore_header_expanded` — the search field's clear affordance is
+         *    the family's `Close` X instead of Material `Clear`; the WHOLE delta
+         *    is 32 pixels inside a 31×31 box at `+947+348`, the clear button.
+         *    The collapsed header has no clear button and did not move (AE=0).
+         *  - `library_redesign_browsing` (151×819 at `+193+1167`),
+         *    `library_redesign_dense` (39×232 at `+997+1182`) and
+         *    `library_redesign_grid` (702×457 at `+319+1167`) — the library rows
+         *    now draw the family's `Downloaded` badge instead of M3 `CloudDone`
+         *    AND the family's `Play`/`Pause` instead of Material
+         *    `PlayArrow`/`PauseCircle`, so those rows moved while every other
+         *    pixel stayed identical.
+         *
+         * The remaining pins kept AE=0, and a full `:app:testComposeRoborazzi`
+         * verify against the re-recorded set reported ZERO changed images
+         * outside the recorded set.
+         *
          */
         val PINS = listOf(
             Pin(
@@ -572,7 +592,7 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "expanded.png",
-                "ddd5027c6c328bd49b0ff902c1c665bd" + "afc158c689136b2651014184a2c9420a"
+                "b1d7a28802feea1458a1e0cbc83e7045" + "c050665c02e7aabf4b2cb95b4813ea5b"
             ),
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",
@@ -582,17 +602,17 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "8beda722885c51191b9d09adbd45eaea" + "e3910d9cdabd825b62137ff96055cac5"
+                "2925e1c249bcdcc9598dc273dfc5f6f0" + "748d82eac216600c13c0e95b2bdecd58"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "2d68881d7df1d0004a38e6a3ba6495db" + "a13db729cd0bd1cc8c138613e64b895f"
+                "104cf9adcc0ac36e0329ec497f4dd10d" + "38a2ef0885781339013a7a54b8ae9c6b"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "3f39b11bd4c4732294cc6e7d92783bea" + "0622d91686a386130452baf882632437"
+                "45be0570430383fd16adb1fdfed54dc4" + "ea899462167be53a99a42457492bf1a9"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

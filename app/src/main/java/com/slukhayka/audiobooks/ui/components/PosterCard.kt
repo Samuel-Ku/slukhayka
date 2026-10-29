@@ -16,8 +16,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudDone
-import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,6 +38,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.ui.displayAuthor
@@ -466,7 +465,7 @@ fun PosterCard(
         testTag = testTag,
         overlayDescription = stringResource(R.string.a11y_open_work, result.title),
         downloadIcon = if (onDownload != null && downloadAllowed) {
-            if (isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload
+            if (isDownloaded) PaperInkIcons.Downloaded else PaperInkIcons.Download
         } else {
             null
         },

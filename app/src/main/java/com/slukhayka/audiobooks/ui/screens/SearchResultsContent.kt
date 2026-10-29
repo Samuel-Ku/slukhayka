@@ -104,12 +104,18 @@ fun LazyListScope.searchResultsContent(
     }
 
     if (liveSearchActive) {
-        item(key = "all_sources_header") {
-            AppSectionHeader(
-                title = stringResource(R.string.home_all_sources, globalResults.size),
-                level = SectionHeaderLevel.SECTION,
-                modifier = Modifier.testTag("search_sources_header")
-            )
+        // #1553 — the count is a FACT, never a progress hint: while the live
+        // search is in flight the header would read «Знайдені книги (0)» right
+        // next to «Шукаємо в усіх джерелах» (ADR-0014; web already waits for
+        // settlement). The status and the results below must stay visible.
+        if (!isGlobalLoading) {
+            item(key = "all_sources_header") {
+                AppSectionHeader(
+                    title = stringResource(R.string.home_all_sources, globalResults.size),
+                    level = SectionHeaderLevel.SECTION,
+                    modifier = Modifier.testTag("search_sources_header")
+                )
+            }
         }
         if (isGlobalLoading || globalError || (globalResults.isEmpty() && !nothingAnywhere)) {
             item(key = "all_sources_status") {

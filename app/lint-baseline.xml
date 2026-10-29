@@ -579,28 +579,6 @@
     <issue
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="    ): MediaSession.MediaItemsWithStartPosition {"
-        errorLine2="       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/player/PlaybackResumption.kt"
-            line="40"
-            column="8"/>
-    </issue>
-
-    <issue
-        id="UnsafeOptInUsageError"
-        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="        return MediaSession.MediaItemsWithStartPosition("
-        errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/player/PlaybackResumption.kt"
-            line="74"
-            column="29"/>
-    </issue>
-
-    <issue
-        id="UnsafeOptInUsageError"
-        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
         errorLine1="        override fun onPlaybackResumption("
         errorLine2="                     ~~~~~~~~~~~~~~~~~~~~">
         <location

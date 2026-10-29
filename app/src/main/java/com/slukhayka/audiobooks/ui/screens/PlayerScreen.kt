@@ -8,6 +8,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -68,6 +71,7 @@ import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.player.PlayerState
+import com.slukhayka.audiobooks.player.SeekSession
 import com.slukhayka.audiobooks.player.SleepTimerNotice
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
@@ -376,7 +380,9 @@ fun PlayerScreen(
             onToggleFavorite = { scope.launch { libraryEntries.toggleFavorite(book.id, !book.isFavorite) } },
             onToggleDebug = { showDebugOverlay = !showDebugOverlay },
             onSeek = { fraction ->
-                viewModel.playerManager.seekTo((fraction * playerState.durationMs).toLong())
+                viewModel.playerManager.seekTo(
+                    SeekSession.commitPositionMs(fraction, playerState.durationMs)
+                )
             },
             onBookSeek = { fraction ->
                 calculateBookSeekTarget(
@@ -753,7 +759,7 @@ fun PlayerScreenContent(
                                         DualProgress(
                                             progress = progress,
                                             chapterPositionSeconds = playerState.currentPositionMs / 1000L,
-                                            chapterDurationSeconds = playerState.durationMs / 1000L,
+                                            chapterDurationMs = playerState.durationMs,
                                             onSeek = onSeek,
                                             onBookSeek = onBookSeek,
                                             bookmarkTarget = lastBookmarkTarget,
@@ -961,7 +967,7 @@ fun PlayerScreenContent(
                 DualProgress(
                     progress = progress,
                     chapterPositionSeconds = playerState.currentPositionMs / 1000L,
-                    chapterDurationSeconds = playerState.durationMs / 1000L,
+                    chapterDurationMs = playerState.durationMs,
                     onSeek = onSeek,
                     onBookSeek = onBookSeek,
                     bookmarkTarget = lastBookmarkTarget,
@@ -1298,7 +1304,7 @@ private fun PlayerTopBar(
 private fun DualProgress(
     progress: PlayerProgressUi,
     chapterPositionSeconds: Long,
-    chapterDurationSeconds: Long,
+    chapterDurationMs: Long,
     onSeek: (Float) -> Unit,
     onBookSeek: (Float) -> Unit,
     bookmarkTarget: BookmarkEntity? = null,
@@ -1306,12 +1312,39 @@ private fun DualProgress(
     onJumpToBookmark: (BookmarkEntity) -> Unit = {},
     onShowAllBookmarks: () -> Unit = {}
 ) {
+    // #1571 port — the chapter label and the chapter seek read the SAME exact
+    // duration: the display derives its whole seconds from it and the drag
+    // preview maps against it, so the release lands on the second the label
+    // shows. Truncating to seconds first would let the two answers differ by a
+    // second for durations that are not a whole number of seconds.
+    val chapterDurationSeconds = chapterDurationMs / 1_000L
+
+    // #1571 port — one scrub session per 1.6.x slider: local preview while a
+    // finger is down, exactly ONE commit on release, nothing on cancel. A value
+    // change no drag produced (TalkBack SetProgress, a tap on the track) commits
+    // at once, because there will be no release to wait for.
+    val chapterScrub = rememberScrubSession(onCommit = onSeek)
+    val bookScrub = rememberScrubSession(onCommit = onBookSeek)
+    val chapterDragging by chapterScrub.interactionSource.collectIsDraggedAsState()
+    val bookDragging by bookScrub.interactionSource.collectIsDraggedAsState()
+
+    val chapterPreviewSeconds = chapterScrub.previewFraction?.let {
+        SeekSession.previewSeconds(it, chapterDurationMs)
+    }
+    val shownChapterPositionSeconds = chapterPreviewSeconds ?: chapterPositionSeconds
+    val shownChapterFraction = chapterScrub.previewFraction ?: progress.chapterFraction
+    val bookPreviewSeconds = bookScrub.previewFraction?.let {
+        SeekSession.bookPreviewSeconds(it, progress.bookDurationSeconds)
+    }
+    val shownBookPositionSeconds = bookPreviewSeconds ?: progress.bookPositionSeconds
+    val shownBookFraction = bookScrub.previewFraction ?: progress.bookFraction
+
     val chapterPositionLabel = stringResource(R.string.a11y_player_chapter_position)
     val bookPositionLabel = stringResource(R.string.a11y_player_book_position)
     val chapterTimeDescription = if (chapterDurationSeconds > 0L) {
         stringResource(
             R.string.a11y_player_time_of,
-            MainViewModel.formatTime(chapterPositionSeconds),
+            MainViewModel.formatTime(shownChapterPositionSeconds),
             MainViewModel.formatTime(chapterDurationSeconds)
         )
     } else {
@@ -1320,7 +1353,7 @@ private fun DualProgress(
     val bookTimeDescription = if (progress.bookDurationSeconds > 0L) {
         stringResource(
             R.string.a11y_player_time_of,
-            MainViewModel.formatTime(progress.bookPositionSeconds),
+            MainViewModel.formatTime(shownBookPositionSeconds),
             MainViewModel.formatTime(progress.bookDurationSeconds)
         )
     } else {
@@ -1339,7 +1372,7 @@ private fun DualProgress(
             Text(stringResource(R.string.listen_book), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
                 if (progress.bookDurationSeconds > 0L) {
-                    "${MainViewModel.formatTime(progress.bookPositionSeconds)}  /  ${MainViewModel.formatTime(progress.bookDurationSeconds)}"
+                    "${MainViewModel.formatTime(shownBookPositionSeconds)}  /  ${MainViewModel.formatTime(progress.bookDurationSeconds)}"
                 } else {
                     stringResource(R.string.a11y_player_duration_unknown)
                 },
@@ -1351,7 +1384,10 @@ private fun DualProgress(
             progress = progress,
             positionLabel = bookPositionLabel,
             timeDescription = bookTimeDescription,
-            onSeek = onBookSeek,
+            value = shownBookFraction,
+            onValueChange = { bookScrub.valueChanged(it) },
+            onValueChangeFinished = { bookScrub.finished(bookDragging) },
+            interactionSource = bookScrub.interactionSource,
             bookmarkTarget = bookmarkTarget,
             bookmarkFocusRequester = bookmarkFocusRequester,
             onJumpToBookmark = onJumpToBookmark,
@@ -1369,7 +1405,7 @@ private fun DualProgress(
             // shifting its advance width, so the layout never jitters.
             Text(
                 if (chapterDurationSeconds > 0L) {
-                    "${MainViewModel.formatTime(chapterPositionSeconds)}  /  ${MainViewModel.formatTime(chapterDurationSeconds)}"
+                    "${MainViewModel.formatTime(shownChapterPositionSeconds)}  /  ${MainViewModel.formatTime(chapterDurationSeconds)}"
                 } else {
                     stringResource(R.string.a11y_player_duration_unknown)
                 },
@@ -1380,8 +1416,10 @@ private fun DualProgress(
         // #292: drawStopIndicator = {} removes the M3 stop dot that users
         // confused with a bookmark marker.
         Slider(
-            value = progress.chapterFraction,
-            onValueChange = onSeek,
+            value = shownChapterFraction,
+            onValueChange = { chapterScrub.valueChanged(it) },
+            onValueChangeFinished = { chapterScrub.finished(chapterDragging) },
+            interactionSource = chapterScrub.interactionSource,
             modifier = Modifier
                 .fillMaxWidth()
                 .semantics {
@@ -1410,7 +1448,10 @@ private fun BookProgressTrack(
     progress: PlayerProgressUi,
     positionLabel: String,
     timeDescription: String,
-    onSeek: (Float) -> Unit,
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    interactionSource: MutableInteractionSource,
     bookmarkTarget: BookmarkEntity?,
     bookmarkFocusRequester: FocusRequester,
     onJumpToBookmark: (BookmarkEntity) -> Unit,
@@ -1424,8 +1465,10 @@ private fun BookProgressTrack(
         // #292: drawStopIndicator = {} removes the M3 stop dot that users
         // confused with a bookmark marker.
         Slider(
-            value = progress.bookFraction,
-            onValueChange = onSeek,
+            value = value,
+            onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
+            interactionSource = interactionSource,
             enabled = progress.bookDurationSeconds > 0L,
             modifier = Modifier
                 .fillMaxWidth()
@@ -1458,11 +1501,11 @@ private fun BookProgressTrack(
         ) {
             val centerY = size.height / 2f
             progress.chapterMarkers.forEach { marker ->
-                val color = if (marker <= progress.bookFraction) activeMarker.copy(alpha = 0.72f) else inactiveMarker
+                val color = if (marker <= value) activeMarker.copy(alpha = 0.72f) else inactiveMarker
                 drawMarker(marker, color, size.height, 1.5.dp.toPx())
             }
             progress.bookmarkMarkers.forEach { marker ->
-                val color = if (marker <= progress.bookFraction) bookmarkColor else bookmarkColor.copy(alpha = 0.55f)
+                val color = if (marker <= value) bookmarkColor else bookmarkColor.copy(alpha = 0.55f)
                 drawCircle(color, radius = 5.dp.toPx(), center = androidx.compose.ui.geometry.Offset(size.width * marker, centerY))
             }
         }
@@ -1498,6 +1541,72 @@ private fun BookProgressTrack(
             }
         }
     }
+}
+
+/**
+ * #1571 port — one slider's local scrub session: a fraction while the finger is
+ * down, exactly ONE commit on the release, nothing on a cancel, and an
+ * immediate commit for a value change no drag produced (TalkBack `SetProgress`,
+ * a tap on the track — they have no release to wait for).
+ *
+ * The interaction stream is the only place that tells a release from a cancel:
+ * material3 calls `onValueChangeFinished` for both, after the
+ * `DragInteraction.Stop`/`Cancel` was emitted.
+ */
+@Stable
+private class ScrubSession(
+    val interactionSource: MutableInteractionSource,
+    private val onCommit: (Float) -> Unit
+) {
+    var previewFraction by mutableStateOf<Float?>(null)
+        private set
+
+    internal var releaseCommit by mutableStateOf<Float?>(null)
+
+    fun valueChanged(fraction: Float) {
+        previewFraction = fraction
+    }
+
+    fun finished(dragging: Boolean) {
+        val released = previewFraction ?: return
+        if (dragging) releaseCommit = released else commit(released)
+    }
+
+    fun released() {
+        // Taking the preview as a fallback on Stop keeps the commit single even
+        // if the two callbacks are ever observed in the other order.
+        val released = releaseCommit ?: previewFraction
+        if (released != null) commit(released) else releaseCommit = null
+    }
+
+    fun cancelled() {
+        releaseCommit = null
+        previewFraction = null
+    }
+
+    private fun commit(fraction: Float) {
+        previewFraction = null
+        releaseCommit = null
+        onCommit(fraction)
+    }
+}
+
+@Composable
+private fun rememberScrubSession(onCommit: (Float) -> Unit): ScrubSession {
+    val interactionSource = remember { MutableInteractionSource() }
+    val currentOnCommit by rememberUpdatedState(onCommit)
+    val session = remember(interactionSource) {
+        ScrubSession(interactionSource) { fraction -> currentOnCommit(fraction) }
+    }
+    LaunchedEffect(interactionSource) {
+        interactionSource.interactions.collect { interaction ->
+            when (interaction) {
+                is DragInteraction.Stop -> session.released()
+                is DragInteraction.Cancel -> session.cancelled()
+            }
+        }
+    }
+    return session
 }
 
 private fun DrawScope.drawMarker(fraction: Float, color: Color, height: Float, width: Float) {

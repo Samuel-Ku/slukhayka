@@ -263,6 +263,28 @@ describe("#1236 the list-detail split", () => {
     );
   });
 
+  it("returns focus to the gear in English too", async () => {
+    // #1563 — the gear used to be found by the Ukrainian literal
+    // «Налаштування», so the return contract silently broke in English.
+    setUiLocale("en");
+    const user = userEvent.setup();
+    setViewportWidth(1024);
+    fullApp();
+    await waitFor(() =>
+      expect(document.querySelector(".nav-rail")).not.toBeNull()
+    );
+    const gear = screen.getByRole("button", { name: "Settings" });
+    await user.click(gear);
+    await screen.findByRole("heading", { level: 1, name: "Settings" });
+
+    await user.click(screen.getByRole("button", { name: "← Back" }));
+    await waitFor(() =>
+      expect(document.activeElement?.getAttribute("aria-label")).toBe(
+        "Settings"
+      )
+    );
+  });
+
   it("gives a Library row the same contract, with the local facts it really owns", async () => {
     const user = userEvent.setup();
     const domain = new DomainStore();

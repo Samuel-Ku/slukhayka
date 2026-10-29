@@ -589,9 +589,12 @@ export function App({
       origin.focus();
       return;
     }
-    const fallback = Array.from(
-      document.querySelectorAll<HTMLElement>("[aria-label]")
-    ).find((node) => node.getAttribute("aria-label") === "Налаштування");
+    // #1563 — the gear is located by a STABLE marker, not by its localized
+    // aria-label: in English the old literal «Налаштування» matched nothing,
+    // so leaving Settings dropped keyboard/TalkBack focus into the void.
+    const fallback = document.querySelector<HTMLElement>(
+      "[data-settings-entry]"
+    );
     fallback?.focus();
   }, [tab]);
 
@@ -924,6 +927,7 @@ export function App({
                 <button
                   type="button"
                   className="gear"
+                  data-settings-entry="true"
                   onClick={openSettings}
                   aria-label={t("tabSettings")}
                   title={t("tabSettings")}

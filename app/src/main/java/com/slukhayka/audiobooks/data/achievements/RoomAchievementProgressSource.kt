@@ -259,8 +259,7 @@ class RoomAchievementProgressSource(
      * `yyyy-MM-dd` by the recorder, so this only drops genuinely broken rows.
      */
     private fun listeningDay(row: ListeningStatEntity): ListeningRhythm.Day? =
-        runCatching { LocalDate.parse(row.dateIso) }.getOrNull()
-            ?.let { ListeningRhythm.Day(it, row.verifiedListenedMillis) }
+        ListeningRhythm.of(row.dateIso, row.verifiedListenedMillis)
 
     private fun hourOf(epochMillis: Long): Int =
         java.time.Instant.ofEpochMilli(epochMillis).atZone(zoneId).hour

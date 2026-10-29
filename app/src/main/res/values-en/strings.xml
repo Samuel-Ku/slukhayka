@@ -820,6 +820,29 @@
     <string name="achievements_upcoming">Ahead</string>
     <string name="achievements_empty_title">No awards yet</string>
     <string name="achievements_empty_body">Listen to books and your awards will appear here.</string>
+    <!-- F18 — the hero panel, registry statuses and the current-week strip. -->
+    <string name="achievements_status_earned">Earned</string>
+    <string name="achievements_progress_count">%1$d of %2$d</string>
+    <string name="achievements_progress_hours">%1$d of %2$d h</string>
+    <plurals name="achievements_hero_caption">
+        <item quantity="one">of %1$d award</item>
+        <item quantity="other">of %1$d awards</item>
+    </plurals>
+    <string name="achievements_streak_title">Day streak</string>
+    <plurals name="achievements_streak_run">
+        <item quantity="one">%1$d day in a row</item>
+        <item quantity="other">%1$d days in a row</item>
+    </plurals>
+    <string name="achievements_ring_a11y">%1$d%% — %2$d of %3$d earned</string>
+    <string name="achievements_weekday_1">Mon</string>
+    <string name="achievements_weekday_2">Tue</string>
+    <string name="achievements_weekday_3">Wed</string>
+    <string name="achievements_weekday_4">Thu</string>
+    <string name="achievements_weekday_5">Fri</string>
+    <string name="achievements_weekday_6">Sat</string>
+    <string name="achievements_weekday_7">Sun</string>
+    <string name="achievements_day_listened">listened</string>
+    <string name="achievements_day_today">today</string>
     <!-- #702 (T4): ten books in the genres the sources really claim. -->
     <string name="achievement_genre_detective_10">10 detective books</string>
     <string name="achievement_genre_fantasy_10">10 fantasy books</string>

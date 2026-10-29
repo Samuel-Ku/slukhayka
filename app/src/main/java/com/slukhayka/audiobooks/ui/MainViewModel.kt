@@ -2682,6 +2682,43 @@ class MainViewModel @JvmOverloads constructor(
                 com.slukhayka.audiobooks.data.achievements.AchievementBoard.of(emptyList(), emptySet())
             )
 
+    /**
+     * F18 — the snapshot the «Досягнення» registry reads its status lines from.
+     *
+     * The same flow the evaluator and the title use, so a row can only show the
+     * number the award itself is judged by (ADR-0014). Kept off the main thread
+     * for the reason #1583 moved the evaluator: the snapshot is arithmetic over
+     * the whole listening history.
+     */
+    val achievementProgress:
+        StateFlow<com.slukhayka.audiobooks.data.achievements.AchievementProgress> =
+        App.instance.achievements.snapshot
+            .flowOn(kotlinx.coroutines.Dispatchers.Default)
+            .stateIn(
+                viewModelScope, SharingStarted.WhileSubscribed(5000),
+                com.slukhayka.audiobooks.data.achievements.AchievementProgress()
+            )
+
+    /**
+     * F18 — the current-week strip: the listener's local week, Monday first,
+     * plus the run of days that is still alive. [AchievementPresentation.week]
+     * is pure, so the only thing that can be wrong here is the date.
+     */
+    val achievementWeek:
+        StateFlow<com.slukhayka.audiobooks.ui.achievements.AchievementPresentation.Week> =
+        App.instance.achievementDays
+            .map { days ->
+                com.slukhayka.audiobooks.ui.achievements.AchievementPresentation.week(
+                    days,
+                    java.time.LocalDate.now(java.time.ZoneId.systemDefault()),
+                )
+            }
+            .flowOn(kotlinx.coroutines.Dispatchers.Default)
+            .stateIn(
+                viewModelScope, SharingStarted.WhileSubscribed(5000),
+                com.slukhayka.audiobooks.ui.achievements.AchievementPresentation.Week.Empty
+            )
+
     /** The title, derived from the same snapshot the evaluator uses. */
     val listenerTitle: StateFlow<com.slukhayka.audiobooks.data.achievements.ListenerTitle> =
         App.instance.achievements.snapshot

@@ -1,21 +1,29 @@
 package com.slukhayka.audiobooks.ui.screens
 
-import androidx.compose.ui.test.assertIsDisplayed
+import android.content.Context
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertHeightIsEqualTo
-import androidx.compose.ui.test.assertWidthIsEqualTo
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.assertTouchHeightIsEqualTo
 import androidx.compose.ui.test.assertTouchWidthIsEqualTo
+import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
+import androidx.test.core.app.ApplicationProvider
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.achievements.AchievementBoard
 import com.slukhayka.audiobooks.data.achievements.AchievementCatalog
 import com.slukhayka.audiobooks.data.achievements.AchievementDefinition
 import com.slukhayka.audiobooks.data.achievements.AchievementMetric
+import com.slukhayka.audiobooks.data.achievements.AchievementProgress
 import com.slukhayka.audiobooks.data.achievements.ListenerTitle
+import com.slukhayka.audiobooks.ui.achievements.AchievementPresentation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -319,5 +327,111 @@ class AchievementsScreenTest {
         rule.onNodeWithTag("showcase_publish").assertDoesNotExist()
         rule.onNodeWithTag("showcase_withdraw").assertDoesNotExist()
         rule.onNodeWithTag("showcase_publish_unavailable").assertDoesNotExist()
+    }
+
+    // --- F18: the hero, the registry and the week strip ---------------------
+
+    @Test
+    fun `the hero states the earned share of a known catalogue`() {
+        val board = AchievementBoard.of(listOf(visible, secret), setOf("plain"))
+        rule.setContent {
+            AchievementsScreen(
+                board = board,
+                title = ListenerTitle.PAGE_TRAVELLER,
+                showcase = emptyList(),
+                onBackClick = {},
+                totalAwards = 10
+            )
+        }
+
+        rule.onNodeWithTag("achievements_hero").assertIsDisplayed()
+        rule.onNodeWithTag("achievements_hero_count").assertTextEquals("1")
+        // The ring's spoken line is the SAME share the sighted listener reads:
+        // 1 of 10 is 10%, and the description says so.
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        rule.onNodeWithTag("achievements_hero_ring").assertContentDescriptionEquals(
+            context.getString(R.string.achievements_ring_a11y, 10, 1, 10)
+        )
+    }
+
+    @Test
+    fun `an upcoming award shows its own progress against its own threshold`() {
+        val award = AchievementDefinition("books_25", "books", 3, AchievementMetric.COMPLETED_BOOKS, 25)
+        val board = AchievementBoard.of(listOf(award), emptySet())
+        rule.setContent {
+            AchievementsScreen(
+                board = board,
+                title = ListenerTitle.LISTENER,
+                showcase = emptyList(),
+                onBackClick = {},
+                progress = AchievementProgress(completedBooks = 11)
+            )
+        }
+
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        rule.onNodeWithText(
+            context.getString(R.string.achievements_progress_count, 11L, 25L)
+        ).assertIsDisplayed()
+    }
+
+    @Test
+    fun `a registry row is 56 dp, with or without the pin control`() {
+        val ahead = AchievementDefinition("ahead", "g", 1, AchievementMetric.COMPLETED_BOOKS, 5)
+        val board = AchievementBoard.of(listOf(visible, ahead), setOf("plain"))
+        rule.setContent {
+            AchievementsScreen(
+                board = board,
+                title = ListenerTitle.LISTENER,
+                showcase = emptyList(),
+                onBackClick = {},
+                onTogglePin = {}
+            )
+        }
+
+        // The earned row carries the 48 dp pin control plus 4 dp of air; the
+        // locked row has no pin and keeps the same floor. Two paths, one height.
+        rule.onNodeWithTag("achievements_earned_item_plain")
+            .assertHeightIsEqualTo(56.dp)
+        rule.onNodeWithTag("achievements_upcoming_item_ahead")
+            .assertHeightIsEqualTo(56.dp)
+    }
+
+    @Test
+    fun `a live run draws the seven-day strip`() {
+        val board = AchievementBoard.of(listOf(visible), setOf("plain"))
+        val week = AchievementPresentation.Week(
+            flags = listOf(true, true, true, true, true, true, false),
+            todayIndex = 6,
+            streak = 6
+        )
+        rule.setContent {
+            AchievementsScreen(
+                board = board,
+                title = ListenerTitle.LISTENER,
+                showcase = emptyList(),
+                onBackClick = {},
+                onTogglePin = {},
+                week = week
+            )
+        }
+
+        rule.onNodeWithTag("achievements_streak").assertIsDisplayed()
+        rule.onNodeWithTag("achievements_streak_days").assertIsDisplayed()
+    }
+
+    @Test
+    fun `a dead run draws no strip at all`() {
+        val board = AchievementBoard.of(listOf(visible), setOf("plain"))
+        rule.setContent {
+            AchievementsScreen(
+                board = board,
+                title = ListenerTitle.LISTENER,
+                showcase = emptyList(),
+                onBackClick = {},
+                week = AchievementPresentation.Week.Empty
+            )
+        }
+
+        rule.onNodeWithTag("achievements_streak").assertDoesNotExist()
     }
 }

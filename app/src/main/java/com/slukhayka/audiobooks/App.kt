@@ -6,6 +6,7 @@ import androidx.room.withTransaction
 import com.google.firebase.FirebaseApp
 import com.google.firebase.appcheck.FirebaseAppCheck
 import com.google.firebase.appcheck.recaptcha.RecaptchaAppCheckProviderFactory
+import com.slukhayka.audiobooks.data.achievements.ListeningRhythm
 import com.slukhayka.audiobooks.data.catalog.FeedSnapshotStore
 import com.slukhayka.audiobooks.data.catalog.PlaybackFallbackResolver
 import com.slukhayka.audiobooks.data.catalog.PopularityAssertionStore
@@ -124,7 +125,9 @@ import com.slukhayka.audiobooks.player.CastPlaybackController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -983,6 +986,21 @@ class App : Application() {
             achievementStore, listeningState::recordActualListeningTime,
             { android.util.Log.w("Achievements", "local progress write will retry", it) })
     }
+
+    /**
+     * F18 — the day sequence the «Досягнення» screen's current-week strip
+     * draws. It is the SAME sequence the rhythm awards read, parsed by the same
+     * function ([com.slukhayka.audiobooks.data.achievements.ListeningRhythm.of]),
+     * so the strip can never light up a day the awards do not count.
+     */
+    val achievementDays: Flow<List<ListeningRhythm.Day>> by lazy {
+        database.achievementDao().observeListeningDays().map { rows ->
+            rows.mapNotNull {
+                ListeningRhythm.of(it.dateIso, it.verifiedListenedMillis)
+            }
+        }
+    }
+
     val achievements by lazy {
         com.slukhayka.audiobooks.data.achievements.AchievementEngine(
             com.slukhayka.audiobooks.data.achievements.RoomAchievementProgressSource(

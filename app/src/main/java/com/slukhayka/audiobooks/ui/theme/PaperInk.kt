@@ -357,6 +357,19 @@ object PaperInkDimens {
 
     // Components — measured, not guessed
     val TouchTarget = 48.dp
+
+    // ── «Досягнення» (F18) — the registry and its hero ─────────────────────
+    /** One award row: medal + name + status; the pin's own 48 dp plus air fits. */
+    val AchievementRowHeight = 56.dp
+    /** The medal disc in a registry row (prototype `.ach .medal`). */
+    val AchievementMedalSize = 40.dp
+    /** The hero ring, and the stroke that keeps it readable at phone width. */
+    val AchievementRingSize = 76.dp
+    val AchievementRingStroke = 6.dp
+    /** The lamp glow behind the hero panel — the one decorative light. */
+    val AchievementHeroGlowSize = 220.dp
+    /** One cell of the current-week strip (prototype `.streak-days i`). */
+    val AchievementWeekCellHeight = 40.dp
     val ScreenTitleBlock = 104.dp
     val HeroHeight = 193.dp
     val BookRowHeight = 112.dp

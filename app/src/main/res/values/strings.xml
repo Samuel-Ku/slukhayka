@@ -891,6 +891,31 @@
     <string name="achievements_upcoming">Попереду</string>
     <string name="achievements_empty_title">Ще немає нагород</string>
     <string name="achievements_empty_body">Слухайте книги — нагороди з\'являться тут.</string>
+    <!-- F18 — hero-панель, статуси реєстру й смуга поточного тижня. -->
+    <string name="achievements_status_earned">Здобуто</string>
+    <string name="achievements_progress_count">%1$d із %2$d</string>
+    <string name="achievements_progress_hours">%1$d із %2$d год</string>
+    <plurals name="achievements_hero_caption">
+        <item quantity="one">із %1$d відзнаки</item>
+        <item quantity="few">із %1$d відзнак</item>
+        <item quantity="other">із %1$d відзнак</item>
+    </plurals>
+    <string name="achievements_streak_title">Серія днів</string>
+    <plurals name="achievements_streak_run">
+        <item quantity="one">%1$d день поспіль</item>
+        <item quantity="few">%1$d дні поспіль</item>
+        <item quantity="other">%1$d днів поспіль</item>
+    </plurals>
+    <string name="achievements_ring_a11y">%1$d%% — здобуто %2$d із %3$d</string>
+    <string name="achievements_weekday_1">Пн</string>
+    <string name="achievements_weekday_2">Вт</string>
+    <string name="achievements_weekday_3">Ср</string>
+    <string name="achievements_weekday_4">Чт</string>
+    <string name="achievements_weekday_5">Пт</string>
+    <string name="achievements_weekday_6">Сб</string>
+    <string name="achievements_weekday_7">Нд</string>
+    <string name="achievements_day_listened">слухали</string>
+    <string name="achievements_day_today">сьогодні</string>
     <!-- #702 (T4): «10 книг у жанрі» — лише для полиць, які джерела справді заявляють. -->
     <string name="achievement_genre_detective_10">10 детективів</string>
     <string name="achievement_genre_fantasy_10">10 фентезі</string>

@@ -327,6 +327,16 @@
         <item quantity="one">%1$d new</item>
         <item quantity="other">%1$d new</item>
     </plurals>
+    <!-- #1547 — the «person new arrivals» notification copy, plural + EN. -->
+    <plurals name="people_new_notification_title">
+        <item quantity="one">%1$d new book</item>
+        <item quantity="other">%1$d new books</item>
+    </plurals>
+    <string name="people_new_notification_from">From %1$s</string>
+    <string name="people_new_notification_two_people">%1$s and %2$s</string>
+    <string name="people_new_notification_some_people">your authors</string>
+    <string name="people_new_notification_action">View</string>
+    <string name="people_new_notification_channel_name">New arrivals from people</string>
     <string name="a11y_people_new_mark_seen">Mark new arrivals as seen</string>
     <string name="home_search_no_results">Nothing found</string>
     <string name="home_search_no_results_hint">Try a different query or filter.</string>

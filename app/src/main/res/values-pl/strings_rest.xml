@@ -234,6 +234,18 @@
         <item quantity="many">%1$d nowych</item>
         <item quantity="other">%1$d nowych</item>
     </plurals>
+    <!-- #1547 — kopia powiadomienia «Nowości od ludzi», liczba jako plurals. -->
+    <plurals name="people_new_notification_title">
+        <item quantity="one">%1$d nowa książka</item>
+        <item quantity="few">%1$d nowe książki</item>
+        <item quantity="many">%1$d nowych książek</item>
+        <item quantity="other">%1$d nowych książek</item>
+    </plurals>
+    <string name="people_new_notification_from">Od %1$s</string>
+    <string name="people_new_notification_two_people">%1$s i %2$s</string>
+    <string name="people_new_notification_some_people">Twoich autorów</string>
+    <string name="people_new_notification_action">Zobacz</string>
+    <string name="people_new_notification_channel_name">Nowości od ludzi</string>
     <string name="home_personal_picks_loading">Przygotowujemy osobiste kolekcje…</string>
     <string name="home_recommendation_source_badge">Źródło poleca · %1$s</string>
     <string name="home_recommendation_updated">Rekomendacja zaktualizowana</string>

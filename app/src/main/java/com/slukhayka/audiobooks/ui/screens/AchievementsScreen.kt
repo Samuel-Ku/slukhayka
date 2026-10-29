@@ -454,10 +454,14 @@ private fun AchievementRegistryRow(
 
     Row(
         modifier = Modifier
+            // The tag is the row's IDENTITY, so it goes OUTERMOST: a tag after
+            // `padding` measured the padded CONTENT (48 dp — CI measured it) and
+            // spoke for a row that is 56 dp tall. The wrapper-tag order is the
+            // one `PaperInkBookRow` already uses.
+            .testTag(tag)
             .fillMaxWidth()
             .heightIn(min = PaperInkDimens.AchievementRowHeight)
-            .padding(vertical = PaperInkDimens.SpaceXs)
-            .testTag(tag),
+            .padding(vertical = PaperInkDimens.SpaceXs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(

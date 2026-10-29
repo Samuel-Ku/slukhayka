@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
@@ -58,6 +59,7 @@ class BookDetailCompactHeroTest {
         narrationAverage: Double? = null,
         narrationVoteCount: Int = 0,
         canRateNarration: Boolean = false,
+        ownNarrationRating: Int? = null,
         width: Int? = null,
         fontScale: Float = 1f,
     ) {
@@ -78,6 +80,7 @@ class BookDetailCompactHeroTest {
                                 narrationAverage = narrationAverage,
                                 narrationVoteCount = narrationVoteCount,
                                 canRateNarration = canRateNarration,
+                                ownNarrationRating = ownNarrationRating,
                             )
                         }
                     }
@@ -156,6 +159,50 @@ class BookDetailCompactHeroTest {
             "the rating row must sit to the right of the cover: row.left=${row.left} cover.right=${cover.right}",
             row.left >= cover.right,
         )
+    }
+
+
+    // F31 review blocker (round 2): five interactive stars are five 48 dp
+    // boxes = 240 dp, a single FlowRow item that never wrapped — in the hero's
+    // 182 dp column the 4th star clamped and the 5th disappeared. The compact
+    // row now lays them out 3+2, keeping every 48 dp target.
+    @Test
+    fun `all five interactive stars stay on the page at 360 dp and two hundred percent text`() {
+        showHero(
+            narrationAverage = 4.6,
+            narrationVoteCount = 128,
+            canRateNarration = true,
+            ownNarrationRating = 4,
+            width = 360,
+            fontScale = 2f,
+        )
+        val page = compose.onNodeWithTag("book_detail_cover").fetchSemanticsNode().boundsInRoot
+        val star5 = compose.onNodeWithTag("rating_star_5").fetchSemanticsNode().boundsInRoot
+        compose.onNodeWithTag("rating_star_5").assertIsDisplayed()
+        assertTrue(
+            "the fifth star must stay inside the page: star5.right=${star5.right} page.right=${page.right}",
+            star5.right <= page.right + 1f,
+        )
+        // The 48 dp touch target is preserved even though the glyph is 12 dp.
+        val density = compose.density
+        assertTrue(
+            "the star keeps its 48 dp target, was ${star5.height / density.density} dp",
+            star5.height >= with(density) { 48.dp.toPx() } - 1f,
+        )
+    }
+
+    @Test
+    fun `an own rating state still renders all five interactive stars`() {
+        showHero(
+            narrationAverage = 4.6,
+            narrationVoteCount = 12,
+            canRateNarration = true,
+            ownNarrationRating = 4,
+            width = 411,
+        )
+        (1..5).forEach { position ->
+            compose.onNodeWithTag("rating_star_$position").assertIsDisplayed()
+        }
     }
 
 }

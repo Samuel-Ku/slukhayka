@@ -85,12 +85,18 @@ import java.util.Locale
  * Rating seam shared by read-only cards and the editor. Read-only ratings
  * are one spoken value; editing exposes exactly five RadioButton choices.
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun ReviewStarsRow(
     rating: Int,
     modifier: Modifier = Modifier,
     starSize: Int = 16,
     interactive: Boolean = false,
+    // F31 review: five 48 dp touch boxes are 240 dp — wider than the compact
+    // hero's column (182 dp on a 360 dp phone), where the last star used to be
+    // clamped away. `wrap` lays them out as a FlowRow of at most three per
+    // line (3+2), keeping every 48 dp target.
+    wrap: Boolean = false,
     onRatingChange: (Int) -> Unit = {}
 ) {
     val ratingSummary = stringResource(R.string.book_detail_review_rating_summary, rating)
@@ -101,7 +107,7 @@ fun ReviewStarsRow(
             contentDescription = ratingSummary
         }
     }
-    Row(modifier = rowModifier, verticalAlignment = Alignment.CenterVertically) {
+    val content: @Composable () -> Unit = {
         repeat(ListenerReviewLimits.MAX_RATING) { index ->
             val position = index + 1
             if (interactive) {
@@ -124,6 +130,16 @@ fun ReviewStarsRow(
                 StarIcon(filled = position <= rating, size = starSize)
             }
         }
+    }
+    if (interactive && wrap) {
+        androidx.compose.foundation.layout.FlowRow(
+            modifier = rowModifier,
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Start,
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(0.dp),
+            maxItemsInEachRow = 3,
+        ) { content() }
+    } else {
+        Row(modifier = rowModifier, verticalAlignment = Alignment.CenterVertically) { content() }
     }
 }
 
@@ -479,6 +495,7 @@ fun NarrationRatingRow(
                     rating = ownRating ?: 0,
                     starSize = starSize,
                     interactive = true,
+                    wrap = compact,
                     onRatingChange = onRate,
                     modifier = Modifier.testTag("narration_rating_own_stars")
                 )

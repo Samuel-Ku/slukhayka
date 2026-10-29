@@ -582,6 +582,22 @@ class SnapshotGoldenBytesGuardTest {
          * verify against the re-recorded set reported ZERO changed images
          * outside the recorded set.
          *
+         * ## Three library frames re-pinned on 2026-10-29 (F30b of the 2026-10-28 audit)
+         *
+         * The Медіатека CHROME changed on purpose: «Мій рік» moved from the top
+         * of the books list into «Статистика» (spec §5), the ADR-0033
+         * permanently-visible search became a compact pill inside the tab row
+         * (no reveal toggle), the status-chip strip lost its extra padding, the
+         * header actions became quiet glyphs instead of tonal discs (F34), and
+         * the unfiltered list stopped repeating a «Усі / N книг» header.
+         *
+         * All three library frames moved because the chrome above the book area
+         * is IN them — `library_redesign_dense` (filtered list, 253 dp of chrome
+         * less), `library_redesign_browsing`, `library_redesign_grid`. The tile
+         * renderer itself did not change; the six other pins (both
+         * `explore_header_*`, `home_feed_phone_fold`, all three player frames)
+         * kept their bytes and AE=0.
+         *
          * ## Two library frames re-pinned on 2026-10-29 (F30a of the 2026-10-28 audit)
          *
          * The «Книги» LIST stopped being the timeline dense row and became the

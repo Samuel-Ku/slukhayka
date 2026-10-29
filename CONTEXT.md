@@ -545,6 +545,10 @@ _Avoid_: per-path rewind logic
 A 404/403 stream failure re-resolves the book's source page through the `LibraryImport.refreshStreamUrl` door and retries ONCE with the fresh URL — the pure `StreamHealPolicy` decides (404/403 + heal budget of one per user-initiated chapter prepare). The index pairing heals only while the page still serves the other chapters at their own indices (a reordered page never heals — it would play the wrong chapter). An exhausted budget surfaces the honest «Книга недоступна» state — never a fabricated retry (ADR-0019).
 _Avoid_: heal loops, retrying the same dead URL, index-based healing on reordered pages, synthesized substitute audio
 
+**Seek Session**:
+The one local gesture that turns a drag on the chapter slider into exactly ONE player seek. While the finger is down the slider label renders a local preview — a pure function (`SeekSession.commitPositionMs(fraction, exactDurationMs)`) of the finger's fraction and the chapter's exact millisecond duration — and the player hears only the release (`DragInteraction.Stop`); a cancelled drag commits nothing (`Cancel`), while a TalkBack `SetProgress` or a tap on the track commits immediately because there is no release. Preview seconds and the committed millisecond position are derived from the SAME exact `playerState.durationMs`, so the time under the finger is the second the seek lands in; feeding either side a duration truncated to whole seconds would let them disagree by one second (~25 % of scrub positions, #1571/#1569). The book ruler stays read-only (the #1490 refresh kept ONE adjustable control in the player).
+_Avoid_: a seek per move, previewing from a duration truncated to seconds, restoring a second adjustable slider
+
 ## Architecture
 
 **Module reads**:

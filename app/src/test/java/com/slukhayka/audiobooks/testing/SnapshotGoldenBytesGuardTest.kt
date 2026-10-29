@@ -583,6 +583,20 @@ class SnapshotGoldenBytesGuardTest {
          * outside the recorded set.
          *
          */
+        /**
+         * ## Three re-pinned on 2026-10-29 (F32 of the 2026-10-28 audit)
+         *
+         * The player's current-chapter line was verdigris (`colorScheme.primary`)
+         * — the action colour — while the direction says sound is LAMP; it now
+         * uses `PaperInkColors.lampText` (LampNight on the always-ink player).
+         *
+         * The read-only book ruler drew a tick per chapter (12+ on a real
+         * book), which read as a second, nearly identical progress bar; it now
+         * draws the spec's THREE parts (`BOOK_PART_DIVIDERS` 1/3 and 2/3), with
+         * the chapter slider as the one seek. All three player goldens show
+         * both, so all three moved; `player_tight_viewport` also keeps its
+         * shrink contract.
+         */
         val PINS = listOf(
             Pin(
                 "CatalogRows" + "SnapshotTest",
@@ -617,17 +631,17 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_" + "no_narrator.png",
-                "65938f465cbea497f18cc450a3e72261" + "e9b4543d7714b0209dfb6a6735713aff"
+                "e335268c7187bc8c71d06f207233a61b" + "c967f6caca808e92a30855d3d65a1c67"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_redesign_" + "dark.png",
-                "c6c715a0f0b9bfba1fb33a031cb45f84" + "7c95cf7709e6b7dc40e5bbb8f29cabbc"
+                "95a3e0dba918d8cef7ae61fa41a4a27c" + "020a710fc5623d5ac444892f53c89da8"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_tight_" + "viewport.png",
-                "3dd1eec5774d7bd1a8f0fda5e7471127" + "71c60be72b44c7cf2a89464f112a2af0"
+                "88699c42d7ab1b8e514c6766b9260850" + "51cace6a6254223edf638cbd88c191a6"
             )
         )
     }

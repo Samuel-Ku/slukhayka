@@ -693,9 +693,9 @@ _Avoid_: eight identical ⋮ menus, hiding the manage entry inside a destination
 The book page's single entry to listener feedback: the «Відгуки» block (stars + text + narration tag). The post-completion prompt (ADR-0032) opens the same form automatically; the former «Ваші враження» button after the chapter list is gone.
 _Avoid_: two competing feedback entries, an entry that bypasses the shared form
 
-**Collapsible Search Pattern**:
-The one tab-header search gesture (🔍 in the tab header expands the field; ✕ or Back collapses and clears), shared by Огляд and Медіатека. A tab never grows a second, always-visible search field.
-_Avoid_: two search patterns on sibling tabs, search as a chrome row above the fold
+**Search Field on Roots**:
+Android has one search pattern, and it is the permanently visible field above the content of every root that searches — Огляд first (#910), then Медіатека. There is no 🔍 toggle: ✕ only clears the query and the field stays on screen; Back clears the query first; opening a root never raises the keyboard by itself (ADR-0033, «Зміна рішення 2026-09-18»). Web still keeps the older collapsible gesture as a deliberate parity delta (ADR-0034), not as the shared Android pattern.
+_Avoid_: two search patterns on sibling roots, a toggle that hides the field, «restoring» the collapsible gesture on Android, a second search row above the fold
 
 ## UX principles (spec-27)
 
@@ -722,7 +722,7 @@ Each tab answers one question — Слухати «що я слухаю?», Ог
 _Avoid_: discovery mixed into the listening tab, an infinite feed burying curated shelves
 
 **Control-to-content ratio**:
-Chrome rows (headers, chips, filters) stay a small fraction of the screen; content starts above the fold. When chrome grows, collapse it (search as an expanding icon, rare filters in a sheet).
+Chrome rows (headers, chips, filters) stay a small fraction of the screen; content starts above the fold. When chrome grows, collapse it (rare filters into a sheet); the root's search field is the primary action and stays visible (ADR-0033).
 _Avoid_: six stacked chrome rows before the first book
 
 **Only truthful data**:

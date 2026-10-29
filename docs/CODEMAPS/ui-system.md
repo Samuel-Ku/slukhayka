@@ -72,8 +72,9 @@ CatalogRowHeader, AuthorDiscoveryScaffold) are deleted, not deprecated.
 - `MetadataChip` — the ONE non-interactive chip (language/source/plain slots).
 - `AppSectionHeader` — the ONE two-level section header (group/section,
   count + action slots) in SectionHeaders.kt.
-- `AppTabHeader` — the ONE tab-header model (title + optional action + the
-  collapsible search pattern on Огляд/Медіатека).
+- `AppTabHeader` — the ONE tab-header model (title + optional action); the
+  root screens render the permanently visible search field (ADR-0033
+  2026-09-18), not a collapsible 🔍 gesture (that one is web's parity delta).
 - `DesignSystem` — the canonical `EmptyState` / `EmptyStateRow`.
 - `IndexScreenScaffold` — the ONE pushed-index chrome (title + optional
   count subtitle + actions); its screens render the canonical

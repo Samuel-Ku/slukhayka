@@ -12,6 +12,10 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -104,6 +108,26 @@ class FriendsScreenTest {
             "Щойно хтось із друзів поділиться враженням про книгу з аудиторією «Друзі», " +
                 "допис з’явиться тут. Дописи з аудиторією «Лише я» не показуються нікому."
         ).assertExists()
+    }
+
+    @Test
+    fun theEmptyStateHasNoPlaceholderGlyphAndNoDeadCta() {
+        render(FriendsFeedState())
+
+        composeTestRule.onNodeWithTag("friends_empty_no_friends").assertExists()
+        // F17 / spec §4: an empty state does not draw a placeholder glyph —
+        // the absence is stated in type, not illustrated by an icon standing
+        // for friends who do not exist.
+        composeTestRule.onNodeWithTag("empty_state_icon", useUnmergedTree = true)
+            .assertDoesNotExist()
+        // Spec §4 also asks for ONE next action. This build has no friend
+        // search and no reader profile data source yet, so the honest
+        // implementation offers none rather than a control that goes nowhere
+        // (ADR-0014). When that source lands, the action goes HERE.
+        composeTestRule.onAllNodes(
+            hasClickAction() and hasAnyAncestor(hasTestTag("friends_empty_no_friends")),
+            useUnmergedTree = true
+        ).assertCountEquals(0)
     }
 
     @Test

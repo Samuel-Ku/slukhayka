@@ -131,9 +131,9 @@ fun BookDetailIdentityHeader(
     authorBookmark: PersonBookmarkControl = PersonBookmarkControl(),
     narratorBookmark: PersonBookmarkControl = PersonBookmarkControl()
 ) {
-    // Plan 2026-2027 — the compact paper hero: a 132×198 cover on the page's
-    // own ground, then the canonical summary. The full-bleed 72 % art with
-    // gradient scrims belongs to the old direction and is deliberately gone.
+    // Plan 2026-2027 / F31 — the compact paper hero: a 118×177 cover with the
+    // canonical summary BESIDE it. The full-bleed 72 % art with gradient
+    // scrims belongs to the old direction and is deliberately gone.
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -141,23 +141,35 @@ fun BookDetailIdentityHeader(
             .padding(horizontal = PaperInkDimens.SpacePage)
             // The transparent toolbar floats above the page; leave it its room.
             .padding(top = 64.dp, bottom = 8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.Start
     ) {
-        BookCoverImage(
-            book = book,
-            semantics = BookCoverSemantics.Decorative,
-            modifier = Modifier
-                .width(132.dp)
-                .height(198.dp)
-                .clip(RoundedCornerShape(PaperInkDimens.RadiusMedium)),
-            contentScale = ContentScale.Crop,
-            // The summary below states the title and the author; the fallback
-            // ground stays, its duplicate identity does not.
-            typographicFallback = false,
-        )
-        Spacer(modifier = Modifier.height(20.dp))
-        BookDetailCanonicalSummary(
-            presentation = presentation,
+        // F31 — the prototype's compact hero: a 118×177 cover with the title
+        // and identity BESIDE it, not a centred 130×202 poster above them.
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top,
+        ) {
+            BookCoverImage(
+                book = book,
+                semantics = BookCoverSemantics.Decorative,
+                modifier = Modifier
+                    .width(PaperInkDimens.CoverPageWidth)
+                    .height(PaperInkDimens.CoverPageHeight)
+                    .clip(RoundedCornerShape(PaperInkDimens.RadiusMedium))
+                    .testTag("book_detail_cover_art"),
+                contentScale = ContentScale.Crop,
+                // The summary beside it states the title and the author; the
+                // fallback ground stays, its duplicate identity does not.
+                typographicFallback = false,
+            )
+            Spacer(modifier = Modifier.width(PaperInkDimens.SpacePage))
+            Column(
+                modifier = Modifier.weight(1f),
+                horizontalAlignment = Alignment.Start,
+            ) {
+                BookDetailCanonicalSummary(
+                    presentation = presentation,
+                    startAligned = true,
             entryFocusKey = book.id,
             universeName = universeName,
             narrationAverage = narrationAverage,
@@ -176,9 +188,11 @@ fun BookDetailIdentityHeader(
             returnFocusOrigin = returnFocusOrigin,
             onChildRouteOpened = onChildRouteOpened,
             onReturnFocusRestored = onReturnFocusRestored,
-            authorBookmark = authorBookmark,
-            narratorBookmark = narratorBookmark
-        )
+                    authorBookmark = authorBookmark,
+                    narratorBookmark = narratorBookmark
+                )
+            }
+        }
     }
 }
 
@@ -187,6 +201,10 @@ fun BookDetailIdentityHeader(
 @Composable
 fun BookDetailCanonicalSummary(
     presentation: BookDetailPresentation,
+    // F31 — the compact hero puts this summary BESIDE the cover, so its text
+    // reads from the start edge instead of being centred. Standalone callers
+    // (snapshots, tests) keep the centred default.
+    startAligned: Boolean = false,
     entryFocusKey: Any = presentation.title,
     universeName: String? = null,
     narrationAverage: Double? = null,
@@ -235,9 +253,9 @@ fun BookDetailCanonicalSummary(
         text = presentation.title,
         style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
         color = MaterialTheme.colorScheme.onSurface,
-        maxLines = 2,
+        maxLines = if (startAligned) 3 else 2,
         overflow = TextOverflow.Ellipsis,
-        textAlign = TextAlign.Center,
+        textAlign = if (startAligned) TextAlign.Start else TextAlign.Center,
         modifier = Modifier
             .testTag("book_detail_title")
             .focusRequester(titleFocusRequester)
@@ -248,7 +266,7 @@ fun BookDetailCanonicalSummary(
     if (presentation.author.isNotBlank()) {
         BoxWithConstraints(
             modifier = Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.Center
+            contentAlignment = if (startAligned) Alignment.CenterStart else Alignment.Center
         ) {
             val textMaxWidth = (maxWidth - 48.dp).coerceAtLeast(0.dp)
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -256,7 +274,7 @@ fun BookDetailCanonicalSummary(
                     text = stringResource(R.string.book_detail_author_label, presentation.author),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.primary,
-                    textAlign = TextAlign.Center,
+                    textAlign = if (startAligned) TextAlign.Start else TextAlign.Center,
                     modifier = Modifier
                         .widthIn(max = textMaxWidth)
                         .focusRequester(authorFocusRequester)
@@ -296,7 +314,7 @@ fun BookDetailCanonicalSummary(
                 // the 8dp overlap is exactly the difference). No offset: the
                 // rows sit flush and each keeps its real 48dp target.
                 .fillMaxWidth(),
-            contentAlignment = Alignment.Center
+            contentAlignment = if (startAligned) Alignment.CenterStart else Alignment.Center
         ) {
             val textMaxWidth = (maxWidth - 48.dp).coerceAtLeast(0.dp)
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -304,7 +322,7 @@ fun BookDetailCanonicalSummary(
                     text = stringResource(R.string.book_detail_narrator_label, presentation.narrator),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
+                    textAlign = if (startAligned) TextAlign.Start else TextAlign.Center,
                     modifier = Modifier
                         .widthIn(max = textMaxWidth)
                         .focusRequester(narratorFocusRequester)
@@ -336,21 +354,33 @@ fun BookDetailCanonicalSummary(
     }
     // ADR-0023 (#348): the narration rating lives beside the narrator's name —
     // crowd average + this listener's stars, never in the book headline.
-    NarrationRatingRow(
-        average = narrationAverage,
-        voteCount = narrationVoteCount,
-        ownRating = ownNarrationRating,
-        canRate = canRateNarration,
-        unavailableReasonRes = narrationRateUnavailableReason,
-        onRate = onRateNarration,
-        onDeleteOwn = onDeleteNarrationRating,
-        deleteFocusRequester = narrationRatingDeleteFocusRequester,
-        modifier = Modifier.padding(top = 2.dp)
-    )
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = if (startAligned) Alignment.CenterStart else Alignment.Center,
+    ) {
+        NarrationRatingRow(
+            average = narrationAverage,
+            voteCount = narrationVoteCount,
+            ownRating = ownNarrationRating,
+            canRate = canRateNarration,
+            unavailableReasonRes = narrationRateUnavailableReason,
+            onRate = onRateNarration,
+            onDeleteOwn = onDeleteNarrationRating,
+            deleteFocusRequester = narrationRatingDeleteFocusRequester,
+            // The hero's column is ~182 dp on a 360 dp phone: start-aligned and
+            // wrapping, so the rating line cannot clip beside the cover.
+            startAligned = startAligned,
+            compact = startAligned,
+            modifier = Modifier.padding(top = 2.dp)
+        )
+    }
     Spacer(modifier = Modifier.height(AppDimens.SpaceSm))
     FlowRow(
         modifier = Modifier.testTag("book_detail_metadata_chips"),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+        horizontalArrangement = Arrangement.spacedBy(
+            8.dp,
+            if (startAligned) Alignment.Start else Alignment.CenterHorizontally,
+        ),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         if (presentation.genre.isNotBlank() && !presentation.genre.contains("4read", ignoreCase = true)) {
@@ -367,11 +397,13 @@ fun BookDetailCanonicalSummary(
                 presentation.totalChapters,
                 presentation.totalChapters
             )
+            // F31 — `chapter_count` already carries the number («%1$d
+            // розділів»); prefixing the count again produced «15 15 розділів».
             MetadataChip(
                 text = when {
                     chaptersKnown && durationKnown ->
-                        "${presentation.totalChapters} $chaptersLabel • ${MainViewModel.formatTime(presentation.totalDurationSeconds)}"
-                    chaptersKnown -> "${presentation.totalChapters} $chaptersLabel"
+                        "$chaptersLabel • ${MainViewModel.formatTime(presentation.totalDurationSeconds)}"
+                    chaptersKnown -> chaptersLabel
                     else -> MainViewModel.formatTime(presentation.totalDurationSeconds)
                 },
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
@@ -389,7 +421,7 @@ fun BookDetailCanonicalSummary(
             modifier = Modifier
                 .fillMaxWidth()
                 .testTag("book_detail_series_row"),
-            horizontalArrangement = Arrangement.Center
+            horizontalArrangement = if (startAligned) Arrangement.Start else Arrangement.Center
         ) {
             SeriesPill(
                 seriesTitle = seriesTitle,

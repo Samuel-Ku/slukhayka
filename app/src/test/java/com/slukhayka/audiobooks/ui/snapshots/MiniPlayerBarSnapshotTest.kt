@@ -135,9 +135,16 @@ class MiniPlayerBarSnapshotTest {
             "ring play target must be 48 dp, was ${target.height / density.density} dp",
             target.height >= with(density) { 48.dp.toPx() },
         )
+        // F14: the ring is now a 32 dp indicator AROUND the 48 dp target (it
+        // used to fill the whole target), so it is its own, smaller node.
+        val ring = composeTestRule.onNodeWithTag("mini_player_progress")
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue(
+            "the progress ring must be smaller than the 48 dp target, was ${ring.height / density.density} dp",
+            ring.height < with(density) { 48.dp.toPx() },
+        )
         // The old bottom underline is gone, and so are the previous/next
         // buttons: one control, plus the summary.
-        composeTestRule.onNodeWithTag("mini_player_progress").assertDoesNotExist()
         composeTestRule.onNodeWithTag("mini_player_previous").assertDoesNotExist()
         composeTestRule.onNodeWithTag("mini_player_next").assertDoesNotExist()
         composeTestRule.onNodeWithTag("mini_player_summary").assertExists()

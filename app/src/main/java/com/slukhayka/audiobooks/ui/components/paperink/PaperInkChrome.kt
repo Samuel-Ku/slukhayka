@@ -31,6 +31,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -41,6 +44,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcon
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
@@ -155,20 +159,35 @@ fun PaperInkMiniPlayerBar(
                 )
             }
             Spacer(modifier = Modifier.width(8.dp))
+            // F14 — this is a BUTTON, not a selectable tab: `selectable(
+            // selected = false)` made TalkBack announce «не вибрано» for a play
+            // control. The progress is real state and now says so, too.
+            val clampedProgress = progress.coerceIn(0f, 1f)
+            val progressPercent = (clampedProgress * 100).toInt()
+            val progressDescription = stringResource(R.string.listen_progress_percent, progressPercent)
             Box(
                 modifier = Modifier
                     .size(48.dp)
                     .clip(CircleShape)
-                    .selectable(selected = false, role = Role.Button, onClick = onPlayPauseClick)
+                    .clickable(role = Role.Button, onClick = onPlayPauseClick)
                     .then(if (playTestTag != null) Modifier.testTag(playTestTag) else Modifier)
-                    .semantics { contentDescription = playContentDescription },
+                    .semantics {
+                        contentDescription = playContentDescription
+                        stateDescription = progressDescription
+                        progressBarRangeInfo = ProgressBarRangeInfo(clampedProgress, 0f..1f)
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 CircularProgressIndicator(
-                    progress = { progress.coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxSize(),
+                    progress = { clampedProgress },
+                    // F14 — 32 dp, not the whole 48 dp target: the ring is an
+                    // indicator around the glyph, not a second button. The
+                    // track moves off `surfaceVariant` (1.11:1 on paper) to
+                    // `outline` (LineStrong, 3.28:1) so «скільки прослухано»
+                    // is actually visible.
+                    modifier = Modifier.size(32.dp).testTag("mini_player_progress"),
                     color = colorScheme.tertiary,
-                    trackColor = colorScheme.surfaceVariant,
+                    trackColor = colorScheme.outline,
                     strokeWidth = 3.dp,
                 )
                 PaperInkIcon(
@@ -210,7 +229,10 @@ fun PaperInkNavigationBar(
     // and a single word cannot wrap). Above 160 % the bar becomes two rows of
     // two, growing in height instead of clipping the labels — the accessible
     // answer for a bar, unlike shrinking the reader's text.
-    val perRow = if (androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.6f) {
+    // F13: from 130 % the single row of four starts to ellipsize the longest
+    // label («Налаштування» is one word and cannot wrap), so the bar switches
+    // to two rows of two exactly where the old label cap used to bite.
+    val perRow = if (androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.3f) {
         2
     } else {
         items.size
@@ -265,26 +287,22 @@ fun PaperInkNavigationBar(
                                 modifier = Modifier.size(23.dp),
                             )
                         }
-                        val metrics = androidx.compose.ui.platform.LocalDensity.current
-                        androidx.compose.runtime.CompositionLocalProvider(
-                            // Chrome micro-copy is capped: the four Ukrainian
-                            // labels are a navigation aid, not reading content,
-                            // and an uncapped 22 sp label cannot fit a 320 dp
-                            // bar without clipping. The tab still has its icon
-                            // and its full TalkBack name.
-                            androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(
-                                density = metrics.density,
-                                fontScale = metrics.fontScale.coerceAtMost(1.3f),
-                            ),
-                        ) {
-                            Text(
-                                text = item.label,
-                                style = PaperInkType.Micro,
-                                color = if (selected) colorScheme.onSurface else colorScheme.onSurfaceVariant,
-                                maxLines = 2,
-                                textAlign = TextAlign.Center,
-                            )
-                        }
+                        // F13 — the label follows the reader's text size. The
+                        // old 1.3× cap clipped the scale itself, which §7 of
+                        // the direction forbids; the two-row layout above
+                        // (now from >1.3×) is what makes 200 % fit.
+                        Text(
+                            text = item.label,
+                            style = PaperInkType.Micro,
+                            color = if (selected) colorScheme.onSurface else colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            textAlign = TextAlign.Center,
+                            modifier = if (item.testTag != null) {
+                                Modifier.testTag("${item.testTag}_label")
+                            } else {
+                                Modifier
+                            },
+                        )
                     }
                 }
             }

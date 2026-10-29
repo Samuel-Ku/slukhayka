@@ -1003,7 +1003,7 @@ class App : Application() {
 
     val achievements by lazy {
         com.slukhayka.audiobooks.data.achievements.AchievementEngine(
-            com.slukhayka.audiobooks.data.achievements.RoomAchievementProgressSource(
+            com.slukhayka.audiobooks.data.achievements.AchievementSnapshotSource(
                 database.achievementDao(), achievementStore,
                 com.slukhayka.audiobooks.data.source.SourceRegistry.ids(),
                 // #1174 (друга смуга): «Не кидаю» reads the LIVE marks through

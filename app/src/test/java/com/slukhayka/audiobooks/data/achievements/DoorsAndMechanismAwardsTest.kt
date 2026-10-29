@@ -76,7 +76,7 @@ class DoorsAndMechanismAwardsTest {
         database: AudiobookDatabase,
         registered: Set<String> = emptySet(),
         isScam: (String) -> Boolean = { false }
-    ): AchievementProgress = RoomAchievementProgressSource(
+    ): AchievementProgress = AchievementSnapshotSource(
         database.achievementDao(), RoomAchievementStore(database.achievementDao()), registered,
         abandonedBookIds = flowOf(emptySet()),
         isScamSource = isScam
@@ -260,7 +260,7 @@ class DoorsAndMechanismAwardsTest {
     @Test
     fun `the mechanism facts travel from the store to the award`() = withDatabase { database ->
         val store = RoomAchievementStore(database.achievementDao())
-        val source = RoomAchievementProgressSource(
+        val source = AchievementSnapshotSource(
             database.achievementDao(), store, emptySet(), abandonedBookIds = flowOf(emptySet())
         )
 

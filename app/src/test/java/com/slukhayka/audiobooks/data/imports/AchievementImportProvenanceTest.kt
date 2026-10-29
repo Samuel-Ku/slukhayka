@@ -48,7 +48,7 @@ class AchievementImportProvenanceTest {
         assertEquals("TECHNICAL_OPEN",dao.libraryEntryById(unknown.id)!!.origin)
         assertEquals("CATALOG_SYNC",dao.libraryEntryById(catalog.id)!!.origin)
         assertEquals(0,searchImports)
-        val source=RoomAchievementProgressSource(db.achievementDao(),RoomAchievementStore(db.achievementDao()),setOf("sluhay"), abandonedBookIds = flowOf(emptySet()))
+        val source=AchievementSnapshotSource(db.achievementDao(),RoomAchievementStore(db.achievementDao()),setOf("sluhay"), abandonedBookIds = flowOf(emptySet()))
         assertEquals(0L,source.observe().first().explicitBooks)
     }
     @Test fun `successful new foreground live direct and captured imports prove their own search acceptance only once`() = verify { db,context ->
@@ -61,7 +61,7 @@ class AchievementImportProvenanceTest {
         assertEquals("TECHNICAL_OPEN",db.audiobookDao().libraryEntryById(first.id)!!.origin)
         val store=RoomAchievementStore(db.achievementDao())
         store.recordFact(AchievementFact.SEARCH_IMPORTED)
-        val snapshot=RoomAchievementProgressSource(db.achievementDao(),store,setOf("sluhay"), abandonedBookIds = flowOf(emptySet())).observe().first()
+        val snapshot=AchievementSnapshotSource(db.achievementDao(),store,setOf("sluhay"), abandonedBookIds = flowOf(emptySet())).observe().first()
         assertEquals(0L,snapshot.explicitBooks)
         // #701 — a search import now earns TWO awards on purpose: the first-step
         // one AND the «Глибокий пошук» mechanism award (the spec asks for both,
@@ -112,7 +112,7 @@ class AchievementImportProvenanceTest {
         assertEquals("EXPLICIT_IMPORT",dao.libraryEntryById(local.id)!!.origin)
         assertEquals("EXPLICIT_SAVE",dao.libraryEntryById(preview.bookId!!)!!.origin)
         assertEquals("EXPLICIT_SAVE",dao.libraryEntryById(youtube.bookId!!)!!.origin)
-        val source=RoomAchievementProgressSource(db.achievementDao(),RoomAchievementStore(db.achievementDao()),setOf("youtube"), abandonedBookIds = flowOf(emptySet()))
+        val source=AchievementSnapshotSource(db.achievementDao(),RoomAchievementStore(db.achievementDao()),setOf("youtube"), abandonedBookIds = flowOf(emptySet()))
         val snapshot=source.observe().first()
         assertEquals(3L,snapshot.explicitBooks)
         assertEquals(0L,snapshot.playbackStarts); assertEquals(0L,snapshot.offlinePlaybackStarts); assertEquals(0L,snapshot.downloadedBooks)

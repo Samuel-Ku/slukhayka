@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.map
  * listener's OWN library and the curated lists.
  *
  * The derivations walk the whole library and match it against every curated
- * universe and collection; [RoomAchievementProgressSource][com.slukhayka.audiobooks.data.achievements.RoomAchievementProgressSource]
+ * universe and collection; [AchievementSnapshotSource][com.slukhayka.audiobooks.data.achievements.AchievementSnapshotSource]
  * used to run them inside a `combine` whose other arm ticks on every written
  * playback second. The library list itself changes only when the listener's
  * books or their completion events change, so an unchanged list must not be

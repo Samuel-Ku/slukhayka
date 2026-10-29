@@ -12,7 +12,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 
 /** Composition adapter over actual local data; the evaluator owns no Room or source registry. */
-class RoomAchievementProgressSource(
+class AchievementSnapshotSource(
     dao: AchievementDao,
     store: AchievementStore,
     registeredSourceIds: Set<String>,

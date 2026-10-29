@@ -111,7 +111,7 @@ class CuratedSetAwardsTest {
         database: AudiobookDatabase,
         collections: List<CollectionList> = emptyList(),
         universes: List<UniverseList> = emptyList()
-    ): AchievementProgress = RoomAchievementProgressSource(
+    ): AchievementProgress = AchievementSnapshotSource(
         database.achievementDao(), RoomAchievementStore(database.achievementDao()), emptySet(),
         abandonedBookIds = flowOf(emptySet()),
         curatedCollections = collections,

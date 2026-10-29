@@ -55,13 +55,13 @@ class MeasurementAwardsTest {
         "chapter_end_10", "sync_4h", "night_shift_2h", "dawn_5"
     )
 
-    private fun withSource(block: suspend (AudiobookDatabase, RoomAchievementProgressSource) -> Unit) = runBlocking {
+    private fun withSource(block: suspend (AudiobookDatabase, AchievementSnapshotSource) -> Unit) = runBlocking {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val database = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
             .allowMainThreadQueries().build()
         try {
             val store = RoomAchievementStore(database.achievementDao())
-            block(database, RoomAchievementProgressSource(database.achievementDao(), store, emptySet(), zoneId = kyiv,
+            block(database, AchievementSnapshotSource(database.achievementDao(), store, emptySet(), zoneId = kyiv,
                 abandonedBookIds = flowOf(emptySet())))
         } finally {
             database.close()

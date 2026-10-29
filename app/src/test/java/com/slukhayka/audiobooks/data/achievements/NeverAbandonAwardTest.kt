@@ -225,7 +225,7 @@ class NeverAbandonAwardTest {
     private fun earned(snapshot: AchievementProgress): List<String> =
         AchievementEvaluator.evaluate(snapshot, emptySet()).map { it.id }
 
-    private suspend fun snapshot(): AchievementProgress = RoomAchievementProgressSource(
+    private suspend fun snapshot(): AchievementProgress = AchievementSnapshotSource(
         dao = database.achievementDao(),
         store = RoomAchievementStore(database.achievementDao()),
         registeredSourceIds = emptySet(),

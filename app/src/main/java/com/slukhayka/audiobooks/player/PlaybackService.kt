@@ -103,7 +103,7 @@ class PlaybackService : MediaSessionService() {
      * ([PlaybackResume]), so the manager's state — book, chapters, position,
      * heal budget, progress saving — stays coherent; handing Media3 raw media
      * items would leave `playerState` empty. The values handed back are built by
-     * [PlaybackResumption], which is unit-tested without a live session.
+     * [PlaybackResume], which is unit-tested without a live session.
      *
      * The returned items are what the manager just put on the player; Media3
      * sets them again for the resumption, and that second prepare is the price
@@ -117,7 +117,7 @@ class PlaybackService : MediaSessionService() {
             val result = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
             resumeScope.launch {
                 result.set(
-                    PlaybackResumption.itemsFor(
+                    PlaybackResume.itemsFor(
                         playerManager = App.instance.playerManager,
                         libraryEntries = App.instance.libraryEntries,
                         playableFor = { bookId -> App.instance.sourceCatalog.getPlayableChapters(bookId) },

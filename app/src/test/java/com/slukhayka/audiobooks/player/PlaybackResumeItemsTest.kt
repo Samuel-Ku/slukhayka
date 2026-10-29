@@ -26,7 +26,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * #805 — the values [PlaybackResumption] hands to Media3 for a resumption
+ * #805 — the values [PlaybackResume] hands to Media3 for a resumption
  * request: the item the manager just loaded and the listener's saved position.
  *
  * The position is the interesting half: `AudioPlayerManager` parks the engine at
@@ -36,7 +36,7 @@ import org.robolectric.annotation.Config
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
-class PlaybackResumptionTest {
+class PlaybackResumeItemsTest {
 
     private val dispatcher = StandardTestDispatcher()
 
@@ -102,7 +102,7 @@ class PlaybackResumptionTest {
     }
 
     private suspend fun TestScope.itemsFor(manager: AudioPlayerManager) =
-        PlaybackResumption.itemsFor(
+        PlaybackResume.itemsFor(
             playerManager = manager,
             libraryEntries = libraryEntries,
             playableFor = { bookId -> playableFor(bookId) },

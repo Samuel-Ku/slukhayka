@@ -166,6 +166,44 @@ class LibraryChromeHeightTest {
         composeTestRule.onNodeWithTag("library_tab_books").assertIsDisplayed()
     }
 
+    /**
+     * 360 dp is BELOW the inline band's floor (three one-line tab labels + a
+     * 140 dp field need ≈400 dp), so the field falls back to its own 48 dp line
+     * instead of squeezing either control — and this test says the number that
+     * fallback costs rather than pretending the 411 dp measurement covers it.
+     *
+     * The ≤240 dp target is a property of the inline band the audit measured
+     * (Pixel 8, 411 dp). On the narrow fallback the first row lands ≈280 dp;
+     * this pins ≤300 so a regression cannot quietly turn the fallback into a
+     * second search row plus a second tab row.
+     */
+    @Test
+    @Config(
+        qualifiers = "uk-rUA-w360dp-h2000dp-normal-notlong-notround-any-420dpi-keyshidden-nonav",
+        sdk = [36]
+    )
+    fun a_360_dp_window_keeps_the_search_visible_and_measures_its_fallback() {
+        showLibrary()
+
+        val search = composeTestRule.onNodeWithTag("library_search_zone")
+            .getUnclippedBoundsInRoot()
+        assertTrue(
+            "the search zone is ${search.width} wide on 360 dp — floor is 140 dp",
+            search.width.value >= 140f
+        )
+        composeTestRule.onNodeWithTag("library_search").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("library_tab_books").assertIsDisplayed()
+
+        val firstBook = composeTestRule
+            .onNodeWithTag("library_book_item_${books.first().book.id}", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot()
+        assertTrue(
+            "the 360 dp fallback puts the first book at ${firstBook.top} dp — " +
+                "the documented fallback bound is ≤300 dp",
+            firstBook.top.value <= 300f
+        )
+    }
+
     private fun showLibrary() {
         composeTestRule.setContent {
             PaperInkTheme(darkTheme = true) {

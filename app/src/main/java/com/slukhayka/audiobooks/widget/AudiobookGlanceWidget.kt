@@ -197,7 +197,11 @@ class AudiobookGlanceWidget : GlanceAppWidget() {
                 contentAlignment = Alignment.Center
             ) {
                 Image(
-                    provider = ImageProvider(R.drawable.ic_launcher_foreground),
+                    // F23: the launcher foreground is ink-on-transparent; on the dark
+                    // scheme's primaryContainer it measures 1.81:1.
+                    // This plate carries its own paper ground (8.03:1 on ink,
+                    // 14.52:1 ink-on-paper; the light plate blends but the glyph is 13.08:1).
+                    provider = ImageProvider(R.drawable.ic_widget_app_icon),
                     contentDescription = null,
                     modifier = GlanceModifier.size(48.dp)
                 )

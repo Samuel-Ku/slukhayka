@@ -722,7 +722,7 @@ fun AudiobookApp(
     BackHandler(enabled = showFullPlayer || selectedBookId != null ||
         selectedWebSource != null || selectedSeries != null || seriesIndexOpen || collectionsIndexOpen ||
         storageDestinationOpen || privacySettingsOpen || recommendationSettingsOpen || contentLanguagesOpen ||
-        sourceAudioRefusalOpen || appLocaleOpen || profileOpen || selectedGenre != null ||
+        sourceAudioRefusalOpen || appLocaleOpen || achievementsOpen || profileOpen || selectedGenre != null ||
         selectedTop100 || selectedPeopleKind != null || selectedPerson != null ||
         authorsIndexOpen) {
         if (showFullPlayer) {
@@ -758,6 +758,8 @@ fun AudiobookApp(
             viewModel.closeSourceAudioRefusal()
         } else if (appLocaleOpen) {
             viewModel.closeAppLocale()
+        } else if (achievementsOpen) {
+            viewModel.closeAchievements()
         } else if (profileOpen) {
             viewModel.closeProfileSettings()
         } else if (selectedGenre != null) {

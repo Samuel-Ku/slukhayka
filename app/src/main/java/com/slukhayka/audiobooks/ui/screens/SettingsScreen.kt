@@ -43,7 +43,7 @@ import com.slukhayka.audiobooks.ui.theme.PaperInkType
  *
  * Plan 2026-2027: the root now leads with the appearance group the direction
  * asks for — theme «Авто / Папір / Чорнило» and the player's ink exception —
- * then the same seven destinations, unchanged and still never more than two
+ * then the same eight destinations, unchanged and still never more than two
  * taps from anywhere. Groups are sentence case now (the direction's rule), and
  * the row is a paper list row: icon, title, one-line description, chevron.
  */
@@ -63,12 +63,18 @@ internal fun SettingsScreen(
     onOpen: (SettingsDestination) -> Unit,
 ) {
     val title = stringResource(R.string.nav_settings)
-    // spec-54 T05 (#866) — the SAME seven destinations, grouped so the listener
+    // spec-54 T05 (#866) — the SAME eight destinations, grouped so the listener
     // knows WHERE to look: the group name answers "where", and every row stays
     // one tap from here (so never more than two from anywhere).
     val groups = remember {
         listOf(
-            SettingsGroup(R.string.settings_group_profile, listOf(SettingsDestination.Profile)),
+            // F18: «Досягнення» is the listener's own record, so it belongs beside
+            // «Профіль» — the destination existed in the enum and in MainActivity
+            // (its pane was wired), but no row ever opened it: a dead screen.
+            SettingsGroup(
+                R.string.settings_group_profile,
+                listOf(SettingsDestination.Profile, SettingsDestination.Achievements)
+            ),
             SettingsGroup(R.string.settings_group_data, listOf(SettingsDestination.Storage)),
             SettingsGroup(
                 R.string.settings_group_network,

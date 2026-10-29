@@ -3520,6 +3520,10 @@ class MainViewModel @JvmOverloads constructor(
         // over the next tab. Same close-on-tab-switch contract as its six
         // siblings above.
         closeSourceAudioRefusal()
+        // F18 — «Досягнення» is a settings destination too. Before its row
+        // existed the panel was unreachable from the UI, so nobody noticed it
+        // missing here: a tab switch must drop it like every sibling above.
+        closeAchievements()
         _selectedTab.value = tab
     }
 

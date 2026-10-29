@@ -289,6 +289,22 @@ class SleepTimerModuleTest {
     }
 
     @Test
+    fun `reset forgets the state so a stale remainder cannot re-arm`() {
+        module.start(5)
+        ticker.tick(200)
+
+        module.reset()
+
+        assertEquals(SleepTimerSnapshot(), module.snapshot)
+        assertFalse(ticker.running)
+        // #1596 — the old stale-snapshot trap: extend must not resurrect a
+        // remainder after the session was cleared.
+        assertEquals(0, module.extendBy15Minutes())
+        assertFalse(ticker.running)
+        assertEquals(SleepTimerSnapshot(), module.snapshot)
+    }
+
+    @Test
     fun `cancel stops the countdown without touching the published state`() {
         module.start(5)
         val before = module.snapshot

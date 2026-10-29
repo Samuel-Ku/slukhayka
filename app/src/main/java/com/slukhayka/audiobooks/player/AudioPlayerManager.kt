@@ -1490,7 +1490,8 @@ class AudioPlayerManager(
     private fun stopEngineForUnavailableBook(book: AudiobookEntity) {
         stopActualListening()
         prepareRequestId++
-        sleepTimerModule.reset()
+        // Only the countdown stops here: the error screen keeps its timer state.
+        sleepTimerModule.cancel()
         prepareTimeoutJob?.cancel()
         mediaPlayer?.let { mp ->
             try {
@@ -2636,7 +2637,8 @@ class AudioPlayerManager(
         resetActualCastReceiverEvidence()
         loadRequestSequence++
         prepareRequestId++
-        sleepTimerModule.cancel()
+        // The session is gone: forget the timer state too, not just the ticker.
+        sleepTimerModule.reset()
         prepareTimeoutJob?.cancel()
         // Deliberately NOT persisting progress here: the caller (deleteBook)
         // removes the book's progress row right after, so a save would race it

@@ -17,8 +17,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Group
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -108,6 +106,12 @@ data class FriendsFeedState(
  * (find a reader by name, share one's own profile) need a data source this
  * version does not have, so they are described in the copy rather than offered
  * as buttons that would do nothing.
+ *
+ * F17: in the 2026 direction an empty state is Literata 20 + a 12.5
+ * description, with NO placeholder glyph (§4); the old M3 `Group` icon made an
+ * absence look like a decorated feature. The single next action §4 asks for is
+ * deliberately absent until the friend-search/profile data source exists —
+ * «одна дія, яка нічого не робить» would be worse than none (ADR-0014).
  */
 @Composable
 fun FriendsScreen(
@@ -162,8 +166,10 @@ fun FriendsScreen(
             // §6.4 — no friends is a different fact from no posts, and the two
             // states must not be merged into one vague "nothing here".
             feed.friendsNow.isEmpty() -> item {
+                // F17 — no placeholder glyph: the absence is stated in type,
+                // not illustrated with an icon that stands for «friends» on a
+                // screen that has none.
                 EmptyState(
-                    icon = Icons.Default.Group,
                     title = stringResource(R.string.friends_empty_no_friends_title),
                     body = stringResource(R.string.friends_empty_no_friends_body),
                     modifier = Modifier.testTag("friends_empty_no_friends")
@@ -172,7 +178,6 @@ fun FriendsScreen(
 
             else -> item {
                 EmptyState(
-                    icon = Icons.Default.Group,
                     title = stringResource(R.string.friends_empty_no_posts_title),
                     body = stringResource(R.string.friends_empty_no_posts_body),
                     modifier = Modifier.testTag("friends_empty_no_posts")

@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
@@ -55,7 +56,12 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
  */
 @Composable
 fun EmptyState(
-    icon: ImageVector,
+    // spec §4 of the 2026 direction: an empty state is Literata 20 + a 12.5
+    // description + ONE action, with NO placeholder glyph. Legacy surfaces
+    // still pass their glyph; a migrated screen simply omits it — an absence is
+    // stated in type, not illustrated with an icon that stands for something
+    // that is not there.
+    icon: ImageVector? = null,
     title: String,
     body: String,
     modifier: Modifier = Modifier,
@@ -86,15 +92,21 @@ fun EmptyState(
         // spinner needs no circle to read as "working".
         if (iconContent != null) {
             iconContent()
-        } else {
+        } else if (icon != null) {
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
                 tint = if (paperInk) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(EmptyStateIconSize)
+                modifier = Modifier
+                    .size(EmptyStateIconSize)
+                    // A stable seam for the «no placeholder glyph» rule: a
+                    // migrated empty state asserts this node does not exist.
+                    .testTag("empty_state_icon")
             )
         }
-        Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
+        if (iconContent != null || icon != null) {
+            Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
+        }
         // v1.4 C4 (ADR-0033): an empty state is transient — it announces
         // itself politely (screen readers) the moment it appears.
         Text(

@@ -2,7 +2,7 @@ package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.VolumeOff
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -15,6 +15,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
@@ -36,21 +37,21 @@ internal enum class SettingsDestination(
 ) {
     Profile(
         descriptionRes = R.string.settings_desc_profile,
-        icon = Icons.Default.Person,
+        icon = PaperInkIcons.Person,
         titleRes = R.string.profile_title,
         paneTag = "profile_screen_pane",
         headingTag = "profile_screen_heading"
     ),
     NetworkPrivacy(
         descriptionRes = R.string.settings_desc_network,
-        icon = Icons.Default.Shield,
+        icon = PaperInkIcons.Shield,
         titleRes = R.string.privacy_title,
         paneTag = "network_privacy_screen_pane",
         headingTag = "network_privacy_screen_heading"
     ),
     Recommendations(
         descriptionRes = R.string.settings_desc_recommendations,
-        icon = Icons.Default.Star,
+        icon = PaperInkIcons.Star,
         titleRes = R.string.recommendations_title,
         paneTag = "recommendations_screen_pane",
         headingTag = "recommendations_screen_heading"
@@ -58,7 +59,7 @@ internal enum class SettingsDestination(
     // Spec-45 (#405) T6 (#494): the «Мови контенту» destination.
     ContentLanguages(
         descriptionRes = R.string.settings_desc_content_languages,
-        icon = Icons.Default.Language,
+        icon = PaperInkIcons.Globe,
         titleRes = R.string.content_languages_title,
         paneTag = "content_languages_screen_pane",
         headingTag = "content_languages_screen_heading"
@@ -66,7 +67,7 @@ internal enum class SettingsDestination(
     // Spec-45 (#405) R7 (#514): the «Мова інтерфейсу» destination.
     AppLocale(
         descriptionRes = R.string.settings_desc_app_locale,
-        icon = Icons.Default.Translate,
+        icon = PaperInkIcons.Translate,
         titleRes = R.string.app_locale_title,
         paneTag = "app_locale_screen_pane",
         headingTag = "app_locale_screen_heading"
@@ -75,21 +76,21 @@ internal enum class SettingsDestination(
     // Source Audio Refusal switch.
     SourceAudioRefusal(
         descriptionRes = R.string.settings_desc_source_refusal,
-        icon = Icons.Default.VolumeOff,
+        icon = Icons.Outlined.VolumeOff,
         titleRes = R.string.source_audio_refusal_title,
         paneTag = "source_audio_refusal_screen_pane",
         headingTag = "source_audio_refusal_screen_heading"
     ),
     Storage(
         descriptionRes = R.string.settings_desc_data,
-        icon = Icons.Default.SdCard,
+        icon = PaperInkIcons.Storage,
         titleRes = R.string.storage_title,
         paneTag = "storage_destination_screen_pane",
         headingTag = "storage_destination_screen_heading"
     ),
     Achievements(
         descriptionRes = R.string.settings_desc_achievements,
-        icon = Icons.Default.EmojiEvents,
+        icon = PaperInkIcons.Medal,
         titleRes = R.string.achievements_title,
         paneTag = "achievements_screen_pane",
         headingTag = "achievements_screen_heading"

@@ -5,7 +5,7 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.achievements.AchievementProgress
-import com.slukhayka.audiobooks.data.achievements.RoomAchievementProgressSource
+import com.slukhayka.audiobooks.data.achievements.AchievementSnapshotSource
 import com.slukhayka.audiobooks.data.achievements.RoomAchievementStore
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.EditionEntity
@@ -147,7 +147,7 @@ class PersonalLibraryRoomTest {
             )
         )
 
-        val snapshot: AchievementProgress = RoomAchievementProgressSource(
+        val snapshot: AchievementProgress = AchievementSnapshotSource(
             database.achievementDao(),
             RoomAchievementStore(database.achievementDao()),
             emptySet(),

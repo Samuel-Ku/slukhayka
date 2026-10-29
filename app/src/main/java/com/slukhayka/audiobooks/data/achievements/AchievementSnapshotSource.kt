@@ -6,13 +6,17 @@ import java.io.File
 import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 
 /** Composition adapter over actual local data; the evaluator owns no Room or source registry. */
-class RoomAchievementProgressSource(
+class AchievementSnapshotSource(
     dao: AchievementDao,
     store: AchievementStore,
     registeredSourceIds: Set<String>,
@@ -88,14 +92,12 @@ class RoomAchievementProgressSource(
      * production is unchanged. The seam exists so a witness can count the
      * derivations THROUGH the real composition: it proves the placement (the
      * matching runs once per distinct library snapshot, not on every tick),
-     * which the helper-level test alone cannot see. A revert moving the
-     * matchers back into the per-tick `combine` makes the counter stay at zero
-     * and reddens that test.
+     * which the helper-level test alone cannot see.
      */
     private val deriveLibraryFacts: (List<OwnLibraryBook>) -> OwnLibraryFacts = { own ->
         deriveOwnLibraryFacts(own, curatedUniverses, curatedCollections)
     }
-) : AchievementProgressSource {
+) : AchievementProgressSource, AchievementSnapshot {
     /** #701 — the doors «Усі двері» asks about: every registered source but the scam ones. */
     private val requiredDoors: Set<String> = registeredSourceIds.filterNot(isScamSource).toSet()
     private val counters = combine(dao.observeExplicitBooks(), dao.observeVerifiedListeningMillis(),
@@ -324,5 +326,31 @@ class RoomAchievementProgressSource(
             knownSeriesMemberships = topology.second)
     }
     private val local = LocalAchievementProgressSource(aggregates, store.observeFacts())
+
+    /**
+     * #1574 — the owned snapshot. Starts empty and moves ONLY through
+     * [refresh]; nothing observes the tower hot any more, so a Room write that
+     * no caller pulled changes neither the board nor the title.
+     */
+    private val snapshotState = MutableStateFlow(AchievementProgress())
+    override val snapshot: StateFlow<AchievementProgress> = snapshotState.asStateFlow()
+
+    /**
+     * #1574 — ONE whole-snapshot pass. The cold tower is collected exactly
+     * once (`first()`), so all fields are computed in one run over the same
+     * Room state and published together. This is not a database transaction
+     * (the tower issues separate reads), just one pass instead of one per
+     * write; a concurrent write lands in the NEXT refresh.
+     *
+     * Kept as the single `observe()` implementation too: the existing award
+     * tests read this cold seam directly, and [refresh] is defined in terms of
+     * it rather than a second copy of the pipeline.
+     */
+    override suspend fun refresh(): AchievementProgress {
+        val next = local.observe().distinctUntilChanged().first()
+        snapshotState.value = next
+        return next
+    }
+
     override fun observe() = local.observe().distinctUntilChanged()
 }

@@ -8,7 +8,7 @@ import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.achievements.AchievementEvaluator
-import com.slukhayka.audiobooks.data.achievements.RoomAchievementProgressSource
+import com.slukhayka.audiobooks.data.achievements.AchievementSnapshotSource
 import com.slukhayka.audiobooks.data.achievements.RoomAchievementStore
 import com.slukhayka.audiobooks.data.facets.FacetIdentity
 import java.io.File
@@ -115,7 +115,7 @@ class GenreClaimRenormalizationMigrationTest {
             )
 
             // Нагорода справді відкривається після міграції — це і є сенс зрізу.
-            val snapshot = RoomAchievementProgressSource(
+            val snapshot = AchievementSnapshotSource(
                 achievementDao, RoomAchievementStore(achievementDao), emptySet(),
                 abandonedBookIds = flowOf(emptySet())
             ).observe().first()

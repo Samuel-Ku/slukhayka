@@ -107,7 +107,7 @@ class NewWaveAwardTest {
     private suspend fun snapshot(
         database: AudiobookDatabase,
         appearedOnOf: (String) -> LocalDate? = SourceRegistry::appearedOn
-    ): AchievementProgress = RoomAchievementProgressSource(
+    ): AchievementProgress = AchievementSnapshotSource(
         database.achievementDao(), RoomAchievementStore(database.achievementDao()), emptySet(),
         appearedOnOf = appearedOnOf, zoneId = kyiv, abandonedBookIds = flowOf(emptySet())
     ).observe().first()

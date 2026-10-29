@@ -231,7 +231,7 @@ class SecondWindAwardTest {
             .allowMainThreadQueries().build()
         return try {
             build(database)
-            RoomAchievementProgressSource(
+            AchievementSnapshotSource(
                 database.achievementDao(), RoomAchievementStore(database.achievementDao()), emptySet(),
                 abandonedBookIds = flowOf(emptySet())
             ).observe().first()

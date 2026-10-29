@@ -40,7 +40,7 @@ import org.robolectric.annotation.Config
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk=[35], application=Application::class)
-class RoomAchievementProgressSourcePlacementTest {
+class AchievementSnapshotSourcePlacementTest {
 
     @Test
     fun `own-library derivation runs once per distinct snapshot through the real composition`() =
@@ -61,7 +61,7 @@ class RoomAchievementProgressSourcePlacementTest {
                 audiobookDao.updateLibraryEntryOrigin(book.id, "EXPLICIT_SAVE")
 
                 var derivations = 0
-                val source = RoomAchievementProgressSource(
+                val source = AchievementSnapshotSource(
                     achievementDao,
                     RoomAchievementStore(achievementDao),
                     setOf("sluhay"),

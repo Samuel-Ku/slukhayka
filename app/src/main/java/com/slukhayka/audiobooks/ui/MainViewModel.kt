@@ -2658,6 +2658,11 @@ class MainViewModel @JvmOverloads constructor(
 
     fun openAchievements() {
         _achievementsOpen.value = true
+        // #1574 — opening the screen is an explicit pull: changes outside the
+        // playback checkpoints (bookmarks, files, curated lists) must not wait
+        // for the next listening write. IO: the refresh is a whole-database
+        // pass, never a main-thread one.
+        viewModelScope.launch(Dispatchers.IO) { App.instance.achievements.refresh() }
         // #705 (T7) — the screen offers the showcase's publish action only when
         // there is a curator profile for it to appear on, and that is read from
         // the store. Asking on open is what makes the answer current instead of
@@ -2692,7 +2697,6 @@ class MainViewModel @JvmOverloads constructor(
     val achievementProgress:
         StateFlow<com.slukhayka.audiobooks.data.achievements.AchievementProgress> =
         App.instance.achievements.snapshot
-            .flowOn(kotlinx.coroutines.Dispatchers.Default)
             .stateIn(
                 viewModelScope, SharingStarted.WhileSubscribed(5000),
                 com.slukhayka.audiobooks.data.achievements.AchievementProgress()

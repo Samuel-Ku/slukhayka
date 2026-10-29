@@ -61,13 +61,13 @@ class HiddenAwardBoundaryTest {
      * The previous one is closed rather than left open, so a table of eight
      * cases does not hold eight in-memory databases at once.
      */
-    private fun freshDatabase(): RoomAchievementProgressSource {
+    private fun freshDatabase(): AchievementSnapshotSource {
         database?.close()
         val context = ApplicationProvider.getApplicationContext<Context>()
         val opened = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java)
             .allowMainThreadQueries().build()
         database = opened
-        return RoomAchievementProgressSource(
+        return AchievementSnapshotSource(
             opened.achievementDao(),
             RoomAchievementStore(opened.achievementDao()),
             emptySet(),
@@ -103,7 +103,7 @@ class HiddenAwardBoundaryTest {
     private fun at(year: Int, month: Int, day: Int, hour: Int, minute: Int = 0): Long =
         LocalDateTime.of(year, month, day, hour, minute).atZone(kyiv).toInstant().toEpochMilli()
 
-    private suspend fun earnedIds(source: RoomAchievementProgressSource) =
+    private suspend fun earnedIds(source: AchievementSnapshotSource) =
         AchievementEvaluator.evaluate(source.observe().first(), emptySet()).map { it.id }
 
     // --- «Нічний вартовий»: завершення з локальною годиною 02:00–03:59 --------
@@ -371,7 +371,7 @@ class HiddenAwardBoundaryTest {
      *
      * The six merged hidden awards must sit on exactly these metrics, and every
      * one of them is computed from real `playback_events` timestamps by
-     * `RoomAchievementProgressSource`. Pinning the exact set is the point: a
+     * `AchievementSnapshotSource`. Pinning the exact set is the point: a
      * seventh hidden award added later on some metric nothing writes (taps,
      * time in the app, a counter nobody increments) fails here, so that would
      * be a decision with data behind it instead of drift.

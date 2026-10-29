@@ -8,6 +8,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
@@ -67,6 +70,7 @@ import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.player.PlayerState
+import com.slukhayka.audiobooks.player.SeekSession
 import com.slukhayka.audiobooks.player.SleepTimerNotice
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookCoverImage
@@ -458,7 +462,9 @@ fun PlayerScreen(
             onToggleDebug = { showDebugOverlay = !showDebugOverlay },
             onSeek = { fraction ->
                 resetSeekSum()
-                viewModel.playerManager.seekTo((fraction * playerState.durationMs).toLong())
+                viewModel.playerManager.seekTo(
+                    SeekSession.commitPositionMs(fraction, playerState.durationMs)
+                )
             },
             onBookSeek = { fraction ->
                 resetSeekSum()
@@ -945,7 +951,7 @@ private fun PlayerScreenContentBody(
                                         DualProgress(
                                             progress = progress,
                                             chapterPositionSeconds = playerState.currentPositionMs / 1000L,
-                                            chapterDurationSeconds = playerState.durationMs / 1000L,
+                                            chapterDurationMs = playerState.durationMs,
                                             onSeek = onSeek,
                                             onBookSeek = onBookSeek,
                                             bookmarkTarget = lastBookmarkTarget,
@@ -1155,7 +1161,7 @@ private fun PlayerScreenContentBody(
                 DualProgress(
                     progress = progress,
                     chapterPositionSeconds = playerState.currentPositionMs / 1000L,
-                    chapterDurationSeconds = playerState.durationMs / 1000L,
+                    chapterDurationMs = playerState.durationMs,
                     onSeek = onSeek,
                     onBookSeek = onBookSeek,
                     bookmarkTarget = lastBookmarkTarget,
@@ -1507,7 +1513,7 @@ private fun PlayerTopBar(
 private fun DualProgress(
     progress: PlayerProgressUi,
     chapterPositionSeconds: Long,
-    chapterDurationSeconds: Long,
+    chapterDurationMs: Long,
     onSeek: (Float) -> Unit,
     // Kept in the signature for the wide-pane contract and callers; the book
     // line is READ-ONLY in the reference design (one seek: the chapter).
@@ -1517,13 +1523,66 @@ private fun DualProgress(
     onJumpToBookmark: (BookmarkEntity) -> Unit = {},
     onShowAllBookmarks: () -> Unit = {}
 ) {
+    // #1571 — the display and the seek read the SAME exact duration: the
+    // label's whole seconds are derived from it and the drag preview maps
+    // against it, so the release lands on the second the label shows. Truncating
+    // to seconds first (the old shape) made the preview and the commit disagree
+    // by a second for durations that are not a whole number of seconds.
+    val chapterDurationSeconds = chapterDurationMs / 1_000L
+
+    // #1571 — the scrub session. While a finger is down the slider follows it
+    // and the chapter time is rendered from the local fraction; the player (and
+    // the progress write that follows every seek) hears only the release, as
+    // ONE seek. A cancelled drag commits nothing; a value change no drag
+    // interaction produced (TalkBack's SetProgress, a tap on the track) is
+    // committed at once, because there will be no release to wait for.
+    val seekInteractionSource = remember { MutableInteractionSource() }
+    val dragInProgress by seekInteractionSource.collectIsDraggedAsState()
+    var previewFraction by remember { mutableStateOf<Float?>(null) }
+    var releaseCommit by remember { mutableStateOf<Float?>(null) }
+    val currentOnSeek by rememberUpdatedState(onSeek)
+
+    fun commitScrub(fraction: Float) {
+        previewFraction = null
+        releaseCommit = null
+        currentOnSeek(fraction)
+    }
+
+    LaunchedEffect(seekInteractionSource) {
+        seekInteractionSource.interactions.collect { interaction ->
+            when (interaction) {
+                // The interaction stream is the one place that tells a release
+                // from a cancel: `onValueChangeFinished` fires for both (the
+                // foundation draggable also stops on ACTION_CANCEL), and it
+                // fires after the Stop/Cancel interaction was emitted. Taking
+                // the preview as a fallback on Stop keeps the commit single
+                // even if the two callbacks are ever observed in the other
+                // order.
+                is DragInteraction.Stop -> {
+                    val released = releaseCommit ?: previewFraction
+                    if (released != null) commitScrub(released) else releaseCommit = null
+                }
+                is DragInteraction.Cancel -> {
+                    releaseCommit = null
+                    previewFraction = null
+                }
+            }
+        }
+    }
+
+    val previewSeconds = previewFraction?.let {
+        SeekSession.previewSeconds(it, chapterDurationMs)
+    }
+    val shownChapterPositionSeconds = previewSeconds ?: chapterPositionSeconds
+    val shownChapterFraction = previewFraction ?: progress.chapterFraction
+
     val chapterPositionLabel = stringResource(R.string.a11y_player_chapter_position)
     val bookPositionLabel = stringResource(R.string.a11y_player_book_position)
     val unknownDuration = stringResource(R.string.a11y_player_duration_unknown)
     val chapterTimeDescription = if (chapterDurationSeconds > 0L) {
         stringResource(
             R.string.a11y_player_time_of,
-            MainViewModel.formatTime(chapterPositionSeconds),
+            MainViewModel.formatTime(shownChapterPositionSeconds),
             MainViewModel.formatTime(chapterDurationSeconds)
         )
     } else {
@@ -1572,7 +1631,7 @@ private fun DualProgress(
         ) {
             if (hasChapterDuration) {
                 Text(
-                    text = MainViewModel.formatTime(chapterPositionSeconds),
+                    text = MainViewModel.formatTime(shownChapterPositionSeconds),
                     style = PaperInkType.TimerXL,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -1597,8 +1656,22 @@ private fun DualProgress(
             )
         }
         SilentlySeekChapter(
-            value = progress.chapterFraction,
-            onSeek = onSeek,
+            value = shownChapterFraction,
+            onValueChange = { previewFraction = it },
+            onValueChangeFinished = {
+                val released = previewFraction
+                if (released != null) {
+                    if (dragInProgress) {
+                        // The Stop/Cancel interaction arrives just after this
+                        // callback; the collector above turns it into the one
+                        // commit (release) or into nothing (cancel).
+                        releaseCommit = released
+                    } else {
+                        commitScrub(released)
+                    }
+                }
+            },
+            interactionSource = seekInteractionSource,
             positionLabel = chapterPositionLabel,
             timeDescription = chapterTimeDescription,
             colors = chapterSliderColors,
@@ -1615,7 +1688,9 @@ private fun DualProgress(
 @Composable
 private fun SilentlySeekChapter(
     value: Float,
-    onSeek: (Float) -> Unit,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    interactionSource: MutableInteractionSource,
     positionLabel: String,
     timeDescription: String,
     colors: SliderColors,
@@ -1623,8 +1698,10 @@ private fun SilentlySeekChapter(
 ) {
     Slider(
         value = value,
-        onValueChange = onSeek,
+        onValueChange = onValueChange,
+        onValueChangeFinished = onValueChangeFinished,
         enabled = hasDuration,
+        interactionSource = interactionSource,
         modifier = Modifier
             .fillMaxWidth()
             .height(PaperInkDimens.PlayerSeekHeight)

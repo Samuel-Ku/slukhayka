@@ -200,4 +200,6 @@ fun LibraryRatingScreen(
 
 /** ADR-0022: the rule never rounds; the surface does, for display only. */
 internal fun formatRatingAverage(average: Double): String =
-    String.format(java.util.Locale.getDefault(), "%.1f", average)
+    // #1600 — every other rating surface formats with Locale.US ("4.5"); a
+    // locale-default comma here made the same score read «4,5» on uk/pl.
+    String.format(java.util.Locale.US, "%.1f", average)

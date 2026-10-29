@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.merge
 
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
+import com.slukhayka.audiobooks.data.metadata.NormalizationMemo
 import com.slukhayka.audiobooks.data.source.decodeEntities
 import java.util.Locale
 
@@ -31,18 +32,34 @@ import java.util.Locale
  */
 object MergeKey {
 
+    /**
+     * #1589 — the punctuation folds are STATIC. Compiling them per call was the
+     * `Pattern.compile` the #1570 blocked stack caught under
+     * `MergeKey.normalize`; the patterns never change, so they are compiled once.
+     */
+    private val NON_TEXT = Regex("[^\\p{L}\\p{N} ]")
+    private val WHITESPACE_RUNS = Regex("\\s+")
+
+    /**
+     * #1589 — repeats are a map lookup. The achievements pass normalizes the
+     * same titles/authors on every Room invalidation; the rule is pure, so the
+     * memo cannot answer differently. See [NormalizationMemo].
+     */
+    private val titleMemo = NormalizationMemo()
+    private val personMemo = NormalizationMemo()
+
     /** Normalizes a title for comparison: lowercases, strips a subtitle. */
-    fun normalizeTitle(title: String): String {
+    fun normalizeTitle(title: String): String = titleMemo.normalized(title) { raw ->
         // Spec-27 BUG-002: the SEO scrub first — a raw page title with a
         // curated suffix («Трохи ненависті - АудіоКниги Українською») is
         // already clean when the subtitle cuts below run.
-        val scrubbed = MetadataAssertions.normalizeTitle(title)
+        val scrubbed = MetadataAssertions.normalizeTitle(raw)
         val withoutSubtitle = scrubbed
             .substringBefore(':')
             .substringBefore('—')
             .substringBefore('–')
             .substringBefore(" - ")
-        return normalize(withoutSubtitle)
+        normalize(withoutSubtitle)
     }
 
     /**
@@ -52,7 +69,9 @@ object MergeKey {
      * `&#x27;` would otherwise survive punctuation stripping as the spurious
      * token `x27` and split one person's identity across two keys.
      */
-    fun normalizePerson(name: String): String = normalize(decodeEntities(name))
+    fun normalizePerson(name: String): String = personMemo.normalized(name) { raw ->
+        normalize(decodeEntities(raw))
+    }
 
     /**
      * The merge key of a book: `normalizedTitle|normalizedAuthor`. The
@@ -67,14 +86,12 @@ object MergeKey {
         return base.joinToString("|")
     }
 
-    private fun normalize(input: String): String {
-        val cleaned = input
+    private fun normalize(input: String): String =
+        input
             .trim()
             .lowercase(Locale.ROOT)
             // Keep letters, digits and spaces; drop everything else (incl. ' і ' variants).
-            .replace(Regex("[^\\p{L}\\p{N} ]"), "")
-            .replace(Regex("\\s+"), " ")
+            .replace(NON_TEXT, "")
+            .replace(WHITESPACE_RUNS, " ")
             .trim()
-        return cleaned
-    }
 }

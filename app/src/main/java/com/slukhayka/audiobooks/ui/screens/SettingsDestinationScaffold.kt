@@ -140,14 +140,17 @@ internal fun SettingsDestinationScaffold(
             topBar = {
                 PaperInkTabHeader(
                     title = title,
-                    // A pushed screen: one compact line, no wordmark (the
-                    // brand belongs to roots), the visible way back.
+                    // A pushed screen: compact, no wordmark (the brand belongs
+                    // to roots), the visible way back. The title may wrap — at
+                    // 320 dp a 21 sp label already needs two lines for
+                    // «Завантаження та памʼять», and at 200 % three — so the
+                    // header grows with its content instead of ellipsizing.
                     compact = true,
                     showBrandMark = false,
                     onBackClick = onBackClick,
                     headingTestTag = destination.headingTag,
                     returnFocusRequester = headingFocusRequester,
-                    maxTitleLines = if (largeText) 2 else 1,
+                    maxTitleLines = if (largeText) 3 else 2,
                 )
             },
             containerColor = MaterialTheme.colorScheme.background,

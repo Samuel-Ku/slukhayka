@@ -1,5 +1,8 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -56,52 +59,93 @@ class SettingsDestinationScaffoldTest {
         compose.onNodeWithTag("settings_back").assertExists()
     }
 
-    // F10 review blocker (200 % text): the legacy header grew to 112 dp and
-    // wrapped to two lines at fontScale ≥ 2. The compact pushed header must
-    // allow the same two lines instead of ellipsizing the title.
+    // F10 review blockers (200 % AND 320 dp): a compact pushed header is not
+    // "one line with an ellipsis". At 320 dp the content column is ~228 dp, so
+    // «Завантаження та памʼять» (~253 dp at 1x) needs two lines and
+    // «Персональні рекомендації» (~539 dp at 2x) needs three. The header grows
+    // with its content (56 dp stays the floor); the test reads the laid-out
+    // text and demands no visual overflow.
     @Test
-    fun `a pushed header allows two title lines at two hundred percent text`() {
+    fun `the longest pushed title is not clipped at 320 dp at normal text`() {
+        assertHeadingNotClipped(
+            destination = SettingsDestination.Storage,
+            fontScale = 1f,
+            expectedMaxLines = 2,
+        )
+    }
+
+    @Test
+    fun `the longest pushed titles are not clipped at 320 dp at two hundred percent text`() {
+        assertHeadingNotClipped(
+            destination = SettingsDestination.Storage,
+            fontScale = 2f,
+            expectedMaxLines = 3,
+        )
+        assertHeadingNotClipped(
+            destination = SettingsDestination.Recommendations,
+            fontScale = 2f,
+            expectedMaxLines = 3,
+        )
+    }
+
+    @Test
+    fun `at 411 dp and normal text a short pushed title still fits one line`() {
+        val layout = layoutOf(SettingsDestination.NetworkPrivacy, fontScale = 1f, width = 411)
+        assertEquals(2, layout.layoutInput.maxLines)
+        assertEquals(1, layout.lineCount)
+        assertEquals(false, layout.hasVisualOverflow)
+    }
+
+    private fun assertHeadingNotClipped(
+        destination: SettingsDestination,
+        fontScale: Float,
+        expectedMaxLines: Int,
+    ) {
+        val layout = layoutOf(destination, fontScale, width = 320)
+        assertEquals(
+            "the header must allow $expectedMaxLines lines for ${destination.name}",
+            expectedMaxLines,
+            layout.layoutInput.maxLines,
+        )
+        assertEquals(
+            "${destination.name} is clipped at 320 dp/${fontScale}x: " +
+                "lines=${layout.lineCount} overflow=${layout.hasVisualOverflow} " +
+                "width=${layout.size.width} text=${layout.layoutInput.text}",
+            false,
+            layout.hasVisualOverflow,
+        )
+    }
+
+    private fun layoutOf(
+        destination: SettingsDestination,
+        fontScale: Float,
+        width: Int,
+    ): TextLayoutResult {
         compose.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(
-                LocalDensity provides Density(density.density, fontScale = 2f)
+                LocalDensity provides Density(density.density, fontScale = fontScale)
             ) {
                 AudiobookTheme(darkTheme = false) {
-                    SettingsDestinationScaffold(
-                        destination = SettingsDestination.Storage,
-                        onBackClick = {},
-                    ) { innerPadding ->
-                        Text(text = "body", modifier = Modifier.padding(innerPadding))
+                    Box(Modifier.width(width.dp).fillMaxHeight()) {
+                        SettingsDestinationScaffold(
+                            destination = destination,
+                            onBackClick = {},
+                        ) { innerPadding ->
+                            Text(text = "body", modifier = Modifier.padding(innerPadding))
+                        }
                     }
                 }
             }
         }
         compose.waitForIdle()
-
-        assertEquals(2, headingMaxLines("storage_destination_screen_heading"))
-    }
-
-    @Test
-    fun `a pushed header keeps one title line at normal text size`() {
-        showScaffold(darkOuterTheme = false)
-        assertEquals(1, headingMaxLines("storage_destination_screen_heading"))
-    }
-
-    /**
-     * The 200 % contract is the header's ALLOWANCE, not a pixel width: the
-     * title may wrap to two lines and grow the header. Reading `maxLines` back
-     * from the laid-out text pins the wiring without depending on Robolectric's
-     * font metrics for the Onest family.
-     */
-    private fun headingMaxLines(tag: String): Int {
         val results = mutableListOf<TextLayoutResult>()
-        compose.onNodeWithTag(tag, useUnmergedTree = true)
+        compose.onNodeWithTag(destination.headingTag, useUnmergedTree = true)
             .fetchSemanticsNode()
             .config[SemanticsActions.GetTextLayoutResult]
             .action
             ?.invoke(results)
-        val layout = requireNotNull(results.firstOrNull()) { "the heading never reported its layout" }
-        return layout.layoutInput.maxLines
+        return requireNotNull(results.firstOrNull()) { "the heading never reported its layout" }
     }
 
     private fun contentBackground(darkOuterTheme: Boolean): Color {

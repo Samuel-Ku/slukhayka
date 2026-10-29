@@ -92,6 +92,7 @@ import com.slukhayka.audiobooks.data.listening.knownBookTotalSeconds
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.displayNarrator
 import com.slukhayka.audiobooks.ui.theme.AppDimens
+import com.slukhayka.audiobooks.ui.theme.PaperInkColors
 import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
 import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
@@ -107,6 +108,12 @@ data class PlayerProgressUi(
     val chapterMarkers: List<Float>,
     val bookmarkMarkers: List<Float>
 )
+
+/**
+ * F32 — the book is read as three parts on the read-only ruler; the chapter
+ * slider is the ONE seek. Two dividers make the three parts.
+ */
+internal val BOOK_PART_DIVIDERS: List<Float> = listOf(1f / 3f, 2f / 3f)
 
 data class BookSeekTarget(val chapterIndex: Int, val positionMs: Long)
 
@@ -1413,7 +1420,10 @@ private fun ColumnScope.PlayerArtworkPane(
         Text(
             text = currentChapterTitle,
             style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.primary,
+            // F32 — the current chapter is SOUND: the direction's lamp, not the
+            // verdigris action colour. On the always-ink player that is
+            // LampNight, i.e. the same role `lampText` names elsewhere.
+            color = PaperInkColors.lampText,
             fontWeight = FontWeight.SemiBold,
             maxLines = if (largeFont) 2 else 1,
             overflow = TextOverflow.Ellipsis
@@ -1789,13 +1799,16 @@ private fun BookProgressLine(
                 .semantics { hideFromAccessibility() },
         ) {
             val centerY = size.height / 2f
-            progress.chapterMarkers.forEach { marker ->
-                val color = if (marker <= progress.bookFraction) {
+            // F32 — the spec asks for ONE seek plus a read-only line with the
+            // book's THREE parts. The old ruler drew a tick per chapter (12+
+            // here), which read as a second, nearly identical progress bar.
+            BOOK_PART_DIVIDERS.forEach { divider ->
+                val color = if (divider <= progress.bookFraction) {
                     activeMarker.copy(alpha = 0.72f)
                 } else {
                     inactiveMarker
                 }
-                drawMarker(marker, color, size.height, 1.5.dp.toPx())
+                drawMarker(divider, color, size.height, 1.5.dp.toPx())
             }
             progress.bookmarkMarkers.forEach { marker ->
                 val color = if (marker <= progress.bookFraction) bookmarkColor else bookmarkColor.copy(alpha = 0.55f)

@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.map
  * This value separates "what the library says" from "what the snapshot knows":
  * equal facts mean the snapshot has nothing new to say about the library.
  */
-internal data class OwnLibraryFacts(
+data class OwnLibraryFacts(
     val completedSeries: Long,
     val orderedSeries: Long,
     val universeBooks: Long,

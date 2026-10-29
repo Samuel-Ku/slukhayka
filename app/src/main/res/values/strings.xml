@@ -101,7 +101,7 @@
     <string name="lib_books_count">Книги (%1$d)</string>
     <string name="lib_bookmarks_count">Закладки (%1$d)</string>
     <string name="lib_statistics">Статистика</string>
-    <string name="lib_search_placeholder">Назва, автор або серія</string>
+    <string name="lib_search_short_hint">Пошук</string>
     <string name="lib_add_own_files">Додати свої файли</string>
     <string name="lib_find_book">Знайти книгу</string>
     <string name="lib_import_connect">З\'єднати</string>

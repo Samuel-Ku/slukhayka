@@ -14,6 +14,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -41,6 +42,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import com.slukhayka.audiobooks.ui.components.ChapterDragAutoScroll
 import com.slukhayka.audiobooks.ui.components.ChapterDragHandle
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -88,7 +90,6 @@ import com.slukhayka.audiobooks.data.imports.ImportPlanner
 import com.slukhayka.audiobooks.data.imports.LocalFolderGrouping
 import com.slukhayka.audiobooks.data.imports.SourceRef
 import com.slukhayka.audiobooks.ui.MainViewModel
-import com.slukhayka.audiobooks.ui.components.AppHeaderAction
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
@@ -572,7 +573,6 @@ fun LibraryScreen(
                 libraryChrome(
                     activeTab = activeTab,
                     sectionTitleRes = sectionTitleRes,
-                    yearGoal = yearGoal,
                     query = query,
                     onQueryChange = { query = it },
                     filter = filter,
@@ -588,8 +588,7 @@ fun LibraryScreen(
                     publishedCollections = publishedCollections,
                     onOpenCollection = { openCollectionId = it },
                     onOpenPublishedCollection = { openPublishedDocumentId = it },
-                    onRenamePseudonym = { renamingPseudonym = true },
-                    compact = landscapePhone
+                    onRenamePseudonym = { renamingPseudonym = true }
                 )
             }
 
@@ -616,10 +615,13 @@ fun LibraryScreen(
             // vertical padding gives it room to breathe from the band above and
             // the list below.
             if (activeTab == 0) {
+                // F30b — 36 dp chips + 4 dp breathing above/below = a 44 dp
+                // strip instead of 52; the chips keep their 48 dp touch zone
+                // (`AppDimens.MinTouchTarget` in LibraryStatusRow).
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp)
+                        .padding(vertical = 4.dp)
                 ) {
                     libraryStatusStrip(
                         filter = filter,
@@ -824,6 +826,22 @@ fun LibraryScreen(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                         contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
                     ) {
+                        // F30b (spec §5) — «Мій рік» moved here from the top of
+                        // the books list: the year is a STATISTIC, so it opens
+                        // the statistics section instead of crowding the shelf.
+                        item {
+                            yearGoal?.let { goal ->
+                                Box(
+                                    modifier = Modifier.padding(
+                                        start = PaperInkDimens.SpacePage,
+                                        end = PaperInkDimens.SpacePage,
+                                        top = 8.dp
+                                    )
+                                ) {
+                                    LibraryYearHero(goal = goal)
+                                }
+                            }
+                        }
                         item {
                             ListeningStatsCard(listeningStats = listeningStats, totalBooks = libraryBooks.size)
                         }
@@ -1261,12 +1279,21 @@ internal fun LibraryHeaderActionsInner(
     importFocusRequester: FocusRequester
 ) {
     Box {
-        AppHeaderAction(
-            icon = Icons.Default.MoreVert,
-            contentDescription = stringResource(R.string.a11y_library_more_actions),
+        // F34 (audit 28.10.2026): the header carried three different
+        // affordances — ⋮ and «+» in tonal discs, the gear bare. The direction
+        // draws every header action as a quiet 48 dp glyph, so the disc goes;
+        // the tag and the spoken label stay.
+        IconButton(
             onClick = { onMenuOpenChange(true) },
-            testTag = "library_sections_menu"
-        )
+            modifier = Modifier
+                .size(AppDimens.TouchTarget)
+                .testTag("library_sections_menu")
+        ) {
+            Icon(
+                imageVector = Icons.Default.MoreVert,
+                contentDescription = stringResource(R.string.a11y_library_more_actions)
+            )
+        }
         DropdownMenu(
             expanded = menuOpen,
             onDismissRequest = { onMenuOpenChange(false) }
@@ -1331,23 +1358,112 @@ internal fun LibraryHeaderActionsInner(
     }
     // UI (v1.5 review): the import action is the compact «+» icon in the
     // top-end corner — three equal 48 dp targets, no labelled pill stealing
-    // the width the title needs.
-    AppHeaderAction(
-        icon = Icons.Default.Add,
-        contentDescription = stringResource(R.string.a11y_library_add),
+    // the width the title needs. F34 — and no disc: a quiet glyph like the
+    // gear beside it.
+    IconButton(
         onClick = onAdd,
-        modifier = Modifier.focusRequester(importFocusRequester),
-        testTag = "library_add_button",
-        tint = MaterialTheme.colorScheme.primary
-    )
+        modifier = Modifier
+            .focusRequester(importFocusRequester)
+            .size(AppDimens.TouchTarget)
+            .testTag("library_add_button")
+    ) {
+        Icon(
+            imageVector = Icons.Default.Add,
+            contentDescription = stringResource(R.string.a11y_library_add),
+            tint = MaterialTheme.colorScheme.primary
+        )
+    }
 }
 
 /**
- * Бібліотека's local search field (ADR-0033 amended 2026-09-18 / IA §4): it is
- * permanently visible — no 🔍 toggle reveals it and no state hides it. ✕ only
- * empties the query in place, and the system Back clears a typed query while an
- * empty field leaves Back to the navigation contract. There is deliberately no
- * auto-focus: opening the root must not raise the keyboard.
+ * F30b — the Книги tab's tab row and its permanently visible search, in ONE
+ * band: three tabs on the left, the compact search pill (≥140 dp) on the right.
+ *
+ * Why one row. The audited chrome reached the first book at ≈400 dp; moving
+ * «Мій рік» to «Статистика» and trimming paddings was not enough with the
+ * search on its own 52 dp line. An icon-that-reveals-the-field would fit, but
+ * ADR-0033 (amended 2026-09-18) forbids a reveal action: the single pattern is
+ * the always-visible field, and spec §5's literal "рядок табів з іконкою
+ * пошуку" is superseded by that ADR. So the field stays visible and moves INTO
+ * the tab row.
+ *
+ * At 360–411 dp the row is inline (search 160 dp, never below its 140 dp floor);
+ * on a narrower 320 dp window the search takes its own 48 dp line under the
+ * tabs rather than squeezing either control below the touch/width floors. Both
+ * branches keep the field visible without any action.
+ */
+@Composable
+internal fun LibraryTabsWithSearch(
+    booksSelected: Boolean,
+    savedSelected: Boolean,
+    onBooks: () -> Unit,
+    onShelves: () -> Unit,
+    onSaved: () -> Unit,
+    query: String,
+    onQueryChange: (String) -> Unit,
+) {
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val inline = maxWidth >= 400.dp
+        if (inline) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                LibrarySectionTabs(
+                    booksSelected = booksSelected,
+                    savedSelected = savedSelected,
+                    onBooks = onBooks,
+                    onShelves = onShelves,
+                    onSaved = onSaved,
+                    modifier = Modifier.weight(1f),
+                    horizontalPadding = 0.dp,
+                    topPadding = 0.dp
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                // The 140 dp floor, not a wider pill: the three tab labels keep
+                // one line at 411 dp, and below 400 the row falls back to two
+                // bands anyway.
+                LibrarySearchField(
+                    query = query,
+                    onQueryChange = onQueryChange,
+                    modifier = Modifier.width(140.dp)
+                )
+            }
+        } else {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                LibrarySectionTabs(
+                    booksSelected = booksSelected,
+                    savedSelected = savedSelected,
+                    onBooks = onBooks,
+                    onShelves = onShelves,
+                    onSaved = onSaved
+                )
+                LibrarySearchField(
+                    query = query,
+                    onQueryChange = onQueryChange,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = PaperInkDimens.SpacePage)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Бібліотека's local search (ADR-0033 amended 2026-09-18 / IA §4): **permanently
+ * visible, with no reveal toggle**, because the single search pattern is the
+ * always-visible field. F30b draws it as a compact pill INSIDE the section-tab
+ * row (spec §5's "рядок табів з іконкою пошуку" is superseded by the ADR: the
+ * action keeps no toggle and the field stays one tap cheaper), which is what
+ * lets the books list start ≤240 dp from the top.
+ *
+ * Shape: a 44 dp pill inside a 48 dp touch zone, leading magnifier, short
+ * localized hint («Пошук» / «Search» / «Szukaj»), a 40 dp ✕ only while a query
+ * exists. TalkBack names it with [R.string.a11y_library_search]; typing and the
+ * system-Back-clears rule are unchanged (IME Back still owns the first press).
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -1359,83 +1475,103 @@ internal fun LibrarySearchField(
     // The IME owns the first system Back; only the next one clears the query.
     val keyboardVisible = WindowInsets.isImeVisible
     val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
+    val colorScheme = MaterialTheme.colorScheme
     BackHandler(enabled = query.isNotEmpty() && !keyboardVisible) { onQueryChange("") }
-    OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
+    val searchLabel = stringResource(R.string.a11y_library_search)
+    val hint = stringResource(R.string.lib_search_short_hint)
+    val shape = RoundedCornerShape(
+        if (paperInk) com.slukhayka.audiobooks.ui.theme.PaperInkDimens.RadiusFull
+        else AppDimens.RadiusPill
+    )
+    val textStyle = if (paperInk) {
+        com.slukhayka.audiobooks.ui.theme.PaperInkType.Body
+    } else {
+        MaterialTheme.typography.bodyMedium
+    }
+    Box(
         modifier = modifier
-            .fillMaxWidth()
-            .padding(
-                horizontal = if (paperInk) {
-                    com.slukhayka.audiobooks.ui.theme.PaperInkDimens.SpacePage
-                } else {
-                    AppDimens.PageSides
-                },
-                vertical = AppDimens.SpaceSm,
-            )
-            .heightIn(min = if (paperInk) 52.dp else 56.dp)
-            .testTag("library_search"),
-        label = { Text(stringResource(R.string.a11y_library_search)) },
-        placeholder = { Text(stringResource(R.string.lib_search_placeholder)) },
-        leadingIcon = {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
-            )
-        },
-        trailingIcon = if (query.isNotEmpty()) {
-            {
-                IconButton(
-                    onClick = { onQueryChange("") },
-                    modifier = Modifier.testTag("library_search_clear")
+            // The touch target is 48 dp even though the pill draws 44 dp.
+            .height(48.dp)
+            .testTag("library_search_zone"),
+        contentAlignment = Alignment.Center
+    ) {
+        // The pill itself: a painted surface, not the text field, so the
+        // 44 dp visual sits centred in the 48 dp target without shrinking it.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(44.dp)
+                .clip(shape)
+                .background(
+                    if (paperInk) colorScheme.surface else colorScheme.surfaceContainerHighest
+                )
+                .border(1.dp, colorScheme.outlineVariant, shape)
+        )
+        BasicTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            singleLine = true,
+            textStyle = textStyle.copy(color = colorScheme.onSurface),
+            cursorBrush = SolidColor(colorScheme.primary),
+            modifier = Modifier
+                .fillMaxWidth()
+                // A FIXED height, not `heightIn`: the decoration box below
+                // fills its constraints, so an unbounded allowance from the
+                // tab row's BoxWithConstraints stretched the field to the whole
+                // window (F30b review). 48 dp is the touch target; the pill
+                // draws 44 inside it.
+                .height(48.dp)
+                .testTag("library_search")
+                .semantics { contentDescription = searchLabel },
+            decorationBox = { innerTextField ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .padding(start = 10.dp, end = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = PaperInkIcons.Close,
-                        contentDescription = stringResource(R.string.a11y_library_clear_search)
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
                     )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier.weight(1f),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (query.isEmpty()) {
+                            Text(
+                                text = hint,
+                                style = textStyle,
+                                color = colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        innerTextField()
+                    }
+                    if (query.isNotEmpty()) {
+                        IconButton(
+                            onClick = { onQueryChange("") },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .testTag("library_search_clear")
+                        ) {
+                            Icon(
+                                imageVector = PaperInkIcons.Close,
+                                contentDescription = stringResource(R.string.a11y_library_clear_search),
+                                tint = colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
                 }
             }
-        } else null,
-        // #885 (wave 3) — the same FILL as Огляд. #1087 unified the radius,
-        // but the two fields still looked different: this one had no explicit
-        // colours, so M3's default gave it a transparent container, while
-        // Огляд was filled (`surfaceContainerHighest`). The prototype fills
-        // the field (`.sl-search`, `:1141-1143`), so the filled variant is the
-        // written design and this one was the outlier.
-        //
-        // The BORDER stays for now: it is the focus indicator, and removing it
-        // (the prototype draws no border) needs a decision about what replaces
-        // it. So this change removes the drift without answering that.
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedContainerColor = if (paperInk) {
-                MaterialTheme.colorScheme.surface
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerHighest
-            },
-            unfocusedContainerColor = if (paperInk) {
-                MaterialTheme.colorScheme.surface
-            } else {
-                MaterialTheme.colorScheme.surfaceContainerHighest
-            },
-            focusedBorderColor = MaterialTheme.colorScheme.primary,
-            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-        ),
-        singleLine = true,
-        // #885 (wave 3) — ONE search field, ONE shape. The prototype draws it
-        // as a pill (`:1141-1143`, radius 999), and the app had the same
-        // control at 12 dp here and 24 dp in Огляд — two answers to one
-        // question. `RadiusPill` is the token wave 1 added for exactly this.
-        //
-        // Still open from the same prototype rule (item 2 of Огляд): the field
-        // should be FILLED with no border, and 54 px tall. This change fixes
-        // the disagreement between the two fields, not yet the border.
-        shape = if (paperInk) {
-            RoundedCornerShape(com.slukhayka.audiobooks.ui.theme.PaperInkDimens.RadiusMedium)
-        } else {
-            RoundedCornerShape(AppDimens.RadiusPill)
-        }
-    )
+        )
+    }
 }
 
 /**
@@ -3651,10 +3787,9 @@ private fun libraryStatusStrip(
  * full-screen collection pages, which stay in the screen's scope.
  */
 @Composable
-private fun libraryChrome(
+internal fun libraryChrome(
     activeTab: Int,
     sectionTitleRes: Int,
-    yearGoal: com.slukhayka.audiobooks.data.entries.YearlyReadingGoal?,
     query: String,
     onQueryChange: (String) -> Unit,
     filter: LibraryFilter,
@@ -3671,32 +3806,33 @@ private fun libraryChrome(
     onOpenCollection: (String) -> Unit,
     onOpenPublishedCollection: (String) -> Unit,
     /** Spec-51 (#691) — opens the public-name dialog; the dialog itself lives in the screen. */
-    onRenamePseudonym: () -> Unit,
-    /** #962 — true on the wide-and-short window; drops the year hero. */
-    compact: Boolean
+    onRenamePseudonym: () -> Unit
 ) {
     // #885 — the prototype («Нічна бібліотека») switches between
     // «Книги / Полиці / Збережене» with a visible control at the top,
     // instead of hiding two of the three behind the overflow menu.
-    // #962 — «Мій рік» is the single largest piece of chrome on this screen
-    // (388 px of a 1438 px window on the device) and the least load-bearing:
-    // it reports a yearly count, it does not lead anywhere. On the
-    // wide-and-short window it is dropped, so the listener gets a real book
-    // list instead of a hero card; portrait and tablet keep it exactly as
-    // before. Nothing is lost — «Мій рік» remains its own destination in the
-    // section switch, one tap away.
-    if (activeTab == 0 && !compact) {
-        yearGoal?.let { goal ->
-            Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)) {
-                LibraryYearHero(goal = goal)
-            }
-        }
-    }
-
-    if (activeTab == 0 || activeTab == 1) {
+    // F30b — «Мій рік» no longer opens the screen: the audited chrome was
+    // ≈400 dp to the first row and the hero was 97 of it, reporting a count
+    // that does not lead anywhere. It now lives in «Статистика» (spec §5), so
+    // the books list starts one bar lower and the year is still two taps away.
+    if (activeTab == 0) {
+        // F30b — tabs + the permanently visible search in ONE band (ADR-0033:
+        // no reveal toggle), so the books list starts ≤240 dp from the top.
+        LibraryTabsWithSearch(
+            booksSelected = true,
+            savedSelected = false,
+            onBooks = onBooks,
+            onShelves = onShelves,
+            onSaved = onSaved,
+            query = query,
+            onQueryChange = onQueryChange
+        )
+    } else if (activeTab == 1) {
+        // The saved section has no search of its own; its tabs stay exactly as
+        // before and the books-tab band above is the only search.
         LibrarySectionTabs(
-            booksSelected = activeTab == 0,
-            savedSelected = activeTab == 1,
+            booksSelected = false,
+            savedSelected = true,
             onBooks = onBooks,
             onShelves = onShelves,
             onSaved = onSaved
@@ -3704,14 +3840,6 @@ private fun libraryChrome(
     }
 
     if (activeTab != 0) return
-
-    // Library chrome (wayfinder #39): the permanently visible search
-    // (ADR-0033 amended 2026-09-18 — the same pattern as Огляд),
-    // quick filters, sort + view toggle.
-    LibrarySearchField(
-        query = query,
-        onQueryChange = onQueryChange
-    )
 
 
     // Spec-51 (#690) — the listener's own collections, right in the
@@ -3809,6 +3937,11 @@ internal fun LibrarySectionTabs(
     onBooks: () -> Unit,
     onShelves: () -> Unit,
     onSaved: () -> Unit,
+    modifier: Modifier = Modifier,
+    // F30b — the inline tab+search row owns the page padding, so the tabs get
+    // zero here; standalone callers keep the historical 16.
+    horizontalPadding: Dp = 16.dp,
+    topPadding: Dp = 4.dp,
 ) {
     val items = listOf(
         Triple(stringResource(R.string.lib_section_books), booksSelected, "library_tab_books" to onBooks),
@@ -3816,9 +3949,9 @@ internal fun LibrarySectionTabs(
         Triple(stringResource(R.string.lib_section_saved), savedSelected, "library_tab_saved" to onSaved),
     )
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 4.dp),
+            .padding(start = horizontalPadding, end = horizontalPadding, top = topPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
         items.forEach { (label, selected, action) ->
@@ -3840,6 +3973,8 @@ internal fun LibrarySectionTabs(
                 val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
                 Text(
                     text = label,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     style = if (paperInk) {
                         com.slukhayka.audiobooks.ui.theme.PaperInkType.Tab
                     } else {

@@ -582,6 +582,22 @@ class SnapshotGoldenBytesGuardTest {
          * verify against the re-recorded set reported ZERO changed images
          * outside the recorded set.
          *
+         * ## Three library frames re-pinned on 2026-10-29 (F30b of the 2026-10-28 audit)
+         *
+         * The Медіатека CHROME changed on purpose: «Мій рік» moved from the top
+         * of the books list into «Статистика» (spec §5), the ADR-0033
+         * permanently-visible search became a compact pill inside the tab row
+         * (no reveal toggle), the status-chip strip lost its extra padding, the
+         * header actions became quiet glyphs instead of tonal discs (F34), and
+         * the unfiltered list stopped repeating a «Усі / N книг» header.
+         *
+         * All three library frames moved because the chrome above the book area
+         * is IN them — `library_redesign_dense` (filtered list, 253 dp of chrome
+         * less), `library_redesign_browsing`, `library_redesign_grid`. The tile
+         * renderer itself did not change; the six other pins (both
+         * `explore_header_*`, `home_feed_phone_fold`, all three player frames)
+         * kept their bytes and AE=0.
+         *
          * ## Two library frames re-pinned on 2026-10-29 (F30a of the 2026-10-28 audit)
          *
          * The «Книги» LIST stopped being the timeline dense row and became the
@@ -650,17 +666,17 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "ff2730a8e57bc3b0df1952cc1bb97bf1" + "2a9a79a871b0a4dec25c1c468e1598b2"
+                "d3a06ed83c40a2f63d52dd66eb5eb8e8" + "c682b3a74233a8d7be256bc7c9de8c3b"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "7fcd12f1a45e8675a55b35cd55998f4a" + "b29778ca01ce0d47c2c892126902fa59"
+                "6fca2d7b1521a73e405d2ade9d553858" + "30e1c71d49052401f05900ecb0ce63d2"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "1b78ad3220147bccc0bd09817cc75a11" + "962954752058972f4eb6d3d1007d1c38"
+                "4a4c79604528a1a2f20f92643a27b212" + "15707999c52b62f159d282813fa70809"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

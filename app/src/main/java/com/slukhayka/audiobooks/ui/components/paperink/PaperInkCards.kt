@@ -64,6 +64,10 @@ fun PaperInkScreenTitle(
 /**
  * The shelf/block heading of the direction: 21/26 Onest Bold on the paper ground
  * with an optional quiet action on the right. No all-caps, no tracking games.
+ *
+ * Horizontal page inset is the CALLER's: the heading carries none of its own, so
+ * it can line up with whatever it heads (a shelf owns its inset through
+ * `contentPadding`). A caller that forgets it renders text at x=0 — see #1615.
  */
 @Composable
 fun PaperInkSectionHeader(

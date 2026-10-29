@@ -222,17 +222,12 @@ class LibraryProjectionTest {
             )
         )
         val entries = projection.entries("")
-        assertEquals(
-            listOf("library_section_Усі", "a", "b", "c"),
-            entries.map { it.key }
-        )
+        // F30b — the unfiltered list no longer repeats «Усі»; the first entry
+        // IS the first book, so no index is spent on a header that says nothing
+        // new. Filtered lists keep their named header (asserted separately).
+        assertEquals(listOf("a", "b", "c"), entries.map { it.key })
 
-        assertEquals(listOf("k1", "k2", "k3"), libraryWorkKeysAt(entries, listOf(1, 2, 3)))
-        assertEquals(
-            "the header is chrome: it never claims a Work",
-            emptyList<String>(),
-            libraryWorkKeysAt(entries, listOf(0))
-        )
+        assertEquals(listOf("k1", "k2", "k3"), libraryWorkKeysAt(entries, listOf(0, 1, 2)))
         assertEquals(
             "a stale index past the end contributes nothing",
             emptyList<String>(),
@@ -241,7 +236,7 @@ class LibraryProjectionTest {
         assertEquals(
             "the mapping follows the given order",
             listOf("k3", "k1"),
-            libraryWorkKeysAt(entries, listOf(3, 1))
+            libraryWorkKeysAt(entries, listOf(2, 0))
         )
     }
 

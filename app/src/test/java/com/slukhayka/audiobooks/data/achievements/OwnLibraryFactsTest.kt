@@ -40,7 +40,9 @@ class OwnLibraryFactsTest {
         var derivations = 0
 
         val facts = flow {
-            repeat(60) { emit(library) }
+            // A FRESH equal list per tick: dedup must come from structural
+            // equality (a data-class list), not from the same reference.
+            repeat(60) { emit(library.toList()) }
         }.ownLibraryFacts { own ->
             derivations++
             deriveOwnLibraryFacts(own, emptyList(), emptyList())

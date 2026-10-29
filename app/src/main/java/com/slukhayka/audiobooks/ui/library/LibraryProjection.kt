@@ -101,14 +101,29 @@ class LibraryProjection internal constructor(
      * Ukrainian chrome back on the model or need a second copy of the Work
      * grouping to compute the sum.
      */
-    fun entries(denseTrailing: String): List<LibraryGridEntry> = libraryGridEntries(
-        browsing = shape.browsing,
-        gridMode = shape.gridMode,
-        visible = shownBooks,
-        continueBook = continueBook,
-        denseTitle = denseTitle,
-        denseTrailing = denseTrailing
-    )
+    fun entries(denseTrailing: String): List<LibraryGridEntry> {
+        val entries = libraryGridEntries(
+            browsing = shape.browsing,
+            gridMode = shape.gridMode,
+            visible = shownBooks,
+            continueBook = continueBook,
+            denseTitle = denseTitle,
+            denseTrailing = denseTrailing
+        )
+        // F30b — the audited chrome included a ≈70 dp «Усі / N книг» header on
+        // the UNFILTERED list, repeating what the selected «Усі» chip and the
+        // header subtitle already say; it was a quarter of the 400 dp the spec
+        // asked to cut to 235. The rule lives in the projection rather than the
+        // renderer because the viewport mapping reads THESE indices: removing an
+        // item only at draw time would shift every availability key onto the
+        // wrong Work. A narrowed list (filter or search) keeps its header — it
+        // then names the selection — and the tile form keeps it too.
+        return if (!shape.browsing && !shape.gridMode && !summarisesRemaining) {
+            entries.filterNot { it is LibraryGridEntry.Section }
+        } else {
+            entries
+        }
+    }
 
     /**
      * #1285 — the index of the entry that represents [bookId]'s Work card.

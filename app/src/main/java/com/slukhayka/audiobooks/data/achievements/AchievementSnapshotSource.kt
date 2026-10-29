@@ -84,7 +84,19 @@ class AchievementSnapshotSource(
      * required.
      */
     private val isScamSource: (String) -> Boolean =
-        com.slukhayka.audiobooks.data.source.SourceRegistry::isScam
+        com.slukhayka.audiobooks.data.source.SourceRegistry::isScam,
+    /**
+     * #1612 — the OWN-library derivation behind #1589 lever 2, as a seam.
+     *
+     * The shipped default is the real rule over the injected curated lists, so
+     * production is unchanged. The seam exists so a witness can count the
+     * derivations THROUGH the real composition: it proves the placement (the
+     * matching runs once per distinct library snapshot, not on every tick),
+     * which the helper-level test alone cannot see.
+     */
+    private val deriveLibraryFacts: (List<OwnLibraryBook>) -> OwnLibraryFacts = { own ->
+        deriveOwnLibraryFacts(own, curatedUniverses, curatedCollections)
+    }
 ) : AchievementProgressSource, AchievementSnapshot {
     /** #701 — the doors «Усі двері» asks about: every registered source but the scam ones. */
     private val requiredDoors: Set<String> = registeredSourceIds.filterNot(isScamSource).toSet()
@@ -244,9 +256,7 @@ class AchievementSnapshotSource(
     // on every written playback second, so an unchanged library was re-matched
     // at 1 Hz; [ownLibraryFacts] swallows those identical emissions before any
     // matching happens (and swallows a changed row whose facts did not move).
-    private val libraryFacts = dao.observeOwnLibraryBooks().ownLibraryFacts { own ->
-        deriveOwnLibraryFacts(own, curatedUniverses, curatedCollections)
-    }
+    private val libraryFacts = dao.observeOwnLibraryBooks().ownLibraryFacts(deriveLibraryFacts)
     private val withOwnLibrary = combine(withAbandoned, libraryFacts) { base, facts ->
         base.copy(
             completedSeries = facts.completedSeries,

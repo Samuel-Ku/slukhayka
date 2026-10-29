@@ -452,55 +452,57 @@ private fun AchievementRegistryRow(
         }
     }
 
-    Row(
-        modifier = Modifier
-            // The tag is the row's IDENTITY, so it goes OUTERMOST: a tag after
-            // `padding` measured the padded CONTENT (48 dp — CI measured it) and
-            // spoke for a row that is 56 dp tall. The wrapper-tag order is the
-            // one `PaperInkBookRow` already uses.
-            .testTag(tag)
-            .fillMaxWidth()
-            .heightIn(min = PaperInkDimens.AchievementRowHeight)
-            .padding(vertical = PaperInkDimens.SpaceXs),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
+    // The tag is the row's IDENTITY, so it lives on an OUTER node: on the Row
+    // itself the measured bounds came back as 48 dp in CI even though the row
+    // renders 56 dp. `PaperInkBookRow` keeps the same order — the caller's tag
+    // outside, heightIn/padding inside — and that order is what a measurement
+    // can trust.
+    Box(modifier = Modifier.fillMaxWidth().testTag(tag)) {
+        Row(
             modifier = Modifier
-                .size(PaperInkDimens.AchievementMedalSize)
-                .clip(CircleShape)
-                .background(medalBackground),
-            contentAlignment = Alignment.Center,
+                .fillMaxWidth()
+                .heightIn(min = PaperInkDimens.AchievementRowHeight)
+                .padding(vertical = PaperInkDimens.SpaceXs),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            PaperInkIcon(
-                imageVector = glyph,
-                // Decorative: the award's name and status are the row's words.
-                contentDescription = null,
-                size = PaperInkIconSizes.Inline,
-                tint = medalTint,
+            Box(
+                modifier = Modifier
+                    .size(PaperInkDimens.AchievementMedalSize)
+                    .clip(CircleShape)
+                    .background(medalBackground),
+                contentAlignment = Alignment.Center,
+            ) {
+                PaperInkIcon(
+                    imageVector = glyph,
+                    // Decorative: the award's name and status are the row's words.
+                    contentDescription = null,
+                    size = PaperInkIconSizes.Inline,
+                    tint = medalTint,
+                )
+            }
+            Spacer(modifier = Modifier.width(PaperInkDimens.SpaceMd))
+            Text(
+                text = name,
+                style = PaperInkType.Tab,
+                color = if (earned) colorScheme.onSurface else colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
             )
-        }
-        Spacer(modifier = Modifier.width(PaperInkDimens.SpaceMd))
-        Text(
-            text = name,
-            style = PaperInkType.Tab,
-            color = if (earned) colorScheme.onSurface else colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f),
-        )
-        Spacer(modifier = Modifier.width(PaperInkDimens.SpaceSm))
-        Text(
-            text = status,
-            style = PaperInkType.Label,
-            color = if (earned) colorScheme.primary else colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.End,
-        )
-        if (earned && onTogglePin != null) {
-            Spacer(modifier = Modifier.width(PaperInkDimens.SpaceXs))
-            AchievementPinButton(
-                isPinned = isPinned,
-                awardName = name,
-                onToggle = { onTogglePin(definition.id) },
-                testTag = "achievements_pin_${definition.id}",
+            Spacer(modifier = Modifier.width(PaperInkDimens.SpaceSm))
+            Text(
+                text = status,
+                style = PaperInkType.Label,
+                color = if (earned) colorScheme.primary else colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.End,
             )
+            if (earned && onTogglePin != null) {
+                Spacer(modifier = Modifier.width(PaperInkDimens.SpaceXs))
+                AchievementPinButton(
+                    isPinned = isPinned,
+                    awardName = name,
+                    onToggle = { onTogglePin(definition.id) },
+                    testTag = "achievements_pin_${definition.id}",
+                )
+            }
         }
     }
 }
@@ -528,7 +530,12 @@ private fun StreakBlock(week: AchievementPresentation.Week) {
             text = stringResource(R.string.achievements_streak_title),
             style = PaperInkType.RowTitle,
             color = colorScheme.onSurface,
-            modifier = Modifier.weight(1f),
+            // A heading, like the section titles above it: the strip is its own
+            // block of the screen and a screen reader must be able to jump to it.
+            modifier = Modifier
+                .weight(1f)
+                .semantics { heading() }
+                .testTag("achievements_streak_heading"),
         )
         Text(
             text = pluralStringResource(

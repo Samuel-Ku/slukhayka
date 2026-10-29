@@ -419,6 +419,8 @@ class AchievementsScreenTest {
         // and this test is about the block being COMPOSED — the golden is what
         // proves it fits the viewport.
         rule.onNodeWithTag("achievements_streak").assertExists()
+        // The strip's title carries heading(), like the section titles above it.
+        rule.onNodeWithTag("achievements_streak_heading").assertExists()
         rule.onNodeWithTag("achievements_streak_days").assertExists()
     }
 

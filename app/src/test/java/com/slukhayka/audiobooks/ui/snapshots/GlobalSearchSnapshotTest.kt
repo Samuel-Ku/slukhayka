@@ -21,6 +21,7 @@ import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.screens.searchResultsContent
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
@@ -168,7 +169,11 @@ class GlobalSearchSnapshotTest {
     @Test
     fun empty_search_is_one_statement_without_counted_headers() {
         composeTestRule.setContent {
+            // The promise of F33 is the DIRECTION's empty state (Literata 20 +
+            // Meta). Rendering under the legacy theme would show Roboto and
+            // make the golden lie about the very thing this test exists for.
             AudiobookTheme(darkTheme = true) {
+                PaperInkThemedContent {
                 GlobalSearchSurface {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
                         searchResultsContent(
@@ -185,6 +190,7 @@ class GlobalSearchSnapshotTest {
                             onPreflightGlobalResult = {}
                         )
                     }
+                }
                 }
             }
         }

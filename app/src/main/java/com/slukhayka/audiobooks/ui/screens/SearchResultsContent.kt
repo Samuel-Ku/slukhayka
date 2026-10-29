@@ -95,18 +95,18 @@ fun LazyListScope.searchResultsContent(
         )
     }
     if (localEmpty) {
-        if (!nothingAnywhere) {
-            item(key = "library_results_empty") {
-                Text(
-                    text = stringResource(R.string.home_library_no_matches),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                        .testTag("search_library_empty")
-                )
-            }
+        // `nothingAnywhere` already returned above, so this branch only runs
+        // when live results or a live status exist beside an empty library.
+        item(key = "library_results_empty") {
+            Text(
+                text = stringResource(R.string.home_library_no_matches),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .testTag("search_library_empty")
+            )
         }
     } else {
         items(localBooks, key = { it.id }) { book ->
@@ -132,7 +132,7 @@ fun LazyListScope.searchResultsContent(
                 )
             }
         }
-        if (isGlobalLoading || globalError || (globalResults.isEmpty() && !nothingAnywhere)) {
+        if (isGlobalLoading || globalError || globalResults.isEmpty()) {
             item(key = "all_sources_status") {
                 GlobalSearchStatus(
                     isLoading = isGlobalLoading,

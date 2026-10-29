@@ -1,10 +1,20 @@
 package com.slukhayka.audiobooks.data.achievements
 
+import kotlin.coroutines.ContinuationInterceptor
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.MainCoroutineDispatcher
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.async
@@ -12,6 +22,9 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import java.util.Collections
+import java.util.concurrent.Executors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -117,6 +130,54 @@ class AchievementEngineTest {
         assertNull(first.takeNotice())
         assertNull(AchievementEngine(source, store) { 300L }.takeNotice())
         assertEquals(listOf(EarnedAchievement("first_book", 100L, 200L)), store.earned())
+    }
+
+    /**
+     * #1572 — the UI collects [AchievementEngine.snapshot] from the main
+     * dispatcher (`MainViewModel.listenerTitle` is a `stateIn(viewModelScope)`),
+     * while the progress chain re-matches the whole own library on every Room
+     * invalidation. #1570 measured 1.5–1.8 s of main-thread work per emission,
+     * so this pin is about WHERE the transform runs, not what it returns.
+     *
+     * The collecting dispatcher is a real single thread installed as
+     * `Dispatchers.Main`; the fake source records the `ContinuationInterceptor`
+     * of the context it actually runs in. The assertion is on the dispatcher
+     * identity, not on a thread name: coroutine debug mode appends
+     * ` @coroutine#N` to thread names, and a name comparison once let the
+     * pre-#1572 code pass this very test (mutation `no-flowon` survived).
+     */
+    @Test fun `the progress transform never runs on the collecting main dispatcher`() {
+        val mainExecutor = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "t1572-test-main")
+        }
+        val mainDispatcher = mainExecutor.asCoroutineDispatcher()
+        Dispatchers.setMain(mainDispatcher)
+        try {
+            val contexts = Collections.synchronizedList(mutableListOf<CoroutineContext>())
+            val source = AchievementProgressSource {
+                flow {
+                    contexts += currentCoroutineContext()
+                    emit(AchievementProgress(explicitBooks = 1))
+                }
+            }
+            val engine = AchievementEngine(source, MemoryAchievementStore()) { 0L }
+            val snapshot = runBlocking {
+                withContext(Dispatchers.Main) { engine.snapshot.first() }
+            }
+            assertEquals(1L, snapshot.explicitBooks)
+            assertTrue("the progress transform never ran", contexts.isNotEmpty())
+            assertTrue(
+                "the whole progress transform ran on the collecting Main dispatcher: " +
+                    contexts.map { it[ContinuationInterceptor] },
+                contexts.none { context ->
+                    val interceptor = context[ContinuationInterceptor]
+                    interceptor is MainCoroutineDispatcher || interceptor === Dispatchers.Main
+                }
+            )
+        } finally {
+            Dispatchers.resetMain()
+            mainDispatcher.close()
+        }
     }
 }
 

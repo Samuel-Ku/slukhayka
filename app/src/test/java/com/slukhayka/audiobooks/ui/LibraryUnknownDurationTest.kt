@@ -13,7 +13,7 @@ import com.slukhayka.audiobooks.ui.library.LibraryBook
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
 import com.slukhayka.audiobooks.ui.screens.LibraryBookCard
 import com.slukhayka.audiobooks.ui.screens.LibraryContinueCard
-import com.slukhayka.audiobooks.ui.screens.LibraryDenseRow
+import com.slukhayka.audiobooks.ui.screens.LibraryBookCard
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Rule
 import org.junit.Test
@@ -88,17 +88,23 @@ class LibraryUnknownDurationTest {
     fun aKnownTotalStillRendersItsPercentAndBar() {
         render(knownTotal)
 
-        composeTestRule.onAllNodesWithText("45%", useUnmergedTree = true).assertCountEquals(1)
-        composeTestRule.onAllNodesWithText("Прослухано 45%", useUnmergedTree = true).assertCountEquals(1)
+        // F30a — the list row is the canonical cover row now: the progress is
+        // the direction's lamp hairline (`library_row_progress_<id>`), not a
+        // printed «45%» beside a timeline dot. The honest number still reaches
+        // TalkBack through the row's state description; the bar itself is what
+        // this test can hold without re-asserting a layout the golden owns.
         composeTestRule
             .onNodeWithTag("library_row_progress_${knownTotal.book.id}", useUnmergedTree = true)
             .assertExists()
+        // Two honest bars now: the canonical row's lamp hairline and the
+        // «Продовжити» card's. The dense row's own bar was a plain Box (no
+        // semantics), which is why this counted ONE before F30a.
         composeTestRule
             .onAllNodes(
                 SemanticsMatcher.keyIsDefined(SemanticsProperties.ProgressBarRangeInfo),
                 useUnmergedTree = true
             )
-            .assertCountEquals(1)
+            .assertCountEquals(2)
     }
 
     /**
@@ -134,12 +140,10 @@ class LibraryUnknownDurationTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 Column {
-                    LibraryDenseRow(
+                    LibraryBookCard(
                         book = book,
-                        availability = null,
-                        onRecheck = {},
-                        downloadCount = null,
-                        onOpen = {}
+                        grid = false,
+                        onClick = {}
                     )
                     LibraryContinueCard(book = book, onOpen = {}, onPlay = {})
                 }

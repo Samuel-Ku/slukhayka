@@ -148,10 +148,9 @@ internal fun LibraryBookGrid(
                 libraryGridContent(
                     entries = entries,
                     // #1284 — the shape the entries were built with, from the
-                    // projection; #885 — the Книги tab always builds the dense
-                    // form, so the renderer must not fall back to the wall of
-                    // cards and hide the row work.
-                    browsing = shape.browsing,
+                    // projection; F30a — the list and the grid are the same
+                    // renderer now, so the only shape fact left here is the
+                    // columns, not a second row branch.
                     gridMode = shape.gridMode,
                     availability = availability,
                     downloadCounts = downloadCounts,

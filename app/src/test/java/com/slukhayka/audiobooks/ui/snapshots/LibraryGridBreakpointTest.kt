@@ -331,11 +331,12 @@ class LibraryGridBreakpointTest {
     /**
      * The `library_row_progress_<id>` tags of the laid-out DENSE ROWS.
      *
-     * `LibraryDenseRow` draws that hairline for every started book and nothing
-     * else does, so the tag is the one marker that separates "the list" from
-     * "tiles" — including from a ONE-column grid of tiles, which is stacked
-     * exactly like the list. It has to be read from the UNMERGED tree: the row
-     * clears its descendants' semantics for TalkBack.
+     * The canonical list row (`BookRow`) draws that hairline for every started
+     * book and the grid tiles draw a DIFFERENT tag, so the tag is the one
+     * marker that separates "the list" from "tiles" — including from a
+     * ONE-column grid of tiles, which is stacked exactly like the list. It has
+     * to be read from the UNMERGED tree: the list row clears its descendants'
+     * semantics for TalkBack.
      */
     private fun rowProgressMarkers(): List<String> {
         val matcher = SemanticsMatcher("testTag starts with library_row_progress_") { node ->

@@ -109,8 +109,7 @@ class LibraryRedesignSnapshotTest {
                             listening.sumOf { it.remainingSeconds },
                             UK_REMAINING_TIME_UNITS
                         )
-                    ),
-                    browsing = false
+                    )
                 )
             }
         }
@@ -147,8 +146,7 @@ private fun LibraryRedesignScreen(
     entries: List<LibraryGridEntry>,
     selected: LibraryFilter = LibraryFilter.ALL,
     subtitle: String = "${previewLibrary.size} книг",
-    gridMode: Boolean = false,
-    browsing: Boolean = true
+    gridMode: Boolean = false
 ) {
     val returnFocus = remember { FocusRequester() }
     val importFocus = remember { FocusRequester() }
@@ -221,7 +219,6 @@ private fun LibraryRedesignScreen(
             ) {
                 libraryGridContent(
                     entries = entries,
-                    browsing = browsing,
                     gridMode = gridMode,
                     availability = emptyMap(),
                     downloadCounts = emptyMap(),

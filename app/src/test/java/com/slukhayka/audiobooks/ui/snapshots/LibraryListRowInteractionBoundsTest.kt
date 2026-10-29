@@ -16,18 +16,18 @@ import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.DpRect
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.height
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import com.slukhayka.audiobooks.ui.library.LibraryBook
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
-import com.slukhayka.audiobooks.ui.screens.LibraryDenseRow
-import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.screens.LibraryBookCard
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -38,36 +38,32 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
 /**
- * #1165 — the dense library row's interaction area is the WHOLE row.
+ * F30a — the Медіатека list row is the canonical COVER row (BookRow 58×87,
+ * 112 dp), and it keeps #1165's contract: the interaction area is the WHOLE
+ * row.
  *
- * The report read «the title is cut off by the "new" badge». The title is not
- * cut: what has an edge there is the INTERACTION AREA. The clip + `clickable`
- * used to sit on the title/author column, so the press/focus indication ended
- * exactly where the trailing column («новий»/«18 хв» + the offline cloud)
- * begins, and a hard edge through the middle of the row reads as a cut title.
+ * The #1165 defect («the title is cut off by the badge») was never a cut
+ * title — it was a press/focus indication ending over the trailing column.
+ * The canonical row puts the click on the row's own node, so the two things a
+ * golden cannot hold are asserted as GEOMETRY: the rectangle that owns the
+ * click must be the row's box, and the marks the ticket named (here the
+ * offline badge over the returned cover) must sit inside it.
  *
- * A golden cannot hold that invariant — the row is drawn without a press, so
- * re-recording an image blesses whatever is rendered. This test asserts
- * GEOMETRY instead: the rectangle that owns the click (the row's own tagged
- * node) must cover the row's whole box AND the trailing marks the ticket names,
- * on the shipped chrome at the shipped width (Pixel 8, dark theme).
- *
- * The fixture is the row alone, full width, so «the row's box» is the box the
- * row itself is given: what the grid's page padding decides is not the claim
- * under test — where the interaction area ends inside that box is.
+ * A golden is deliberately not the proof: the row is photographed without a
+ * press, so re-recording an image would bless whatever geometry it drew.
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(qualifiers = "uk-rUA-" + RobolectricDeviceQualifiers.Pixel8, sdk = [36])
-class LibraryDenseRowInteractionBoundsTest {
+class LibraryListRowInteractionBoundsTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
 
     /**
-     * The ticket's pair in one row: a book that was never played («новий» on
-     * the right) and is fully on disk (the cloud beside it) — the two trailing
-     * marks the reporter read as squeezing the title.
+     * The ticket's shape in one row: a book that was never played («новий»)
+     * and is fully on disk (the cloud on the cover) — the marks the reporter
+     * read as squeezing the title. No progress row: that is what makes it new.
      */
     private val newAndDownloaded: LibraryBook = run {
         val template = TestDataFactory.dataBooks().first()
@@ -80,52 +76,33 @@ class LibraryDenseRowInteractionBoundsTest {
                     isDownloaded = true
                 )
             ),
-            // No progress row at all: that is exactly what makes it «новий».
             progressList = emptyList(),
             chaptersByBook = emptyMap()
         ).single()
     }
 
-    /**
-     * The boundary the ticket is about: the interaction area must be the whole
-     * row, trailing column included. A clipped node stops at the edge that
-     * hides it, so the containment is read off the UNCLIPPED rect — a text
-     * column narrowed by the row's own clip would still report its right edge
-     * at the row's edge.
-     */
     @Test
-    fun the_interaction_area_covers_the_whole_row_including_the_trailing_column() {
+    fun the_interaction_area_is_the_whole_row_and_the_badge_sits_inside_it() {
         showTheRow()
 
-        val interaction = composeTestRule
-            .onNodeWithTag(ROW_TAG, useUnmergedTree = true)
-            .getUnclippedBoundsInRoot()
+        val interaction = rowBounds()
         val drawn = composeTestRule
             .onNodeWithTag(ROW_TAG, useUnmergedTree = true)
             .getBoundsInRoot()
         val container = composeTestRule.onRoot(useUnmergedTree = true).getBoundsInRoot()
         val title = composeTestRule
-            .onNodeWithText(TITLE, useUnmergedTree = true)
-            .getUnclippedBoundsInRoot()
-        val progress = composeTestRule
-            .onNodeWithText(progressLabel(), useUnmergedTree = true)
+            .onNodeWithTag(TITLE_TAG, useUnmergedTree = true)
             .getUnclippedBoundsInRoot()
         val cloud = composeTestRule
             .onNodeWithTag(CLOUD_TAG, useUnmergedTree = true)
             .getUnclippedBoundsInRoot()
 
         val where = "interaction=${describe(interaction)} title=${describe(title)} " +
-            "progress=${describe(progress)} cloud=${describe(cloud)} " +
-            "container=${describe(container)}"
+            "cloud=${describe(cloud)} container=${describe(container)}"
 
         assertTrue(
-            "the trailing «${progressLabel()}» state word falls outside the " +
-                "interaction area — the row's click stops before the badge — $where",
-            progress.right <= interaction.right + TOLERANCE
-        )
-        assertTrue(
-            "the offline cloud falls outside the interaction area — the row's " +
-                "click stops before the badge — $where",
+            "the offline badge falls outside the interaction area — the row's " +
+                "click stops before the mark — $where",
             cloud.right <= interaction.right + TOLERANCE
         )
         assertTrue(
@@ -156,10 +133,36 @@ class LibraryDenseRowInteractionBoundsTest {
     }
 
     /**
-     * Moving the click to the row put the trailing column inside the cleared
-     * node, so this pins what the move must NOT cost: the row stays ONE
-     * contextual action whose description is the book, exactly as the KDoc of
-     * [LibraryDenseRow] promises («one node for the row body»).
+     * F30a's other half: the cover is BACK. The paper row returns a 58×87
+     * cover before the text column and keeps the row inside the direction's
+     * 112 dp (a delta of one divider is not a defect). A title that starts at
+     * the old dense-row 20 dp would mean the cover slot is empty again.
+     */
+    @Test
+    fun the_row_returns_the_58_dp_cover_and_stays_within_120_dp() {
+        showTheRow()
+
+        val row = rowBounds()
+        val title = composeTestRule
+            .onNodeWithTag(TITLE_TAG, useUnmergedTree = true)
+            .getUnclippedBoundsInRoot()
+
+        assertTrue(
+            "the list row is ${row.height} tall; the direction row is 112 dp",
+            row.height.value >= 104f && row.height.value <= 120f
+        )
+        // 20 dp page padding + the 58 dp cover + its 12 dp gap.
+        assertTrue(
+            "the title starts at ${title.left}, not after a cover — the 58 dp " +
+                "cover slot is missing",
+            title.left.value >= 20f + 58f + 12f - TOLERANCE.value
+        )
+    }
+
+    /**
+     * The cover row is still ONE contextual action whose description is the
+     * book: removing the dense row must not cost the row-body node that
+     * TalkBack and the journeys click.
      */
     @Test
     fun the_whole_row_is_still_one_action() {
@@ -178,21 +181,19 @@ class LibraryDenseRowInteractionBoundsTest {
             )
     }
 
-    /** The shipped row, at the shipped width, on a full-size dark surface. */
+    /** The shipped row: paper theme, full width, full-size surface. */
     @Composable
     private fun TheRow() {
-        AudiobookTheme(darkTheme = true) {
+        PaperInkTheme(darkTheme = true) {
             Surface(
                 modifier = Modifier.fillMaxSize(),
                 color = MaterialTheme.colorScheme.background
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    LibraryDenseRow(
+                    LibraryBookCard(
                         book = newAndDownloaded,
-                        availability = null,
-                        onRecheck = {},
-                        downloadCount = null,
-                        onOpen = {}
+                        grid = false,
+                        onClick = {}
                     )
                 }
             }
@@ -204,10 +205,9 @@ class LibraryDenseRowInteractionBoundsTest {
         composeTestRule.waitForIdle()
     }
 
-    /** The trailing word the row prints for a never-played book — chrome. */
-    private fun progressLabel(): String = ApplicationProvider
-        .getApplicationContext<Context>()
-        .getString(R.string.lib_progress_new)
+    private fun rowBounds(): DpRect = composeTestRule
+        .onNodeWithTag(ROW_TAG, useUnmergedTree = true)
+        .getUnclippedBoundsInRoot()
 
     private fun width(rect: DpRect): Float = (rect.right - rect.left).value
 
@@ -215,7 +215,7 @@ class LibraryDenseRowInteractionBoundsTest {
         "[${rect.left}, ${rect.top} .. ${rect.right}, ${rect.bottom}]"
 
     private companion object {
-        const val BOOK_ID = "issue-1165-row"
+        const val BOOK_ID = "issue-f30a-row"
         const val TITLE = "Сходами вниз: довга назва, яку видно повністю"
         const val AUTHOR = "Дон Куін"
 
@@ -223,6 +223,7 @@ class LibraryDenseRowInteractionBoundsTest {
         val TOLERANCE = 1.dp
 
         val ROW_TAG = "library_book_item_$BOOK_ID"
-        val CLOUD_TAG = "library_inline_offline_badge_$BOOK_ID"
+        val TITLE_TAG = "library_book_row_${BOOK_ID}_title"
+        val CLOUD_TAG = "library_offline_badge_$BOOK_ID"
     }
 }

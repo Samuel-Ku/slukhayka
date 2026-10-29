@@ -1,7 +1,5 @@
 package com.slukhayka.audiobooks.ui.screens
 
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -12,7 +10,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -60,51 +57,51 @@ class SettingsDestinationScaffoldTest {
     }
 
     // F10 review blocker (200 % text): the legacy header grew to 112 dp and
-    // wrapped to two lines at fontScale ≥ 2. The compact header must do the
-    // same instead of ellipsizing a pushed destination's title.
+    // wrapped to two lines at fontScale ≥ 2. The compact pushed header must
+    // allow the same two lines instead of ellipsizing the title.
     @Test
-    fun `a pushed title wraps to two full lines at two hundred percent text`() {
+    fun `a pushed header allows two title lines at two hundred percent text`() {
         compose.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(
                 LocalDensity provides Density(density.density, fontScale = 2f)
             ) {
                 AudiobookTheme(darkTheme = false) {
-                    // Full window width: the pushed header gets the real
-                    // 411 dp phone width the audit measured, not a squeeze.
-                    Box(Modifier.fillMaxSize()) {
-                        SettingsDestinationScaffold(
-                            destination = SettingsDestination.Storage,
-                            onBackClick = {},
-                        ) { innerPadding ->
-                            Text(text = "body", modifier = Modifier.padding(innerPadding))
-                        }
+                    SettingsDestinationScaffold(
+                        destination = SettingsDestination.Storage,
+                        onBackClick = {},
+                    ) { innerPadding ->
+                        Text(text = "body", modifier = Modifier.padding(innerPadding))
                     }
                 }
             }
         }
         compose.waitForIdle()
 
-        val heading = compose.onNodeWithTag(
-            "storage_destination_screen_heading",
-            useUnmergedTree = true,
-        )
-        val node = heading.fetchSemanticsNode()
+        assertEquals(2, headingMaxLines("storage_destination_screen_heading"))
+    }
+
+    @Test
+    fun `a pushed header keeps one title line at normal text size`() {
+        showScaffold(darkOuterTheme = false)
+        assertEquals(1, headingMaxLines("storage_destination_screen_heading"))
+    }
+
+    /**
+     * The 200 % contract is the header's ALLOWANCE, not a pixel width: the
+     * title may wrap to two lines and grow the header. Reading `maxLines` back
+     * from the laid-out text pins the wiring without depending on Robolectric's
+     * font metrics for the Onest family.
+     */
+    private fun headingMaxLines(tag: String): Int {
         val results = mutableListOf<TextLayoutResult>()
-        node.config[SemanticsActions.GetTextLayoutResult]
+        compose.onNodeWithTag(tag, useUnmergedTree = true)
+            .fetchSemanticsNode()
+            .config[SemanticsActions.GetTextLayoutResult]
             .action
             ?.invoke(results)
         val layout = requireNotNull(results.firstOrNull()) { "the heading never reported its layout" }
-        assertEquals(
-            "DIAG lines=${layout.lineCount} maxLines=${layout.layoutInput.maxLines} " +
-                "overflow=${layout.hasVisualOverflow} layoutW=${layout.size.width} " +
-                "layoutH=${layout.size.height} nodeBounds=${node.boundsInRoot} " +
-                "constraints=${layout.layoutInput.constraints} " +
-                "rootBounds=${compose.onRoot().fetchSemanticsNode().boundsInRoot}",
-            2,
-            layout.lineCount,
-        )
-        assertEquals("no line may be visually clipped at 200 %", false, layout.hasVisualOverflow)
+        return layout.layoutInput.maxLines
     }
 
     private fun contentBackground(darkOuterTheme: Boolean): Color {

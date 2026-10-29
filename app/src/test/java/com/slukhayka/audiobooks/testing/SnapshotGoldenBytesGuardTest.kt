@@ -570,11 +570,12 @@ class SnapshotGoldenBytesGuardTest {
          *    the family's `Close` X instead of Material `Clear`; the WHOLE delta
          *    is 32 pixels inside a 31×31 box at `+947+348`, the clear button.
          *    The collapsed header has no clear button and did not move (AE=0).
-         *  - `library_redesign_browsing` (39×357 at `+193+1629`),
+         *  - `library_redesign_browsing` (151×819 at `+193+1167`),
          *    `library_redesign_dense` (39×232 at `+997+1182`) and
-         *    `library_redesign_grid` (552×28 at `+469+1596`) — the downloaded
-         *    badge in the library rows is now the family's `Downloaded` glyph
-         *    instead of M3 `CloudDone`, so those rows moved, while every other
+         *    `library_redesign_grid` (702×457 at `+319+1167`) — the library rows
+         *    now draw the family's `Downloaded` badge instead of M3 `CloudDone`
+         *    AND the family's `Play`/`Pause` instead of Material
+         *    `PlayArrow`/`PauseCircle`, so those rows moved while every other
          *    pixel stayed identical.
          *
          * The remaining pins kept AE=0, and a full `:app:testComposeRoborazzi`
@@ -601,7 +602,7 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "74e63635623105414fa9602233c88701" + "1b80e38f1bde0ef078329d4b9d7e158f"
+                "2925e1c249bcdcc9598dc273dfc5f6f0" + "748d82eac216600c13c0e95b2bdecd58"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
@@ -611,7 +612,7 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "fbab0d63690005f05d3baf5aefe34c37" + "b6374e6b6770db1682bd93a503c2ad3d"
+                "45be0570430383fd16adb1fdfed54dc4" + "ea899462167be53a99a42457492bf1a9"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

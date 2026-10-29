@@ -562,6 +562,17 @@ class SnapshotGoldenBytesGuardTest {
          * glyphs with the icon system's 20 dp set. `player_tight_viewport`
          * still pins the shrink contract: in a short viewport the cover is
          * height-clamped and keeps its 2:3 ratio.
+         *
+         * ## One re-pinned on 2026-10-29 (#1554 — F21/F22 icon tail)
+         *
+         * The rating line under catalogue cards stopped drawing the Onest
+         * character «★» and renders `PaperInkIcons.Star` instead. The expanded
+         * header carries one of those lines, so its frame moved by 32 pixels in
+         * the same band; the collapsed header did not move at all, and the
+         * other pins kept AE=0 against the re-recorded set. A full
+         * `:app:testComposeRoborazzi` verify reported ZERO changed images
+         * outside the recorded set.
+         *
          */
         val PINS = listOf(
             Pin(
@@ -572,7 +583,7 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "expanded.png",
-                "ddd5027c6c328bd49b0ff902c1c665bd" + "afc158c689136b2651014184a2c9420a"
+                "b1d7a28802feea1458a1e0cbc83e7045" + "c050665c02e7aabf4b2cb95b4813ea5b"
             ),
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",

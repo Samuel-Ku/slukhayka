@@ -493,37 +493,60 @@ class SnapshotGoldenBytesGuardTest {
          * `:app:testComposeRoborazzi` compare against the re-recorded set left
          * all 133 goldens byte-identical — which is why this re-pin is the label
          * change and nothing else.
+         *
+         * ## Six re-pinned on 2026-10-29 (#1534 — the «Папір і голос» icon family)
+         *
+         * The shared chrome stopped drawing Material glyphs and moved to the
+         * direction's own family: the root header's `GraphicEq` 15 dp brand mark
+         * became the five-bar `Wave`, the bottom navigation's four tabs became
+         * `Headphones / Compass / Library / Friends`, and the settings gear is
+         * the same path scaled 0.92 so its ink lands inside the audit's 2..22
+         * safe zone. That band is exactly what these six pins frame: the
+         * wordmark row and the header actions.
+         *
+         * Measured, not eyeballed (on `main d6c02095`, after #1541/#1542/#1543):
+         * `explore_header_collapsed`, `explore_header_expanded` and
+         * `home_feed_phone_fold` each moved 444 pixels inside `929x98+57+63`;
+         * the three `library_redesign_*` moved 444 pixels inside
+         * `929x120+57+56`. Everything else is byte-identical.
+         *
+         * The other three pins (`player_*`) did not move at all, and a full
+         * `:app:testComposeRoborazzi` verify against the re-recorded set
+         * reported ZERO changed images outside the recorded set — which is why
+         * these six are the icon change and not a side effect. The re-record is
+         * the one this guard exists for: unchanged surfaces stayed byte-identical.
+         *
          */
         val PINS = listOf(
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "collapsed.png",
-                "30d8cdca462444b7d508424e060b8842" + "aad96547b92590d453fd7217f62599ea"
+                "71a67dfd01c0d0107b0fa6133e1edd0f" + "c04fb780afe8265dec4ff3b68a621358"
             ),
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "expanded.png",
-                "4dba3f69f37e95307b8601f2284458ec" + "e478428b807b9efc959979fe51b35ac2"
+                "ddd5027c6c328bd49b0ff902c1c665bd" + "afc158c689136b2651014184a2c9420a"
             ),
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",
                 "home_feed_" + "phone_fold.png",
-                "5e1b9cf533151e5831d389c08f63e33d" + "f4d7c8bf0e3b1f0ca12d97dae90c6c30"
+                "48685fe1e61ab0dab288a658da596ddb" + "fd810834ff00e6f4d3ee48232f4cf824"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "c1a63e2022e24d03807fdef6d8995d8d" + "706d56e2ff55b9a91e009f6b64b3c29d"
+                "8b2129c24e271bcf749beb28d40f1d17" + "daa894a9ad5e838117e33709d02b7d89"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "006b781fe8760222a04bf350d92919a5" + "3739e1435d8d40dde102ffee37c94c72"
+                "2d68881d7df1d0004a38e6a3ba6495db" + "a13db729cd0bd1cc8c138613e64b895f"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "dce48dc6924a1e0891d2bd9852dc6b87" + "26232acb0a5ea288da5e60d1bc6e8f88"
+                "b27a9d397c67d3f515d3bde05b06bf9a" + "04a0b3c92da05a0637579da4f08af777"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

@@ -415,8 +415,11 @@ class AchievementsScreenTest {
             )
         }
 
-        rule.onNodeWithTag("achievements_streak").assertIsDisplayed()
-        rule.onNodeWithTag("achievements_streak_days").assertIsDisplayed()
+        // Exists rather than "is displayed": the strip sits below the registry,
+        // and this test is about the block being COMPOSED — the golden is what
+        // proves it fits the viewport.
+        rule.onNodeWithTag("achievements_streak").assertExists()
+        rule.onNodeWithTag("achievements_streak_days").assertExists()
     }
 
     @Test

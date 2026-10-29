@@ -80,12 +80,16 @@ class SettingsDestinationScaffoldTest {
     }
 
     @Test
-    fun `the longest pushed titles are not clipped at 320 dp at two hundred percent text`() {
+    fun `the storage title is not clipped at 320 dp at two hundred percent text`() {
         assertHeadingNotClipped(
             destination = SettingsDestination.Storage,
             fontScale = 2f,
             expectedMaxLines = 3,
         )
+    }
+
+    @Test
+    fun `the recommendations title is not clipped at 320 dp at two hundred percent text`() {
         assertHeadingNotClipped(
             destination = SettingsDestination.Recommendations,
             fontScale = 2f,
@@ -96,9 +100,12 @@ class SettingsDestinationScaffoldTest {
     @Test
     fun `at 411 dp and normal text a short pushed title still fits one line`() {
         val layout = layoutOf(SettingsDestination.NetworkPrivacy, fontScale = 1f, width = 411)
-        assertEquals(2, layout.layoutInput.maxLines)
-        assertEquals(1, layout.lineCount)
-        assertEquals(false, layout.hasVisualOverflow)
+        val diag = "DIAG lines=${layout.lineCount} maxLines=${layout.layoutInput.maxLines} " +
+            "overflow=${layout.hasVisualOverflow} width=${layout.size.width} " +
+            "height=${layout.size.height} constraints=${layout.layoutInput.constraints}"
+        assertEquals(diag, 2, layout.layoutInput.maxLines)
+        assertEquals(diag, 1, layout.lineCount)
+        assertEquals(diag, false, layout.hasVisualOverflow)
     }
 
     private fun assertHeadingNotClipped(

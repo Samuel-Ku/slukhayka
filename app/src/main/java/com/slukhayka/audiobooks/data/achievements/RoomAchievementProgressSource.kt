@@ -234,12 +234,21 @@ class RoomAchievementProgressSource(
     // the universe claim and the title/author pair the collection matcher
     // reads. The curated lists themselves are Kotlin (assets), so the matching
     // happens here rather than in SQL.
-    private val withOwnLibrary = combine(withAbandoned, dao.observeOwnLibraryBooks()) { base, own ->
+    //
+    // #1589 (lever 2) — the four matching rules run ONCE per distinct library
+    // snapshot. They used to run inside the `combine` arm, which also re-emits
+    // on every written playback second, so an unchanged library was re-matched
+    // at 1 Hz; [ownLibraryFacts] swallows those identical emissions before any
+    // matching happens (and swallows a changed row whose facts did not move).
+    private val libraryFacts = dao.observeOwnLibraryBooks().ownLibraryFacts { own ->
+        deriveOwnLibraryFacts(own, curatedUniverses, curatedCollections)
+    }
+    private val withOwnLibrary = combine(withAbandoned, libraryFacts) { base, facts ->
         base.copy(
-            completedSeries = PersonalSeries.finished(own),
-            orderedSeries = PersonalSeries.inOrder(own),
-            universeBooks = UniverseBreadth.largest(own, curatedUniverses),
-            passedCollections = CollectionCompletion.passed(own, curatedCollections)
+            completedSeries = facts.completedSeries,
+            orderedSeries = facts.orderedSeries,
+            universeBooks = facts.universeBooks,
+            passedCollections = facts.passedCollections
         )
     }
     // #701 (US40) — «Усі двері»: the doors really used against the registry's

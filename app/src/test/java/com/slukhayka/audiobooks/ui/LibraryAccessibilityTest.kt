@@ -524,8 +524,16 @@ class LibraryAccessibilityTest {
             }
         }
 
+        // F30b — the field is a compact pill inside the tab row now; its
+        // TalkBack name is the same resource, asserted as the node's spoken
+        // description rather than as text inside an M3 label.
         composeTestRule.onNodeWithTag("library_search")
-            .assertTextContains("Пошук у медіатеці")
+            .assert(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.ContentDescription,
+                    listOf("Пошук у медіатеці")
+                )
+            )
             .assertIsDisplayed()
         composeTestRule.onNodeWithTag("library_search_toggle").assertDoesNotExist()
     }
@@ -545,9 +553,8 @@ class LibraryAccessibilityTest {
             .assertIsDisplayed()
             .assertHeightIsAtLeast(24.dp)
             .performClick()
-        composeTestRule.onNodeWithTag("library_search")
-            .assertIsDisplayed()
-            .assertTextContains("Пошук у медіатеці")
+        // ✕ emptied the query but the field itself never leaves the screen.
+        composeTestRule.onNodeWithTag("library_search").assertIsDisplayed()
         composeTestRule.onNodeWithTag("library_search_clear").assertDoesNotExist()
     }
 

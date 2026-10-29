@@ -104,7 +104,7 @@
     <string name="lib_books_count">Books (%1$d)</string>
     <string name="lib_bookmarks_count">Bookmarks (%1$d)</string>
     <string name="lib_statistics">Statistics</string>
-    <string name="lib_search_placeholder">Title, author, or series</string>
+    <string name="lib_search_short_hint">Search</string>
     <string name="lib_add_own_files">Add your own files</string>
     <string name="lib_find_book">Find a book</string>
     <string name="lib_import_connect">Connect</string>

@@ -38,7 +38,7 @@ import com.slukhayka.audiobooks.ui.library.formatRemainingTime
 import com.slukhayka.audiobooks.ui.library.libraryGridEntries
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
 import com.slukhayka.audiobooks.ui.screens.LibraryHeaderActions
-import com.slukhayka.audiobooks.ui.screens.LibrarySearchField
+import com.slukhayka.audiobooks.ui.screens.LibraryTabsWithSearch
 import com.slukhayka.audiobooks.ui.screens.LibraryStatusRow
 import com.slukhayka.audiobooks.ui.screens.libraryGridColumns
 import com.slukhayka.audiobooks.ui.screens.libraryGridContent
@@ -56,8 +56,8 @@ import org.robolectric.annotation.GraphicsMode
  *
  * The book area is rendered through the very same [libraryGridContent] seam the
  * screen calls, so these goldens cannot document a layout the app does not
- * ship — the only chrome this test re-states is the permanently visible search
- * field, the one-line status row and the filter chip beside it.
+ * ship — the only chrome this test re-states is the tab+search band (F30b),
+ * the one-line status row and the filter chip beside it.
  *
  * Run:    ./gradlew testDebugUnitTest --tests "*LibraryRedesignSnapshotTest" \
  *           -Proborazzi.test.record=true
@@ -170,9 +170,17 @@ private fun LibraryRedesignScreen(
                     )
                 }
             )
-            // ADR-0033 amended 2026-09-18: the field is permanently visible, so
-            // it belongs to the chrome these goldens restate.
-            LibrarySearchField(query = "", onQueryChange = {})
+            // F30b — tabs + the ADR-0033 permanently visible search share one
+            // band; the goldens restate that shipped arrangement.
+            LibraryTabsWithSearch(
+                booksSelected = true,
+                savedSelected = false,
+                onBooks = {},
+                onShelves = {},
+                onSaved = {},
+                query = "",
+                onQueryChange = {}
+            )
             LibraryStatusRow(
                 selected = selected,
                 onSelect = {},

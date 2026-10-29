@@ -139,6 +139,31 @@ class SearchResultsContentTest {
     }
 
     @Test
+    fun aSearchInFlightDoesNotClaimZeroWereFound() {
+        setSearchContent(localBooks = emptyList(), globalResults = emptyList(), isGlobalLoading = true)
+        compose.waitForIdle()
+
+        // The loading status is the honest statement; a counted header would
+        // contradict it with a «found 0» that is not a result yet (#1553).
+        compose.onNodeWithTag("search_sources_header").assertDoesNotExist()
+        assertEquals(0, compose.onAllNodesWithText("Знайдені книги (0)").fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun aPreviousQueryCountIsNotShownAsTheCurrentResult() {
+        setSearchContent(
+            localBooks = emptyList(),
+            globalResults = listOf(sourceHit),
+            isGlobalLoading = true
+        )
+        compose.waitForIdle()
+
+        compose.onNodeWithTag("search_sources_header").assertDoesNotExist()
+        compose.onNodeWithText("Шукаємо в усіх джерелах").assertExists()
+        compose.onNodeWithTag("global_search_result_${sourceHit.key}").assertExists()
+    }
+
+    @Test
     fun aShortQueryWithoutLiveSearchDoesNotClaimSourcesWereSearched() {
         setSearchContent(localBooks = emptyList(), globalResults = emptyList(), liveSearchActive = false)
         compose.waitForIdle()

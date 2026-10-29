@@ -92,10 +92,8 @@
     <string name="player_feedback_chapter_end">Until chapter end</string>
     <string name="player_feedback_timer_minutes">Timer for %1$d min</string>
     <string name="player_feedback_bookmark_saved">Bookmark added at %1$s</string>
-    <string name="player_seek_back_label">15 s</string>
     <!-- #1474 — the temporary sum of one seek-tap series. -->
     <string name="player_seek_sum_a11y">Total %1$s</string>
-    <string name="player_seek_forward_label">30 s</string>
     <string name="player_chapters_title">Chapters</string>
     <!-- v1.4: locale-aware remaining-time units. -->
     <string name="remaining_units_hm">%1$d h %2$d min</string>

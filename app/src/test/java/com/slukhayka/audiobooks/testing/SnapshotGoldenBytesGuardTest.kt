@@ -545,6 +545,23 @@ class SnapshotGoldenBytesGuardTest {
          * signal again: `library_redesign_dense.png` shows the same screen
          * without the continue card, and the player pins do not render the
          * changed tokens at all.
+         *
+         * ## All three re-pinned on 2026-10-29 (F7/F8/F9 of the 2026-10-28 audit)
+         *
+         * The player is the surface all three goldens watch, so all three moved
+         * together — and this time for the OWNER'S main requirement, not a
+         * style preference: the artwork was clamped to 198×297 by the slot
+         * height and is now the spec's 272×408 (67 % of the SCREEN width, cap
+         * 272, then width/height-clamped to the slot). The ~60 dp came from
+         * the duplicated book time row, the read-only ruler (44→14 dp), the
+         * one-line quick tools and the smaller inter-row gaps.
+         *
+         * F8 also moved the play control to the prototype's 80×72 with a 30 dp
+         * glyph; F9 replaced `Replay`+mirror+«15 с/30 с» labels with the
+         * `Rew15`/`Fwd30` digit glyphs (28 dp) and the Material quick-tool
+         * glyphs with the icon system's 20 dp set. `player_tight_viewport`
+         * still pins the shrink contract: in a short viewport the cover is
+         * height-clamped and keeps its 2:3 ratio.
          */
         val PINS = listOf(
             Pin(
@@ -580,17 +597,17 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_" + "no_narrator.png",
-                "8e727f65b5d7c6678e02f55ac045361a" + "180933fc1e01b874491db2a1c9e208c3"
+                "65938f465cbea497f18cc450a3e72261" + "e9b4543d7714b0209dfb6a6735713aff"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_redesign_" + "dark.png",
-                "86f8be2e677a8bcd8b8b633a91ed8e5f" + "1b9f243878835edd787d5bf4eb6ac4c9"
+                "c6c715a0f0b9bfba1fb33a031cb45f84" + "7c95cf7709e6b7dc40e5bbb8f29cabbc"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_tight_" + "viewport.png",
-                "d655644d2f3ad109c9be7ca4c1ac8c5c" + "9f6e6ad6e0fb580e14b418ca925e2aca"
+                "3dd1eec5774d7bd1a8f0fda5e7471127" + "71c60be72b44c7cf2a89464f112a2af0"
             )
         )
     }

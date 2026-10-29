@@ -366,6 +366,11 @@ object PaperInkDimens {
     val PrimaryButtonHeight = 52.dp
     val PlayerTransportTarget = 52.dp
     val PlayerPlayButton = 72.dp
+    // F8 (аудит 2026-10-28): прототип `.sl-play { width:80px; height:72px }` —
+    // кнопка ширша за високу, глиф 28–30 замість 40.
+    val PlayerPlayButtonWidth = 80.dp
+    val PlayerPlayGlyph = 30.dp
+    val PlayerTransportGlyph = 30.dp
     val PlayerSeekHeight = 44.dp
     val ChapterRowHeight = 44.dp
     val SeekTrack = 6.dp

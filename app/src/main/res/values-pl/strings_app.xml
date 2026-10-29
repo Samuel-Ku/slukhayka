@@ -585,10 +585,8 @@
     <string name="player_recovery_failed">Nie udało się wznowić odtwarzania</string>
     <string name="player_retry">Ponów</string>
     <string name="player_return_to">Wróć do %1$s</string>
-    <string name="player_seek_back_label">15 s</string>
     <!-- #1474 — the temporary sum of one seek-tap series. -->
     <string name="player_seek_sum_a11y">Razem %1$s</string>
-    <string name="player_seek_forward_label">30 s</string>
     <string name="player_speed_value">%1$s×</string>
     <string name="player_timer_end_value">Do końca</string>
     <string name="player_timer_minutes_value">%1$d min</string>

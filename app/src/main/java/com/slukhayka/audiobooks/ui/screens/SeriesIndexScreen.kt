@@ -23,6 +23,7 @@ import com.slukhayka.audiobooks.ui.MainViewModel
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.components.CycleCard
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
@@ -91,7 +92,7 @@ fun SeriesIndexContent(
         // (#575): the placeholder is chrome, so it comes from the resources
         // and the English run is clean.
         EmptyState(
-            icon = Icons.AutoMirrored.Filled.MenuBook,
+            icon = PaperInkIcons.Book,
             title = stringResource(R.string.series_index_empty),
             body = "",
             modifier = modifier.testTag("series_index_screen")

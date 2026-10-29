@@ -68,6 +68,7 @@ import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.library.siblingNarrations
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.data.reviews.ReviewSaveResult
@@ -349,7 +350,7 @@ private fun BookDetailDownloadButton(
                 imageVector = if (action == BookDetailDownloadAction.Remove) {
                     Icons.Default.CloudDone
                 } else {
-                    Icons.Default.CloudDownload
+                    PaperInkIcons.Download
                 },
                 contentDescription = null,
                 modifier = Modifier.size(16.dp)

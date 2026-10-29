@@ -175,17 +175,13 @@ fun PublicCollectionContent(
         // nobody rated it, so nobody is shown a fabricated zero.
         val average = CollectionRating.average(collection.ratingSum, collection.ratingCount)
         if (average != null) {
-            val votes = pluralStringResource(
-                R.plurals.library_rating_votes,
-                collection.ratingCount,
-                collection.ratingCount
-            )
-            Text(
-                text = String.format(Locale.US, "★ %.1f · %s", average, votes),
-                style = MaterialTheme.typography.bodyMedium,
+            // F21: one shared line (icon + value), not a second «★» text.
+            CollectionRatingLine(
+                average = average,
+                ratingCount = collection.ratingCount,
                 modifier = Modifier
                     .padding(horizontal = 16.dp)
-                    .testTag("public_collection_average")
+                    .testTag("public_collection_average"),
             )
         } else {
             Text(

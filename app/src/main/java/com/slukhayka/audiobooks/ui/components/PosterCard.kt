@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.ui.displayAuthor
@@ -466,7 +467,7 @@ fun PosterCard(
         testTag = testTag,
         overlayDescription = stringResource(R.string.a11y_open_work, result.title),
         downloadIcon = if (onDownload != null && downloadAllowed) {
-            if (isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload
+            if (isDownloaded) PaperInkIcons.Downloaded else PaperInkIcons.Download
         } else {
             null
         },

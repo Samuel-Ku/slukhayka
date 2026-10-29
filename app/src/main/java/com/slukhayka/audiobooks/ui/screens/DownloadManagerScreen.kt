@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.downloads.DownloadQueue
 import com.slukhayka.audiobooks.data.downloads.DownloadQueueItem
 import com.slukhayka.audiobooks.data.downloads.DownloadQueueStatus
@@ -428,7 +429,7 @@ fun DownloadQueueEmptyState(modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center
     ) {
         EmptyState(
-            icon = Icons.Default.CloudDownload,
+            icon = PaperInkIcons.Download,
             title = stringResource(R.string.download_manager_empty_title),
             body = stringResource(R.string.download_manager_empty_body)
         )

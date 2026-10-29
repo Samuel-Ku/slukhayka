@@ -32,6 +32,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 import com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow
 import com.slukhayka.audiobooks.data.ingest.PreviewRunState
@@ -162,7 +163,7 @@ fun PlaylistSelectionCard(
                                 .testTag("playlist_entry_up_${entry.watchUrl}")
                         ) {
                             Icon(
-                                imageVector = Icons.Default.KeyboardArrowUp,
+                                imageVector = PaperInkIcons.ChevronUp,
                                 contentDescription = stringResource(R.string.submission_move_up),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -175,7 +176,7 @@ fun PlaylistSelectionCard(
                                 .testTag("playlist_entry_down_${entry.watchUrl}")
                         ) {
                             Icon(
-                                imageVector = Icons.Default.KeyboardArrowDown,
+                                imageVector = PaperInkIcons.ChevronDown,
                                 contentDescription = stringResource(R.string.submission_move_down),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )

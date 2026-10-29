@@ -70,6 +70,7 @@ import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.library.siblingNarrations
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.data.reviews.ReviewSaveResult
@@ -312,7 +313,7 @@ fun ChapterRowItem(
                         paperInk && isPlaying -> Icons.Default.Pause
                         paperInk -> Icons.Default.PlayArrow
                         isPlaying -> Icons.Default.PauseCircle
-                        else -> Icons.Default.PlayCircle
+                        else -> PaperInkIcons.Play
                     },
                     contentDescription = null,
                     tint = if (paperInk) {

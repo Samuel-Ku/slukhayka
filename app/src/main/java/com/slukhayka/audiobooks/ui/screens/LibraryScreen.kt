@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
@@ -1153,7 +1154,7 @@ fun LibraryEmptyState(
     onBrowseClick: () -> Unit
 ) {
     EmptyState(
-        icon = Icons.Default.MenuBook,
+        icon = PaperInkIcons.Book,
         title = stringResource(R.string.library_empty_title),
         body = stringResource(R.string.library_empty_body)
     ) {
@@ -1390,7 +1391,7 @@ internal fun LibrarySearchField(
                     modifier = Modifier.testTag("library_search_clear")
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Clear,
+                        imageVector = PaperInkIcons.Close,
                         contentDescription = stringResource(R.string.a11y_library_clear_search)
                     )
                 }
@@ -2709,7 +2710,7 @@ fun ListeningStatsCard(
             StatItemCard(
                 title = stringResource(R.string.lib_stats_total),
                 value = stringResource(R.string.lib_stats_total_value, totalBooks),
-                icon = Icons.AutoMirrored.Filled.MenuBook,
+                icon = PaperInkIcons.Book,
                 color = AppStatLibrary,
                 modifier = Modifier.weight(1f)
             )
@@ -3854,7 +3855,7 @@ private fun libraryStatusStrip(
                 },
                 leadingIcon = {
                     Icon(
-                        imageVector = Icons.Default.Tune,
+                        imageVector = PaperInkIcons.Filter,
                         contentDescription = null,
                         modifier = Modifier.size(FilterChipDefaults.IconSize)
                     )

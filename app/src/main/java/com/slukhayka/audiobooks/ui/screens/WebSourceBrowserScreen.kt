@@ -40,6 +40,7 @@ import androidx.webkit.ProxyController
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.privacy.WebViewSessionPrivacy
 import com.slukhayka.audiobooks.data.privacy.BrowserDnsProxy
 import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
@@ -543,7 +544,7 @@ fun WebSourceBrowserScreen(
                                 .semantics { contentDescription = actionLabels.closeSource }
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                imageVector = PaperInkIcons.ChevronLeft,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
@@ -556,7 +557,7 @@ fun WebSourceBrowserScreen(
                                 .semantics { contentDescription = actionLabels.back }
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                imageVector = PaperInkIcons.ChevronLeft,
                                 contentDescription = null,
                                 tint = if (canGoBack) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                             )
@@ -569,7 +570,7 @@ fun WebSourceBrowserScreen(
                                 .semantics { contentDescription = actionLabels.forward }
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                imageVector = PaperInkIcons.ChevronRight,
                                 contentDescription = null,
                                 tint = if (canGoForward) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                             )

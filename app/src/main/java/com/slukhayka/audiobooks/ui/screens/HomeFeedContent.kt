@@ -43,6 +43,7 @@ import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.data.personbookmarks.PersonNewArrivals
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.PeopleKind
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardAction
@@ -617,7 +618,7 @@ fun LazyListScope.homeFeedContent(
     } else if (workFeedItems.itemCount == 0 && feedFiltersActive) {
         item {
             EmptyState(
-                icon = Icons.Default.FilterAltOff,
+                icon = PaperInkIcons.FilterOff,
                 title = stringResource(R.string.feed_filters_empty_title),
                 body = stringResource(R.string.feed_filters_empty_body),
                 modifier = Modifier.testTag("feed_filters_empty")
@@ -637,7 +638,7 @@ fun LazyListScope.homeFeedContent(
     } else if (workFeedItems.itemCount == 0) {
         item {
             EmptyState(
-                icon = Icons.Default.MenuBook,
+                icon = PaperInkIcons.Book,
                 title = stringResource(R.string.feed_empty_title),
                 body = stringResource(R.string.feed_empty_body),
                 modifier = Modifier.testTag("feed_empty")

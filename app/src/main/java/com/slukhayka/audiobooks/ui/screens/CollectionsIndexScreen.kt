@@ -15,6 +15,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.collections.CollectionMatcher
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.ui.MainViewModel
@@ -74,7 +75,7 @@ fun CollectionsIndexContent(
         // No matched collections: the shared index placeholder, never a crash
         // — the union may simply not have synced yet (spec-28 #202).
         EmptyState(
-            icon = Icons.AutoMirrored.Filled.MenuBook,
+            icon = PaperInkIcons.Book,
             title = stringResource(R.string.collections_index_empty),
             body = "",
             modifier = modifier.testTag("collections_index_screen")

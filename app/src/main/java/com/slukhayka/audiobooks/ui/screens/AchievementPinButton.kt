@@ -20,6 +20,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 
 /**
  * #704 (T6) — the showcase pin toggle on an earned award.
@@ -66,7 +67,7 @@ fun AchievementPinButton(
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            imageVector = if (isPinned) Icons.Default.Star else Icons.Default.StarBorder,
+            imageVector = if (isPinned) PaperInkIcons.Star else PaperInkIcons.StarOutline,
             contentDescription = null,
             tint = if (isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.size(24.dp)

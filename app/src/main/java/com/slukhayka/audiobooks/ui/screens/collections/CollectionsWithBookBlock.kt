@@ -74,12 +74,8 @@ fun CollectionsWithBookBlock(
                 )
                 val average = row.average
                 if (average != null) {
-                    val votes = pluralStringResource(R.plurals.library_rating_votes, row.ratingCount, row.ratingCount)
-                    Text(
-                        text = String.format(Locale.US, "★ %.1f · %s", average, votes),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    // F21: one shared line (icon + value), not a second «★» text.
+                    CollectionRatingLine(average = average, ratingCount = row.ratingCount)
                 } else {
                     Text(
                         text = stringResource(R.string.collection_no_ratings),

@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
@@ -273,7 +274,7 @@ fun ListenShelvesManageEntry(
             .padding(horizontal = 16.dp, vertical = 16.dp)
             .testTag("listen_manage_shelves")
     ) {
-        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+        Icon(PaperInkIcons.Filter, contentDescription = null, modifier = Modifier.size(18.dp))
         Spacer(modifier = Modifier.width(8.dp))
         Text(stringResource(R.string.listen_manage_shelves))
     }
@@ -502,7 +503,7 @@ private fun ListenShelfRow(
                 .testTag("listen_shelf_up_${block.id.name}")
         ) {
             Icon(
-                imageVector = Icons.Default.ArrowUpward,
+                imageVector = PaperInkIcons.ArrowUp,
                 contentDescription = stringResource(R.string.a11y_listen_shelf_move_up, block.title)
             )
         }
@@ -514,7 +515,7 @@ private fun ListenShelfRow(
                 .testTag("listen_shelf_down_${block.id.name}")
         ) {
             Icon(
-                imageVector = Icons.Default.ArrowDownward,
+                imageVector = PaperInkIcons.ArrowDown,
                 contentDescription = stringResource(R.string.a11y_listen_shelf_move_down, block.title)
             )
         }

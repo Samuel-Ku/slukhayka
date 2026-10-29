@@ -755,9 +755,13 @@ fun HomeHeader(
                 title = stringResource(R.string.nav_explore),
                 onSettingsClick = onOpenSettings,
                 actions = {
+                    // F15/F34 class: this was the ONE header action below the
+                    // 48 dp floor (a bare 44 dp circle) while every other
+                    // root's action/gear is 48 dp. It stays quiet — no tonal
+                    // disc — but the target is the canonical TouchTarget.
                     Box(
                         modifier = Modifier
-                            .size(44.dp)
+                            .size(PaperInkDimens.TouchTarget)
                             .clip(CircleShape)
                             .clickable(onClick = onRefresh)
                             .testTag("home_refresh")

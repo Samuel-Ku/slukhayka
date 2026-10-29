@@ -647,21 +647,33 @@ class SnapshotGoldenBytesGuardTest {
          * move — the player has no tab header. Recorded by the
          * `record-snapshots` workflow, not locally.
          */
+        /**
+         * ## Three re-pinned on 2026-10-29 (F15/F34 class, Explore refresh)
+         *
+         * The «Огляд» header's refresh was the ONE root action below the 48 dp
+         * floor: a bare 44 dp circle next to the 48 dp gear and the 48 dp
+         * «+»/⋮ of other roots. It now uses the canonical
+         * `PaperInkDimens.TouchTarget` (48 dp) and stays quiet (no tonal
+         * disc), so the Explore header and the two overview frames that
+         * include it move by 4 dp: `explore_header_collapsed/expanded` and
+         * `home_feed_phone_fold`. Recorded by the `record-snapshots`
+         * workflow, not locally.
+         */
         val PINS = listOf(
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "collapsed.png",
-                "4023dd538380dabfeb6069b12726e132" + "a897e38cd87e73f6c32b4ee805315f35"
+                "92f41d154d5f3ee00d679ffb8dab00c1" + "5973c9215236ce5322e86133f5ad9382"
             ),
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "expanded.png",
-                "bda1e7e0a673c8c94afae15b826654c6" + "0dac3e97f0b62812733726a42e8400a7"
+                "47719b2b6f0dda1eb4f560d8b86c905b" + "c9e3b838f3950bb33d2ae6bdb9f17dc2"
             ),
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",
                 "home_feed_" + "phone_fold.png",
-                "e101f5feed2aedc4e6f27160f021d90d" + "c238c0d66b184a22d22deeeaf166d386"
+                "a07224348e4c2da897019acf0cd96b99" + "27397c108e9422668724c9d6c0d7d2cb"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",

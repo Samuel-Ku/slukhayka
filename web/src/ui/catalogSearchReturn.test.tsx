@@ -110,6 +110,30 @@ describe("W3.4 global search", () => {
     ).toBeTruthy();
   });
 
+  it("a failed search offers an explicit retry that really repeats the query", async () => {
+    // #1581 — the failure used to be a dead end: «Оновити» is hidden in search
+    // mode and repeating the same query was a no-op. The retry must start a
+    // new explicit generation.
+    vi.mocked(api.workSearch)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(page);
+    const user = userEvent.setup();
+    render(<Catalog onOpenBook={vi.fn()} onPlay={vi.fn(async () => true)} />);
+
+    await user.click(screen.getByRole("button", { name: "Пошук" }));
+    await user.type(screen.getByRole("searchbox"), "мор");
+    await screen.findByText("Джерело не відповіло — спробуйте пізніше.");
+
+    await user.click(screen.getByRole("button", { name: "Спробувати ще раз" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Відкрити книгу: Старий і море" })
+      ).toBeTruthy()
+    );
+    expect(vi.mocked(api.workSearch)).toHaveBeenCalledTimes(2);
+  });
+
   it("✕ clears the query and collapses the field", async () => {
     const user = userEvent.setup();
     render(<Catalog onOpenBook={vi.fn()} onPlay={vi.fn(async () => true)} />);

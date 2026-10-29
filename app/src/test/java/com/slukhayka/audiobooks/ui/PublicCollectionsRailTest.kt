@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -11,6 +12,8 @@ import com.slukhayka.audiobooks.ui.screens.collections.CuratorProfileContent
 import com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionsRail
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import kotlin.math.abs
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -59,6 +62,21 @@ class PublicCollectionsRailTest {
         composeTestRule.onNodeWithText("Добірки слухачів").assertIsDisplayed()
         composeTestRule.onNodeWithText("Магія").assertIsDisplayed()
         composeTestRule.onNodeWithText("★ 4.5 · 2 оцінки").assertIsDisplayed()
+
+        // #1546 — the rail lives on the Огляд paper root: 20 dp page grid,
+        // not the legacy 16 dp one.
+        val title = composeTestRule.onNodeWithText("Добірки слухачів")
+            .getUnclippedBoundsInRoot()
+        val firstCard = composeTestRule.onNodeWithTag("rail_collection_doc-1")
+            .getUnclippedBoundsInRoot()
+        assertTrue(
+            "the rail title starts at ${title.left}, expected 20 dp",
+            abs(title.left.value - 20f) <= 0.5f
+        )
+        assertTrue(
+            "the first rail card starts at ${firstCard.left}, expected 20 dp",
+            abs(firstCard.left.value - 20f) <= 0.5f
+        )
     }
 
     @Test

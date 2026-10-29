@@ -5,8 +5,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
@@ -15,7 +17,10 @@ import com.slukhayka.audiobooks.ui.screens.NewArrivalsRail
 import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
+import androidx.compose.ui.unit.width
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import kotlin.math.abs
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -90,6 +95,21 @@ class NewArrivalsRailSnapshotTest {
                 composeTestRule.onAllNodesWithText("Sound-Books").fetchSemanticsNodes().size +
                 composeTestRule.onAllNodesWithText("Локальна").fetchSemanticsNodes().size
         )
+        // #1546 — page grid and card width. The rail lives on the Огляд paper
+        // root, so it takes the direction's 20 dp page padding, and the shelf
+        // card is the paper 132 dp (2:3), NOT the legacy 120 dp wrapper that
+        // squeezed the cover to 120×198 and stretched its ratio.
+        val firstCard = composeTestRule.onNodeWithTag("compact_book_a1")
+            .getUnclippedBoundsInRoot()
+        assertTrue(
+            "the first shelf card starts at ${firstCard.left}, expected 20 dp",
+            abs(firstCard.left.value - 20f) <= 0.5f
+        )
+        assertTrue(
+            "the paper shelf card is ${firstCard.width} wide, expected 132 dp",
+            abs(firstCard.width.value - 132f) <= 0.5f
+        )
+
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/new_arrivals_rail.png"
         )

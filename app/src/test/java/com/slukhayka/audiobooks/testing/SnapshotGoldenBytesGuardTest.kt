@@ -69,6 +69,15 @@ import java.security.MessageDigest
  * guarded by `OverviewMigrationSnapshotTest.typed_query_text_is_readable_in_ink_theme`
  * (measured 14.0:1) instead of by a reviewer's eye.
  *
+ * **2026-10-29 — follow-up #1549 (20 dp rails + card width):** ONE pin moved,
+ * `home_feed_phone_fold`. The «Новинки» shelf card used to be clamped to the
+ * legacy 120 dp by a wrapper on a paper 132 dp rail, which rendered a 120×198
+ * cover (a stretched 2:3); the card now sizes itself (132×198). The six frames
+ * the branch touches were re-recorded on the merged base (after the #1534 icon
+ * system) and `home_feed_phone_fold` is the ONLY one of the nine that differs:
+ * the other eight, including `explore_header_*` and `library_redesign_*` whose
+ * header icons #1534 changed, match the icon-system digests byte-for-byte.
+ *
  * This guard does not bless those bytes — it pins them. They are exactly the
  * files a blind «оновили золота» commit touches, and nothing else in the
  * repository would notice: the compare step in `.github/workflows/ci.yml` runs
@@ -531,7 +540,7 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",
                 "home_feed_" + "phone_fold.png",
-                "48685fe1e61ab0dab288a658da596ddb" + "fd810834ff00e6f4d3ee48232f4cf824"
+                "ec17d20bd2a4a3528dcee385c7ece625" + "0d11f3ecc46168b1b242311d74cd8c7b"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",

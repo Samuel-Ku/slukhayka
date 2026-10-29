@@ -367,6 +367,10 @@ fun BookDetailCanonicalSummary(
             onRate = onRateNarration,
             onDeleteOwn = onDeleteNarrationRating,
             deleteFocusRequester = narrationRatingDeleteFocusRequester,
+            // The hero's column is ~182 dp on a 360 dp phone: start-aligned and
+            // wrapping, so the rating line cannot clip beside the cover.
+            startAligned = startAligned,
+            compact = startAligned,
             modifier = Modifier.padding(top = 2.dp)
         )
     }

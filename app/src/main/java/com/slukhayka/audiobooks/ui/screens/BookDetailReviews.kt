@@ -386,6 +386,7 @@ fun ReviewCard(
  * a rating instead of faking a 0-star value. Renders nothing when there is
  * nothing to show and nobody to ask.
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun NarrationRatingRow(
     average: Double?,
@@ -401,27 +402,33 @@ fun NarrationRatingRow(
      * is the case where the stars above look tappable but are read-only.
      */
     unavailableReasonRes: Int? = null,
+    // F31 review: the compact book-page hero puts this row BESIDE the cover,
+    // in a ~182 dp column on a 360 dp phone. The default centred layout
+    // overflows there, so the hero asks for a start-aligned, wrapping variant.
+    startAligned: Boolean = false,
+    compact: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     if (average == null && !canRate) return
+    val starSize = if (compact) 12 else 14
     Column(
         modifier = modifier
             .fillMaxWidth()
             .testTag("narration_rating_row"),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        horizontalAlignment = if (startAligned) Alignment.Start else Alignment.CenterHorizontally,
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)
     ) {
         // #383 — the whole average line (label + stars + count) exists only
         // behind real votes; without them there is nothing truthful to show.
         if (average != null) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            val averageLine: @Composable () -> Unit = {
                 Text(
                     text = stringResource(R.string.book_detail_review_edition_line),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.size(6.dp))
-                ReviewStarsRow(rating = kotlin.math.round(average).toInt(), starSize = 14)
+                Spacer(modifier = Modifier.size(if (compact) 4.dp else 6.dp))
+                ReviewStarsRow(rating = kotlin.math.round(average).toInt(), starSize = starSize)
                 Spacer(modifier = Modifier.size(4.dp))
                 Text(
                     text = String.format(java.util.Locale.US, "%.1f", average) + " · $voteCount",
@@ -429,6 +436,16 @@ fun NarrationRatingRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.testTag("narration_rating_average")
                 )
+            }
+            if (compact) {
+                // Wraps instead of clipping when the hero's column is narrow.
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(0.dp),
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp),
+                    itemVerticalAlignment = Alignment.CenterVertically,
+                ) { averageLine() }
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) { averageLine() }
             }
         }
         // #1383 — the defect the listener reported: "the stars are there but
@@ -451,16 +468,16 @@ fun NarrationRatingRow(
             // The rater block always names itself («Оцінити начитку») — with
             // no own rating yet these five outline stars are an invitation to
             // rate, never a displayed value.
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            val raterLine: @Composable () -> Unit = {
                 Text(
                     text = stringResource(R.string.book_detail_review_rate_narration),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.size(6.dp))
+                Spacer(modifier = Modifier.size(if (compact) 4.dp else 6.dp))
                 ReviewStarsRow(
                     rating = ownRating ?: 0,
-                    starSize = 14,
+                    starSize = starSize,
                     interactive = true,
                     onRatingChange = onRate,
                     modifier = Modifier.testTag("narration_rating_own_stars")
@@ -484,6 +501,15 @@ fun NarrationRatingRow(
                         )
                     }
                 }
+            }
+            if (compact) {
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(0.dp),
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp),
+                    itemVerticalAlignment = Alignment.CenterVertically,
+                ) { raterLine() }
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) { raterLine() }
             }
         }
     }

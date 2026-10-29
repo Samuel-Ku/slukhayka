@@ -1,9 +1,15 @@
 package com.slukhayka.audiobooks.ui
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -48,12 +54,33 @@ class BookDetailCompactHeroTest {
         totalDurationSeconds = 3_600,
     )
 
-    private fun showHero() {
+    private fun showHero(
+        narrationAverage: Double? = null,
+        narrationVoteCount: Int = 0,
+        canRateNarration: Boolean = false,
+        width: Int? = null,
+        fontScale: Float = 1f,
+    ) {
         val presentation = bookDetailPresentation(book, emptyList(), emptyList())
         compose.setContent {
-            AudiobookTheme(darkTheme = true) {
-                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    BookDetailIdentityHeader(book = book, presentation = presentation)
+            val density = LocalDensity.current
+            CompositionLocalProvider(
+                LocalDensity provides Density(density.density, fontScale = fontScale)
+            ) {
+                AudiobookTheme(darkTheme = true) {
+                    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                        Box(
+                            modifier = if (width != null) Modifier.width(width.dp) else Modifier.fillMaxSize()
+                        ) {
+                            BookDetailIdentityHeader(
+                                book = book,
+                                presentation = presentation,
+                                narrationAverage = narrationAverage,
+                                narrationVoteCount = narrationVoteCount,
+                                canRateNarration = canRateNarration,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -85,4 +112,50 @@ class BookDetailCompactHeroTest {
         compose.onNodeWithText("15 15 розділів", substring = true).assertDoesNotExist()
         compose.onNodeWithText("15 розділів", substring = true).assertExists()
     }
+
+    // F31 review blocker: the rating line lives in the hero's ~182 dp column
+    // on a 360 dp phone. With real narration data («Оцінка начитки + stars +
+    // count» ≈220 dp) the centred row clipped; the compact variant wraps and
+    // starts at the column's start edge. The previous tests passed only
+    // because they passed no narration data at all.
+    @Test
+    fun `the narration rating fits the hero column at 360 dp and two hundred percent text`() {
+        showHero(
+            narrationAverage = 4.6,
+            narrationVoteCount = 128,
+            canRateNarration = true,
+            width = 360,
+            fontScale = 2f,
+        )
+        val row = compose.onNodeWithTag("narration_rating_row").fetchSemanticsNode().boundsInRoot
+        val average = compose.onNodeWithTag("narration_rating_average", useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot
+        val root = compose.onNodeWithTag("book_detail_cover").fetchSemanticsNode().boundsInRoot
+        val cover = compose.onNodeWithTag("book_detail_cover_art").fetchSemanticsNode().boundsInRoot
+        assertTrue(
+            "the rating row must stay inside the page: row.right=${row.right} page.right=${root.right}",
+            row.right <= root.right + 1f,
+        )
+        assertTrue(
+            "the average label must stay inside the hero column: average.right=${average.right} row.right=${row.right}",
+            average.right <= row.right + 1f,
+        )
+        // Start-aligned: the row begins at the summary column, right of the cover.
+        assertTrue(
+            "the rating row must start after the cover: row.left=${row.left} cover.right=${cover.right}",
+            row.left >= cover.right,
+        )
+    }
+
+    @Test
+    fun `the narration rating stays start aligned at normal text size`() {
+        showHero(narrationAverage = 4.6, narrationVoteCount = 12, canRateNarration = true, width = 411)
+        val row = compose.onNodeWithTag("narration_rating_row").fetchSemanticsNode().boundsInRoot
+        val cover = compose.onNodeWithTag("book_detail_cover_art").fetchSemanticsNode().boundsInRoot
+        assertTrue(
+            "the rating row must sit to the right of the cover: row.left=${row.left} cover.right=${cover.right}",
+            row.left >= cover.right,
+        )
+    }
+
 }

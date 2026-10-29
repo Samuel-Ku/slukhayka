@@ -113,10 +113,11 @@ class BookDetailMetadataSnapshotTest {
     }
 
     /**
-     * Plan 2026-2027 — the compact paper hero: a 132×198 cover on the page's
-     * ground, the canonical summary below. The old full-bleed 72 % art is gone;
-     * this pins the replacement so a future edit cannot quietly bring the
-     * scrims back.
+     * Plan 2026-2027 / F31 — the compact paper hero: a 118×177 cover on the
+     * page's ground with the canonical summary BESIDE it (not the legacy
+     * centred 130×202 poster above the title). The old full-bleed 72 % art is
+     * gone; this pins the replacement so a future edit cannot quietly bring
+     * the scrims back.
      */
     @Test
     fun compact_hero_renders_on_paper() {

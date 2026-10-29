@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- F23 — a REAL monochrome layer for Android 13+ themed icons: one solid ink
+     silhouette (book + wave), so the system tints it with the wallpaper palette
+     instead of squeezing the coloured foreground. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M53,51.4c-6.6,-4.4 -14.3,-5.5 -22,-4.4v30c7.7,-1.1 15.4,0 22,4.4z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M55,51.4c6.6,-4.4 14.3,-5.5 22,-4.4v30c-7.7,-1.1 -15.4,0 -22,4.4z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M31.5,38.8h6v4.4h-6zM41.2,30.8h4.6v12.4h-4.6zM51.6,23.8h4.8v19.4h-4.8zM62.2,30.8h4.6v12.4h-4.6zM70.5,38.8h6v4.4h-6z" />
+</vector>

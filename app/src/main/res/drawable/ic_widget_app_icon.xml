@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- F23 revert-guard: the Glance widget used to reuse `ic_launcher_foreground`
+     and draw it untinted on the dynamic `primaryContainer` (56 dp box). In the
+     dark scheme that is ink #1B1E18 on #4F378B — 1.81:1, nearly invisible. This
+     drawable is a SELF-CONTAINED paper plate with the ink mark on it, so the
+     widget reads on both schemes without relying on a tint: paper #F1EEE4
+     against #4F378B is 8.03:1 and ink against paper is 14.52:1. On the light
+     primaryContainer the plate blends in (1.11:1) but the ink glyph itself is
+     13.08:1, so the mark stays readable on both schemes. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="#F1EEE4"
+        android:pathData="M24,0h60a24,24 0 0 1 24,24v60a24,24 0 0 1 -24,24h-60a24,24 0 0 1 -24,-24v-60a24,24 0 0 1 24,-24z" />
+
+    <path
+        android:pathData="M53,54c-6,-4 -13,-5 -20,-4v27c7,-1 14,0 20,4"
+        android:strokeColor="#1B1E18"
+        android:strokeWidth="4.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="@android:color/transparent" />
+    <path
+        android:pathData="M55,54c6,-4 13,-5 20,-4v27c-7,-1 -14,0 -20,4"
+        android:strokeColor="#1B1E18"
+        android:strokeWidth="4.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="@android:color/transparent" />
+    <path
+        android:pathData="M54,55v26"
+        android:strokeColor="#1B1E18"
+        android:strokeWidth="4.6"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent" />
+    <path
+        android:pathData="M33,41h3M43,33v10M54,26v17M65,33v10M72,41h3"
+        android:strokeColor="#1B1E18"
+        android:strokeWidth="4.6"
+        android:strokeLineCap="round"
+        android:fillColor="@android:color/transparent" />
+</vector>

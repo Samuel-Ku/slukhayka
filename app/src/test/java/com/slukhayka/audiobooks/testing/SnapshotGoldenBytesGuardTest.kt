@@ -526,6 +526,26 @@ class SnapshotGoldenBytesGuardTest {
          * the one this guard exists for: unchanged surfaces stayed byte-identical.
          *
          */
+        /**
+         * ## Two re-pinned on 2026-10-29 (F3/F4/F12 of the 2026-10-28 device audit)
+         *
+         * `library_redesign_browsing.png` and `library_redesign_grid.png` both
+         * show the «Продовжити» card and a selected nav item, and this change
+         * moved exactly those two surfaces:
+         *  - F3: the selected pill is `primary` + `onPrimary` instead of the
+         *    low-contrast `primaryContainer` (measured < 1.5:1 in the paper
+         *    scheme);
+         *  - F4: the continue-card text moved from the graphic `tertiary`
+         *    (Lamp, 3:1) to the text-safe `PaperInkColors.lampText`
+         *    (LampInk/LampNight) — the amber cue at a readable value, not the
+         *    low-contrast graphic one;
+         *  - F12: the card label is sentence case, not CAPS.
+         *
+         * The other seven #977 pins did NOT move, which is the read-not-refresh
+         * signal again: `library_redesign_dense.png` shows the same screen
+         * without the continue card, and the player pins do not render the
+         * changed tokens at all.
+         */
         val PINS = listOf(
             Pin(
                 "CatalogRows" + "SnapshotTest",
@@ -545,7 +565,7 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "8b2129c24e271bcf749beb28d40f1d17" + "daa894a9ad5e838117e33709d02b7d89"
+                "8beda722885c51191b9d09adbd45eaea" + "e3910d9cdabd825b62137ff96055cac5"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
@@ -555,7 +575,7 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "b27a9d397c67d3f515d3bde05b06bf9a" + "04a0b3c92da05a0637579da4f08af777"
+                "3f39b11bd4c4732294cc6e7d92783bea" + "0622d91686a386130452baf882632437"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

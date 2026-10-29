@@ -6,6 +6,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -86,6 +87,40 @@ class PaperInkTokensTest {
         assertText("light", "onLampSoft/lampSoft", PaperInkPalette.OnLampSoft, PaperInkPalette.LampSoft)
         assertText("dark", "onLampSoftNight/lampSoftNight", PaperInkPalette.OnLampSoftNight, PaperInkPalette.LampSoftNight)
         assertText("dark", "dust/nightSurface", PaperInkPalette.DustNight, PaperInkPalette.NightSurface)
+    }
+
+    @Test
+    fun `the lamp has a TEXT role that clears the floor in both schemes`() {
+        // F4 of the 2026-10-28 device audit — `tertiary` is the GRAPHIC lamp
+        // (3.80:1 on paper), yet three Library texts used it for 11–12 sp copy.
+        // Text reads the darker/lighter twin instead: 6.2:1 on paper, 11.3:1
+        // on ink.
+        assertEquals(PaperInkPalette.LampInk, lampTextFor(darkTheme = false))
+        assertEquals(PaperInkPalette.LampNight, lampTextFor(darkTheme = true))
+        assertText("light", "lampText/background", lampTextFor(false), light.background)
+        assertText("light", "lampText/paper", lampTextFor(false), PaperInkPalette.Paper)
+        assertText("light", "lampText/page", lampTextFor(false), PaperInkPalette.Page)
+        assertText("dark", "lampText/night", lampTextFor(true), dark.background)
+        assertText("dark", "lampText/nightSurface", lampTextFor(true), PaperInkPalette.NightSurface)
+        assertFalse(
+            "the graphic lamp must keep failing as text, otherwise the split is pointless",
+            ColorContrast.meetsTextFloor(light.tertiary, PaperInkPalette.Paper),
+        )
+    }
+
+    @Test
+    fun `the selected state is a 3 to 1 graphic in both schemes`() {
+        // F3 — the selected pill is now filled with `primary` and draws
+        // `onPrimary` on it. Both pairs must clear their floors in ink too,
+        // where the old tonal container measured 1.49:1.
+        listOf(light to "light", dark to "dark").forEach { (scheme, name) ->
+            assertGraphic(name, "selected/background", scheme.primary, scheme.background)
+            assertText(name, "onSelected/selected", scheme.onPrimary, scheme.primary)
+            // The pill also has to read against the UNSELECTED well it sits in
+            // (`surfaceVariant`), not only against the page ground — an 11 sp
+            // label next to an unselected pill was the F3 defect.
+            assertGraphic(name, "selected/unselected", scheme.primary, scheme.surfaceVariant)
+        }
     }
 
     @Test

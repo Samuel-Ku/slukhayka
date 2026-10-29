@@ -111,7 +111,7 @@
     <string name="lib_audiobook_fallback">Audiobook</string>
     <string name="lib_bookmark_at">Na %1$s: %2$s</string>
     <string name="lib_chapter_of">Rozdział %1$d z %2$d</string>
-    <string name="lib_continue_label">KONTYNUUJ</string>
+    <string name="lib_continue_label">Kontynuuj</string>
     <string name="lib_filter">Filtr</string>
     <string name="lib_filter_all">Wszystkie</string>
     <string name="lib_filter_completed">Ukończone</string>

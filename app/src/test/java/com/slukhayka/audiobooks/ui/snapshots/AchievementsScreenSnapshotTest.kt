@@ -6,8 +6,10 @@ import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.slukhayka.audiobooks.data.achievements.AchievementBoard
 import com.slukhayka.audiobooks.data.achievements.AchievementDefinition
+import com.slukhayka.audiobooks.data.achievements.AchievementProgress
 import com.slukhayka.audiobooks.data.achievements.AchievementMetric
 import com.slukhayka.audiobooks.data.achievements.ListenerTitle
+import com.slukhayka.audiobooks.ui.achievements.AchievementPresentation
 import com.slukhayka.audiobooks.ui.screens.AchievementsScreen
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Rule
@@ -47,6 +49,21 @@ class AchievementsScreenSnapshotTest {
 
     private val catalogue = listOf(earnedA, earnedB, upcoming, secret)
 
+    /**
+     * F18 — the fixture's REAL numbers. The hero is measured against this
+     * catalogue (four awards), not the shipped sixty-three: a golden that moves
+     * every time the catalogue grows would teach nothing about the layout.
+     */
+    private val fixtureProgress = AchievementProgress(completedBooks = 3, nightCompletions = 1)
+    private val fixtureTotalAwards = 4
+
+    /** Monday..Sunday of one fixed week with a live six-day run. */
+    private val fixtureWeek = AchievementPresentation.Week(
+        flags = listOf(true, true, true, true, true, true, false),
+        todayIndex = 6,
+        streak = 6,
+    )
+
     @Test
     fun achievements_empty() {
         composeTestRule.setContent {
@@ -73,7 +90,10 @@ class AchievementsScreenSnapshotTest {
                     title = ListenerTitle.PAGE_TRAVELLER,
                     showcase = listOf("first_completion"),
                     onBackClick = {},
-                    onTogglePin = {}
+                    onTogglePin = {},
+                    progress = fixtureProgress,
+                    totalAwards = fixtureTotalAwards,
+                    week = fixtureWeek
                 )
             }
         }
@@ -94,7 +114,9 @@ class AchievementsScreenSnapshotTest {
                     title = ListenerTitle.LISTENER,
                     showcase = emptyList(),
                     onBackClick = {},
-                    onTogglePin = {}
+                    onTogglePin = {},
+                    progress = fixtureProgress,
+                    totalAwards = fixtureTotalAwards
                 )
             }
         }
@@ -121,12 +143,43 @@ class AchievementsScreenSnapshotTest {
                     onBackClick = {},
                     onTogglePin = {},
                     showcasePublishable = true,
-                    onPublishShowcase = {}
+                    onPublishShowcase = {},
+                    progress = fixtureProgress,
+                    totalAwards = fixtureTotalAwards,
+                    week = fixtureWeek
                 )
             }
         }
 
         composeTestRule.onRoot()
             .captureRoboImage("src/test/snapshots/achievements_showcase_publishable.png")
+    }
+
+    /**
+     * F18 — the same registry in the ink theme.
+     *
+     * The hero panel is ink in BOTH themes, so in ink it has to step up to the
+     * raised night plate or it would disappear into the page; the medals and the
+     * week strip swap their paper roles for the night ones. That is exactly the
+     * kind of "renders but looks wrong" this golden exists to catch.
+     */
+    @Test
+    fun achievements_ink() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                AchievementsScreen(
+                    board = AchievementBoard.of(catalogue, setOf("first_book", "first_completion")),
+                    title = ListenerTitle.PAGE_TRAVELLER,
+                    showcase = listOf("first_completion"),
+                    onBackClick = {},
+                    onTogglePin = {},
+                    progress = fixtureProgress,
+                    totalAwards = fixtureTotalAwards,
+                    week = fixtureWeek
+                )
+            }
+        }
+
+        composeTestRule.onRoot().captureRoboImage("src/test/snapshots/achievements_ink.png")
     }
 }

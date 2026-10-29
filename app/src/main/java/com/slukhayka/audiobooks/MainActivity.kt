@@ -616,6 +616,9 @@ fun AudiobookApp(
     val achievementsBoard by viewModel.achievementsBoard.collectAsState()
     val listenerTitle by viewModel.listenerTitle.collectAsState()
     val achievementShowcase by viewModel.achievementShowcase.collectAsState()
+    // F18 — the hero's ring inputs and the current-week strip.
+    val achievementProgress by viewModel.achievementProgress.collectAsState()
+    val achievementWeek by viewModel.achievementWeek.collectAsState()
     // #705 (T7) — the showcase's public life: whether it is published, whether
     // there is a profile for it, and the pending consent.
     val showcasePublished by viewModel.showcasePublished.collectAsState()
@@ -1405,7 +1408,12 @@ fun AudiobookApp(
                             showcasePublished = showcasePublished,
                             showcasePublishable = showcasePublishable,
                             onPublishShowcase = { viewModel.requestPublishShowcase() },
-                            onWithdrawShowcase = { viewModel.withdrawShowcase() }
+                            onWithdrawShowcase = { viewModel.withdrawShowcase() },
+                            // F18 — the hero ring and the registry statuses read
+                            // the same snapshot the evaluator does; the strip reads
+                            // the same day sequence the rhythm awards read.
+                            progress = achievementProgress,
+                            week = achievementWeek
                         )
                         appLocaleOpen -> AppLocaleScreen(
                             localePrefs = App.instance.appLocalePrefs,

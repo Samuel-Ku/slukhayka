@@ -93,6 +93,57 @@ object ListeningRhythm {
     fun listeningDays(days: List<Day>): Int = qualifying(days).size
 
     /**
+     * F18 — one stored row as a [Day], or null when its date cannot be read.
+     *
+     * The parse lives HERE, next to the shape it produces, because two readers
+     * now need the same answer: the regularity awards (which own the metrics)
+     * and the «Досягнення» screen's current-week strip (which only visualises
+     * them). A second parser would let the strip light up a day the awards do
+     * not count, so the honesty bar is shared instead of copied.
+     */
+    fun of(dateIso: String, verifiedMillis: Long): Day? =
+        runCatching { LocalDate.parse(dateIso) }.getOrNull()?.let { Day(it, verifiedMillis) }
+
+    /**
+     * F18 — the listener's CURRENT calendar week, Monday first: seven flags,
+     * one per day, in the order the screen draws them.
+     *
+     * [today] is passed in rather than read from a clock: the week is a pure
+     * question about a date and a list, so it can be pinned by a test. Days
+     * after [today] are always false — a row dated in the future (a wrong
+     * device clock once) is not evidence of listening that has not happened.
+     * The qualifying bar is the same [DAY_MILLIS] every regularity award reads.
+     */
+    fun weekFlags(days: List<Day>, today: LocalDate): List<Boolean> {
+        val dates = qualifying(days).map { it.date }.toSet()
+        val monday = today.minusDays((today.dayOfWeek.value - 1).toLong())
+        return (0L..6L).map { offset ->
+            val date = monday.plusDays(offset)
+            date in dates && !date.isAfter(today)
+        }
+    }
+
+    /**
+     * F18 — the run of adjacent qualifying days that is STILL ALIVE at [today].
+     *
+     * A listener who has not started today yet has not lost their run: the
+     * streak counts back from [today] when today carries listening, otherwise
+     * from yesterday. Two silent days in a row end it, and a missing date
+     * always ends it — the same adjacency rule [longestStreak] uses.
+     */
+    fun currentStreak(days: List<Day>, today: LocalDate): Int {
+        val dates = qualifying(days).map { it.date }.toSet()
+        var cursor = if (today in dates) today else today.minusDays(1)
+        if (cursor !in dates) return 0
+        var run = 0
+        while (cursor in dates) {
+            run++
+            cursor = cursor.minusDays(1)
+        }
+        return run
+    }
+
+    /**
      * The days that count, each date ONCE.
      *
      * The one-row-per-day invariant belongs here rather than in one caller:

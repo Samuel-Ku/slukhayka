@@ -364,6 +364,38 @@
     <string name="achievements_empty_title">Nie ma jeszcze nagród</string>
     <string name="achievements_tier">Tytuł: %1$s</string>
     <string name="achievements_upcoming">Przed nami</string>
+    <!-- F18 — panel bohatera, statusy rejestru i pasek bieżącego tygodnia. -->
+    <string name="achievements_status_earned">Zdobyte</string>
+    <string name="achievements_progress_count">%1$d z %2$d</string>
+    <plurals name="achievements_progress_hours">
+        <item quantity="one">%1$d z %2$d godz.</item>
+        <item quantity="few">%1$d z %2$d godz.</item>
+        <item quantity="many">%1$d z %2$d godz.</item>
+        <item quantity="other">%1$d z %2$d godz.</item>
+    </plurals>
+    <plurals name="achievements_hero_caption">
+        <item quantity="one">z %1$d odznaki</item>
+        <item quantity="few">z %1$d odznak</item>
+        <item quantity="many">z %1$d odznak</item>
+        <item quantity="other">z %1$d odznaki</item>
+    </plurals>
+    <string name="achievements_streak_title">Seria dni</string>
+    <plurals name="achievements_streak_run">
+        <item quantity="one">%1$d dzień z rzędu</item>
+        <item quantity="few">%1$d dni z rzędu</item>
+        <item quantity="many">%1$d dni z rzędu</item>
+        <item quantity="other">%1$d dnia z rzędu</item>
+    </plurals>
+    <string name="achievements_ring_a11y">%1$d%% — zdobyto %2$d z %3$d</string>
+    <string name="achievements_weekday_1">Pn</string>
+    <string name="achievements_weekday_2">Wt</string>
+    <string name="achievements_weekday_3">Śr</string>
+    <string name="achievements_weekday_4">Cz</string>
+    <string name="achievements_weekday_5">Pt</string>
+    <string name="achievements_weekday_6">So</string>
+    <string name="achievements_weekday_7">Nd</string>
+    <string name="achievements_day_listened">słuchano</string>
+    <string name="achievements_day_today">dziś</string>
     <string name="book_detail_abandon">Porzuć książkę</string>
     <string name="book_detail_abandon_cancel">Nie porzucaj książki</string>
     <string name="book_detail_abandon_state_on">Książka oznaczona jako porzucona</string>

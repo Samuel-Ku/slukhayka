@@ -10,6 +10,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -98,12 +100,15 @@ class PlayerScrubCommitTest {
 
     /*
      * The pre-drag player position is 320 s of a 660 s chapter: the chapter row
-     * renders "05:20", the book row renders "15:20". A drag that follows the
-     * finger must move the chapter time away from 05:20 while the book time is
-     * untouched.
+     * renders "05:20". F7 (аудит 2026-10-28) removed the VISIBLE book-time row,
+     * so the book's "15:20" now lives only in the read-only ruler's
+     * TalkBack stateDescription ("15:20 із 33:00"). A drag that follows the
+     * finger must move the chapter time away from 05:20 while the book time
+     * stays untouched.
      */
     private val playerChapterTime = "05:20"
     private val bookTime = "15:20"
+    private val bookTimeDescription = "15:20 із 33:00"
 
     @Test
     fun dragThatIsStillDownPreviewsTheFingerTimeAndSeeksNothing() {
@@ -122,7 +127,15 @@ class PlayerScrubCommitTest {
             seeks.isEmpty()
         )
         composeTestRule.onNodeWithText(playerChapterTime, useUnmergedTree = true).assertDoesNotExist()
-        composeTestRule.onNodeWithText(bookTime, useUnmergedTree = true).assertExists()
+        // F7 — the visible book row is gone on purpose; the honest contract is
+        // that TalkBack still reads the book position, untouched by the drag.
+        composeTestRule.onNodeWithTag("book_progress_line", useUnmergedTree = true)
+            .assert(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.StateDescription,
+                    bookTimeDescription
+                )
+            )
     }
 
     @Test

@@ -122,11 +122,14 @@ class SearchResultsContentTest {
         compose.waitForIdle()
 
         assertEquals(1, compose.onAllNodesWithText("Нічого не знайдено").fetchSemanticsNodes().size)
-        // Both honest section headers remain, but the live status is folded
-        // into the single empty state instead of stacking a second message.
-        compose.onNodeWithTag("search_library_header").assertExists()
-        compose.onNodeWithTag("search_sources_header").assertExists()
+        // F33: ONE statement, not six blocks — no counted «(0)» headers, no
+        // live status, and no placeholder glyph in the empty state.
+        compose.onNodeWithTag("search_library_header").assertDoesNotExist()
+        compose.onNodeWithTag("search_sources_header").assertDoesNotExist()
         compose.onNodeWithTag("global_search_status").assertDoesNotExist()
+        compose.onNodeWithTag("search_no_results").assertExists()
+        compose.onNodeWithTag("empty_state_icon", useUnmergedTree = true)
+            .assertDoesNotExist()
     }
 
     @Test

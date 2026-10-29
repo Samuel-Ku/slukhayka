@@ -106,4 +106,35 @@
          no EN twin, so the English run fell back to Ukrainian. -->
     <string name="download_manager_empty_title">No downloads</string>
     <string name="download_manager_empty_body">When you download a book from its page, it will appear here with its status, size and controls.</string>
+
+    <!-- #1551 — the crash-consent copy had no EN twin, so the English run fell
+         back to Ukrainian (ADR-0033). -->
+    <string name="crash_reporting_prompt_title">Help make Slukhayka more stable</string>
+    <string name="crash_reporting_prompt_body">I build Slukhayka on my own. If you would like to help me make the app more stable, allow anonymous technical crash reports. They contain no book titles, source addresses or listening history. You can change this decision in Settings at any time.</string>
+    <string name="crash_reporting_allow">Send reports</string>
+    <string name="crash_reporting_deny">Don’t send</string>
+    <string name="crash_reporting_section_title">Crash reports</string>
+    <string name="crash_reporting_switch_title">Send crash reports</string>
+    <string name="crash_reporting_switch_description">Anonymous technical reports without book titles, source addresses or listening history.</string>
+
+    <!-- #1551 — the download manager's queue, status and confirmation copy;
+         before this the whole manager spoke Ukrainian on an English phone. -->
+    <string name="download_manager_queue_heading">Download queue</string>
+    <string name="download_manager_status_queued">Queued</string>
+    <string name="download_manager_status_downloading">Downloading</string>
+    <string name="download_manager_status_paused">Paused</string>
+    <string name="download_manager_status_done">Done</string>
+    <string name="download_manager_status_error">Error: source update needed</string>
+    <string name="download_manager_pause">Pause</string>
+    <string name="download_manager_continue">Continue</string>
+    <string name="download_manager_remove">Remove</string>
+    <string name="download_manager_cancel">Cancel</string>
+    <string name="download_manager_cancel_description">Cancel the download. Downloaded files stay on the device.</string>
+    <string name="download_manager_delete_files">Delete files</string>
+    <string name="download_manager_delete_title">Delete downloaded files?</string>
+    <string name="download_manager_keep">Don’t delete</string>
+    <string name="download_manager_remove_completed">Remove completed</string>
+    <string name="download_manager_remove_title">Remove the download?</string>
+    <string name="download_manager_remove_message">Downloaded files for “%1$s” will be deleted from the device. This can’t be undone.</string>
+    <string name="download_manager_remove_completed_title">Remove completed downloads?</string>
 </resources>

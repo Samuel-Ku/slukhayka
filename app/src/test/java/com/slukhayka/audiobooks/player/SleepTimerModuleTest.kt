@@ -58,6 +58,7 @@ class SleepTimerModuleTest {
         val notices = mutableListOf<SleepTimerNotice>()
         val bookmarks = mutableListOf<SleepTimerStopContext>()
         val stops = mutableListOf<SleepTimerStopContext>()
+        val events = mutableListOf<String>()
         var pauses: Int = 0
         var arms: Int = 0
         var context = SleepTimerStopContext(
@@ -70,22 +71,37 @@ class SleepTimerModuleTest {
 
         override fun onState(snapshot: SleepTimerSnapshot) {
             states += snapshot
+            events += "state"
         }
 
-        override fun setVolume(volume: Float) {
+        override fun setFadeVolume(volume: Float) {
             volumes += volume
+            events += "fade:$volume"
+        }
+
+        override fun restoreVolume() {
+            volumes += 1.0f
+            events += "restore"
+        }
+
+        override fun restoreVolumeAfterFinish() {
+            volumes += 1.0f
+            events += "finish-restore"
         }
 
         override fun pause() {
             pauses++
+            events += "pause"
         }
 
         override fun writeAutoBookmark(context: SleepTimerStopContext) {
             bookmarks += context
+            events += "bookmark"
         }
 
         override fun recordTimerStop(context: SleepTimerStopContext) {
             stops += context
+            events += "stop-event"
         }
 
         override fun emitNotice(notice: SleepTimerNotice) {
@@ -173,12 +189,26 @@ class SleepTimerModuleTest {
         assertFalse("extending leaves the fade window for now", shake.started)
     }
 
+    @Test
+    fun `arming another timer retires an already armed shake`() {
+        module.start(5)
+        ticker.tick(15)
+        assertTrue(shake.started)
+
+        module.start(10)
+
+        assertFalse("a stale fade/shake must not survive a new arm", shake.started)
+        assertEquals(10 * 60_000L, ticker.totalMs)
+        assertEquals(SleepTimerSnapshot(minutes = 10, remainingSeconds = 600), module.snapshot)
+    }
+
     // --- finish ------------------------------------------------------------
 
     @Test
     fun `finish writes the auto-bookmark, pauses, records TIMER_STOP and restores volume`() {
         module.start(5)
         ticker.tick(300)
+        effects.events.clear()
 
         ticker.finish()
 
@@ -188,6 +218,12 @@ class SleepTimerModuleTest {
         assertEquals(1.0f, effects.volumes.last())
         assertEquals(SleepTimerSnapshot(), module.snapshot)
         assertFalse(shake.started)
+        // The finish ORDER is the contract too: the bookmark names the moment,
+        // then the pause, then the discrete TIMER_STOP, then volume and state.
+        assertEquals(
+            listOf("bookmark", "pause", "stop-event", "finish-restore", "state"),
+            effects.events
+        )
     }
 
     @Test

@@ -2,28 +2,12 @@ package com.slukhayka.audiobooks.player
 
 import android.content.Context
 import android.os.CountDownTimer
+
 /**
- * Spec-22 T5 — «Таймер сну» as ONE deep module.
- *
- * Before this seam the countdown, its fade curve, the shake-to-extend
- * listening, the end-of-chapter re-arm and the three finish effects
- * (auto-bookmark, pause, TIMER_STOP event) all lived inside
- * [AudioPlayerManager] as loose fields and one `CountDownTimer` object. The
- * manager now only starts, stops and extends the timer; every timer-caused
- * effect lives behind [SleepTimerModule].
- *
- * The module owns the countdown state and emits it synchronously through
- * [SleepTimerEffects.onState], so the manager mirrors it into `PlayerState`
- * exactly when the tick happens (no coroutine hop, no test race).
- *
- * Injected adapters keep the seam honest:
- *
- *  - [SleepTicker] — production is the 1-second [CountDownSleepTicker];
- *    contract tests drive ticks manually;
- *  - [ShakeSource] — production is [ShakeDetectorSource] (accelerometer);
- *    tests fake it;
- *  - [SleepTimerEffects] — the manager's ports for volume, pause, auto-
- *    bookmark, TIMER_STOP event, notices and the end-of-chapter arm callback.
+ * Spec-22 T5: sleep-timer fade volume for a given remaining-second count.
+ * Linear 1.0→0.0 over the last 30 s; outside the fade window volume is
+ * untouched (1.0). Extracted as a pure function so the boundary math is
+ * unit-testable.
  */
 internal fun sleepTimerFadeVolume(remainingSec: Int): Float =
     if (remainingSec in 1..30) remainingSec / 30f else 1.0f
@@ -33,9 +17,7 @@ internal data class SleepTimerSnapshot(
     val minutes: Int = 0,
     val remainingSeconds: Int = 0,
     val isEndOfChapter: Boolean = false
-) {
-    val isActive: Boolean get() = minutes != 0
-}
+)
 
 /** Everything a finishing timer needs to name the moment it stopped. */
 internal data class SleepTimerStopContext(
@@ -61,7 +43,14 @@ internal interface ShakeSource {
 /** Effects the timer causes in the player; the manager implements them. */
 internal interface SleepTimerEffects {
     fun onState(snapshot: SleepTimerSnapshot)
-    fun setVolume(volume: Float)
+    /** Fade applied inside the countdown window (cast-aware, like before). */
+    fun setFadeVolume(volume: Float)
+
+    /** Volume restore outside the fade window (local engine only, like before). */
+    fun restoreVolume()
+
+    /** Finish-time restore (cast-aware, exactly as the old onFinish did). */
+    fun restoreVolumeAfterFinish()
     fun pause()
     fun writeAutoBookmark(context: SleepTimerStopContext)
     fun recordTimerStop(context: SleepTimerStopContext)
@@ -114,13 +103,27 @@ internal class ShakeDetectorSource(context: Context) : ShakeSource {
 }
 
 /**
- * The countdown and every timer-caused effect.
+ * Spec-22 T5 — «Таймер сну» as ONE deep module.
  *
- * Modes: `0` cancels, `-1` stops exactly at the current chapter's boundary
- * (re-armed on manual chapter switches), positive minutes fade the volume
- * 1.0→0.0 over the last 30 s and stop the player at zero. During the fade a
- * shake restores volume and extends by +15 min. Behaviour is unchanged from
- * the pre-#1573 manager implementation — only the owner moved behind a seam.
+ * Before this seam the countdown, its fade curve, the shake-to-extend
+ * listening, the end-of-chapter re-arm and the three finish effects
+ * (auto-bookmark, pause, TIMER_STOP event) all lived inside
+ * [AudioPlayerManager] as loose fields and one `CountDownTimer` object. The
+ * manager now only starts, stops and extends the timer; every timer-caused
+ * effect lives behind [SleepTimerModule].
+ *
+ * The module owns the countdown state and emits it synchronously through
+ * [SleepTimerEffects.onState], so the manager mirrors it into `PlayerState`
+ * exactly when the tick happens (no coroutine hop, no test race).
+ *
+ * Injected adapters keep the seam honest:
+ *
+ *  - [SleepTicker] — production is the 1-second [CountDownSleepTicker];
+ *    contract tests drive ticks manually;
+ *  - [ShakeSource] — production is [ShakeDetectorSource] (accelerometer);
+ *    tests fake it;
+ *  - [SleepTimerEffects] — the manager's ports for volume, pause, auto-
+ *    bookmark, TIMER_STOP event, notices and the end-of-chapter arm callback.
  */
 internal class SleepTimerModule(
     private val ticker: SleepTicker,
@@ -135,6 +138,10 @@ internal class SleepTimerModule(
     /** Arms a plain minutes timer. */
     fun start(minutes: Int) {
         require(minutes > 0) { "a timed sleep timer needs positive minutes" }
+        // The old setSleepTimer cancelled whatever ran before arming; a stale
+        // fade/shake must never survive into the new timer.
+        ticker.cancel()
+        shakeSource.stop()
         apply(SleepTimerSnapshot(minutes = minutes, remainingSeconds = minutes * 60))
         startTicker(minutes * 60_000L)
     }
@@ -146,6 +153,8 @@ internal class SleepTimerModule(
      *   manager clamps it to at least one second before calling)
      */
     fun startEndOfChapter(remainingMs: Long) {
+        ticker.cancel()
+        shakeSource.stop()
         apply(
             SleepTimerSnapshot(
                 minutes = -1,
@@ -166,11 +175,21 @@ internal class SleepTimerModule(
         fadeWarningEmitted = false
     }
 
-    /** Cancels and forgets the timer — used when a new book is loaded. */
-    fun clear() {
+    /**
+     * Cancels and forgets the timer WITHOUT touching the volume — the
+     * stopAndClear contract: the old code nulled its CountDownTimer and waited
+     * for the state reset, and a later extend could not re-arm a stale
+     * remainder.
+     */
+    fun reset() {
         cancel()
         apply(SleepTimerSnapshot())
-        effects.setVolume(1.0f)
+    }
+
+    /** Cancels, forgets the timer and restores volume — used on a new load. */
+    fun clear() {
+        reset()
+        effects.restoreVolume()
     }
 
     /**
@@ -185,7 +204,7 @@ internal class SleepTimerModule(
         if (currentRemaining <= 0) return 0
         ticker.cancel()
         shakeSource.stop()
-        effects.setVolume(1.0f)
+        effects.restoreVolume()
         val extended = currentRemaining + 15 * 60
         apply(
             SleepTimerSnapshot(
@@ -232,7 +251,7 @@ internal class SleepTimerModule(
                 fadeWarningEmitted = true
                 effects.emitNotice(SleepTimerNotice.FadeWarning)
             }
-            effects.setVolume(volume)
+            effects.setFadeVolume(volume)
             shakeSource.start { extendBy15Minutes() }
         } else {
             shakeSource.stop()
@@ -245,7 +264,7 @@ internal class SleepTimerModule(
         effects.writeAutoBookmark(context)
         effects.pause()
         effects.recordTimerStop(context)
-        effects.setVolume(1.0f)
+        effects.restoreVolumeAfterFinish()
         apply(SleepTimerSnapshot())
     }
 

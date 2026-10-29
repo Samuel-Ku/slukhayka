@@ -1490,7 +1490,7 @@ class AudioPlayerManager(
     private fun stopEngineForUnavailableBook(book: AudiobookEntity) {
         stopActualListening()
         prepareRequestId++
-        sleepTimerModule.cancel()
+        sleepTimerModule.reset()
         prepareTimeoutJob?.cancel()
         mediaPlayer?.let { mp ->
             try {
@@ -2373,12 +2373,29 @@ class AudioPlayerManager(
             )
         }
 
-        override fun setVolume(volume: Float) {
+        override fun setFadeVolume(volume: Float) {
+            // The fade tick was cast-aware before #1573 and stays cast-aware.
             val hook = castEngineHook?.takeIf { it.isActive }
             if (hook != null) {
                 try { hook.setVolume(volume) } catch (_: Exception) {}
             } else {
                 try { mediaPlayer?.volume = volume } catch (_: Exception) {}
+            }
+        }
+
+        override fun restoreVolume() {
+            // Cancel/extend reset only the LOCAL engine, exactly as the old
+            // `try { mediaPlayer?.volume = 1.0f }` did; a cast session is not
+            // re-volumed by those paths.
+            try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+        }
+
+        override fun restoreVolumeAfterFinish() {
+            val hook = castEngineHook?.takeIf { it.isActive }
+            if (hook != null) {
+                try { hook.setVolume(1.0f) } catch (_: Exception) {}
+            } else {
+                try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
             }
         }
 

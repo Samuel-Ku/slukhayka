@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -17,6 +18,7 @@ import androidx.compose.ui.test.performTouchInput
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.player.PlayerState
+import com.slukhayka.audiobooks.player.SeekSession
 import com.slukhayka.audiobooks.ui.screens.PlayerProgressUi
 import com.slukhayka.audiobooks.ui.screens.PlayerScreenContent
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
@@ -124,6 +126,48 @@ class PlayerScrubCommitTest {
     }
 
     @Test
+    fun fingerDownPreviewUsesTheExactDurationTheReleaseCommitsAgainst() {
+        // 660_999 ms is 660 whole seconds plus 999 ms: the duration label still
+        // reads 11:00, but a seek at a fraction of it lands on a millisecond the
+        // old preview — which mapped against the whole seconds (660_000 ms) —
+        // could place a second earlier. The preview must use the same exact
+        // duration the release commits against.
+        val exactDurationMs = 660_999L
+        val seeks = mutableListOf<Float>()
+        setPlayerContent(
+            playerState = state.copy(durationMs = exactDurationMs),
+            progressUi = progress,
+            onSeek = { seeks += it }
+        )
+
+        composeTestRule.onNodeWithTag("player_progress_slider").performTouchInput {
+            down(center)
+            moveBy(Offset(width * 0.2f, 0f))
+            moveBy(Offset(width * 0.2f, 0f))
+        }
+        composeTestRule.waitForIdle()
+
+        // Read the fraction the finger is at from the slider itself, then demand
+        // that the rendered time is what the commit would land on.
+        val fingerFraction = composeTestRule.onNodeWithTag("player_progress_slider")
+            .fetchSemanticsNode()
+            .config[SemanticsProperties.ProgressBarRangeInfo]
+            .current
+        val expectedSeconds = SeekSession.previewSeconds(fingerFraction, exactDurationMs)
+        composeTestRule.onNodeWithText(
+            MainViewModel.formatTime(expectedSeconds),
+            useUnmergedTree = true
+        ).assertExists(
+            "finger fraction $fingerFraction of $exactDurationMs ms must preview " +
+                MainViewModel.formatTime(expectedSeconds)
+        )
+        assertTrue(
+            "a finger-down preview must not seek; got seeks=$seeks",
+            seeks.isEmpty()
+        )
+    }
+
+    @Test
     fun chapterSliderDragCommitsExactlyOneSeekOnRelease() {
         val seeks = mutableListOf<Float>()
         setPlayerContent(onSeek = { seeks += it })
@@ -208,13 +252,20 @@ class PlayerScrubCommitTest {
     }
 
     private fun setPlayerContent(
+        playerState: PlayerState = state,
+        progressUi: PlayerProgressUi = progress,
         onSeek: (Float) -> Unit = {},
         onBookSeek: (Float) -> Unit = {}
     ) {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 Surface(color = MaterialTheme.colorScheme.background) {
-                    PlayerContent(onSeek = onSeek, onBookSeek = onBookSeek)
+                    PlayerContent(
+                        playerState = playerState,
+                        progressUi = progressUi,
+                        onSeek = onSeek,
+                        onBookSeek = onBookSeek
+                    )
                 }
             }
         }
@@ -222,15 +273,17 @@ class PlayerScrubCommitTest {
 
     @Composable
     private fun PlayerContent(
+        playerState: PlayerState = state,
+        progressUi: PlayerProgressUi = progress,
         onSeek: (Float) -> Unit = {},
         onBookSeek: (Float) -> Unit = {}
     ) {
         Box(Modifier.fillMaxSize()) {
             PlayerScreenContent(
-                playerState = state,
+                playerState = playerState,
                 book = book,
                 currentChapterTitle = chapters[1].title,
-                progress = progress,
+                progress = progressUi,
                 artworkAccent = Color(0xFF355D67),
                 onArtworkLoaded = {},
                 onDismiss = {},

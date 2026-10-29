@@ -949,7 +949,7 @@ private fun PlayerScreenContentBody(
                                         DualProgress(
                                             progress = progress,
                                             chapterPositionSeconds = playerState.currentPositionMs / 1000L,
-                                            chapterDurationSeconds = playerState.durationMs / 1000L,
+                                            chapterDurationMs = playerState.durationMs,
                                             onSeek = onSeek,
                                             onBookSeek = onBookSeek,
                                             bookmarkTarget = lastBookmarkTarget,
@@ -1158,7 +1158,7 @@ private fun PlayerScreenContentBody(
                 DualProgress(
                     progress = progress,
                     chapterPositionSeconds = playerState.currentPositionMs / 1000L,
-                    chapterDurationSeconds = playerState.durationMs / 1000L,
+                    chapterDurationMs = playerState.durationMs,
                     onSeek = onSeek,
                     onBookSeek = onBookSeek,
                     bookmarkTarget = lastBookmarkTarget,
@@ -1501,7 +1501,7 @@ private fun PlayerTopBar(
 private fun DualProgress(
     progress: PlayerProgressUi,
     chapterPositionSeconds: Long,
-    chapterDurationSeconds: Long,
+    chapterDurationMs: Long,
     onSeek: (Float) -> Unit,
     // Kept in the signature for the wide-pane contract and callers; the book
     // line is READ-ONLY in the reference design (one seek: the chapter).
@@ -1511,6 +1511,13 @@ private fun DualProgress(
     onJumpToBookmark: (BookmarkEntity) -> Unit = {},
     onShowAllBookmarks: () -> Unit = {}
 ) {
+    // #1571 — the display and the seek read the SAME exact duration: the
+    // label's whole seconds are derived from it and the drag preview maps
+    // against it, so the release lands on the second the label shows. Truncating
+    // to seconds first (the old shape) made the preview and the commit disagree
+    // by a second for durations that are not a whole number of seconds.
+    val chapterDurationSeconds = chapterDurationMs / 1_000L
+
     // #1571 — the scrub session. While a finger is down the slider follows it
     // and the chapter time is rendered from the local fraction; the player (and
     // the progress write that follows every seek) hears only the release, as
@@ -1552,7 +1559,7 @@ private fun DualProgress(
     }
 
     val previewSeconds = previewFraction?.let {
-        SeekSession.previewSeconds(it, chapterDurationSeconds * 1_000L)
+        SeekSession.previewSeconds(it, chapterDurationMs)
     }
     val shownChapterPositionSeconds = previewSeconds ?: chapterPositionSeconds
     val shownChapterFraction = previewFraction ?: progress.chapterFraction

@@ -6,9 +6,13 @@ package com.slukhayka.audiobooks.player
  * While a finger is down the chapter slider follows it and the chapter time is
  * rendered from the local fraction; the player (and the progress write that
  * follows every `seekTo`) hears only the release, as ONE seek. This module owns
- * the fraction → position mapping so the preview and the commit can never
- * disagree: the preview's seconds are exactly the committed milliseconds
- * truncated to the second.
+ * the fraction → position mapping: the label asks [previewSeconds], the release
+ * commits [commitPositionMs], and both are fed the SAME exact
+ * `playerState.durationMs` — the screen derives the displayed whole seconds from
+ * it and hands it to both sides. Because the preview is the commit truncated to
+ * the second, the time under the finger is the second the seek lands in; feeding
+ * a duration already truncated to seconds on one side would let the two answers
+ * differ by a second for durations that are not a whole number of seconds.
  *
  * The player on `main` has ONE adjustable control — the chapter seek. The
  * #1490 «Папір і голос» refresh made the book ruler read-only: «у плеєрі ОДИН
@@ -34,7 +38,10 @@ object SeekSession {
             .coerceIn(0L, chapterDurationMs)
     }
 
-    /** The value the time label shows while the finger is down, in seconds. */
+    /**
+     * The value the time label shows while the finger is down, in seconds: the
+     * same position [commitPositionMs] returns, truncated to the second.
+     */
     fun previewSeconds(fraction: Float, chapterDurationMs: Long): Long =
         commitPositionMs(fraction, chapterDurationMs) / 1_000L
 }

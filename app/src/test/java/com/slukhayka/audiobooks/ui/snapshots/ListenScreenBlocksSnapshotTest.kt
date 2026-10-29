@@ -15,12 +15,14 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkSectionHeader
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.library.ListenComposer
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
+import com.slukhayka.audiobooks.ui.screens.ListenBlockHeading
 import com.slukhayka.audiobooks.ui.screens.ListenBlockShelf
 import com.slukhayka.audiobooks.ui.screens.ListenShelvesSheetContent
 import com.slukhayka.audiobooks.ui.screens.ListenEmptyState
@@ -31,6 +33,7 @@ import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -420,6 +423,35 @@ class ListenScreenBlocksSnapshotTest {
             filePath = "src/test/snapshots/listen_shelves_sheet.png"
         )
     }
+    // Issue #1615: on the device the shelf heading rendered at x=0 while the
+    // hero panel and the shelf contentPadding sat on 16 dp. The heading is the
+    // production composable, not a copy: the assertion fails if the inset
+    // disappears, and the golden pins what 16 dp looks like on paper.
+    @Test
+    fun listen_block_heading_has_page_inset() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                ListenSurface {
+                    PaperInkTheme(darkTheme = true) {
+                        ListenBlockHeading(
+                            title = "Нещодавно додані",
+                            subtitle = "Додано цього тижня",
+                            testTag = "listen_block_heading_RECENTLY_ADDED"
+                        )
+                    }
+                }
+            }
+        }
+        val expectedLeft = with(composeTestRule.density) { 16.dp.toPx() }
+        val bounds = composeTestRule
+            .onNodeWithTag("listen_block_heading_RECENTLY_ADDED")
+            .fetchSemanticsNode()
+            .boundsInRoot
+        assertEquals(expectedLeft, bounds.left, 1f)
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/listen_block_heading.png"
+        )
+    }
 }
 
 /** Same chrome as the other snapshot suites: scheme background, full size. */
@@ -428,4 +460,5 @@ private fun ListenSurface(content: @Composable () -> Unit) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.fillMaxSize()) { content() }
     }
+
 }

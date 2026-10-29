@@ -189,10 +189,10 @@ fun ListenScreen(
                 else -> {
                     if (block.books.isEmpty()) continue
                     item(key = "block-${block.id.name}") {
-                        PaperInkSectionHeader(
+                        ListenBlockHeading(
                             title = block.title,
                             subtitle = block.reason,
-                            modifier = Modifier.testTag("listen_block_heading_${block.id.name}")
+                            testTag = "listen_block_heading_${block.id.name}"
                         )
                     }
                     item(key = "block-${block.id.name}-shelf") {
@@ -752,6 +752,35 @@ fun RecentlyListenedRow(
  * Fresh-install state: a placeholder hero card ("your current book will appear
  * here") plus two CTAs — browse the catalogue or import your own files.
  */
+/**
+ * The tab's page inset. The hero panel, the shelf `contentPadding` and the
+ * «Керувати полицями» door all sit on it; a block heading that starts at x=0
+ * is the device regression this seam pins (issue #1615).
+ */
+private val ListenPageInset = 16.dp
+
+/**
+ * One shelf heading: the canonical [PaperInkSectionHeader] with [ListenPageInset]
+ * applied. The header component deliberately carries no horizontal padding of
+ * its own (a shelf owns its inset through `contentPadding`), so the heading
+ * takes it here, next to the shelf it heads — and the snapshot test captures
+ * THIS composable, not a hand-built copy of it.
+ */
+@Composable
+internal fun ListenBlockHeading(
+    title: String,
+    subtitle: String?,
+    testTag: String,
+) {
+    PaperInkSectionHeader(
+        title = title,
+        subtitle = subtitle,
+        modifier = Modifier
+            .padding(horizontal = ListenPageInset)
+            .testTag(testTag),
+    )
+}
+
 @Composable
 fun ListenEmptyState(
     onBrowseClick: () -> Unit,

@@ -1,9 +1,11 @@
 package com.slukhayka.audiobooks.data.achievements
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.retryWhen
@@ -33,8 +35,18 @@ class AchievementEngine(
      *
      * Exposed so the achievements screen can derive the TITLE without reaching
      * into the engine's internals or re-reading the database itself.
+     *
+     * #1572 — the UI collects this flow from the MAIN dispatcher
+     * (`MainViewModel.listenerTitle` is a `stateIn(viewModelScope)`), while the
+     * progress chain behind it re-matches the whole own library on every Room
+     * invalidation and compiles a `Regex` per title. The `flowOn` at this
+     * boundary moves that transform to [Dispatchers.Default]: the collector only
+     * receives the finished snapshot, so no UI collector can run the matching on
+     * the main thread. #1570 measured the 1.5–1.8 s main-thread blocks this
+     * removes; the engine's own background watcher ([start]) and [evaluate] keep
+     * whatever dispatcher their caller owns.
      */
-    val snapshot get() = progress.observe().distinctUntilChanged()
+    val snapshot get() = progress.observe().distinctUntilChanged().flowOn(Dispatchers.Default)
     fun start(scope: CoroutineScope): Job = progress.observe().distinctUntilChanged()
         .onEach { snapshot ->
             if (backfilled) {

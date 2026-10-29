@@ -1,9 +1,13 @@
 package com.slukhayka.audiobooks.data.achievements
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceTimeBy
@@ -12,6 +16,9 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import java.util.Collections
+import java.util.concurrent.Executors
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -117,6 +124,47 @@ class AchievementEngineTest {
         assertNull(first.takeNotice())
         assertNull(AchievementEngine(source, store) { 300L }.takeNotice())
         assertEquals(listOf(EarnedAchievement("first_book", 100L, 200L)), store.earned())
+    }
+
+    /**
+     * #1572 — the UI collects [AchievementEngine.snapshot] from the main
+     * dispatcher (`MainViewModel.listenerTitle` is a `stateIn(viewModelScope)`),
+     * while the progress chain re-matches the whole own library on every Room
+     * invalidation. #1570 measured 1.5–1.8 s of main-thread work per emission,
+     * so this pin is about WHERE the transform runs, not what it returns: the
+     * upstream flow must execute somewhere other than the collecting dispatcher.
+     *
+     * The collecting dispatcher is a real single thread named after the test, so
+     * the assertion fails if the transform leaks onto it (the pre-#1572 code ran
+     * the whole chain in the collector's context).
+     */
+    @Test fun `the progress transform never runs on the collecting main dispatcher`() {
+        val mainExecutor = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "t1572-test-main")
+        }
+        val mainDispatcher = mainExecutor.asCoroutineDispatcher()
+        Dispatchers.setMain(mainDispatcher)
+        try {
+            val threads = Collections.synchronizedList(mutableListOf<String>())
+            val source = AchievementProgressSource {
+                flow {
+                    threads += Thread.currentThread().name
+                    emit(AchievementProgress(explicitBooks = 1))
+                }
+            }
+            val engine = AchievementEngine(source, MemoryAchievementStore()) { 0L }
+            val snapshot = runBlocking {
+                withContext(Dispatchers.Main) { engine.snapshot.first() }
+            }
+            assertEquals(1L, snapshot.explicitBooks)
+            assertTrue(
+                "the whole progress transform ran on the collecting dispatcher: $threads",
+                threads.none { name -> name == "t1572-test-main" }
+            )
+        } finally {
+            Dispatchers.resetMain()
+            mainDispatcher.close()
+        }
     }
 }
 

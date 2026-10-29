@@ -73,104 +73,125 @@ fun PaperInkTabHeader(
     maxTitleLines: Int? = null,
 ) {
     val colorScheme = MaterialTheme.colorScheme
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = if (compact) 56.dp else 104.dp)
             .padding(
                 horizontal = PaperInkDimens.SpacePage,
                 vertical = if (compact) 4.dp else 20.dp,
-            ),
-        verticalAlignment = Alignment.CenterVertically,
+            )
+            .testTag("tab_header_root"),
+        // F25 review: a no-brand header (e.g. the Library section view) has
+        // less content than the 104 dp floor, and a plain Column top-aligns
+        // it — the title then sat 8 dp above the header's centre. Centring the
+        // children keeps that case on the same centre line as the brand case.
+        verticalArrangement = Arrangement.Center,
     ) {
-        if (onBackClick != null) {
-            val backDescription = stringResource(R.string.action_back)
-            Box(
-                modifier = Modifier
-                    .size(PaperInkDimens.TouchTarget)
-                    .clip(CircleShape)
-                    .clickable(onClick = onBackClick)
-                    .testTag("settings_back")
-                    .semantics { contentDescription = backDescription },
-                contentAlignment = Alignment.Center,
+        // F25 (аудит 2026-10-28): the brand line is its OWN row. Before, the
+        // wordmark and the title shared one Column, so the back arrow and the
+        // gear centred on the brand+title BLOCK — 8 dp above the title's
+        // centre. They now centre on the title line, where the prototype puts
+        // them (`.sl-header` brand above, `.sl-header h1` + gear on one line).
+        if (!compact && showBrandMark) {
+            Row(
+                modifier = Modifier.testTag("tab_header_brand"),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 PaperInkIcon(
-                    imageVector = PaperInkIcons.ChevronLeft,
+                    imageVector = PaperInkIcons.Wave,
                     contentDescription = null,
-                    size = PaperInkIconSizes.Chrome,
-                    tint = colorScheme.onSurfaceVariant,
+                    size = 15.dp,
+                    tint = colorScheme.tertiary,
                 )
-            }
-            Spacer(modifier = Modifier.width(4.dp))
-        }
-        Column(
-            modifier = Modifier.weight(1f),
-        ) {
-            if (!compact && showBrandMark) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    PaperInkIcon(
-                        imageVector = PaperInkIcons.Wave,
-                        contentDescription = null,
-                        size = 15.dp,
-                        tint = colorScheme.tertiary,
-                    )
-                    Text(
-                        text = stringResource(R.string.app_name),
-                        style = PaperInkType.TrackingLabel,
-                        color = colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-            // The heading IS this node: its tag, its `heading()` semantics and
-            // its entry focus live on the title Text, so a screen reader and a
-            // test both name/land on the same element at 200 % text.
-            Text(
-                text = title,
-                style = if (compact) PaperInkType.SectionTitle else PaperInkType.ScreenTitle,
-                color = colorScheme.onSurface,
-                maxLines = maxTitleLines ?: if (compact) 1 else 2,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .then(if (headingTestTag != null) Modifier.testTag(headingTestTag) else Modifier)
-                    .then(
-                        if (returnFocusRequester != null) {
-                            Modifier.focusRequester(returnFocusRequester).focusable()
-                        } else {
-                            Modifier
-                        },
-                    )
-                    .semantics { heading() },
-            )
-            if (!compact && subtitle != null) {
                 Text(
-                    text = subtitle,
-                    style = PaperInkType.Meta,
+                    text = stringResource(R.string.app_name),
+                    style = PaperInkType.TrackingLabel,
                     color = colorScheme.onSurfaceVariant,
                 )
             }
         }
-        if (actions != null) actions()
-        if (onSettingsClick != null) {
-        val settingsDescription = stringResource(R.string.a11y_open_settings)
-        Box(
-            modifier = Modifier
-                .size(PaperInkDimens.TouchTarget)
-                .clip(CircleShape)
-                .clickable(onClick = onSettingsClick)
-                .testTag("settings_gear")
-                .semantics { contentDescription = settingsDescription },
-            contentAlignment = Alignment.Center,
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            PaperInkIcon(
-                imageVector = PaperInkIcons.Settings,
-                contentDescription = null,
-                size = PaperInkIconSizes.Chrome,
-                tint = colorScheme.onSurfaceVariant,
-            )
+            if (onBackClick != null) {
+                val backDescription = stringResource(R.string.action_back)
+                Box(
+                    modifier = Modifier
+                        .size(PaperInkDimens.TouchTarget)
+                        .clip(CircleShape)
+                        .clickable(onClick = onBackClick)
+                        .testTag("settings_back")
+                        .semantics { contentDescription = backDescription },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    PaperInkIcon(
+                        imageVector = PaperInkIcons.ChevronLeft,
+                        contentDescription = null,
+                        size = PaperInkIconSizes.Chrome,
+                        tint = colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+            ) {
+                // The heading IS this node: its tag, its `heading()` semantics
+                // and its entry focus live on the title Text, so a screen reader
+                // and a test both name/land on the same element at 200 % text.
+                Text(
+                    text = title,
+                    style = if (compact) PaperInkType.SectionTitle else PaperInkType.ScreenTitle,
+                    color = colorScheme.onSurface,
+                    maxLines = maxTitleLines ?: if (compact) 1 else 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .then(if (headingTestTag != null) Modifier.testTag(headingTestTag) else Modifier)
+                        .then(
+                            if (returnFocusRequester != null) {
+                                Modifier.focusRequester(returnFocusRequester).focusable()
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .semantics { heading() },
+                )
+            }
+            if (actions != null) actions()
+            if (onSettingsClick != null) {
+                val settingsDescription = stringResource(R.string.a11y_open_settings)
+                Box(
+                    modifier = Modifier
+                        .size(PaperInkDimens.TouchTarget)
+                        .clip(CircleShape)
+                        .clickable(onClick = onSettingsClick)
+                        .testTag("settings_gear")
+                        .semantics { contentDescription = settingsDescription },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    PaperInkIcon(
+                        imageVector = PaperInkIcons.Settings,
+                        contentDescription = null,
+                        size = PaperInkIconSizes.Chrome,
+                        tint = colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
         }
+        // The subtitle sits UNDER the title line, not inside the title's
+        // Column: the trailing actions centre on the title line (the Library
+        // root has brand + title + subtitle), so the subtitle must not pull
+        // them down.
+        if (!compact && subtitle != null) {
+            Text(
+                text = subtitle,
+                style = PaperInkType.Meta,
+                color = colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("tab_header_subtitle"),
+            )
         }
     }
 }

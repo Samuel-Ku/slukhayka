@@ -39,7 +39,7 @@ import kotlinx.coroutines.launch
  */
 internal class LibraryCompositionModule(
     private val scope: CoroutineScope,
-    allBooks: Flow<List<AudiobookEntity>>,
+    private val allBooks: Flow<List<AudiobookEntity>>,
     recentProgress: Flow<List<PlaybackProgressEntity>>,
     allChapters: Flow<List<ChapterEntity>>,
     onDeviceBookIds: Flow<Set<String>>,
@@ -97,8 +97,10 @@ internal class LibraryCompositionModule(
     init {
         scope.launch(ioDispatcher) {
             // One read just to learn that the data EXISTS — the flow itself
-            // still drives the list. Flips once, and stays true.
-            composedBooks.first()
+            // still drives the list. Flips once, and stays true. Waits on the
+            // BOOK ROWS only, exactly like the pre-#1575 ViewModel: the flag
+            // means "the library was read", not "all four flows spoke".
+            allBooks.first()
             _isLoaded.value = true
         }
     }

@@ -7,6 +7,8 @@ import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -22,7 +24,8 @@ import org.junit.Test
  *
  * No Room, no ViewModel: the module is handed the very flows the production
  * ViewModel passes, so this pins the two projections (unified list + the
- * availability map by mergeKey) and the #1066 "loaded" contract.
+ * availability map by mergeKey) and the #1066 "loaded" contract — including
+ * the NEGATIVE half: the flag must stay false until the book rows arrive.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class LibraryCompositionModuleTest {
@@ -31,7 +34,8 @@ class LibraryCompositionModuleTest {
         id: String,
         mergeKey: String = id + "|author",
         sourceUrl: String = "https://sluhay.com/$id",
-        isDownloaded: Boolean = false
+        isDownloaded: Boolean = false,
+        totalDurationSeconds: Long = 600L
     ): AudiobookEntity =
         AudiobookEntity(
             id = id,
@@ -43,35 +47,35 @@ class LibraryCompositionModuleTest {
             genre = "",
             sourceUrl = sourceUrl,
             isDownloaded = isDownloaded,
-            totalDurationSeconds = 600L,
+            totalDurationSeconds = totalDurationSeconds,
             totalChapters = 1
         ).apply { this.mergeKey = mergeKey }
 
-    private fun chapter(bookId: String) = ChapterEntity(
+    private fun chapter(bookId: String, durationSeconds: Long = 600L) = ChapterEntity(
         id = "$bookId-0",
         bookId = bookId,
         chapterIndex = 0,
         title = "Розділ 1",
-        durationSeconds = 600L
+        durationSeconds = durationSeconds
     )
 
-    private fun progress(bookId: String) = PlaybackProgressEntity(
+    private fun progress(bookId: String, positionSeconds: Long = 120L) = PlaybackProgressEntity(
         editionId = "edition-$bookId",
         bookId = bookId,
         currentChapterIndex = 0,
-        currentPositionSeconds = 0L,
+        currentPositionSeconds = positionSeconds,
         lastListenedAt = 5L,
         isCompleted = false
     )
 
     private fun module(
         scope: CoroutineScope,
-        books: MutableStateFlow<List<AudiobookEntity>>,
-        progress: MutableStateFlow<List<PlaybackProgressEntity>> = MutableStateFlow(emptyList()),
-        chapters: MutableStateFlow<List<ChapterEntity>> = MutableStateFlow(emptyList()),
-        onDevice: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet()),
-        verdicts: MutableStateFlow<Map<String, AvailabilityVerdict>> = MutableStateFlow(emptyMap()),
-        refused: MutableStateFlow<Set<String>> = MutableStateFlow(emptySet())
+        books: Flow<List<AudiobookEntity>>,
+        progress: Flow<List<PlaybackProgressEntity>> = MutableStateFlow(emptyList()),
+        chapters: Flow<List<ChapterEntity>> = MutableStateFlow(emptyList()),
+        onDevice: Flow<Set<String>> = MutableStateFlow(emptySet()),
+        verdicts: Flow<Map<String, AvailabilityVerdict>> = MutableStateFlow(emptyMap()),
+        refused: Flow<Set<String>> = MutableStateFlow(emptySet())
     ) = LibraryCompositionModule(
         scope = scope,
         allBooks = books,
@@ -85,56 +89,61 @@ class LibraryCompositionModuleTest {
 
     @Test
     fun `the unified list combines books, progress, chapters and readable ids`() = runTest {
-        val books = MutableStateFlow(listOf(book("a")))
-        val progressFlow = MutableStateFlow(listOf(progress("a")))
-        val chapters = MutableStateFlow(listOf(chapter("a")))
-        val onDevice = MutableStateFlow<Set<String>>(emptySet())
-        val module = module(CoroutineScope(UnconfinedTestDispatcher(testScheduler)), books, progressFlow, chapters, onDevice)
-        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { module.books.collect {} }
+        // Unknown site total: the chapter is the ONLY proof of duration, so a
+        // dropped/ignored chapter flow would make this zero.
+        val books = MutableStateFlow(listOf(book("a", totalDurationSeconds = 0L)))
+        val progressFlow = MutableStateFlow(listOf(progress("a", positionSeconds = 120L)))
+        val chapters = MutableStateFlow(listOf(chapter("a", durationSeconds = 600L)))
+        // #1163: the readable-copy id really feeds the card.
+        val onDevice = MutableStateFlow(setOf("a"))
+        val subject = module(
+            CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
+            books, progressFlow, chapters, onDevice
+        )
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { subject.books.collect {} }
 
-        assertEquals(listOf("a"), module.books.value.map { it.book.id })
+        val entry = subject.books.value.single()
+        assertEquals("a", entry.book.id)
+        assertTrue("readable id must reach hasReadableLocalCopy", entry.hasReadableLocalCopy)
+        assertEquals("progress row must reach the card", 120L, entry.progress?.currentPositionSeconds)
+        assertEquals("chapter duration must prove an unknown site total", 600L, entry.totalDurationSeconds)
 
         // A later Room update re-projects the same seam.
-        books.value = listOf(book("a"), book("b"))
-        assertEquals(listOf("a", "b"), module.books.value.map { it.book.id })
+        books.value = listOf(book("a", totalDurationSeconds = 0L), book("b"))
+        assertEquals(listOf("a", "b"), subject.books.value.map { it.book.id })
     }
 
     @Test
-    fun `isLoaded flips only after the first real list emission`() = runTest {
-        val module = module(
-            CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
-            MutableStateFlow(emptyList())
-        )
+    fun `isLoaded stays false until the first book emission, then flips once`() = runTest {
+        // Never emits until the test says so: the initial StateFlow value must
+        // NOT be mistaken for "the library was read" (#1066).
+        val books = MutableSharedFlow<List<AudiobookEntity>>()
+        val subject = module(CoroutineScope(UnconfinedTestDispatcher(testScheduler)), books)
         runCurrent()
-        assertTrue("first emission proves the data was read", module.isLoaded.value)
+        assertFalse("nothing was read yet", subject.isLoaded.value)
 
-        val withBook = module(
-            CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
-            MutableStateFlow(listOf(book("a")))
-        )
+        books.emit(listOf(book("a")))
         runCurrent()
-        assertTrue(withBook.isLoaded.value)
+        assertTrue("the first real emission proves the read", subject.isLoaded.value)
     }
 
     @Test
     fun `availability marks only problem works by mergeKey`() = runTest {
         val available = book("available", mergeKey = "available|author")
-        val refused = book("refused", mergeKey = "refused|author", sourceUrl = "https://4read.org/refused")
+        val refusedBook = book("refused", mergeKey = "refused|author", sourceUrl = "https://4read.org/refused")
         val downloaded = book("downloaded", mergeKey = "downloaded|author", isDownloaded = true)
         val verdicts = MutableStateFlow(
-            mapOf(
-                "available|author" to AvailabilityVerdict(AvailabilityStatus.NOT_FOUND, observedAtMs = 42L)
-            )
+            mapOf("available|author" to AvailabilityVerdict(AvailabilityStatus.NOT_FOUND, observedAtMs = 42L))
         )
-        val module = module(
+        val subject = module(
             CoroutineScope(UnconfinedTestDispatcher(testScheduler)),
-            MutableStateFlow(listOf(available, refused, downloaded)),
+            MutableStateFlow(listOf(available, refusedBook, downloaded)),
             verdicts = verdicts,
             refused = MutableStateFlow(setOf("4read"))
         )
-        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { module.availability.collect {} }
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { subject.availability.collect {} }
 
-        val availability = module.availability.value
+        val availability = subject.availability.value
         assertFalse("a Work whose own source is available stays clean", "available|author" in availability)
         assertEquals(AvailabilityStatus.REFUSED, availability["refused|author"]?.status)
         assertFalse("an offline download always plays", "downloaded|author" in availability)

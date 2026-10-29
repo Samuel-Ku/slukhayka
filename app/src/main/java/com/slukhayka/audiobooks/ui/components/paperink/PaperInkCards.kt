@@ -19,12 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -45,6 +40,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcon
+import com.slukhayka.audiobooks.ui.icons.PaperInkIconSizes
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
 import com.slukhayka.audiobooks.ui.theme.PaperInkShapes
 import com.slukhayka.audiobooks.ui.theme.PaperInkType
@@ -321,11 +319,11 @@ fun PaperInkHeroCard(
                     ),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    imageVector = Icons.Filled.PlayArrow,
+                PaperInkIcon(
+                    imageVector = PaperInkIcons.Play,
                     contentDescription = null,
+                    size = PaperInkIconSizes.Inline,
                     tint = colorScheme.onTertiary,
-                    modifier = Modifier.size(22.dp),
                 )
             }
         }
@@ -387,11 +385,13 @@ fun PaperInkPosterCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.GraphicEq,
+                    // The five-bar wave at 16 dp: below that the bars merge,
+                    // and this is a state mark, not the wordmark.
+                    PaperInkIcon(
+                        imageVector = PaperInkIcons.Wave,
                         contentDescription = null,
+                        size = 16.dp,
                         tint = colorScheme.onTertiaryContainer,
-                        modifier = Modifier.size(12.dp),
                     )
                     Text(text = "слухаєш", style = PaperInkType.Micro, color = colorScheme.onTertiaryContainer)
                 }
@@ -439,11 +439,11 @@ fun PaperInkPosterCard(
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.Close,
+                    PaperInkIcon(
+                        imageVector = PaperInkIcons.Close,
                         contentDescription = null,
+                        size = PaperInkIconSizes.Inline,
                         tint = colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(14.dp),
                     )
                 }
             }
@@ -562,11 +562,11 @@ fun PaperInkBookRow(
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.PlayArrow,
+                    PaperInkIcon(
+                        imageVector = PaperInkIcons.Play,
                         contentDescription = null,
+                        size = PaperInkIconSizes.Inline,
                         tint = colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(22.dp),
                     )
                 }
             }

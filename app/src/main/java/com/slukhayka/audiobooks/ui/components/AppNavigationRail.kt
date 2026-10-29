@@ -1,11 +1,5 @@
 package com.slukhayka.audiobooks.ui.components
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material.icons.filled.LibraryMusic
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
@@ -17,6 +11,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.SelectedTab
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcon
+import com.slukhayka.audiobooks.ui.icons.PaperInkIconSizes
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 
 /**
  * #900 — the wide-window navigation surface: the same working sections the
@@ -49,7 +46,7 @@ fun AppNavigationRail(
         NavigationRailItem(
             selected = selectedTab == SelectedTab.LISTEN && !bookDetailOpen,
             onClick = { onSelect(SelectedTab.LISTEN) },
-            icon = { Icon(imageVector = Icons.Default.Headphones, contentDescription = null) },
+            icon = { PaperInkIcon(PaperInkIcons.Headphones, contentDescription = null, size = PaperInkIconSizes.Navigation) },
             label = { Text(stringResource(R.string.nav_listen)) },
             colors = railItemColors(),
             modifier = Modifier.testTag("rail_tab_listen")
@@ -58,7 +55,7 @@ fun AppNavigationRail(
         NavigationRailItem(
             selected = selectedTab == SelectedTab.EXPLORE && !bookDetailOpen,
             onClick = { onSelect(SelectedTab.EXPLORE) },
-            icon = { Icon(imageVector = Icons.Default.Explore, contentDescription = null) },
+            icon = { PaperInkIcon(PaperInkIcons.Compass, contentDescription = null, size = PaperInkIconSizes.Navigation) },
             label = { Text(stringResource(R.string.nav_explore)) },
             colors = railItemColors(),
             modifier = Modifier.testTag("rail_tab_explore")
@@ -67,7 +64,7 @@ fun AppNavigationRail(
         NavigationRailItem(
             selected = selectedTab == SelectedTab.LIBRARY && !bookDetailOpen,
             onClick = { onSelect(SelectedTab.LIBRARY) },
-            icon = { Icon(imageVector = Icons.Default.LibraryMusic, contentDescription = null) },
+            icon = { PaperInkIcon(PaperInkIcons.Library, contentDescription = null, size = PaperInkIconSizes.Navigation) },
             label = { Text(stringResource(R.string.nav_library)) },
             colors = railItemColors(),
             modifier = Modifier.testTag("rail_tab_library")
@@ -78,7 +75,7 @@ fun AppNavigationRail(
         NavigationRailItem(
             selected = selectedTab == SelectedTab.FRIENDS && !bookDetailOpen,
             onClick = { onSelect(SelectedTab.FRIENDS) },
-            icon = { Icon(imageVector = Icons.Default.Group, contentDescription = null) },
+            icon = { PaperInkIcon(PaperInkIcons.Friends, contentDescription = null, size = PaperInkIconSizes.Navigation) },
             label = { Text(stringResource(R.string.nav_friends)) },
             colors = railItemColors(),
             modifier = Modifier.testTag("rail_tab_friends")

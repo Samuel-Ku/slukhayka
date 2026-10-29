@@ -18,10 +18,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudDone
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -45,6 +41,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcon
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
 import com.slukhayka.audiobooks.ui.theme.PaperInkType
 
@@ -136,11 +134,15 @@ fun PaperInkMiniPlayerBar(
                     )
                     if (offline) {
                         Spacer(modifier = Modifier.width(6.dp))
-                        Icon(
-                            imageVector = Icons.Filled.CloudDone,
+                        // 16 dp is the audit's floor for a readable state
+                        // mark: the tray-with-check is a state beside the title,
+                        // not a target, and the offline state has its own a11y
+                        // string.
+                        PaperInkIcon(
+                            imageVector = PaperInkIcons.Downloaded,
                             contentDescription = null,
+                            size = 16.dp,
                             tint = colorScheme.primary,
-                            modifier = Modifier.size(13.dp),
                         )
                     }
                 }
@@ -169,11 +171,13 @@ fun PaperInkMiniPlayerBar(
                     trackColor = colorScheme.surfaceVariant,
                     strokeWidth = 3.dp,
                 )
-                Icon(
-                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                PaperInkIcon(
+                    imageVector = if (isPlaying) PaperInkIcons.Pause else PaperInkIcons.Play,
                     contentDescription = null,
+                    // 21 dp is the prototype's `.mp-play svg`, measured — one dp
+                    // above the inline token, inside the 48 dp target.
+                    size = 21.dp,
                     tint = colorScheme.onSurface,
-                    modifier = Modifier.size(20.dp),
                 )
             }
         }

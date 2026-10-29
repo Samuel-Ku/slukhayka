@@ -3,7 +3,6 @@ package com.slukhayka.audiobooks.ui.components
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.sp
 import com.slukhayka.audiobooks.R
@@ -17,9 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -34,6 +30,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcon
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 
 /**
@@ -95,11 +93,11 @@ fun AppTabHeader(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.GraphicEq,
+                        PaperInkIcon(
+                            imageVector = PaperInkIcons.Wave,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(15.dp)
+                            size = 15.dp,
+                            tint = MaterialTheme.colorScheme.primary
                         )
                         Text(
                             text = stringResource(R.string.app_name),

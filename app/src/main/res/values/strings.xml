@@ -353,6 +353,19 @@
         <item quantity="many">%1$d нових</item>
         <item quantity="other">%1$d нових</item>
     </plurals>
+    <!-- #1547 — the «Новинки від людей» notification copy: the count is a
+         plural (the old hardcode said «1 нові книги»), the rest is localized. -->
+    <plurals name="people_new_notification_title">
+        <item quantity="one">%1$d нова книга</item>
+        <item quantity="few">%1$d нові книги</item>
+        <item quantity="many">%1$d нових книг</item>
+        <item quantity="other">%1$d нових книг</item>
+    </plurals>
+    <string name="people_new_notification_from">Від %1$s</string>
+    <string name="people_new_notification_two_people">%1$s та %2$s</string>
+    <string name="people_new_notification_some_people">ваших авторів</string>
+    <string name="people_new_notification_action">Переглянути</string>
+    <string name="people_new_notification_channel_name">Новинки від людей</string>
     <string name="a11y_people_new_mark_seen">Позначити новинки переглянутими</string>
     <string name="home_search_no_results">Нічого не знайдено</string>
     <string name="home_search_no_results_hint">Спробуйте змінити запит або фільтр.</string>

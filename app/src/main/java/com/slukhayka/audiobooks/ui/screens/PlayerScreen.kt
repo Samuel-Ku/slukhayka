@@ -18,8 +18,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.outlined.Undo
+import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -27,7 +27,6 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
@@ -78,6 +77,9 @@ import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.SleepTimerSheet
 import com.slukhayka.audiobooks.ui.components.SpeedSheet
 import com.slukhayka.audiobooks.ui.components.formatSpeed
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcon
+import com.slukhayka.audiobooks.ui.icons.PaperInkIconSizes
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.components.formatSpeedForSpeech
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
@@ -975,7 +977,7 @@ private fun PlayerScreenContentBody(
                                                     .heightIn(min = AppDimens.TouchTarget)
                                                     .testTag("undo_seek_row")
                                             ) {
-                                                Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null)
+                                                Icon(Icons.AutoMirrored.Outlined.Undo, contentDescription = null)
                                                 Spacer(Modifier.width(AppDimens.SpaceSm))
                                                 Text(stringResource(R.string.player_return_to, MainViewModel.formatTime(playerState.undoFromPositionMs / 1000L)))
                                             }
@@ -1185,7 +1187,7 @@ private fun PlayerScreenContentBody(
                             .heightIn(min = AppDimens.TouchTarget)
                             .testTag("undo_seek_row")
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null)
+                        Icon(Icons.AutoMirrored.Outlined.Undo, contentDescription = null)
                         Spacer(Modifier.width(AppDimens.SpaceSm))
                         Text(stringResource(R.string.player_return_to, MainViewModel.formatTime(playerState.undoFromPositionMs / 1000L)))
                     }
@@ -1445,7 +1447,7 @@ private fun PlayerTopBar(
             modifier = Modifier.size(AppDimens.TouchTarget).testTag("close_player_button")
         ) {
             Icon(
-                Icons.Default.KeyboardArrowDown,
+                PaperInkIcons.ChevronDown,
                 contentDescription = stringResource(R.string.a11y_player_close),
                 modifier = Modifier.size(30.dp)
             )
@@ -1471,7 +1473,7 @@ private fun PlayerTopBar(
                 modifier = Modifier.size(AppDimens.TouchTarget).testTag("player_actions_button")
             ) {
                 Icon(
-                    Icons.Default.MoreVert,
+                    PaperInkIcons.More,
                     contentDescription = stringResource(R.string.a11y_player_actions, bookTitle)
                 )
             }
@@ -1485,13 +1487,13 @@ private fun PlayerTopBar(
                             )
                         )
                     },
-                    leadingIcon = { Icon(if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, null) },
+                    leadingIcon = { PaperInkIcon(if (isFavorite) PaperInkIcons.HeartFilled else PaperInkIcons.Heart, contentDescription = null) },
                     onClick = { onToggleFavorite(); showMenu = false }
                 )
                 if (BuildConfig.DEBUG) {
                     DropdownMenuItem(
                         text = { Text(stringResource(R.string.debug_overlay_title)) },
-                        leadingIcon = { Icon(Icons.Default.BugReport, null) },
+                        leadingIcon = { Icon(Icons.Outlined.BugReport, null) },
                         onClick = { onToggleDebug(); showMenu = false }
                     )
                 }
@@ -1753,7 +1755,7 @@ private fun BookProgressLine(
                     .testTag("jump_to_last_bookmark"),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+                PaperInkIcon(PaperInkIcons.BookmarkFilled, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
             }
         }
     }
@@ -1806,9 +1808,6 @@ private fun TransportControls(
         }
     )
     val forwardDescription = stringResource(R.string.a11y_player_seek_forward, bookTitle, currentChapterTitle)
-    // v1.4 E5: the visible seek labels ride the EN/UK pair too.
-    val seekBackLabel = stringResource(R.string.player_seek_back_label)
-    val seekForwardLabel = stringResource(R.string.player_seek_forward_label)
     val nextDescription = stringResource(
         R.string.a11y_player_next_chapter,
         bookTitle,
@@ -1824,11 +1823,16 @@ private fun TransportControls(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-        TransportIcon(Icons.Default.SkipPrevious, previousDescription, onPreviousChapter)
-        // Spec-27 (#207, BUG-012): the seek buttons carry a visible label
-        // («15 с»/«30 с») below the icon. Mirroring Replay keeps both seek
-        // controls visually paired without baking the number into either icon.
-        SeekButton(Icons.Default.Replay, backDescription, seekBackLabel, onBack)
+        TransportIcon(PaperInkIcons.SkipBack, previousDescription, onPreviousChapter)
+        // F9 (аудит 2026-10-28): the step is IN the glyph — `Rew15`/`Fwd30`
+        // carry their own numeral, so the visible «15 с»/«30 с» caption and
+        // the mirrored Replay are gone.
+        TransportIcon(
+            icon = PaperInkIcons.Rew15,
+            description = backDescription,
+            onClick = onBack,
+            glyphSize = PaperInkIconSizes.Transport,
+        )
         FilledIconButton(
             onClick = onPlayPause,
             // #885 (wave 3) — the prototype's play control is NOT a circle:
@@ -1861,20 +1865,19 @@ private fun TransportControls(
             )
         ) {
             Icon(
-                if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                if (isPlaying) PaperInkIcons.Pause else PaperInkIcons.Play,
                 contentDescription = null,
                 // F8 — прототип: play-глиф 28 dp; 40 dp перевантажував кнопку.
                 modifier = Modifier.size(PaperInkDimens.PlayerPlayGlyph)
             )
         }
-        SeekButton(
-            icon = Icons.Default.Replay,
+        TransportIcon(
+            icon = PaperInkIcons.Fwd30,
             description = forwardDescription,
-            label = seekForwardLabel,
             onClick = onForward,
-            mirrorIcon = true
+            glyphSize = PaperInkIconSizes.Transport,
         )
-        TransportIcon(Icons.Default.SkipNext, nextDescription, onNextChapter)
+        TransportIcon(PaperInkIcons.SkipFwd, nextDescription, onNextChapter)
         }
         // Temporary and closest to the action: it is not a second clock and
         // never argues with the «Return to …» rewind-undo row.
@@ -1895,7 +1898,12 @@ private fun TransportControls(
 }
 
 @Composable
-private fun TransportIcon(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, onClick: () -> Unit) {
+private fun TransportIcon(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    onClick: () -> Unit,
+    glyphSize: androidx.compose.ui.unit.Dp = PaperInkDimens.PlayerTransportGlyph,
+) {
     IconButton(
         onClick = onClick,
         modifier = Modifier
@@ -1905,39 +1913,7 @@ private fun TransportIcon(icon: androidx.compose.ui.graphics.vector.ImageVector,
         Icon(
             icon,
             contentDescription = null,
-            modifier = Modifier.size(PaperInkDimens.PlayerTransportGlyph)
-        )
-    }
-}
-
-@Composable
-private fun SeekButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    description: String,
-    label: String,
-    onClick: () -> Unit,
-    mirrorIcon: Boolean = false
-) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        IconButton(
-            onClick = onClick,
-            modifier = Modifier
-                .size(PaperInkDimens.PlayerTransportTarget)
-                .semantics { contentDescription = description }
-        ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                modifier = Modifier
-                    .size(26.dp)
-                    .then(if (mirrorIcon) Modifier.scale(scaleX = -1f, scaleY = 1f) else Modifier)
-            )
-        }
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.clearAndSetSemantics { }
+            modifier = Modifier.size(glyphSize)
         )
     }
 }
@@ -1980,7 +1956,7 @@ private fun QuickTools(
     }
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
         QuickTool(
-            Icons.Default.Speed,
+            PaperInkIcons.Speed,
             speedLabel,
             speedVisualLabel,
             speedVisualValue,
@@ -1990,7 +1966,7 @@ private fun QuickTools(
             onSpeed
         )
         QuickTool(
-            Icons.Default.Bedtime,
+            PaperInkIcons.Moon,
             timerLabel,
             timerVisualLabel,
             timerVisualValue,
@@ -2000,7 +1976,7 @@ private fun QuickTools(
             onTimer
         )
         QuickTool(
-            Icons.Default.BookmarkAdd,
+            PaperInkIcons.BookmarkAdd,
             stringResource(R.string.a11y_player_tool_bookmark),
             stringResource(R.string.player_tool_bookmark_label),
             null,
@@ -2010,7 +1986,7 @@ private fun QuickTools(
             onBookmark
         )
         QuickTool(
-            Icons.Default.FormatListNumbered,
+            PaperInkIcons.List,
             stringResource(R.string.a11y_player_tool_chapters),
             stringResource(R.string.player_tool_chapters_label),
             null,
@@ -2062,7 +2038,7 @@ private fun RowScope.QuickTool(
             icon,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.size(21.dp),
+            modifier = Modifier.size(PaperInkIconSizes.Inline),
         )
         Spacer(Modifier.width(AppDimens.SpaceXs))
         Text(
@@ -2135,7 +2111,7 @@ internal fun BookmarksListSheet(
             )
             IconButton(onClick = onDismiss, modifier = Modifier.size(AppDimens.TouchTarget)) {
                 Icon(
-                    Icons.Default.Close,
+                    PaperInkIcons.Close,
                     contentDescription = stringResource(R.string.a11y_player_bookmarks_close)
                 )
             }
@@ -2156,7 +2132,7 @@ internal fun BookmarksListSheet(
                         .padding(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceSm),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Bookmark, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+                    PaperInkIcon(PaperInkIcons.BookmarkFilled, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
                     Spacer(Modifier.width(AppDimens.SpaceSm))
                     Column(Modifier.weight(1f)) {
                         Text(bookmark.chapterTitle, style = MaterialTheme.typography.bodyMedium)
@@ -2178,7 +2154,7 @@ internal fun BookmarksListSheet(
                             .testTag("bookmarks_sheet_delete_${bookmark.id}")
                     ) {
                         Icon(
-                            Icons.Default.Delete,
+                            PaperInkIcons.Trash,
                             contentDescription = stringResource(
                                 R.string.a11y_player_bookmark_delete,
                                 bookmark.chapterTitle,
@@ -2256,7 +2232,7 @@ internal fun BookmarkBottomSheet(
                         .testTag("bookmark_sheet_heading")
                 )
                 IconButton(onClick = onDismiss, modifier = Modifier.size(AppDimens.TouchTarget)) {
-                    Icon(Icons.Default.Close, contentDescription = closeDescription)
+                    Icon(PaperInkIcons.Close, contentDescription = closeDescription)
                 }
             }
             Spacer(Modifier.height(AppDimens.SpaceXs))
@@ -2328,7 +2304,7 @@ internal fun ChapterBottomSheet(
                         .testTag("chapter_sheet_heading")
                 )
                 IconButton(onClick = onDismiss, modifier = Modifier.size(AppDimens.TouchTarget)) {
-                    Icon(Icons.Default.Close, contentDescription = closeDescription)
+                    Icon(PaperInkIcons.Close, contentDescription = closeDescription)
                 }
             }
             Spacer(Modifier.height(AppDimens.SpaceMd))
@@ -2372,7 +2348,7 @@ internal fun ChapterBottomSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (isCurrent) {
-                            Icon(Icons.Default.GraphicEq, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                            Icon(PaperInkIcons.Wave, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.width(AppDimens.SpaceMd))
                         }
                         Text(

@@ -100,12 +100,11 @@ class SettingsDestinationScaffoldTest {
     @Test
     fun `at 411 dp and normal text a short pushed title still fits one line`() {
         val layout = layoutOf(SettingsDestination.NetworkPrivacy, fontScale = 1f, width = 411)
-        val diag = "DIAG lines=${layout.lineCount} maxLines=${layout.layoutInput.maxLines} " +
-            "overflow=${layout.hasVisualOverflow} width=${layout.size.width} " +
-            "height=${layout.size.height} constraints=${layout.layoutInput.constraints}"
+        val diag = "lines=${layout.lineCount} maxLines=${layout.layoutInput.maxLines} " +
+            "width=${layout.size.width}"
         assertEquals(diag, 2, layout.layoutInput.maxLines)
         assertEquals(diag, 1, layout.lineCount)
-        assertEquals(diag, false, layout.hasVisualOverflow)
+        assertEquals(diag, false, layout.isLineEllipsized(0))
     }
 
     private fun assertHeadingNotClipped(
@@ -119,12 +118,20 @@ class SettingsDestinationScaffoldTest {
             expectedMaxLines,
             layout.layoutInput.maxLines,
         )
+        // `hasVisualOverflow` is not usable here: Robolectric reports it true
+        // even for a single line that fits (measured: 126 px of 319 dp), so the
+        // truthful proxy is per-line ellipsis plus the line count.
         assertEquals(
-            "${destination.name} is clipped at 320 dp/${fontScale}x: " +
-                "lines=${layout.lineCount} overflow=${layout.hasVisualOverflow} " +
-                "width=${layout.size.width} text=${layout.layoutInput.text}",
+            "${destination.name} needs more lines than the header allows at " +
+                "320 dp/${fontScale}x: lines=${layout.lineCount} max=${layout.layoutInput.maxLines}",
+            true,
+            layout.lineCount <= expectedMaxLines,
+        )
+        assertEquals(
+            "${destination.name} is ellipsized at 320 dp/${fontScale}x: " +
+                "lines=${layout.lineCount} width=${layout.size.width}",
             false,
-            layout.hasVisualOverflow,
+            layout.isLineEllipsized(layout.lineCount - 1),
         )
     }
 

@@ -6,11 +6,11 @@ import kotlinx.coroutines.flow.StateFlow
 /**
  * The achievements evaluation engine — a CALLER-PULLED snapshot (#1574).
  *
- * Before the on-demand seam the engine ran a permanent watcher
- * ([start]): every DAO invalidation of the combine tower — a progress write
- * lands roughly every five seconds of playback — recomputed the snapshot and
- * re-ran `evaluate` + `award`. Now the snapshot is owned by
- * [AchievementSnapshot], and [refresh] is the ONE trigger:
+ * Before the on-demand seam the engine ran a permanent watcher: every DAO
+ * invalidation of the combine tower — a progress write lands roughly every
+ * five seconds of playback — recomputed the snapshot and re-ran
+ * `evaluate` + `award`. Now the snapshot is owned by [AchievementSnapshot],
+ * and [refresh] is the ONE trigger:
  *
  * - app start (the silent backfill, ADR-0063 §7),
  * - each progress-write checkpoint (the recorder queue calls it after a

@@ -984,7 +984,10 @@ class App : Application() {
     private val achievementRecorder by lazy {
         com.slukhayka.audiobooks.data.achievements.AchievementRecorder(achievementScope,
             achievementStore, listeningState::recordActualListeningTime,
-            { android.util.Log.w("Achievements", "local progress write will retry", it) })
+            { android.util.Log.w("Achievements", "local progress write will retry", it) },
+            // #1574 — the ONE pull after a real progress write; nothing watches
+            // the DAO hot any more.
+            onWritten = { achievements.refresh() })
     }
 
     /**
@@ -1048,6 +1051,9 @@ class App : Application() {
                         com.slukhayka.audiobooks.data.achievements.AchievementFact.FINISHED_AFTER_ABANDON
                     )
                 }
+                // #1574 — direct store write, so it is its own explicit pull
+                // (the recorder callback only covers queued writes).
+                achievements.refresh()
             }.onFailure {
                 // The completion itself has happened; only this write failed.
                 // The badge stays hidden for a finished book either way, so the
@@ -1723,7 +1729,9 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        achievements.start(achievementScope)
+        // #1574 — the start trigger: one explicit pull instead of a permanent
+        // watcher; the first successful refresh is the silent backfill.
+        achievementScope.launch { achievements.refresh() }
         // ADR-0039 / spec #681 T3 (#684): the ONE politeness gate for every
         // HTML/API request to a Source host, with the persisted per-domain
         // budget. Installed before any module can touch the network.

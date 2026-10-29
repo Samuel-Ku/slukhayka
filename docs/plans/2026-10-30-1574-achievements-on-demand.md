@@ -30,7 +30,9 @@
    - `suspend fun refresh(): List<EarnedAchievement>` — `source.refresh()`,
      потім наявна логіка backfill/evaluate над `source.snapshot.value`;
    - прибрати `start(scope)`; `backfilled` лишається (ADR-0063 §7);
-   - `evaluate()` стає тонкою обгорткою `refresh()`.
+   - `evaluate()` лишається лише для тестових/явних викликів: оцінює вже
+     опублікований `snapshot`, НЕ роблячи нового проходу (єдиний тригер —
+     `refresh()`).
 3. **Явні тригери refresh (callers pull explicitly):**
    - **start** — `App.onCreate`: один `achievementScope.launch { achievements.refresh() }`;
    - **progress-write checkpoints** — `AchievementRecorder` після КОЖНОГО
@@ -68,8 +70,9 @@
 - Крок 2 (новий boundary-тест): після стартового backfill **одна** емісія
   прогресу НЕ оцінюється сама; один явний `refresh()` → рівно одна оцінка;
   N записів → N refresh (не N×25 DAO-емісій).
-- Тест: `MainViewModel.listenerTitle`/`achievementProgress` не змінюються без
-  `refresh()` (фейковий snapshot-holder).
+- Тест: `snapshot`-StateFlow не змінюється без `refresh()`, а `engine.snapshot`
+  віддає саме owned-StateFlow (фейковий snapshot-holder; UI-мапінги
+  `listenerTitle`/`achievementProgress` — тонкі й окремого тесту не мають).
 - Мутації: (а) `refresh()` не публікує знімок → boundary-тест червоний;
   (б) recorder не викликає `onWritten` → тест «запис прогресу тригерить
   рівно одну оцінку» червоний; (в) повернути довічну підписку в engine →

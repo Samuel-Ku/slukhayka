@@ -67,6 +67,34 @@ class AchievementSnapshotSourceTest {
     }
 
     /**
+     * #1574 — the source OWNS the snapshot: `refresh()` is the only thing
+     * that moves it, and a database write nobody pulled leaves it untouched.
+     */
+    @Test fun `refresh publishes the owned snapshot and a write alone moves nothing`() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, AudiobookDatabase::class.java).allowMainThreadQueries().build()
+        try {
+            val store = RoomAchievementStore(database.achievementDao())
+            val source = AchievementSnapshotSource(
+                database.achievementDao(), store, emptySet(),
+                abandonedBookIds = flowOf(emptySet())
+            )
+            assertEquals("nobody has pulled yet", AchievementProgress(), source.snapshot.value)
+            val baseline = source.refresh()
+            assertEquals(baseline, source.snapshot.value)
+
+            // A real progress write lands; no caller pulls it.
+            store.recordFact(AchievementFact.PLAYBACK_STARTED)
+            assertEquals(baseline, source.snapshot.value)
+
+            // The next explicit pull publishes the whole snapshot together.
+            val refreshed = source.refresh()
+            assertEquals(1L, refreshed.playbackStarts)
+            assertEquals(refreshed, source.snapshot.value)
+        } finally { database.close() }
+    }
+
+    /**
      * #700 (T2) — the speed bands must count STORED preferences and nothing
      * else.
      *

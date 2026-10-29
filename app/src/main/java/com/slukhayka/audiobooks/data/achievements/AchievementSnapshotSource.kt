@@ -327,8 +327,10 @@ class AchievementSnapshotSource(
 
     /**
      * #1574 — ONE whole-snapshot pass. The cold tower is collected exactly
-     * once (`first()`), so every field is computed from the same database
-     * moment, and the result is published atomically.
+     * once (`first()`), so all fields are computed in one run over the same
+     * Room state and published together. This is not a database transaction
+     * (the tower issues separate reads), just one pass instead of one per
+     * write; a concurrent write lands in the NEXT refresh.
      *
      * Kept as the single `observe()` implementation too: the existing award
      * tests read this cold seam directly, and [refresh] is defined in terms of

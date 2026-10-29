@@ -182,7 +182,7 @@
     <string name="lib_saved_empty_bookmarks_title">Brak zakładek</string>
     <string name="lib_saved_empty_people_body">Dodawaj zakładki autorów lub lektorów ze strony książki.</string>
     <string name="lib_saved_empty_people_title">Brak zakładek osób</string>
-    <string name="lib_search_placeholder">Tytuł, autor lub seria</string>
+    <string name="lib_search_short_hint">Szukaj</string>
     <string name="lib_search_section_title">Wyszukiwanie</string>
     <string name="lib_section_bookmarks">Zakładki</string>
     <string name="lib_section_books">Książki</string>

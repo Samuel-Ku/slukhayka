@@ -361,7 +361,6 @@ class LargeScreenSnapshotTest {
                     continueBook = null,
                     denseTitle = "Усі"
                 ),
-                browsing = false,
                 gridMode = true,
                 availability = emptyMap(),
                 downloadCounts = emptyMap(),

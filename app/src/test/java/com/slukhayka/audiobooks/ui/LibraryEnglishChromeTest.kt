@@ -11,7 +11,7 @@ import com.slukhayka.audiobooks.testing.EnglishChromeWalk
 import com.slukhayka.audiobooks.ui.library.LibraryFilter
 import com.slukhayka.audiobooks.ui.library.LibrarySort
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
-import com.slukhayka.audiobooks.ui.screens.LibraryDenseRow
+import com.slukhayka.audiobooks.ui.screens.LibraryBookCard
 import com.slukhayka.audiobooks.ui.screens.LibraryEmptyState
 import com.slukhayka.audiobooks.ui.screens.LibraryFilterSheetContent
 import com.slukhayka.audiobooks.ui.screens.LibraryImportSheetContent
@@ -82,12 +82,10 @@ class LibraryEnglishChromeTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 Surface(color = MaterialTheme.colorScheme.background) {
-                    LibraryDenseRow(
+                    LibraryBookCard(
                         book = englishRow,
-                        availability = null,
-                        onRecheck = {},
-                        downloadCount = null,
-                        onOpen = {}
+                        grid = false,
+                        onClick = {}
                     )
                 }
             }

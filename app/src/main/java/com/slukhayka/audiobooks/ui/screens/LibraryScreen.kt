@@ -1658,7 +1658,6 @@ internal fun libraryGridColumns(gridMode: Boolean): GridCells =
  */
 internal fun LazyGridScope.libraryGridContent(
     entries: List<LibraryGridEntry>,
-    browsing: Boolean,
     gridMode: Boolean,
     availability: Map<String, AvailabilityView>,
     downloadCounts: Map<String, com.slukhayka.audiobooks.data.db.BookDownloadCount>,
@@ -1743,30 +1742,14 @@ internal fun LazyGridScope.libraryGridContent(
             is LibraryGridEntry.Shelf -> LibraryShelf(gridEntry.books) { card(it, true) }
 
             is LibraryGridEntry.BookEntry -> {
-                // Narrowed down (a filter or a search): dense rows.
-                // Browsing the whole library: the rich card.
-                if (!browsing && !gridMode) {
-                    LibraryDenseRow(
-                        book = gridEntry.book,
-                        availability = availability[gridEntry.book.book.mergeKey],
-                        onRecheck = { onRecheck(gridEntry.book.book.id) },
-                        downloadCount = downloadCounts[gridEntry.book.book.id],
-                        onOpen = { onBookClick(gridEntry.book.book.id) },
-                        // Same contract as the card above: one requester, ONE
-                        // node — the book we are returning to. Attaching it to
-                        // every row made focus unresolvable, and the a11y
-                        // journey timed out waiting for `Focused`.
-                        bookReturnFocusRequester = if (
-                            gridEntry.book.book.id == restoreFocusBookId
-                        ) {
-                            bookReturnFocusRequester
-                        } else {
-                            null
-                        }
-                    )
-                } else {
-                    card(gridEntry.book, gridMode)
-                }
+                // F30a — the Книги tab's list form is the canonical cover row
+                // (BookRow: 58×87 cover, 112 dp row) in BOTH shapes. The shipped
+                // tab is the list (`denseTab`), so the timeline dense row that
+                // used to draw it is gone: a library list without covers was the
+                // audit's F30. `card(…, gridMode)` is the one renderer call the
+                // screen and the snapshots share, so the list and the tile can
+                // no longer be built from different branches.
+                card(gridEntry.book, gridMode)
             }
         }
     }
@@ -1857,211 +1840,6 @@ internal fun LibraryShelf(
     }
 }
 
-/**
- * The dense row of a narrowed-down library (no cover, a timeline rail, the
- * honest time left on the right). Same a11y contract as [LibraryBookCard]:
- * one node for the row body, one real play node next to the offline badge.
- *
- * #1165 — that one node spans the WHOLE row: the timeline rail and the
- * trailing column («новий»/«18 хв» + the offline badge) are inside the
- * interaction area, so its indication never draws an edge through the title.
- */
-@Composable
-internal fun LibraryDenseRow(
-    book: LibraryBook,
-    availability: AvailabilityView?,
-    onRecheck: () -> Unit,
-    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount?,
-    onOpen: () -> Unit,
-    // #885 — the books tab renders EVERY book as this row now, so the row must
-    // carry the return-focus contract the card used to own; without it the
-    // "come back from the book" logic requested focus on an unattached
-    // requester and the a11y journey crashed.
-    bookReturnFocusRequester: FocusRequester? = null
-) {
-    val units = stringRemainingTimeUnits()
-    val remaining = if (book.totalDurationSeconds > 0L) {
-        formatRemainingTime(book.remainingSeconds, units)
-    } else {
-        null
-    }
-    val state = libraryEntryStateDescription(book, availability)
-    val openLabel = stringResource(R.string.a11y_library_open_book, book.book.title)
-    val description = if (book.book.displayAuthor.isBlank()) {
-        book.book.title
-    } else {
-        stringResource(
-            R.string.a11y_library_entry_description,
-            book.book.title,
-            book.book.displayAuthor
-        )
-    }
-    // #1187 — ADR-0014: an unknown duration renders as NOTHING. `knownPercent`
-    // is null exactly when no total proves one, so «0%» never appears for a
-    // book whose files were never measured; the row says nothing instead.
-    val progressLabel = when {
-        book.isCompleted -> stringResource(R.string.lib_progress_done)
-        book.isNew -> stringResource(R.string.lib_progress_new)
-        else -> book.knownPercent?.let { "$it%" }
-    }
-    Row(
-        modifier = Modifier
-            // #885 — the card attaches the return-focus requester FIRST in
-            // the chain; the row must do the same, otherwise the focus never
-            // lands and the a11y journey times out waiting for `Focused`.
-            .then(
-                if (bookReturnFocusRequester != null) {
-                    Modifier.focusRequester(bookReturnFocusRequester)
-                } else {
-                    Modifier
-                }
-            )
-            .fillMaxWidth()
-            .height(IntrinsicSize.Min)
-            // #1165 — the interaction area is the WHOLE row, not the text
-            // column: the clip used to sit on the title/author block, so the
-            // press/focus indication stopped exactly where the trailing column
-            // («новий»/«18 хв» + the cloud) begins and the listener read that
-            // hard edge as the title being cut off by the badge. The row's
-            // boundary is the row's own box now, so the indication can only
-            // ever end where the row does.
-            .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
-            .focusProperties { canFocus = true }
-            .clickable(onClick = onOpen)
-            // #885 — the dense row IS the library book item: keep the
-            // long-standing contract tag the journeys click, so the
-            // accessibility and playback tests keep their anchor.
-            .testTag("library_book_item_${book.book.id}")
-            .clearAndSetSemantics {
-                contentDescription = description
-                stateDescription = state
-                role = Role.Button
-                onClick(label = openLabel) {
-                    onOpen()
-                    true
-                }
-            },
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // The timeline thread: one continuous hairline per row, a fill dot on
-        // the in-progress book. Stacked rows read as a single queue.
-        Box(
-            modifier = Modifier
-                .width(20.dp)
-                .fillMaxHeight(),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(2.dp)
-                    .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            )
-            Box(
-                modifier = Modifier
-                    .size(if (book.isListening) 10.dp else 7.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (book.isListening) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.outlineVariant
-                        }
-                    )
-            )
-        }
-        Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(vertical = AppDimens.SpaceMd)
-        ) {
-            Text(
-                text = book.book.title,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                color = if (book.isCompleted) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            val subtitle = listOfNotNull(
-                book.book.displayAuthor.takeIf { it.isNotBlank() },
-                libraryChapterLabel(book) ?: librarySeriesLabel(book)
-            ).joinToString(" · ")
-            if (subtitle.isNotBlank()) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            // ADR-0042 §1 — a problem Work states it here too, and a tap asks
-            // for a fresh bounded re-check (spec-56 T2).
-            availabilityLabel(availability)?.let { label ->
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.clickable(enabled = onRecheck != null) { onRecheck() }
-                )
-            }
-            // #885 — the prototype shows a thin progress line under every row, so
-            // the queue reads at a glance without opening the book.
-            if (book.totalDurationSeconds > 0L && !book.isNew) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
-                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                        .testTag("library_row_progress_${book.book.id}")
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(book.percent.coerceIn(0f, 1f))
-                            .fillMaxHeight()
-                            .background(MaterialTheme.colorScheme.primary)
-                    )
-                }
-            }
-        }
-        Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
-        Column(horizontalAlignment = Alignment.End) {
-            if (remaining != null) {
-                Text(
-                    text = remaining,
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                    color = if (book.isListening) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    }
-                )
-            }
-            if (progressLabel != null) {
-                Text(
-                    text = progressLabel,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        LibraryInlineOfflineBadge(book, downloadCount)
-    }
-    HorizontalDivider(
-        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-        modifier = Modifier.padding(start = 32.dp)
-    )
-}
-
 /** Which offline marker a book carries (#397), or none. */
 private enum class OfflineState { NONE, PARTIAL, FULL }
 
@@ -2139,38 +1917,6 @@ private fun LibraryCoverOfflineBadge(
         }
 
         OfflineState.NONE -> Unit
-    }
-}
-
-/**
- * The same marker where there is no cover to lay it on — the dense row keeps
- * it as a quiet icon beside the time left.
- */
-@Composable
-private fun LibraryInlineOfflineBadge(
-    book: LibraryBook,
-    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount?
-) {
-    when (offlineStateOf(book, downloadCount)) {
-        OfflineState.NONE -> Unit
-        OfflineState.PARTIAL -> Text(
-            text = stringResource(
-                R.string.offline_partial_badge,
-                downloadCount?.downloaded ?: 0,
-                downloadCount?.total ?: 0
-            ),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.secondary,
-            modifier = Modifier.testTag("library_partial_badge_${book.book.id}")
-        )
-        OfflineState.FULL -> Icon(
-            imageVector = PaperInkIcons.Downloaded,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.secondary,
-            modifier = Modifier
-                .size(15.dp)
-                .testTag("library_inline_offline_badge_${book.book.id}")
-        )
     }
 }
 
@@ -2330,24 +2076,28 @@ fun LibraryBookCard(
                 LibraryBookGridContent(book, availability, onRecheck, downloadCount, showAbandoned)
             }
         } else {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = modifier
-                        .weight(1f)
-                        // Route-return focus must also work on touch-only devices.
-                        .focusProperties { canFocus = true }
-                        .clickable(onClick = performOpen)
-                        .testTag("library_book_item_${book.book.id}")
-                        .clearAndSetSemantics {
-                            contentDescription = description
-                            stateDescription = state
-                            role = Role.Button
-                            onClick(label = openLabel) {
-                                performOpen()
-                                true
-                            }
+            // F30a — the list form is ONE canonical row that owns its whole
+            // interaction area: no sibling spacer after the clickable block,
+            // so #1165's "the press indication is the row" holds for the cover
+            // row too (the geometry is pinned by
+            // `LibraryListRowInteractionBoundsTest`).
+            Box(
+                modifier = modifier
+                    .fillMaxWidth()
+                    // Route-return focus must also work on touch-only devices.
+                    .focusProperties { canFocus = true }
+                    .clickable(onClick = performOpen)
+                    .testTag("library_book_item_${book.book.id}")
+                    .clearAndSetSemantics {
+                        contentDescription = description
+                        stateDescription = state
+                        role = Role.Button
+                        onClick(label = openLabel) {
+                            performOpen()
+                            true
                         }
-                ) {
+                    }
+            ) {
                     // v1.4 E3 (ADR-0033): the library list row IS the canonical
                     // BookRow — #569 deleted the old library row wrapper (the
                     // library's own sixth row style) and moved its only consumer
@@ -2363,6 +2113,16 @@ fun LibraryBookCard(
                         // rides the stats slot (label line under the author).
                         stats = librarySeriesLabel(book),
                         progress = book.percent,
+                        // F30a — the same tag the dense row carried, so the two
+                        // suites that use it as the "this is the LIST, not a
+                        // one-column grid of tiles" marker keep their anchor
+                        // (LibraryGridBreakpointTest, LibraryUnknownDurationTest).
+                        progressTestTag = "library_row_progress_${book.book.id}",
+                        // A named row gives its title a `${tag}_title` test
+                        // tag inside BookRow; the geometry test uses it instead
+                        // of a text query, which also matches the cover's
+                        // fallback title now that the cover is back.
+                        testTag = "library_book_row_${book.book.id}",
                         coverBadge = {
                             LibraryCoverOfflineBadge(
                                 book = book,
@@ -2488,12 +2248,6 @@ fun LibraryBookCard(
                             )
                         }
                     )
-                }
-                // UI (v1.5 review, on-device): a play disc on every row put the
-                // screen's accent on eight identical circles and stole it from
-                // the «Продовжити» CTA. The row opens the book; the hero CTA
-                // resumes; a new book starts on its own page.
-                Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
             }
         }
     }

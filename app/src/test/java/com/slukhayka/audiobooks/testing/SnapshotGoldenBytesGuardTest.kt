@@ -582,6 +582,21 @@ class SnapshotGoldenBytesGuardTest {
          * verify against the re-recorded set reported ZERO changed images
          * outside the recorded set.
          *
+         * ## Two library frames re-pinned on 2026-10-29 (F30a of the 2026-10-28 audit)
+         *
+         * The «Книги» LIST stopped being the timeline dense row and became the
+         * canonical `BookRow` — 58×87 cover, 112 dp row — so the frames that
+         * photograph that list legitimately moved:
+         *  - `library_redesign_dense` — the whole point of F30a: the covers are
+         *    BACK (the timeline rail and the printed percent are gone);
+         *  - `library_redesign_browsing` — the same renderer now draws the
+         *    browsing list too, and the row's trailing spacer went away;
+         *  - `library_book_card_list` / `_abandoned` / `_sluhay_badge` — the
+         *    component goldens of that same list form (not pinned; recorded
+         *    with this change).
+         * `library_redesign_grid` and the header/player pins kept AE=0: the
+         * tile renderer and everything outside the list did not move.
+         *
          */
         /**
          * ## Three re-pinned on 2026-10-29 (F32 of the 2026-10-28 audit)
@@ -616,12 +631,12 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "2925e1c249bcdcc9598dc273dfc5f6f0" + "748d82eac216600c13c0e95b2bdecd58"
+                "98d33e148244a522021f1234d37c8166" + "e0b3d140f825ecef5c670dbf8d38dad3"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "104cf9adcc0ac36e0329ec497f4dd10d" + "38a2ef0885781339013a7a54b8ae9c6b"
+                "30cffb0eb8761331af49626c1c0877b7" + "f188f5a9ce2c2a10a6a632c1fcf441af"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",

@@ -15,11 +15,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,6 +30,9 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcon
+import com.slukhayka.audiobooks.ui.icons.PaperInkIconSizes
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
 import com.slukhayka.audiobooks.ui.theme.PaperInkType
 
@@ -91,11 +89,11 @@ fun PaperInkTabHeader(
                     .semantics { contentDescription = backDescription },
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                PaperInkIcon(
+                    imageVector = PaperInkIcons.ChevronLeft,
                     contentDescription = null,
+                    size = PaperInkIconSizes.Chrome,
                     tint = colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(22.dp),
                 )
             }
             Spacer(modifier = Modifier.width(4.dp))
@@ -111,11 +109,11 @@ fun PaperInkTabHeader(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.GraphicEq,
+                    PaperInkIcon(
+                        imageVector = PaperInkIcons.Wave,
                         contentDescription = null,
+                        size = 15.dp,
                         tint = colorScheme.tertiary,
-                        modifier = Modifier.size(15.dp),
                     )
                     Text(
                         text = stringResource(R.string.app_name),
@@ -156,11 +154,11 @@ fun PaperInkTabHeader(
                 .semantics { contentDescription = settingsDescription },
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                imageVector = Icons.Filled.Settings,
+            PaperInkIcon(
+                imageVector = PaperInkIcons.Settings,
                 contentDescription = null,
+                size = PaperInkIconSizes.Chrome,
                 tint = colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(22.dp),
             )
         }
         }

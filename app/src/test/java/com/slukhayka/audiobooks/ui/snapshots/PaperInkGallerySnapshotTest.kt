@@ -5,11 +5,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -29,6 +24,7 @@ import com.slukhayka.audiobooks.ui.components.paperink.PaperInkPosterCard
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkScreenTitle
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkSectionHeader
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import org.junit.Rule
 import org.junit.Test
@@ -60,10 +56,10 @@ class PaperInkGallerySnapshotTest {
     val composeTestRule = createComposeRule()
 
     private val navItems = listOf(
-        PaperInkNavItem("Слухати", Icons.Filled.Headphones),
-        PaperInkNavItem("Огляд", Icons.Filled.Explore),
-        PaperInkNavItem("Медіатека", Icons.Filled.LibraryMusic),
-        PaperInkNavItem("Друзі", Icons.Filled.Group),
+        PaperInkNavItem("Слухати", PaperInkIcons.Headphones),
+        PaperInkNavItem("Огляд", PaperInkIcons.Compass),
+        PaperInkNavItem("Медіатека", PaperInkIcons.Library),
+        PaperInkNavItem("Друзі", PaperInkIcons.Friends),
     )
 
     @Composable

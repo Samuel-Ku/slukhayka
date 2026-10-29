@@ -17,12 +17,6 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.getValue
@@ -100,6 +94,7 @@ import com.slukhayka.audiobooks.ui.screens.WebSourceBrowserScreen
 import com.slukhayka.audiobooks.ui.screens.SourceWebViewSession
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkNavItem
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkNavigationBar
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.theme.AppThemeMode
 import com.slukhayka.audiobooks.ui.theme.AppearancePreferencesStore
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
@@ -1775,22 +1770,22 @@ fun AppBottomBar(
     val items = listOf(
         PaperInkNavItem(
             label = stringResource(R.string.nav_listen),
-            icon = Icons.Default.Headphones,
+            icon = PaperInkIcons.Headphones,
             testTag = "tab_listen",
         ),
         PaperInkNavItem(
             label = stringResource(R.string.nav_explore),
-            icon = Icons.Default.Explore,
+            icon = PaperInkIcons.Compass,
             testTag = "tab_explore",
         ),
         PaperInkNavItem(
             label = stringResource(R.string.nav_library),
-            icon = Icons.Default.LibraryMusic,
+            icon = PaperInkIcons.Library,
             testTag = "tab_library",
         ),
         PaperInkNavItem(
             label = stringResource(R.string.nav_friends),
-            icon = Icons.Default.Group,
+            icon = PaperInkIcons.Friends,
             testTag = "tab_friends",
         ),
     )

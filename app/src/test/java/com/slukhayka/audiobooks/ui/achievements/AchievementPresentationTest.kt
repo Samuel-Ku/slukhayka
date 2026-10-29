@@ -41,7 +41,7 @@ class AchievementPresentationTest {
         assertEquals(PaperInkIcons.Timer.name, AchievementPresentation.medalGlyph(definition("x", "hours", AchievementMetric.LISTENING_MILLIS, hour)).name)
         assertEquals(PaperInkIcons.Book.name, AchievementPresentation.medalGlyph(definition("x", "books", AchievementMetric.COMPLETED_BOOKS, 1)).name)
         assertEquals(PaperInkIcons.Heart.name, AchievementPresentation.medalGlyph(definition("x", "habits", AchievementMetric.BOOKMARKS, 50)).name)
-        assertEquals(PaperInkIcons.Library.name, AchievementPresentation.medalGlyph(definition("x", "series", AchievementMetric.COMPLETED_SERIES, 1)).name)
+        assertEquals(PaperInkIcons.List.name, AchievementPresentation.medalGlyph(definition("x", "series", AchievementMetric.COMPLETED_SERIES, 1)).name)
         assertEquals(PaperInkIcons.Replay.name, AchievementPresentation.medalGlyph(definition("x", "relisten", AchievementMetric.RELISTENS, 1)).name)
         assertEquals(PaperInkIcons.Flame.name, AchievementPresentation.medalGlyph(definition("x", "regularity", AchievementMetric.BEST_DAY_MILLIS, 3 * hour)).name)
         assertEquals(PaperInkIcons.Downloaded.name, AchievementPresentation.medalGlyph(definition("x", "offline", AchievementMetric.OFFLINE_MILLIS, hour)).name)

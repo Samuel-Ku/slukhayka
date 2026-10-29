@@ -234,19 +234,27 @@ private fun AchievementHeroPanel(
     ) {
         Box(modifier = Modifier.fillMaxWidth()) {
             // The lamp again: the one decorative light, and it belongs to sound.
-            Box(
-                modifier = Modifier
-                    .size(PaperInkDimens.AchievementHeroGlowSize)
-                    .offset(x = (-40).dp, y = (-60).dp)
-                    .background(
-                        Brush.radialGradient(
-                            colors = listOf(
-                                PaperInkPalette.LampNight.copy(alpha = 0.22f),
-                                Color.Transparent,
+            //
+            // `matchParentSize` is what keeps the DECORATION out of the layout:
+            // a 220 dp glow measured as a sibling would set the panel's height to
+            // 220 dp and leave a plate of empty ink under two lines of type (the
+            // first recorded golden showed exactly that). With it, the panel is
+            // as tall as the words inside and the glow still fills the corner.
+            Box(modifier = Modifier.matchParentSize()) {
+                Box(
+                    modifier = Modifier
+                        .size(PaperInkDimens.AchievementHeroGlowSize)
+                        .offset(x = (-40).dp, y = (-60).dp)
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(
+                                    PaperInkPalette.LampNight.copy(alpha = 0.22f),
+                                    Color.Transparent,
+                                ),
                             ),
                         ),
-                    ),
-            )
+                )
+            }
             Row(
                 modifier = Modifier.padding(PaperInkDimens.SpaceXl),
                 verticalAlignment = Alignment.CenterVertically,

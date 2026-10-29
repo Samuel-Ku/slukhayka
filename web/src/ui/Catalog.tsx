@@ -210,6 +210,13 @@ export function Catalog({
     sessionState.search.phase === "idle" ? null : sessionState.search.works;
   const searchFailedSources = sessionState.search.failedSources;
   const searchFailed = !intentPending && sessionState.search.phase === "failed";
+  // #1581 — a failed search must not be a dead end: the same explicit-refresh
+  // path the feed's «Оновити» uses starts a NEW generation, so repeating the
+  // SAME query is a real retry (a plain re-render is a documented no-op).
+  const retrySearch = () => {
+    forceRefreshRef.current = true;
+    setRefreshNonce((n) => n + 1);
+  };
   const searching = intentPending
     ? query.trim().length >= CATALOG_SEARCH_MIN_CHARS
     : sessionState.search.phase === "pending";
@@ -898,7 +905,16 @@ export function Catalog({
             ) : searchFailed ? (
               // #621 — an empty successful search and a failed search are
               // different states: the failure never claims «Нічого не знайшли».
-              <EmptyStateRow message={t("sourceFailed")} />
+              // #1581 — Android offers «Спробувати ще раз» here; web must too.
+              <EmptyStateRow message={t("sourceFailed")}>
+                <button
+                  type="button"
+                  onClick={retrySearch}
+                  style={{ ...pillStyle(false), marginLeft: 8 }}
+                >
+                  {t("retry")}
+                </button>
+              </EmptyStateRow>
             ) : searchWorks === null || visibleSearch.length === 0 ? (
               <EmptyStateRow message={t("nothingFound")} />
             ) : (

@@ -164,10 +164,12 @@ class SleepTimerModuleTest {
 
         shake.shake()
 
-        assertEquals(SleepTimerSnapshot(minutes = 20, remainingSeconds = 1_200), module.snapshot)
-        assertEquals(1_200_000L, ticker.totalMs)
+        // The canonical extension adds 15 min to the HONEST remainder (15 s
+        // left at the shake), exactly like the visible +15 button.
+        assertEquals(SleepTimerSnapshot(minutes = 16, remainingSeconds = 915), module.snapshot)
+        assertEquals(915_000L, ticker.totalMs)
         assertEquals(listOf(0.5f, 1.0f), effects.volumes)
-        assertTrue(effects.notices.contains(SleepTimerNotice.Extended(1_200)))
+        assertTrue(effects.notices.contains(SleepTimerNotice.Extended(915)))
         assertFalse("extending leaves the fade window for now", shake.started)
     }
 

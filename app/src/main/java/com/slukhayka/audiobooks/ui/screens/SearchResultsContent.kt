@@ -6,8 +6,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -67,6 +65,26 @@ fun LazyListScope.searchResultsContent(
     // Nothing to show anywhere: without this the local and live empty states
     // would stack into two "nothing found" messages.
     val nothingAnywhere = localEmpty && (!liveSearchActive || liveSettledEmpty)
+
+    if (nothingAnywhere) {
+        // F33 — one canonical empty state, not six blocks: no counted
+        // «У вашій медіатеці (0)» / «Знайдені книги (0)» headers above a
+        // second «нічого не знайдено», and no placeholder glyph — the
+        // direction states an absence in type (Literata 20 + Meta), not with
+        // an icon standing for something that is not there.
+        item(key = "search_no_results") {
+            EmptyState(
+                title = stringResource(R.string.home_search_no_results),
+                body = stringResource(R.string.home_search_no_results_hint),
+                modifier = Modifier
+                    .testTag("search_no_results")
+                    .semantics(mergeDescendants = true) {
+                        liveRegion = LiveRegionMode.Polite
+                    }
+            )
+        }
+        return
+    }
 
     item(key = "library_results_header") {
         // #885 (wave 2) — one canonical header instead of a private twin.
@@ -178,17 +196,5 @@ fun LazyListScope.searchResultsContent(
         }
     }
 
-    if (nothingAnywhere) {
-        item(key = "search_no_results") {
-            EmptyState(
-                icon = Icons.Outlined.SearchOff,
-                title = stringResource(R.string.home_search_no_results),
-                body = stringResource(R.string.home_search_no_results_hint),
-                modifier = Modifier.semantics(mergeDescendants = true) {
-                    liveRegion = LiveRegionMode.Polite
-                }
-            )
-        }
-    }
 }
 

@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.collections
 
 import com.slukhayka.audiobooks.data.merge.MergeKey
+import com.slukhayka.audiobooks.data.metadata.NormalizationMemo
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import java.text.Normalizer
 
@@ -47,13 +48,24 @@ object CollectionMatcher {
         val books: List<GlobalSearchResult>
     )
 
+    /**
+     * #1589 — the achievements pass compares own-library books against every
+     * curated entry on every Room invalidation, so the same title/author is
+     * normalized thousands of times per pass. The rule is pure; the memo makes
+     * a repeat a lookup. See [NormalizationMemo].
+     */
+    private val titleMemo = NormalizationMemo()
+    private val authorMemo = NormalizationMemo()
+
     /** Normalizes a title: annotation trim + MergeKey title rule + diacritics. */
-    fun normalizeTitle(title: String): String =
-        MergeKey.normalizeTitle(stripTrailingParenthetical(title)).let { dropDiacritics(it) }
+    fun normalizeTitle(title: String): String = titleMemo.normalized(title) { raw ->
+        dropDiacritics(MergeKey.normalizeTitle(stripTrailingParenthetical(raw)))
+    }
 
     /** Normalizes an author: annotation trim + MergeKey person rule + diacritics. */
-    fun normalizeAuthor(author: String): String =
-        MergeKey.normalizePerson(stripTrailingParenthetical(author)).let { dropDiacritics(it) }
+    fun normalizeAuthor(author: String): String = authorMemo.normalized(author) { raw ->
+        dropDiacritics(MergeKey.normalizePerson(stripTrailingParenthetical(raw)))
+    }
 
     /** One entry matched against one catalog card. */
     fun entryMatches(entry: CollectionEntry, book: GlobalSearchResult): Boolean =

@@ -1,6 +1,11 @@
 package com.slukhayka.audiobooks.ui
 
 import android.content.Context
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -78,6 +83,31 @@ class AddToCollectionSheetTest {
             .assertExists()
         composeTestRule.onNodeWithTag("collection_row_c1").assertExists()
         composeTestRule.onNodeWithTag("collection_row_c2").assertExists()
+    }
+
+    @Test
+    fun `tapping the row anywhere toggles the collection`() {
+        var toggled: Triple<String, Boolean, String?>? = null
+        setSheetContent(
+            collections = listOf(collection("c1", "Магія", emptyList())),
+            onToggle = { id, checked, note -> toggled = Triple(id, checked, note) }
+        )
+
+        // The text is the dead zone the audit found: a tap on the title must
+        // behave exactly like a tap on the checkbox (#1560).
+        composeTestRule.onNodeWithText("Магія").performClick()
+
+        assertEquals(Triple("c1", true, null), toggled)
+    }
+
+    @Test
+    fun `the row is one named switch for TalkBack`() {
+        setSheetContent(collections = listOf(collection("c1", "Магія", emptyList())))
+
+        val row = composeTestRule.onNodeWithTag("collection_row_c1")
+        row.assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.ToggleableState))
+        row.assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Checkbox))
+        row.assertTextContains("Магія")
     }
 
     @Test

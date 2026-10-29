@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -28,6 +29,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.collections.ListenerCollection
@@ -77,16 +80,26 @@ fun AddToCollectionSheet(
             LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(collections, key = { it.id }) { collection ->
                     val alreadyThere = collection.contains(bookId)
+                    // #1560 — the ROW is the control: a 48 dp row whose only
+                    // interactive part used to be the checkbox left ~80 % of
+                    // the row dead, and TalkBack read an unnamed checkbox.
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 48.dp)
+                            .toggleable(
+                                value = alreadyThere,
+                                role = Role.Checkbox,
+                                onValueChange = { checked -> onToggle(collection.id, checked, null) }
+                            )
+                            .semantics(mergeDescendants = true) {}
                             .testTag("collection_row_${collection.id}"),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Visual only: the row owns the gesture and the semantics.
                         Checkbox(
                             checked = alreadyThere,
-                            onCheckedChange = { checked -> onToggle(collection.id, checked, null) }
+                            onCheckedChange = null
                         )
                         Text(
                             text = collection.title,

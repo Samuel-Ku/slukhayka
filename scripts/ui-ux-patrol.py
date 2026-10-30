@@ -998,18 +998,48 @@ def ensure_label(repo: Path) -> None:
     print(f"мітка {LABEL}: є")
 
 
+def stable_tool_dirs(home: Path) -> list[Path]:
+    """Каталоги, які переживають `mise upgrade` інструментів.
+
+    #1657 — `shutil.which("gh")` віддає ВЕРСІЙНИЙ каталог
+    (`…/installs/gh/latest/gh_2.102.0_linux_amd64/bin`). Після `mise upgrade`
+    symlink `latest` веде на нову версію, старий шлях зникає, і env-файл
+    таймера (який генерує ця функція) лишається з мертвим PATH: патруль падає
+    три ночі поспіль із «не знайдено виконуваний файл: gh». Стабільні
+    каталоги — `~/.local/bin` (симлінк gh) і `mise shims` — ведуть на активну
+    версію завжди.
+    """
+    candidates = [home / ".local" / "bin", home / ".local" / "share" / "mise" / "shims"]
+    return [path for path in candidates if path.is_dir()]
+
+
+def patrol_path_dirs(
+    home: Path | None = None,
+    *,
+    which=shutil.which,
+    python: str = sys.executable,
+) -> list[str]:
+    """PATH для env-файла таймера: стабільні каталоги спершу, версійні — потім."""
+    home = home or Path.home()
+    dirs = [str(path) for path in stable_tool_dirs(home)]
+    dirs.extend(
+        [
+            str(Path(dsh).parent) if (dsh := which("dsh")) else "/usr/local/bin",
+            str(Path(gh).parent) if (gh := which("gh")) else "/usr/bin",
+            str(Path(python).parent),
+            "/usr/local/bin",
+            "/usr/bin",
+            "/bin",
+        ]
+    )
+    return list(dict.fromkeys(dirs))
+
+
 def write_env_file(*, write_token: bool) -> Path:
     env_dir = Path.home() / ".config" / "slukhayka"
     env_dir.mkdir(parents=True, exist_ok=True)
     path = env_dir / "ui-ux-patrol.env"
-    dirs = [
-        str(Path(dsh).parent) if (dsh := shutil.which("dsh")) else "/usr/local/bin",
-        str(Path(gh).parent) if (gh := shutil.which("gh")) else "/usr/bin",
-        str(Path(sys.executable).parent),
-        "/usr/local/bin",
-        "/usr/bin",
-        "/bin",
-    ]
+    dirs = patrol_path_dirs()
     token = None
     if write_token:
         proc = run(["gh", "auth", "token"], check=False, timeout=30)

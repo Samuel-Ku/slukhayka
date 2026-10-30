@@ -159,7 +159,7 @@ journalctl --user -u ui-ux-patrol.service -n 200
 |---|---|
 | `gh: не автентифіковано` | у `~/.config/slukhayka/ui-ux-patrol.env` немає `GH_TOKEN`; додай і `systemctl --user restart ui-ux-patrol.timer` |
 | `dsh не знайдено в PATH` | у env-файлі `PATH` без теки dsh (mise/npm); перезапусти `install` |
-| димовий прогін не дав `READY` | ключ моделі в `~/.dsh/.credentials.yaml` протермінований |
+| димовий прогін не дав `READY` | ключ моделі в `~/.dsh/.credentials.yaml` протермінований **або** (частіше, #1659) його немає в env-файлі таймера: `install` тепер сам переносить `apiKeyEnv` headless-профілю з `~/.dsh/.credentials.yaml` у env (0600), тож перезапусти `install`; якщо ключ справді протерміновано — онови в Models (web) |
 | `не прочитав наявні тікети` | мережа/GitHub API; прогін усе одно йде, але дедуп сліпий — перевір звіт |
 | прогін падає з кодом 2 і «ПОРУШЕННЯ контракту» | агент вийшов за межі (створив зайве, змінив файли, тікет без доказу); деталі в лозі |
 | таймер не запускається | `systemctl --user list-timers`: можливо, ввімкнено без `daemon-reload`, або машина спала й `Persistent=true` доганяє пізніше |

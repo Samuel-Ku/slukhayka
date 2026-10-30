@@ -31,6 +31,7 @@ import os
 import tempfile
 import textwrap
 import unittest
+from unittest import mock
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -504,6 +505,92 @@ class UnitsTest(unittest.TestCase):
             patrol.PROFILE_MARKER,
             patrol.render_env_file(["/a/bin"], None),
         )
+
+
+class ModelKeyTest(unittest.TestCase):
+    """#1659 — ключ моделі headless-профілю мусить доходити до env таймера."""
+
+    def test_profile_api_key_env_is_read_from_patch(self):
+        with tempfile.TemporaryDirectory() as raw:
+            patch = Path(raw) / "cordis.patch.yml"
+            patch.write_text(
+                "providers:\n  opencode-go:\n    apiKeyEnv: OPENCODE_API_KEY\n",
+                encoding="utf-8",
+            )
+            self.assertEqual("OPENCODE_API_KEY", patrol.profile_api_key_env(patch))
+            self.assertIsNone(patrol.profile_api_key_env(Path(raw) / "missing.yml"))
+
+    def test_credential_refs_parser_reads_only_the_refs_block(self):
+        with tempfile.TemporaryDirectory() as raw:
+            credentials = Path(raw) / ".credentials.yaml"
+            credentials.write_text(
+                textwrap.dedent(
+                    """\
+                    version: 1
+                    records:
+                      client-connection/browser-session:
+                        kind: grant
+                    refs:
+                      # коментар усередині блоку
+                      OPENCODE_API_KEY: oc_sk_example
+                      DEEPSEEK_API_KEY: "sk-quoted"
+                    other_key: value
+                    """
+                ),
+                encoding="utf-8",
+            )
+            refs = patrol.credential_refs(credentials)
+            self.assertEqual(
+                {
+                    "OPENCODE_API_KEY": "oc_sk_example",
+                    "DEEPSEEK_API_KEY": "sk-quoted",
+                },
+                refs,
+            )
+
+    def test_credential_refs_missing_or_broken_file_is_empty(self):
+        self.assertEqual({}, patrol.credential_refs(Path("/nonexistent/creds.yaml")))
+
+    def test_resolve_model_key_prefers_environment(self):
+        with mock.patch.dict(os.environ, {"OPENCODE_API_KEY": "from-env"}):
+            self.assertEqual(
+                "from-env", patrol.resolve_model_key("OPENCODE_API_KEY", home=Path("/nowhere"))
+            )
+        self.assertIsNone(patrol.resolve_model_key(None))
+
+    def test_resolve_model_key_falls_back_to_credentials_file(self):
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            (home / ".dsh").mkdir()
+            (home / ".dsh" / ".credentials.yaml").write_text(
+                "refs:\n  OPENCODE_API_KEY: oc_sk_from_file\n", encoding="utf-8"
+            )
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("OPENCODE_API_KEY", None)
+                self.assertEqual(
+                    "oc_sk_from_file",
+                    patrol.resolve_model_key("OPENCODE_API_KEY", home=home),
+                )
+
+    def test_env_file_carries_the_model_key_but_not_without_it(self):
+        with_key = patrol.render_env_file(
+            ["/a/bin"], None, {"OPENCODE_API_KEY": "oc_sk_test"}
+        )
+        self.assertIn("OPENCODE_API_KEY=oc_sk_test", with_key)
+        self.assertIn("не комітити й не копіювати в репо", with_key)
+        without_key = patrol.render_env_file(["/a/bin"], None)
+        self.assertNotIn("OPENCODE_API_KEY=", without_key)
+
+    def test_write_env_file_writes_key_with_0600(self):
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            with mock.patch.dict(os.environ, {"HOME": str(home)}):
+                path = patrol.write_env_file(
+                    write_token=False, model_env={"OPENCODE_API_KEY": "oc_sk_written"}
+                )
+            text = path.read_text(encoding="utf-8")
+            self.assertIn("OPENCODE_API_KEY=oc_sk_written", text)
+            self.assertEqual(0o600, path.stat().st_mode & 0o777)
 
 
 class ProfilePatchTest(unittest.TestCase):

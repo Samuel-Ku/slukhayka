@@ -143,6 +143,27 @@ class TestPartitionsCliTest(unittest.TestCase):
 
         self.assertEqual(["com.slukhayka.audiobooks.ui.RealGateTest"], listed)
 
+    def test_helper_classes_do_not_join_the_test_list(self):
+        # #1636 — the «ends with Test» filter is what keeps fakes, abstract bases
+        # and data holders out of the partition list. Without it a mutation on a
+        # real repository adds ~20 helpers to the list CI runs — and every one of
+        # them is not a test.
+        target = self.root / "app/src/test/java/com/slukhayka/audiobooks/ui/FacadeTest.kt"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            "package com.slukhayka.audiobooks.ui\n"
+            "import org.robolectric.RobolectricTestRunner\n"
+            "abstract class AbstractFacade\n"
+            "class Helper\n"
+            "class TestDataFactory\n"
+            "class FacadeTest\n",
+            encoding="utf-8",
+        )
+
+        listed = self.run_cli("list", "--partition", "room-robolectric").stdout.split()
+
+        self.assertEqual(["com.slukhayka.audiobooks.ui.FacadeTest"], listed)
+
     def test_changed_test_file_selects_every_class_it_declares(self):
         # #1634 — `select --changed-file <the file>` used to look up only the
         # file stem, so a co-located class made the whole file "unknown" and

@@ -357,6 +357,26 @@ class MutationRunTest(MutateFixtureTest):
         self.assertIn("sha256", result.stderr)
         self.assertClean()
 
+    def test_runs_a_class_that_shares_its_file_with_another_test(self):
+        # #1636 — the changed file may declare several test classes (#1634).
+        # Requiring `classes == [target]` refused both of them; the named class
+        # only has to be one of the declared ones.
+        self.fixture.write(
+            SAMPLE_TEST,
+            "package com.slukhayka.fixture\n\nclass SampleTest\n\nclass SecondTest\n",
+        )
+        self.fixture.git("add", "-A")
+        self.fixture.git("commit", "-q", "-m", "multi-class test file")
+
+        result = self.fixture.run_class(self.fixture.answer_patch, tests=1, failures=1)
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn(":app:testPureJvm", self.fixture.gradle_invocations())
+        self.assertIn(f"-Ptest.selectedClasses={SAMPLE_CLASS}", self.fixture.gradle_invocations())
+        record = self.last_record()
+        self.assertEqual(SAMPLE_CLASS, record["class"])
+        self.assertEqual("pure-jvm", record["partition"])
+
     def test_records_a_surviving_mutation_and_exits_one(self):
         result = self.fixture.run_class(self.fixture.answer_patch, tests=3, failures=0)
 
@@ -911,6 +931,16 @@ class MutationSensitivityTest(unittest.TestCase):
             "test_mutate.MutationRollbackTest.test_rolls_back_when_the_run_is_interrupted",
         ),
         (
+            # #1636: a changed test file may declare several test classes; the
+            # mutant puts back the exact-list comparison that refused every one
+            # of them, and the witness below must go red on it.
+            "the multi-class file acceptance",
+            "script",
+            "if target not in classes:",
+            "if classes != [target]:",
+            "test_mutate.MutationRunTest.test_runs_a_class_that_shares_its_file_with_another_test",
+        ),
+        (
             "the rollback trap",
             "script",
             "trap finalize EXIT",
@@ -919,7 +949,7 @@ class MutationSensitivityTest(unittest.TestCase):
         ),
     )
     # Друге джерело правди про розмір `CASES` — див. коментар у тесті.
-    EXPECTED_CASES = 7
+    EXPECTED_CASES = 8
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()

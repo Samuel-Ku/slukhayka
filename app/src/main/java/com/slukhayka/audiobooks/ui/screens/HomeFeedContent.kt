@@ -8,7 +8,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -40,7 +39,6 @@ import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.data.personbookmarks.PersonNewArrivals
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.R
-import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.PeopleKind
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardAction
@@ -54,6 +52,7 @@ import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.NavigationChip
 import com.slukhayka.audiobooks.ui.components.OpenWebSourceRow
 import com.slukhayka.audiobooks.ui.components.PosterCard
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 import com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign
 import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
@@ -582,6 +581,11 @@ fun LazyListScope.homeFeedContent(
     // here" even when the refresh had failed; and a filter that matched
     // nothing was indistinguishable from an empty catalogue. Loading keeps
     // its old spinner (AC3).
+    //
+    // #1624 (F17/F33): these three are ABSENCES, and the 2026 direction states
+    // an absence in type (Literata 20 + Meta) without a placeholder glyph. The
+    // M3 icons that used to stand here (`CloudOff`, `FilterOff`, `Book`) were
+    // the last of the audit's «іконка-заглушка» cases on «Огляд».
     val feedRefresh = workFeedItems.loadState.refresh
     val feedFiltersActive = feedGenreFilters.isNotEmpty() ||
         feedDurationFilters.isNotEmpty() || feedSharedLibraryOnly
@@ -599,7 +603,6 @@ fun LazyListScope.homeFeedContent(
     } else if (workFeedItems.itemCount == 0 && feedRefresh is LoadState.Error) {
         item {
             EmptyState(
-                icon = Icons.Default.CloudOff,
                 title = stringResource(R.string.feed_refresh_error_title),
                 body = stringResource(R.string.feed_refresh_error_empty_body),
                 modifier = Modifier.testTag("feed_refresh_error")
@@ -615,7 +618,6 @@ fun LazyListScope.homeFeedContent(
     } else if (workFeedItems.itemCount == 0 && feedFiltersActive) {
         item {
             EmptyState(
-                icon = PaperInkIcons.FilterOff,
                 title = stringResource(R.string.feed_filters_empty_title),
                 body = stringResource(R.string.feed_filters_empty_body),
                 modifier = Modifier.testTag("feed_filters_empty")
@@ -635,7 +637,6 @@ fun LazyListScope.homeFeedContent(
     } else if (workFeedItems.itemCount == 0) {
         item {
             EmptyState(
-                icon = PaperInkIcons.Book,
                 title = stringResource(R.string.feed_empty_title),
                 body = stringResource(R.string.feed_empty_body),
                 modifier = Modifier.testTag("feed_empty")

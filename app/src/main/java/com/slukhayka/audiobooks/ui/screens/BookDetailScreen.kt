@@ -819,7 +819,7 @@ fun BookDetailScreen(
                                 .testTag("book_detail_delete_trigger")
                         ) {
                             Icon(
-                                imageVector = Icons.Default.MoreVert,
+                                imageVector = PaperInkIcons.More,
                                 contentDescription = stringResource(R.string.book_detail_more_actions),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )

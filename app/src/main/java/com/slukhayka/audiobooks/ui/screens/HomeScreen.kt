@@ -830,7 +830,7 @@ private fun PaperSearchField(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            imageVector = Icons.Default.Search,
+            imageVector = PaperInkIcons.Search,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier
@@ -1092,7 +1092,7 @@ fun RecommendedBookCard(
                     .testTag("recommendation_menu_${rec.candidate.id}")
             ) {
                 Icon(
-                    Icons.Default.MoreVert,
+                    PaperInkIcons.More,
                     contentDescription = stringResource(
                         R.string.a11y_recommendation_actions,
                         rec.candidate.title

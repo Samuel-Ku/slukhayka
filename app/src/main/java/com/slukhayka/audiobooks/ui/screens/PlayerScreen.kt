@@ -300,10 +300,16 @@ fun PlayerScreen(
     // Room while this screen stays open, so the display follows the live rows:
     // the lists (and the honest book ruler) must pick the measured values up
     // without switching a chapter or re-opening the book.
-    val liveBook by libraryEntries.observeBook(openedBook.id)
-        .collectAsState(initial = null)
-    val liveChapters by libraryEntries.observeChapters(openedBook.id)
-        .collectAsState(initial = emptyList())
+    // ADR-0008: a function-built Flow must be remembered, or every
+    // recomposition (the player ticks its position ~1 Hz) would build a new
+    // Flow and `collectAsState` would restart both Room subscriptions each
+    // second. Same idiom as `BookDetailScreen`.
+    val liveBook by remember(openedBook.id) {
+        libraryEntries.observeBook(openedBook.id)
+    }.collectAsState(initial = null)
+    val liveChapters by remember(openedBook.id) {
+        libraryEntries.observeChapters(openedBook.id)
+    }.collectAsState(initial = emptyList())
     val playerState = remember(rawPlayerState, liveBook, liveChapters) {
         rawPlayerState.withLiveDurationFacts(liveBook, liveChapters)
     }

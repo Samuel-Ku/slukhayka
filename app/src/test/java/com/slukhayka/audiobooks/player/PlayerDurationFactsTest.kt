@@ -91,6 +91,26 @@ class PlayerDurationFactsTest {
     }
 
     @Test
+    fun `equal live rows are a no-op too - the steady state stays the same instance`() {
+        // #1650 (review of #1649): the review's mutation that dropped the
+        // equality guard survived, because only EMPTY live lists were pinned.
+        // A realistic steady state is live rows that repeat the snapshot with
+        // the same positive durations; it must not allocate/copy either.
+        val chapters = listOf(chapter(0, 600L), chapter(1, 900L))
+        val original = state(chapters = chapters)
+        val repeated = listOf(chapter(0, 600L), chapter(1, 900L))
+        val sameBook = book.copy(totalDurationSeconds = 1_500L)
+
+        val withNewTotal = original.copy(currentBook = sameBook)
+        assertSame(
+            "live rows that repeat the snapshot must not produce a new state",
+            withNewTotal,
+            withNewTotal.withLiveDurationFacts(liveBook = null, liveChapters = repeated)
+        )
+        assertSame(original, original.withLiveDurationFacts(liveBook = null, liveChapters = repeated))
+    }
+
+    @Test
     fun `with nothing live the state is returned untouched`() {
         val original = state()
 

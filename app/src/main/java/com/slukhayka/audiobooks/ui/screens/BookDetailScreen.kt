@@ -98,6 +98,107 @@ import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
 import com.slukhayka.audiobooks.ui.screens.bookdetail.*
 
+/**
+ * #1628 — what the size line under the book actions may state.
+ *
+ * The line is a FACT, never a placeholder: when neither the live download
+ * progress nor an estimate knows a real byte count, the block is absent.
+ * Before this seam the fallback rendered a bare «невідомо» under «Додати до
+ * добірки», which reads as a broken label rather than "size not known yet".
+ */
+internal sealed interface BookDetailSizeLine {
+    /** Live/paused download progress; [totalBytes] is absent/0 when unknown. */
+    data class Downloading(
+        val completedChapters: Int,
+        val totalChapters: Int,
+        val downloadedBytes: Long,
+        val totalBytes: Long?
+    ) : BookDetailSizeLine
+
+    /** A pre-download estimate in whole MB. */
+    data class Estimated(val mb: Long, val approximate: Boolean) : BookDetailSizeLine
+
+    /** Nothing real to say — the line must not render. */
+    data object Hidden : BookDetailSizeLine
+}
+
+private const val BYTES_PER_MB = 1024L * 1024L
+
+internal fun bookDetailSizeLine(
+    hasBytesProgress: Boolean,
+    completedChapters: Int,
+    totalChapters: Int,
+    downloadedBytes: Long,
+    totalBytes: Long?,
+    estimatedTotalBytes: Long?,
+    estimatedApproximate: Boolean
+): BookDetailSizeLine = when {
+    hasBytesProgress -> BookDetailSizeLine.Downloading(
+        completedChapters = completedChapters,
+        totalChapters = totalChapters,
+        downloadedBytes = downloadedBytes,
+        totalBytes = totalBytes
+    )
+    // The line speaks in WHOLE megabytes: an estimate below one MB would
+    // render as «0 МБ», which is the same kind of non-fact as a bare
+    // «невідомо» — hide it (the base branch also required mb > 0).
+    estimatedTotalBytes != null && estimatedTotalBytes >= BYTES_PER_MB ->
+        BookDetailSizeLine.Estimated(
+            mb = estimatedTotalBytes / BYTES_PER_MB,
+            approximate = estimatedApproximate
+        )
+    else -> BookDetailSizeLine.Hidden
+}
+
+/**
+ * #1628 — the size line's ONE rendering. [BookDetailSizeLine.Hidden] renders
+ * NOTHING: the Robolectric test pins the absence, so a future "just show
+ * невідомо" fallback cannot slip back in behind the green pure test.
+ */
+@Composable
+internal fun BookDetailSizeText(sizeLine: BookDetailSizeLine) {
+    when (sizeLine) {
+        is BookDetailSizeLine.Downloading -> {
+            val downloadedMb = sizeLine.downloadedBytes / BYTES_PER_MB
+            val totalBytes = sizeLine.totalBytes
+            val sizeText = if (totalBytes != null && totalBytes > 0L) {
+                stringResource(
+                    R.string.book_detail_download_progress,
+                    sizeLine.completedChapters,
+                    sizeLine.totalChapters,
+                    downloadedMb,
+                    totalBytes / BYTES_PER_MB,
+                    (sizeLine.downloadedBytes * 100 / totalBytes).toInt()
+                )
+            } else {
+                stringResource(
+                    R.string.book_detail_download_progress_unknown_total,
+                    sizeLine.completedChapters,
+                    sizeLine.totalChapters,
+                    downloadedMb
+                )
+            }
+            Text(
+                text = sizeText,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp)
+            )
+        }
+        is BookDetailSizeLine.Estimated -> Text(
+            text = if (sizeLine.approximate) {
+                stringResource(R.string.book_detail_size_approximate, sizeLine.mb)
+            } else {
+                stringResource(R.string.book_detail_size_format, sizeLine.mb)
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp)
+        )
+        BookDetailSizeLine.Hidden -> Unit
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun BookDetailScreen(
@@ -1015,45 +1116,17 @@ fun BookDetailScreen(
                     ) { Text(stringResource(R.string.book_detail_add_to_collection)) }
                     // #392 — size display below download button
                     if (!streamOnly && !currentBook.isDownloaded && !isDownloadingThis) {
-                        val sizeText = when {
-                            bytesProgress != null -> {
-                                val dl = bytesProgress!!.downloadedBytes / (1024 * 1024)
-                                val totalBytes = bytesProgress!!.totalBytes
-                                if (totalBytes != null && totalBytes > 0) {
-                                    val tot = totalBytes / (1024 * 1024)
-                                    val pct = (bytesProgress!!.downloadedBytes * 100 / totalBytes).toInt()
-                                    stringResource(
-                                        R.string.book_detail_download_progress,
-                                        bytesProgress!!.completedChapters,
-                                        bytesProgress!!.totalChapters,
-                                        dl,
-                                        tot,
-                                        pct
-                                    )
-                                } else {
-                                    stringResource(
-                                        R.string.book_detail_download_progress_unknown_total,
-                                        bytesProgress!!.completedChapters,
-                                        bytesProgress!!.totalChapters,
-                                        dl
-                                    )
-                                }
-                            }
-                            estimatedSize != null -> {
-                                val es = estimatedSize!!
-                                val mb = es.totalBytes?.let { it / (1024 * 1024) }
-                                if (mb != null && mb > 0) {
-                                    if (es.isApproximate) stringResource(R.string.book_detail_size_approximate, mb)
-                                    else stringResource(R.string.book_detail_size_format, mb)
-                                } else stringResource(R.string.book_detail_size_unknown)
-                            }
-                            else -> stringResource(R.string.book_detail_size_unknown)
-                        }
-                        Text(
-                            text = sizeText,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 4.dp)
+                        // #1628 — the line states a FACT; "unknown" is not one.
+                        BookDetailSizeText(
+                            bookDetailSizeLine(
+                                hasBytesProgress = bytesProgress != null,
+                                completedChapters = bytesProgress?.completedChapters ?: 0,
+                                totalChapters = bytesProgress?.totalChapters ?: 0,
+                                downloadedBytes = bytesProgress?.downloadedBytes ?: 0L,
+                                totalBytes = bytesProgress?.totalBytes,
+                                estimatedTotalBytes = estimatedSize?.totalBytes,
+                                estimatedApproximate = estimatedSize?.isApproximate == true
+                            )
                         )
                     } else if (!streamOnly && isDownloadingThis && bytesProgress != null) {
                         val bp = bytesProgress!!

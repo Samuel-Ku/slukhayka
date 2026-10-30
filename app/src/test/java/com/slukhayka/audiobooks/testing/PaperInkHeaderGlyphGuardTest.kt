@@ -159,6 +159,42 @@ class PaperInkHeaderGlyphGuardTest {
         )
     }
 
+    /** The Listen tab's own M3 leftovers: the «all shelves hidden» empty state,
+     *  the shelf-management sheet (close, restore-all, show/hide toggles) and the
+     *  fresh-install door (headphones + browse/import actions). The family owns
+     *  `Close`, `Headphones`, `Compass` and `Upload`; `Visibility`,
+     *  `VisibilityOff` and `SettingsBackupRestore` have no family glyph, so they
+     *  move to the Outlined weight (§5.4.7). */
+    private val listenBanned: Regex by lazy {
+        Regex("""Icons\.(?:Default|Filled)\.(?:VisibilityOff|Visibility|Close|SettingsBackupRestore|Headphones|Explore|FileUpload)\b""")
+    }
+
+    private val listenRequired: List<String> = listOf(
+        "PaperInkIcons.Close",
+        "PaperInkIcons.Headphones",
+        "PaperInkIcons.Compass",
+        "PaperInkIcons.Upload",
+        "Icons.Outlined.Visibility",
+        "Icons.Outlined.VisibilityOff",
+        "Icons.Outlined.SettingsBackupRestore",
+    )
+
+    @Test
+    fun listenScreenUsesFamilyOrOutlinedGlyphs() {
+        val path = "app/src/main/java/com/slukhayka/audiobooks/ui/screens/ListenScreen.kt"
+        val text = File(repoRoot, path).readText()
+        val offenders = listenBanned.findAll(text).map { it.value }.toList()
+        assertTrue(
+            "$path must not keep M3 Filled glyphs the family or Outlined weight owns: $offenders",
+            offenders.isEmpty()
+        )
+        val missing = listenRequired.filterNot { text.contains(it) }
+        assertTrue(
+            "$path is missing the migrated glyphs: " + missing.joinToString(),
+            missing.isEmpty()
+        )
+    }
+
     @Test
     fun webSourceBrowserUsesFamilyOrOutlinedGlyphs() {
         val path = "app/src/main/java/com/slukhayka/audiobooks/ui/screens/WebSourceBrowserScreen.kt"

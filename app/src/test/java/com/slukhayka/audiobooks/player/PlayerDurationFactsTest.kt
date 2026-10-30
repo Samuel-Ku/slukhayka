@@ -101,13 +101,21 @@ class PlayerDurationFactsTest {
         val repeated = listOf(chapter(0, 600L), chapter(1, 900L))
         val sameBook = book.copy(totalDurationSeconds = 1_500L)
 
+        // #1653 (review of #1651, F1): the live book must be passed too, or
+        // the `liveBook != currentBook` term stays unpinned (the reviewer's
+        // mutation that dropped it survived). An EQUAL live book is still a
+        // no-op, so both terms are now pinned by the same instance.
         val withNewTotal = original.copy(currentBook = sameBook)
         assertSame(
-            "live rows that repeat the snapshot must not produce a new state",
+            "equal live rows and the same live book must not produce a new state",
             withNewTotal,
-            withNewTotal.withLiveDurationFacts(liveBook = null, liveChapters = repeated)
+            withNewTotal.withLiveDurationFacts(liveBook = sameBook, liveChapters = repeated)
         )
-        assertSame(original, original.withLiveDurationFacts(liveBook = null, liveChapters = repeated))
+        assertSame(
+            "the unchanged state with a structurally equal live book stays the same instance",
+            original,
+            original.withLiveDurationFacts(liveBook = original.currentBook, liveChapters = repeated)
+        )
     }
 
     @Test

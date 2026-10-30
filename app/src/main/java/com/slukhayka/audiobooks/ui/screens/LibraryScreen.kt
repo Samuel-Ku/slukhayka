@@ -713,12 +713,9 @@ fun LibraryScreen(
                         contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
                     ) {
                         item {
-                            Text(
+                            LibrarySavedSectionHeader(
                                 text = stringResource(R.string.lib_section_people),
-                                style = MaterialTheme.typography.titleSmall,
-                                modifier = Modifier
-                                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                                    .testTag("library_saved_people_header")
+                                testTag = "library_saved_people_header"
                             )
                         }
                         if (bookmarkedPeople.isEmpty()) {
@@ -780,12 +777,9 @@ fun LibraryScreen(
                             }
                         }
                         item {
-                            Text(
+                            LibrarySavedSectionHeader(
                                 text = stringResource(R.string.lib_section_bookmarks),
-                                style = MaterialTheme.typography.titleSmall,
-                                modifier = Modifier
-                                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                                    .testTag("library_saved_bookmarks_header")
+                                testTag = "library_saved_bookmarks_header"
                             )
                         }
                         if (allBookmarks.isEmpty()) {
@@ -1378,6 +1372,29 @@ internal fun LibraryHeaderActionsInner(
             tint = MaterialTheme.colorScheme.primary
         )
     }
+}
+
+/**
+ * #1673 — a section header of the «Збережене» tab.
+ *
+ * The two headers used to be bare `Text(style = titleSmall)` and therefore
+ * inherited `LocalContentColor`, which the ink theme leaves too dark on its
+ * near-black surface: the headings «Люди»/«Закладки» were practically
+ * unreadable (QA on device). An explicit `onSurface` is the same role the rest
+ * of the screen sets by hand and clears the 4.5:1 text floor on both paper and
+ * ink backgrounds (`LibrarySavedHeaderContrastTest` pins both the source role
+ * and the ink scheme's ratio).
+ */
+@Composable
+internal fun LibrarySavedSectionHeader(text: String, testTag: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .testTag(testTag)
+    )
 }
 
 /**

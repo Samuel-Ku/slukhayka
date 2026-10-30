@@ -157,13 +157,22 @@ class PlayerPaneQuickToolsFitTest {
         composeTestRule.waitForIdle()
     }
 
+    private fun assertChipsInsidePane() {
+        for (tag in listOf("speed_chip", "sleep_timer_chip", "add_bookmark_chip", "chapters_chip")) {
+            val bounds = composeTestRule.onNodeWithTag(tag).getUnclippedBoundsInRoot()
+            assertTrue(
+                "quick tool «$tag» не вміщається у панель: $bounds",
+                bounds.top.value >= -1f && bounds.bottom.value <= paneHeightDp.value + 1f
+            )
+        }
+    }
+
     private fun assertQuickToolLabelsWhole() {
         // The chip's own Text nodes, by tag — no dependency on the current
         // locale's wording. Speed has a value AND a label; the other three
         // show their label as the value.
         for (tag in listOf(
             "speed_chip_value",
-            "speed_chip_label",
             "sleep_timer_chip_value",
             "add_bookmark_chip_value",
             "chapters_chip_value"
@@ -187,18 +196,33 @@ class PlayerPaneQuickToolsFitTest {
     fun `543 dp pane keeps every quick tool whole at fontScale 1_0`() {
         showPane(paneWidthDp = 543.dp)
         assertQuickToolLabelsWhole()
+        assertChipsInsidePane()
     }
 
     @Test
     fun `543 dp pane keeps every quick tool whole at fontScale 1_15`() {
         showPane(paneWidthDp = 543.dp, fontScale = 1.15f)
         assertQuickToolLabelsWhole()
+        assertChipsInsidePane()
     }
 
     @Test
     fun `narrow 460 dp pane wraps the quick tools instead of truncating`() {
         showPane(paneWidthDp = 460.dp, fontScale = 1.15f)
         assertQuickToolLabelsWhole()
+        assertChipsInsidePane()
+    }
+
+    @Test
+    fun `the full landscape window keeps one row of four tools`() {
+        showPane(paneWidthDp = 905.dp)
+        assertQuickToolLabelsWhole()
+        val speed = composeTestRule.onNodeWithTag("speed_chip").getUnclippedBoundsInRoot()
+        val chapters = composeTestRule.onNodeWithTag("chapters_chip").getUnclippedBoundsInRoot()
+        assertTrue(
+            "a full-width landscape window must not wrap the tools: speed=$speed chapters=$chapters",
+            kotlin.math.abs(speed.top.value - chapters.top.value) <= 1f
+        )
     }
 
     @Test

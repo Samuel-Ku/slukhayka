@@ -98,7 +98,7 @@ import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.theme.AppThemeMode
 import com.slukhayka.audiobooks.ui.theme.AppearancePreferencesStore
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
-import com.slukhayka.audiobooks.ui.theme.ColorContrast
+import com.slukhayka.audiobooks.ui.theme.isPaperInkInkTheme
 import com.slukhayka.audiobooks.ui.theme.PaperInkSystemBars
 import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
 import com.slukhayka.audiobooks.ui.theme.systemBarAppearanceFor
@@ -424,7 +424,7 @@ fun AudiobookApp(
     // band above the new paper body. Resolved once here, where both inputs
     // live: the outer legacy scheme states the app-wide choice, and the
     // full-screen player is the product's known always-ink exception.
-    val appDarkTheme = ColorContrast.relativeLuminance(MaterialTheme.colorScheme.background) < 0.5
+    val appDarkTheme = isPaperInkInkTheme()
     val systemBarsDark = systemBarsDarkTheme(
         appDarkTheme = appDarkTheme,
         fullPlayerOverlayVisible = fullPlayerOverlayVisible,

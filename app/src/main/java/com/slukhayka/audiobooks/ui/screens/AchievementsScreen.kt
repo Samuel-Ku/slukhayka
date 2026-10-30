@@ -59,7 +59,7 @@ import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcon
 import com.slukhayka.audiobooks.ui.icons.PaperInkIconSizes
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
-import com.slukhayka.audiobooks.ui.theme.ColorContrast
+import com.slukhayka.audiobooks.ui.theme.isPaperInkInkTheme
 import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
 import com.slukhayka.audiobooks.ui.theme.PaperInkPalette
 import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
@@ -223,7 +223,7 @@ private fun AchievementHeroPanel(
     hero: AchievementPresentation.Hero,
     tier: String,
 ) {
-    val inkTheme = isInkTheme()
+    val inkTheme = isPaperInkInkTheme()
     val panel = if (inkTheme) PaperInkPalette.NightHigh else PaperInkPalette.NightSurface
     Surface(
         modifier = Modifier
@@ -419,7 +419,7 @@ private fun AchievementRegistryRow(
     val name = achievementName(context, definition.id)
         ?: stringResource(R.string.achievement_awarded_generic)
     val colorScheme = MaterialTheme.colorScheme
-    val inkTheme = isInkTheme()
+    val inkTheme = isPaperInkInkTheme()
     val medalBackground = when {
         !earned && inkTheme -> PaperInkPalette.NightHigh
         !earned -> PaperInkPalette.Track
@@ -573,7 +573,7 @@ private fun StreakDayCell(
     modifier: Modifier = Modifier,
 ) {
     val colorScheme = MaterialTheme.colorScheme
-    val inkTheme = isInkTheme()
+    val inkTheme = isPaperInkInkTheme()
     val listenedLabel = stringResource(R.string.achievements_day_listened)
     val todayLabel = stringResource(R.string.achievements_day_today)
     val description = buildString {
@@ -637,7 +637,3 @@ private fun weekdayLabel(index: Int): Int = when (index) {
     else -> R.string.achievements_weekday_7
 }
 
-/** Ink when the screen's own ground is dark — the same test the theme seam uses. */
-@Composable
-private fun isInkTheme(): Boolean =
-    ColorContrast.relativeLuminance(MaterialTheme.colorScheme.background) < 0.5

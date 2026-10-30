@@ -84,6 +84,45 @@ class PaperInkHeaderGlyphGuardTest {
         "Icons.AutoMirrored.Outlined.OpenInNew",
     )
 
+    /** The library's own M3 leftovers: the section back arrow, the saved/imported
+     *  empty states, the reading-year cards and the bookmark/person rows. The
+     *  family owns the arrow (`ChevronLeft`, auto-mirrored), `Friends`,
+     *  `Bookmark`, `Flame`, `Trash` and `Person`; `Today`/`DateRange`/
+     *  `CalendarMonth`/`Inbox` have no family glyph, so they move to the
+     *  Outlined weight (§5.4.7), not to a Filled stand-in. */
+    private val libraryBanned: Regex by lazy {
+        Regex("""Icons\.(?:AutoMirrored\.)?(?:Default|Filled)\.(?:ArrowBack|Group|Bookmark|Inbox|Today|DateRange|Whatshot|Delete|Person|CalendarMonth)\b""")
+    }
+
+    private val libraryRequired: List<String> = listOf(
+        "PaperInkIcons.ChevronLeft",
+        "PaperInkIcons.Friends",
+        "PaperInkIcons.Bookmark",
+        "PaperInkIcons.Flame",
+        "PaperInkIcons.Trash",
+        "PaperInkIcons.Person",
+        "Icons.Outlined.Inbox",
+        "Icons.Outlined.Today",
+        "Icons.Outlined.DateRange",
+        "Icons.Outlined.CalendarMonth",
+    )
+
+    @Test
+    fun libraryScreenUsesFamilyOrOutlinedGlyphs() {
+        val path = "app/src/main/java/com/slukhayka/audiobooks/ui/screens/LibraryScreen.kt"
+        val text = File(repoRoot, path).readText()
+        val offenders = libraryBanned.findAll(text).map { it.value }.toList()
+        assertTrue(
+            "$path must not keep M3 Filled glyphs the family or Outlined weight owns: $offenders",
+            offenders.isEmpty()
+        )
+        val missing = libraryRequired.filterNot { text.contains(it) }
+        assertTrue(
+            "$path is missing the migrated glyphs: " + missing.joinToString(),
+            missing.isEmpty()
+        )
+    }
+
     @Test
     fun webSourceBrowserUsesFamilyOrOutlinedGlyphs() {
         val path = "app/src/main/java/com/slukhayka/audiobooks/ui/screens/WebSourceBrowserScreen.kt"

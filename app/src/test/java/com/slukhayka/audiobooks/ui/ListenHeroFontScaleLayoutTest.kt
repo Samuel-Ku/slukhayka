@@ -1,11 +1,14 @@
 package com.slukhayka.audiobooks.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.Density
@@ -53,9 +56,15 @@ class ListenHeroFontScaleLayoutTest {
                 LocalDensity provides Density(density.density, fontScale = 2f)
             ) {
                 AudiobookTheme(darkTheme = true) {
-                    Surface(
-                        modifier = Modifier.fillMaxSize(),
-                        color = MaterialTheme.colorScheme.background,
+                    // A plain Box, NOT an M3 Surface: Surface is a Box with
+                    // propagateMinConstraints = true, so under fillMaxSize it
+                    // would force the hero to the whole viewport (~773 dp) and
+                    // the assertions/golden would measure that artifact instead
+                    // of the card's own content height.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.background)
                     ) {
                         ListenHeroCard(
                             book = book,
@@ -75,11 +84,11 @@ class ListenHeroFontScaleLayoutTest {
     fun `the narrator moves under the cover and stays inside the card`() {
         showHeroAtTwoHundredPercent()
 
-        val panel = compose.onNodeWithTag("listen_hero_panel", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val panel = compose.onNodeWithTag("listen_hero_panel", useUnmergedTree = true).getUnclippedBoundsInRoot()
         val cover = compose.onNodeWithTag("hero_cover_placeholder", useUnmergedTree = true)
-            .fetchSemanticsNode().boundsInRoot
+            .getUnclippedBoundsInRoot()
         val narrator = compose.onNodeWithTag("hero_narrator", useUnmergedTree = true)
-            .fetchSemanticsNode().boundsInRoot
+            .getUnclippedBoundsInRoot()
 
         assertTrue(
             "the narrator must not run past the card: narrator.right=${narrator.right} panel.right=${panel.right}",
@@ -95,17 +104,21 @@ class ListenHeroFontScaleLayoutTest {
     fun `the play button joins the flow and never covers text`() {
         showHeroAtTwoHundredPercent()
 
-        val density = compose.density
-        val play = compose.onNodeWithTag("hero_play", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        compose.onNodeWithTag("hero_narrator", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("hero_chapter", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("hero_play", useUnmergedTree = true).assertIsDisplayed()
+        val play = compose.onNodeWithTag("hero_play", useUnmergedTree = true).getUnclippedBoundsInRoot()
         val narrator = compose.onNodeWithTag("hero_narrator", useUnmergedTree = true)
-            .fetchSemanticsNode().boundsInRoot
+            .getUnclippedBoundsInRoot()
         val chapter = compose.onNodeWithTag("hero_chapter", useUnmergedTree = true)
-            .fetchSemanticsNode().boundsInRoot
+            .getUnclippedBoundsInRoot()
 
+        // DpRect from getUnclippedBoundsInRoot has no width/height properties.
+        val playWidth = play.right - play.left
+        val playHeight = play.bottom - play.top
         assertTrue(
-            "the play target must stay ≥ 48 dp: ${play.width / density.density}×${play.height / density.density} dp",
-            play.width >= with(density) { 48.dp.toPx() } - 1f &&
-                play.height >= with(density) { 48.dp.toPx() } - 1f,
+            "the play target must stay ≥ 48 dp: $playWidth×$playHeight dp",
+            playWidth >= 48.dp - 1.dp && playHeight >= 48.dp - 1.dp,
         )
         assertTrue(
             "play must sit BELOW the narrator, not on top of it: play.top=${play.top} narrator.bottom=${narrator.bottom}",
@@ -121,9 +134,9 @@ class ListenHeroFontScaleLayoutTest {
     fun `the chapter line is not clipped by the card edge`() {
         showHeroAtTwoHundredPercent()
 
-        val panel = compose.onNodeWithTag("listen_hero_panel", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val panel = compose.onNodeWithTag("listen_hero_panel", useUnmergedTree = true).getUnclippedBoundsInRoot()
         val chapter = compose.onNodeWithTag("hero_chapter", useUnmergedTree = true)
-            .fetchSemanticsNode().boundsInRoot
+            .getUnclippedBoundsInRoot()
         assertTrue(
             "chapter.right=${chapter.right} panel.right=${panel.right}",
             chapter.right <= panel.right + 1f,

@@ -1,8 +1,9 @@
 package com.slukhayka.audiobooks.ui.snapshots
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -49,9 +50,15 @@ class ListenHeroFontScaleSnapshotTest {
                 LocalDensity provides Density(density.density, fontScale = 2f)
             ) {
                 AudiobookTheme(darkTheme = true) {
-                    Surface(
-                        modifier = Modifier.fillMaxSize(),
-                        color = MaterialTheme.colorScheme.background,
+                    // NOT an M3 Surface: it propagates min constraints, so the
+                    // hero would stretch to the full 773 dp viewport and the
+                    // golden would pin that artifact instead of the card's own
+                    // content height (the production screen puts it in a
+                    // LazyColumn item, where min height is 0).
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.background)
                     ) {
                         ListenHeroCard(
                             book = book,

@@ -200,6 +200,12 @@ fun PaperInkHeroCard(
             // The large-text layout lets the card grow, moves the meta lines
             // (narrator, chapter, remaining) to the FULL width under the cover
             // and puts the play button in the flow instead of on top of text.
+            //
+            // The decorative lamp glow is intentionally OMITTED here: it is a
+            // radial accent anchored to the standard 193 dp composition, and at
+            // 200 % it would sit behind the meta text for no benefit. The
+            // surface, border, palette and radii are unchanged, so the card
+            // still reads as the same object.
             Box(modifier = Modifier.fillMaxWidth()) {
                 Column(
                     modifier = Modifier

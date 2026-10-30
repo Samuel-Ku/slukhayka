@@ -72,6 +72,7 @@ import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.player.PlayerState
+import com.slukhayka.audiobooks.player.withLiveDurationFacts
 import com.slukhayka.audiobooks.player.SeekSession
 import com.slukhayka.audiobooks.player.SleepTimerNotice
 import com.slukhayka.audiobooks.ui.MainViewModel
@@ -289,11 +290,30 @@ fun PlayerScreen(
     // may turn the exception off in Settings; then the surface follows the app.
     alwaysInk: Boolean = true,
 ) {
-    val playerState by viewModel.playerState.collectAsState()
+    val rawPlayerState by viewModel.playerState.collectAsState()
     // ADR-0008: module flows are read directly — no forwarding StateFlow on
     // the ViewModel.
     val allBookmarks by libraryEntries.allBookmarks.collectAsState(initial = emptyList())
+    val openedBook = rawPlayerState.currentBook ?: return
+    // #1647 — the player state's chapters are a SNAPSHOT installed at prepare
+    // time. The background chapter-duration probe writes real durations into
+    // Room while this screen stays open, so the display follows the live rows:
+    // the lists (and the honest book ruler) must pick the measured values up
+    // without switching a chapter or re-opening the book.
+    val liveBook by libraryEntries.observeBook(openedBook.id)
+        .collectAsState(initial = null)
+    val liveChapters by libraryEntries.observeChapters(openedBook.id)
+        .collectAsState(initial = emptyList())
+    val playerState = remember(rawPlayerState, liveBook, liveChapters) {
+        rawPlayerState.withLiveDurationFacts(liveBook, liveChapters)
+    }
     val book = playerState.currentBook ?: return
+    // #1647 — opening the player is the listener's own «measure these
+    // chapters» door: fire the targeted, single-flight probe so a book whose
+    // chapters were never measured does not wait for the Огляд sweep.
+    LaunchedEffect(book.id) {
+        runCatching { viewModel.chapterDurationProbe.probeBookNow(book.id) }
+    }
     // ADR-0008: suspend module calls from user actions run on the composition
     // scope (same pattern as playerManager's call-through).
     val scope = rememberCoroutineScope()

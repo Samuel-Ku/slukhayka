@@ -1420,10 +1420,19 @@ internal fun LibraryTabsWithSearch(
             } else {
                 MaterialTheme.typography.titleSmall
             }
-            textMeasurer.measure(
-                text = AnnotatedString(stringResource(R.string.lib_section_saved)),
-                style = style
-            ).size.width.toDp()
+            // #1627 — the WIDEST of the three labels, not just the last one:
+            // in English «Shelves» is wider than «Saved», so measuring by key
+            // order would miss the real overflow at large font scales.
+            listOf(
+                R.string.lib_section_books,
+                R.string.lib_section_shelves,
+                R.string.lib_section_saved
+            ).maxOf { label ->
+                textMeasurer.measure(
+                    text = AnnotatedString(stringResource(label)),
+                    style = style
+                ).size.width
+            }.toDp()
         }
         val inline = maxWidth >= 400.dp && widestTab * 3 <= maxWidth - 32.dp - 4.dp - 140.dp
         if (inline) {
@@ -1460,7 +1469,12 @@ internal fun LibraryTabsWithSearch(
                     savedSelected = savedSelected,
                     onBooks = onBooks,
                     onShelves = onShelves,
-                    onSaved = onSaved
+                    onSaved = onSaved,
+                    // #1627 — with the search on its own line the tabs own the
+                    // row; at very large font scales a label may still need a
+                    // second line. Wrapping keeps it readable; one-line
+                    // ellipsis was the defect.
+                    tabLabelMaxLines = 2
                 )
                 LibrarySearchField(
                     query = query,
@@ -3964,6 +3978,8 @@ internal fun LibrarySectionTabs(
     // zero here; standalone callers keep the historical 16.
     horizontalPadding: Dp = 16.dp,
     topPadding: Dp = 4.dp,
+    /** #1627 — 1 in the inline band (must fit), 2 in the two-band fallback. */
+    tabLabelMaxLines: Int = 1,
 ) {
     val items = listOf(
         Triple(stringResource(R.string.lib_section_books), booksSelected, "library_tab_books" to onBooks),
@@ -3995,7 +4011,7 @@ internal fun LibrarySectionTabs(
                 val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
                 Text(
                     text = label,
-                    maxLines = 1,
+                    maxLines = tabLabelMaxLines,
                     overflow = TextOverflow.Ellipsis,
                     style = if (paperInk) {
                         com.slukhayka.audiobooks.ui.theme.PaperInkType.Tab

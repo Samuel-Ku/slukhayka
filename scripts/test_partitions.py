@@ -110,6 +110,30 @@ class TestClass:
     path: Path
 
 
+CLASS_DECLARATION = re.compile(
+    r"^(?:(?:internal|private|public|protected|abstract|open|sealed|data|enum|annotation|value)\s+)*"
+    r"(?:class|object)\s+(\w+)",
+    re.MULTILINE,
+)
+
+
+def declared_test_classes(text: str) -> list[str]:
+    """Every top-level *Test class declared in one test file, in order.
+
+    The partitioner runs CI, so it must see ALL classes the file declares:
+    a second class co-located with the stem class is still a test that has to
+    run. Helper classes (fakes, abstract bases) do not end with «Test» and are
+    intentionally not test targets.
+    """
+    names = [
+        match.group(1)
+        for match in CLASS_DECLARATION.finditer(text)
+        if match.group(1).endswith("Test")
+    ]
+    # Stable de-duplication: an object/class pair must not produce two entries.
+    return list(dict.fromkeys(names))
+
+
 def discover(root: Path) -> list[TestClass]:
     source_root = root / TEST_ROOT
     if not source_root.is_dir():
@@ -122,7 +146,6 @@ def discover(root: Path) -> list[TestClass]:
         if package_match is None:
             raise ValueError(f"test file has no package declaration: {path.relative_to(root)}")
         package = package_match.group(1)
-        fqcn = f"{package}.{path.stem}"
         relative = path.relative_to(source_root).as_posix()
         compose_match = (
             "/ui/snapshots/" in f"/{relative}"
@@ -156,7 +179,17 @@ def discover(root: Path) -> list[TestClass]:
                 f"native Room test uses an unsupported SDK cohort: "
                 f"{path.relative_to(root)} sdk={sdk}"
             )
-        result.append(TestClass(fqcn, package, partition, room_native, sdk, path))
+        # A *Test.kt file may declare more than one test class (e.g.
+        # CanonicalStateFacadesTest.kt declares GuardTest and BehaviorTest).
+        # Naming only the file stem would silently drop every other class from
+        # the partition list — and from CI, which runs exactly this list.
+        class_names = declared_test_classes(text) or [path.stem]
+        for class_name in class_names:
+            result.append(
+                TestClass(
+                    f"{package}.{class_name}", package, partition, room_native, sdk, path
+                )
+            )
     return result
 
 
@@ -198,12 +231,17 @@ def production_package(path: str) -> str | None:
     return ".".join(parts) if parts else None
 
 
-def changed_test_fqcn(path: str) -> str | None:
+def changed_test_fqcns(test_classes: list[TestClass], path: str) -> list[str] | None:
+    """All classes declared in the changed *Test.kt file, or None if unmapped."""
     prefix = f"{TEST_ROOT.as_posix()}/"
     if not path.startswith(prefix) or not path.endswith("Test.kt"):
         return None
-    relative = Path(path[len(prefix) :])
-    return ".".join((*relative.parts[:-1], relative.stem))
+    relative_suffix = path[len(prefix) :]
+    return sorted(
+        test_class.fqcn
+        for test_class in test_classes
+        if test_class.path.as_posix().endswith(f"/{relative_suffix}")
+    )
 
 
 def execution_partition(test_class: TestClass) -> str:
@@ -243,12 +281,13 @@ def select(test_classes: list[TestClass], changed_files: list[str]) -> dict[str,
     checks: set[str] = set()
     by_fqcn = {test_class.fqcn: test_class for test_class in test_classes}
     for path in changed_files:
-        exact_fqcn = changed_test_fqcn(path)
-        if exact_fqcn is not None:
-            test_class = by_fqcn.get(exact_fqcn)
-            if test_class is None:
+        exact_fqcns = changed_test_fqcns(test_classes, path)
+        if exact_fqcns is not None:
+            if not exact_fqcns:
                 return {"fullSuite": True, "partitions": {}, "reason": "unknown changed test"}
-            selected.setdefault(execution_partition(test_class), set()).add(test_class.fqcn)
+            for fqcn in exact_fqcns:
+                test_class = by_fqcn[fqcn]
+                selected.setdefault(execution_partition(test_class), set()).add(test_class.fqcn)
             continue
 
         if path.startswith(WEB_CHECK_PREFIX):

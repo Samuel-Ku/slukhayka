@@ -13,10 +13,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CreateNewFolder
-import androidx.compose.material.icons.filled.FileUpload
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -45,6 +41,7 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
+import androidx.compose.material.icons.outlined.CreateNewFolder
 
 /**
  * spec-28 (#194) — the «+ Додати» sheet: one import action opening a sheet
@@ -123,14 +120,14 @@ fun LibraryImportSheetContent(
             )
             if (onClose != null) {
                 IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
-                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.a11y_library_import_close))
+                    Icon(PaperInkIcons.Close, contentDescription = stringResource(R.string.a11y_library_import_close))
                 }
             }
         }
         Spacer(modifier = Modifier.height(16.dp))
 
         ImportOptionRow(
-            icon = Icons.Default.FileUpload,
+            icon = PaperInkIcons.Upload,
             title = stringResource(R.string.lib_import_add_file),
             subtitle = stringResource(R.string.lib_import_add_file_subtitle),
             tag = "import_option_file",
@@ -138,7 +135,7 @@ fun LibraryImportSheetContent(
         )
         Spacer(modifier = Modifier.height(8.dp))
         ImportOptionRow(
-            icon = Icons.Default.CreateNewFolder,
+            icon = Icons.Outlined.CreateNewFolder,
             title = stringResource(R.string.lib_import_add_folder),
             subtitle = stringResource(R.string.lib_import_add_folder_subtitle),
             tag = "import_option_folder",
@@ -146,7 +143,7 @@ fun LibraryImportSheetContent(
         )
         Spacer(modifier = Modifier.height(8.dp))
         ImportOptionRow(
-            icon = Icons.Default.Link,
+            icon = PaperInkIcons.Link,
             title = stringResource(R.string.import_option_link),
             subtitle = stringResource(R.string.import_option_link_subtitle),
             tag = "import_option_link",

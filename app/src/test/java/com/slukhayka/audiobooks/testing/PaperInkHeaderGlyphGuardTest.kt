@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.testing
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -235,6 +236,8 @@ class PaperInkHeaderGlyphGuardTest {
 
     @Test
     fun remainingMigratedSurfacesUseFamilyOrOutlinedGlyphs() {
+        // A deleted map entry would silently shrink coverage; pin the count.
+        assertEquals(10, migratedSurfaceRules.size)
         val offenders = mutableListOf<String>()
         val missing = mutableListOf<String>()
         for ((path, rule) in migratedSurfaceRules) {
@@ -261,6 +264,73 @@ class PaperInkHeaderGlyphGuardTest {
         assertFalse(
             "$path must not keep the dead `filled.*` wildcard import (#1654 nit)",
             text.contains("import androidx.compose.material.icons.filled.*")
+        )
+    }
+
+    /** The stragglers the F11 sweep found last: the Home feed's sort/seen/retry
+     *  actions, the import sheet, the people/author empty states, the player's
+     *  sleep/speed sheets, the shared gear, the cover placeholder, the chapter
+     *  drag handle, the index/collection back arrows and the settings
+     *  sub-screens. Same contract: no M3 Filled where the family or the
+     *  Outlined weight owns the value (§5.4.7). */
+    private val stragglerRules: Map<String, Pair<Regex, List<String>>> = mapOf(
+        "app/src/main/java/com/slukhayka/audiobooks/ui/screens/HomeScreen.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.(?:ArrowDropDown|Done|FileUpload|Refresh)\b""") to
+                listOf("PaperInkIcons.Refresh", "PaperInkIcons.Check", "PaperInkIcons.Upload", "PaperInkIcons.ChevronDown")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/screens/LibraryImportSheet.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.(?:Close|FileUpload|CreateNewFolder|Link)\b""") to
+                listOf("PaperInkIcons.Close", "PaperInkIcons.Upload", "PaperInkIcons.Link", "Icons.Outlined.CreateNewFolder")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/screens/PeopleScreen.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.(?:Info|Warning|Person)\b""") to
+                listOf("PaperInkIcons.Info", "PaperInkIcons.Alert", "PaperInkIcons.Person")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/screens/AuthorDiscovery.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.(?:Person|Warning)\b""") to
+                listOf("PaperInkIcons.Person", "PaperInkIcons.Alert")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/components/OpenWebSourceRow.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.Language\b""") to
+                listOf("Icons.Outlined.Language")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/components/SleepTimerSheet.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.Close\b""") to listOf("PaperInkIcons.Close")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/components/SpeedSheet.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.Close\b""") to listOf("PaperInkIcons.Close")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/components/AppSettingsGear.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.Settings\b""") to listOf("PaperInkIcons.Settings")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/components/CatalogCoverImage.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.Headphones\b""") to listOf("PaperInkIcons.Headphones")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/components/ChapterDragHandle.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.DragHandle\b""") to listOf("PaperInkIcons.DragHandle")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/components/IndexScreenScaffold.kt" to
+            (Regex("""Icons\.(?:AutoMirrored\.Filled|Default|Filled)\.ArrowBack\b""") to listOf("PaperInkIcons.ChevronLeft")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/screens/collections/CollectionPage.kt" to
+            (Regex("""Icons\.(?:AutoMirrored\.Filled|Default|Filled)\.ArrowBack\b""") to listOf("PaperInkIcons.ChevronLeft")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/screens/AppLocaleScreen.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.Language\b""") to listOf("Icons.Outlined.Language")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/screens/ContentLanguageScreen.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.Language\b""") to listOf("Icons.Outlined.Language")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/screens/NetworkPrivacyScreen.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.Shield\b""") to listOf("PaperInkIcons.Shield")),
+    )
+
+    @Test
+    fun lastMigratedSurfaceStragglersUseFamilyOrOutlinedGlyphs() {
+        // Same non-vacuity contract as the #1656 map: deleting an entry must fail.
+        assertEquals(15, stragglerRules.size)
+        val offenders = mutableListOf<String>()
+        val missing = mutableListOf<String>()
+        for ((path, rule) in stragglerRules) {
+            val text = File(repoRoot, path).readText()
+            rule.first.findAll(text).forEach { offenders += "$path -> ${it.value}" }
+            rule.second.filterNot { text.contains(it) }.forEach { missing += "$path -> $it" }
+        }
+        assertTrue(
+            "migrated paper surfaces must not fall back to M3 Filled glyphs:\n" +
+                offenders.joinToString("\n"),
+            offenders.isEmpty()
+        )
+        assertTrue(
+            "these migrated surfaces must draw the family/Outlined glyph:\n" +
+                missing.joinToString("\n"),
+            missing.isEmpty()
         )
     }
 

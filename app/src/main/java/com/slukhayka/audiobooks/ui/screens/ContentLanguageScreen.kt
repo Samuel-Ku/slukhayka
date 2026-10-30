@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Language
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -31,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.facets.ContentLanguagePrefs
 import com.slukhayka.audiobooks.data.facets.orderContentLanguages
+import androidx.compose.material.icons.outlined.Language
 
 /**
  * Spec-45 (#405) T6 (#494), spec-51 (#742) T3 — the «Мови контенту»
@@ -92,7 +92,7 @@ fun ContentLanguageScreen(
             ) {
                 Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.Language,
+                        imageVector = Icons.Outlined.Language,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.width(24.dp)

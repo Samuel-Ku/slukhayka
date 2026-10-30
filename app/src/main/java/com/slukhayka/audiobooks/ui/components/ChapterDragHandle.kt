@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -41,6 +39,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 
 /**
  * #1188 — the explicit drag handle that sits BESIDE the «Вгору»/«Вниз» buttons.
@@ -166,7 +165,7 @@ fun ChapterDragHandle(
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(12.dp)) {
             Icon(
-                imageVector = Icons.Filled.DragHandle,
+                imageVector = PaperInkIcons.DragHandle,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )

@@ -11,8 +11,6 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.theme.AppDimens
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 
 /** #1235 — below this header width the title gets its own full-width line. */
 val NarrowIndexHeaderMaxWidth = 280.dp
@@ -200,7 +199,7 @@ private fun BackIconButton(onBackClick: () -> Unit) {
         modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
     ) {
         Icon(
-            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+            imageVector = PaperInkIcons.ChevronLeft,
             contentDescription = stringResource(R.string.secondary_action_back)
         )
     }

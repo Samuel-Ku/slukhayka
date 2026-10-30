@@ -24,8 +24,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
-import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.update.AvailableAppRelease
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
 import com.slukhayka.audiobooks.ui.theme.PaperInkType
 

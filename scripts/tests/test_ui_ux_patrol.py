@@ -32,8 +32,9 @@ import tempfile
 import textwrap
 import unittest
 from unittest import mock
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, redirect_stderr
 import io
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -601,18 +602,105 @@ class ModelKeyTest(unittest.TestCase):
     def test_write_env_file_does_not_print_the_key(self):
         with tempfile.TemporaryDirectory() as raw:
             home = Path(raw)
-            buffer = io.StringIO()
+            out, err = io.StringIO(), io.StringIO()
             with mock.patch.dict(os.environ, {"HOME": str(home)}):
-                with redirect_stdout(buffer):
+                with redirect_stdout(out), redirect_stderr(err):
                     patrol.write_env_file(
                         write_token=False,
                         model_env={"OPENCODE_API_KEY": "oc_sk_secret_value"},
                     )
-            self.assertNotIn("oc_sk_secret_value", buffer.getvalue())
+            # #1663 (огляд #1662) — ключ не має текти ні в stdout, ні в stderr.
+            self.assertNotIn("oc_sk_secret_value", out.getvalue())
+            self.assertNotIn("oc_sk_secret_value", err.getvalue())
             env_path = home / ".config" / "slukhayka" / "ui-ux-patrol.env"
             env_text = env_path.read_text(encoding="utf-8")
             self.assertIn("OPENCODE_API_KEY=oc_sk_secret_value", env_text)
-            self.assertNotIn("oc_sk_secret_value", buffer.getvalue())
+
+    def test_install_writes_env_before_smoke(self):
+        # #1663 — центральна зміна #1662 мусить пінитися: env пишеться до
+        # димового прогону, інакше без ключа install падає до запису файла.
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            repo = home / "repo"
+            (repo / ".git").mkdir(parents=True)
+            order: list[str] = []
+
+            def record(name):
+                order.append(name)
+
+            args = patrol.argparse.Namespace(
+                repo=repo,
+                skip_smoke=False,
+                no_enable=True,
+                no_gh_token=True,
+                no_model_key=False,
+            )
+            completed = subprocess.CompletedProcess([], 0, "", "")
+            with mock.patch.object(patrol.Path, "home", return_value=home), \
+                    mock.patch.object(patrol.shutil, "which", return_value="/fake/bin"), \
+                    mock.patch.object(patrol, "run", return_value=completed), \
+                    mock.patch.object(patrol, "ensure_headless_profile"), \
+                    mock.patch.object(
+                        patrol, "profile_api_key_env", return_value="OPENCODE_API_KEY"
+                    ), \
+                    mock.patch.object(
+                        patrol, "resolve_model_key", return_value="oc_sk_test"
+                    ), \
+                    mock.patch.object(
+                        patrol, "ensure_label", side_effect=lambda _repo: record("label")
+                    ), \
+                    mock.patch.object(
+                        patrol,
+                        "write_env_file",
+                        side_effect=lambda **_kw: record("env") or Path("/fake/env"),
+                    ), \
+                    mock.patch.object(
+                        patrol,
+                        "smoke_headless",
+                        side_effect=lambda *_a, **_kw: record("smoke"),
+                    ), \
+                    redirect_stdout(io.StringIO()):
+                self.assertEqual(0, patrol.cmd_install(args))
+
+            self.assertEqual(["label", "env", "smoke"], order)
+
+    def test_install_skip_smoke_still_writes_env(self):
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            repo = home / "repo"
+            (repo / ".git").mkdir(parents=True)
+            calls: list[str] = []
+            args = patrol.argparse.Namespace(
+                repo=repo,
+                skip_smoke=True,
+                no_enable=True,
+                no_gh_token=True,
+                no_model_key=True,
+            )
+            completed = subprocess.CompletedProcess([], 0, "", "")
+            with mock.patch.object(patrol.Path, "home", return_value=home), \
+                    mock.patch.object(patrol.shutil, "which", return_value="/fake/bin"), \
+                    mock.patch.object(patrol, "run", return_value=completed), \
+                    mock.patch.object(patrol, "ensure_headless_profile"), \
+                    mock.patch.object(
+                        patrol, "ensure_label", side_effect=lambda _r: calls.append("label")
+                    ), \
+                    mock.patch.object(
+                        patrol,
+                        "write_env_file",
+                        side_effect=lambda **_kw: calls.append("env") or Path("/fake/env"),
+                    ), \
+                    mock.patch.object(
+                        patrol,
+                        "smoke_headless",
+                        side_effect=lambda *_a, **_kw: calls.append("smoke"),
+                    ), \
+                    mock.patch.object(patrol, "profile_api_key_env") as profiles, \
+                    redirect_stdout(io.StringIO()):
+                self.assertEqual(0, patrol.cmd_install(args))
+
+            self.assertEqual(["label", "env"], calls)
+            profiles.assert_not_called()
 
     def test_write_env_file_writes_key_with_0600(self):
         with tempfile.TemporaryDirectory() as raw:

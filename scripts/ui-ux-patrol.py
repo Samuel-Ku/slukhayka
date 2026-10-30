@@ -1167,6 +1167,9 @@ def write_env_file(
     payload = render_env_file(dirs, token, model_env)
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     try:
+        # #1662 — fchmod одразу: для вже наявного файла з 0644 create-права не
+        # діють, і без цього секрет ліг би у світ до chmod після запису.
+        os.fchmod(fd, 0o600)
         os.write(fd, payload.encode("utf-8"))
     finally:
         os.close(fd)

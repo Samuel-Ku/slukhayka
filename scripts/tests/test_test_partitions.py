@@ -95,6 +95,77 @@ class TestPartitionsCliTest(unittest.TestCase):
 
         self.assertEqual("com.slukhayka.audiobooks.player.SmartRewindTest\n", result.stdout)
 
+    def write_multi_class_test(self, package: str, name: str, classes: list[str]) -> str:
+        """A *Test.kt file that declares several test classes (#1634)."""
+        package_path = Path(*package.split("."))
+        target = self.root / "app/src/test/java" / package_path / f"{name}.kt"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        body = (
+            "import org.robolectric.RobolectricTestRunner\n"
+            + "\n".join(f"class {class_name}" for class_name in classes)
+        )
+        target.write_text(f"package {package}\n{body}\n", encoding="utf-8")
+        return f"app/src/test/java/{package_path.as_posix()}/{name}.kt"
+
+    def test_list_includes_every_top_level_test_class_in_a_file(self):
+        # #1634 — CI runs the partition list; a second class in the same file
+        # must not be silently absent from it.
+        self.write_multi_class_test(
+            "com.slukhayka.audiobooks.ui",
+            "CanonicalStateFacadesTest",
+            ["CanonicalStateFacadesGuardTest", "CanonicalStateFacadesBehaviorTest"],
+        )
+
+        listed = self.run_cli("list", "--partition", "room-robolectric").stdout.split()
+
+        self.assertEqual(
+            [
+                "com.slukhayka.audiobooks.ui.CanonicalStateFacadesBehaviorTest",
+                "com.slukhayka.audiobooks.ui.CanonicalStateFacadesGuardTest",
+            ],
+            sorted(listed),
+        )
+
+    def test_declared_class_name_wins_over_the_file_stem(self):
+        # #1634 — the stem is only a fallback for a file that declares no
+        # *Test class at all; it must never add a phantom class the source
+        # does not contain.
+        target = self.root / "app/src/test/java/com/slukhayka/audiobooks/ui/RenamedGateTest.kt"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            "package com.slukhayka.audiobooks.ui\n"
+            "import org.robolectric.RobolectricTestRunner\n"
+            "class RealGateTest\n",
+            encoding="utf-8",
+        )
+
+        listed = self.run_cli("list", "--partition", "room-robolectric").stdout.split()
+
+        self.assertEqual(["com.slukhayka.audiobooks.ui.RealGateTest"], listed)
+
+    def test_changed_test_file_selects_every_class_it_declares(self):
+        # #1634 — `select --changed-file <the file>` used to look up only the
+        # file stem, so a co-located class made the whole file "unknown" and
+        # fell back to the full suite instead of its two classes.
+        changed = self.write_multi_class_test(
+            "com.slukhayka.audiobooks.ui",
+            "CanonicalStateFacadesTest",
+            ["CanonicalStateFacadesGuardTest", "CanonicalStateFacadesBehaviorTest"],
+        )
+
+        payload = json.loads(self.run_cli("select", "--changed-file", changed).stdout)
+
+        self.assertFalse(payload["fullSuite"])
+        self.assertEqual(
+            {
+                "room-robolectric-only": [
+                    "com.slukhayka.audiobooks.ui.CanonicalStateFacadesBehaviorTest",
+                    "com.slukhayka.audiobooks.ui.CanonicalStateFacadesGuardTest",
+                ]
+            },
+            payload["partitions"],
+        )
+
     def test_changed_production_package_selects_its_tests(self):
         self.seed_three_partitions()
 

@@ -661,7 +661,7 @@ fun LibraryScreen(
                         }
 
                         libraryProjection.shownBooks.isEmpty() -> EmptyState(
-                            icon = Icons.Default.Search,
+                            icon = PaperInkIcons.Search,
                             title = stringResource(R.string.lib_no_results_title),
                             body = stringResource(R.string.lib_no_results_body)
                         )
@@ -1293,7 +1293,7 @@ internal fun LibraryHeaderActionsInner(
                 .testTag("library_sections_menu")
         ) {
             Icon(
-                imageVector = Icons.Default.MoreVert,
+                imageVector = PaperInkIcons.More,
                 contentDescription = stringResource(R.string.a11y_library_more_actions)
             )
         }
@@ -1371,7 +1371,7 @@ internal fun LibraryHeaderActionsInner(
             .testTag("library_add_button")
     ) {
         Icon(
-            imageVector = Icons.Default.Add,
+            imageVector = PaperInkIcons.Plus,
             contentDescription = stringResource(R.string.a11y_library_add),
             tint = MaterialTheme.colorScheme.primary
         )
@@ -1568,7 +1568,7 @@ internal fun LibrarySearchField(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Search,
+                        imageVector = PaperInkIcons.Search,
                         contentDescription = null,
                         tint = colorScheme.primary,
                         modifier = Modifier.size(18.dp)
@@ -1988,12 +1988,6 @@ private fun libraryRemainingTotal(books: List<LibraryBook>): String {
         formatRemainingTime(seconds, stringRemainingTimeUnits())
     )
 }
-
-/**
- * A section header inside the book grid: uppercase label + pluralised count
- * (design guide §6.3's section style), with no page padding of its own — the
- * grid already carries it.
- */
 
 /** A full-width, horizontally scrolling shelf of cover tiles. */
 @Composable

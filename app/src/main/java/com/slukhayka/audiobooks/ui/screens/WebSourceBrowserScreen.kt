@@ -13,12 +13,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -580,7 +576,7 @@ fun WebSourceBrowserScreen(
                                 .semantics { contentDescription = actionLabels.reload }
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Refresh,
+                                imageVector = PaperInkIcons.Refresh,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary
                             )
@@ -599,7 +595,7 @@ fun WebSourceBrowserScreen(
                                 .semantics { contentDescription = actionLabels.home }
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Home,
+                                imageVector = Icons.Outlined.Home,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary
                             )
@@ -789,7 +785,7 @@ fun WebSourceBrowserScreen(
                     placeholder = { Text(stringResource(R.string.browser_address_hint)) },
                     leadingIcon = {
                         Icon(
-                            imageVector = Icons.Default.Link,
+                            imageVector = PaperInkIcons.Link,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary
                         )
@@ -811,7 +807,7 @@ fun WebSourceBrowserScreen(
                                         .size(AppDimens.TouchTarget)
                                         .semantics { contentDescription = actionLabels.openExternal }
                                 ) {
-                                    Icon(imageVector = Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                                    Icon(imageVector = Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
                                 }
                             }
                             if (urlInput.isNotBlank()) {
@@ -834,7 +830,7 @@ fun WebSourceBrowserScreen(
                                         .size(AppDimens.TouchTarget)
                                         .semantics { contentDescription = actionLabels.goToAddress }
                                 ) {
-                                    Icon(imageVector = Icons.Default.Link, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Icon(imageVector = PaperInkIcons.Link, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         }
@@ -907,7 +903,7 @@ fun WebSourceBrowserScreen(
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    imageVector = Icons.Default.Warning,
+                                    imageVector = PaperInkIcons.Alert,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.secondary,
                                     modifier = Modifier.size(20.dp)
@@ -925,7 +921,7 @@ fun WebSourceBrowserScreen(
                                         .size(AppDimens.TouchTarget)
                                         .semantics { contentDescription = actionLabels.closeRouteMessage }
                                 ) {
-                                    Icon(imageVector = Icons.Default.Close, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Icon(imageVector = PaperInkIcons.Close, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                             Text(
@@ -1238,7 +1234,7 @@ fun WebSourceBrowserScreen(
                     Column(modifier = Modifier.padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Default.Warning,
+                                imageVector = PaperInkIcons.Alert,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.secondary,
                                 modifier = Modifier.size(20.dp)
@@ -1256,7 +1252,7 @@ fun WebSourceBrowserScreen(
                                     .size(AppDimens.TouchTarget)
                                     .semantics { contentDescription = actionLabels.closeNetworkError }
                             ) {
-                                Icon(imageVector = Icons.Default.Close, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Icon(imageVector = PaperInkIcons.Close, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         Text(
@@ -1332,7 +1328,7 @@ private fun WebViewRouteGateCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (failed) {
                     Icon(
-                        imageVector = Icons.Default.Warning,
+                        imageVector = PaperInkIcons.Alert,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.secondary,
                         modifier = Modifier.size(20.dp)
@@ -1359,7 +1355,7 @@ private fun WebViewRouteGateCard(
                         contentDescription = "Закрити браузер джерела"
                     }
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = null)
+                    Icon(PaperInkIcons.Close, contentDescription = null)
                 }
             }
             if (failed) {

@@ -49,7 +49,11 @@ if [ "${1:-}" = "--check" ]; then
   "$BIN_DIR/gh" auth status >/dev/null 2>&1 && ok "gh auth" || bad_ "gh auth (токен недійсний?)"
   [ -s "$HOME/.dsh/.credentials.yaml" ] && ok "ключ провайдера" || bad_ "ключ провайдера"
   [ -e "$REPO_DIR/.git" ] && ok "клон репозиторію" || bad_ "клон репозиторію"
-  free_gb=$(df -BG --output=avail "$REPO_DIR" 2>/dev/null | tail -1 | tr -dc 0-9)
+  # #1668 — `set -o pipefail` робив `df` на НЕіснуючому $REPO_DIR фатальним
+  # для всього --check: скрипт умирав до решти перевірок замість того, щоб
+  # назвати відсутню складову й піти далі. `|| free_gb=""` лишає рядок FAIL,
+  # але не вбиває прогін.
+  free_gb=$(df -BG --output=avail "$REPO_DIR" 2>/dev/null | tail -1 | tr -dc 0-9) || free_gb=""
   [ "${free_gb:-0}" -ge 10 ] && ok "диск (${free_gb}G вільно)" || bad_ "диск (${free_gb:-?}G вільно)"
   # dsh-процеси — норма під час виконання задачі; сирота відрізняється тим, що
   # його нема кому прибрати. Порахувати це ззовні не можна, тож рапортуємо факт

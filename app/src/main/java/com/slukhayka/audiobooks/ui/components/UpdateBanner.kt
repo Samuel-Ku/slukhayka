@@ -9,8 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.SystemUpdateAlt
+import androidx.compose.material.icons.outlined.SystemUpdateAlt
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -25,6 +24,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.update.AvailableAppRelease
 import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
 import com.slukhayka.audiobooks.ui.theme.PaperInkType
@@ -59,7 +59,7 @@ fun UpdateBanner(
         horizontalArrangement = Arrangement.spacedBy(PaperInkDimens.SpaceSm),
     ) {
         Icon(
-            imageVector = Icons.Default.SystemUpdateAlt,
+            imageVector = Icons.Outlined.SystemUpdateAlt,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.tertiary,
             modifier = Modifier.size(20.dp),
@@ -89,7 +89,7 @@ fun UpdateBanner(
                 .testTag("app_update_banner_dismiss"),
         ) {
             Icon(
-                imageVector = Icons.Default.Close,
+                imageVector = PaperInkIcons.Close,
                 contentDescription = stringResource(R.string.update_hide),
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(18.dp),

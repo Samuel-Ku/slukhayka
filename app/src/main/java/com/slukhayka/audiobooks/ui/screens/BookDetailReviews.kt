@@ -17,10 +17,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -269,7 +265,7 @@ fun ReviewCard(
                 // queued; it is NOT published yet.
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.CloudUpload,
+                        imageVector = PaperInkIcons.Upload,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(14.dp)
@@ -318,7 +314,7 @@ fun ReviewCard(
                             .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                             .semantics { contentDescription = editLabel }
                     ) {
-                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(PaperInkIcons.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.size(2.dp))
                         Text(
                             stringResource(R.string.book_detail_review_edit_action),
@@ -338,7 +334,7 @@ fun ReviewCard(
                             .semantics { contentDescription = deleteLabel }
                     ) {
                         Icon(
-                            Icons.Default.Delete,
+                            PaperInkIcons.Trash,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(16.dp)
@@ -510,7 +506,7 @@ fun NarrationRatingRow(
                             .testTag("narration_rating_delete")
                     ) {
                         Icon(
-                            Icons.Default.Delete,
+                            PaperInkIcons.Trash,
                             contentDescription = stringResource(R.string.book_detail_narration_rating_delete),
                             tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(16.dp)

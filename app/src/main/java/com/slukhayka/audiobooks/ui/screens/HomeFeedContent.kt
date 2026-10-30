@@ -6,9 +6,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -764,7 +761,7 @@ fun LazyListScope.homeFeedContent(
                             modifier = Modifier.size(AppDimens.TouchTarget)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Close,
+                                imageVector = PaperInkIcons.Close,
                                 contentDescription = stringResource(R.string.catalog_card_cancel),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -881,7 +878,7 @@ private fun FeedRefreshButton(
         },
         modifier = Modifier.heightIn(min = 48.dp).testTag(tag)
     ) {
-        Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+        Icon(imageVector = PaperInkIcons.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
         Spacer(modifier = Modifier.width(6.dp))
         Text(label)
     }

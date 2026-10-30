@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.foundation.layout.Row
 import androidx.compose.ui.Alignment
 import androidx.compose.material3.MaterialTheme
@@ -168,7 +166,7 @@ fun CuratorProfileContent(
             // spec-46 T16 (#577): the curator's honest absence is the canonical
             // compact state, not a bare Text.
             EmptyStateRow(
-                icon = Icons.Default.Bookmark,
+                icon = PaperInkIcons.Bookmark,
                 title = stringResource(R.string.curator_profile_empty),
                 body = "",
                 modifier = Modifier.testTag("curator_profile_empty")

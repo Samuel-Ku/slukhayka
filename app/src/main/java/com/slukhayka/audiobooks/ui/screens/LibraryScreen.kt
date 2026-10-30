@@ -713,12 +713,9 @@ fun LibraryScreen(
                         contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
                     ) {
                         item {
-                            Text(
+                            LibrarySavedSectionHeader(
                                 text = stringResource(R.string.lib_section_people),
-                                style = MaterialTheme.typography.titleSmall,
-                                modifier = Modifier
-                                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                                    .testTag("library_saved_people_header")
+                                testTag = "library_saved_people_header",
                             )
                         }
                         if (bookmarkedPeople.isEmpty()) {
@@ -780,12 +777,9 @@ fun LibraryScreen(
                             }
                         }
                         item {
-                            Text(
+                            LibrarySavedSectionHeader(
                                 text = stringResource(R.string.lib_section_bookmarks),
-                                style = MaterialTheme.typography.titleSmall,
-                                modifier = Modifier
-                                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                                    .testTag("library_saved_bookmarks_header")
+                                testTag = "library_saved_bookmarks_header",
                             )
                         }
                         if (allBookmarks.isEmpty()) {
@@ -910,7 +904,14 @@ fun LibraryScreen(
                             }
                             items(importedEntries, key = { it.bookId }) { entry ->
                                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                    Text(text = entry.title, style = MaterialTheme.typography.titleSmall)
+                                    Text(
+                                        text = entry.title,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        // #1673 (same class): without an explicit role
+                                        // the title inherits the default black
+                                        // LocalContentColor and vanishes on ink.
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
                                     Row {
                                         OutlinedButton(
                                             onClick = {
@@ -3346,6 +3347,31 @@ internal fun movedOrder(size: Int, from: Int, to: Int): List<Int> {
     val moved = order.removeAt(from)
     order.add(to, moved)
     return order
+}
+
+/**
+ * #1673 (F3/F4 contrast) — a section heading on «Моє → Збережене».
+ *
+ * The two headings used to set only a typography style and no `color`, so they
+ * inherited `LocalContentColor`. In the Ink theme nothing on that path sets it,
+ * so it stayed the default black on a near-black page — the headings were
+ * almost invisible (visible in the Paper theme, where black on paper works).
+ * The heading now names its role explicitly, and [LibrarySavedHeaderInkTest]
+ * pins both the role and an ink snapshot.
+ */
+@Composable
+internal fun LibrarySavedSectionHeader(
+    text: String,
+    testTag: String,
+) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .testTag(testTag),
+    )
 }
 
 /**

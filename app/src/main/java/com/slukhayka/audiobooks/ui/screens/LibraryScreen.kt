@@ -3931,7 +3931,9 @@ internal fun libraryChrome(
  * (`AchievementHeroPanel`): ink stays ink in both app themes because a number
  * that anchors the screen reads as print, not as another tinted card. So
  * `StatXL` (Literata 48/52) carries the finished count, the year uses the
- * lamp TEXT role (6.2:1 on the plate — F4) and the units use `Meta`.
+ * lamp TEXT role (`LampNight`: 10.37:1 on the paper plate, 9.28:1 on the ink
+ * plate — F4; the 6.2:1 figure is `LampInk` as text on paper, a different
+ * pairing that never lands on this plate) and the units use `Meta`.
  *
  * No progress bar: a yearly TARGET does not exist in the domain
  * ([com.slukhayka.audiobooks.data.entries.YearlyReadingGoal] carries only what
@@ -3942,7 +3944,7 @@ internal fun LibraryYearHero(
     goal: com.slukhayka.audiobooks.data.entries.YearlyReadingGoal
 ) {
     Surface(
-        color = libraryYearPlateColor(inkTheme = isInkTheme()),
+        color = libraryYearPlateColor(inkTheme = isPaperInkInkTheme()),
         contentColor = PaperInkPalette.Chalk,
         shape = RoundedCornerShape(PaperInkDimens.RadiusXl),
         modifier = Modifier
@@ -3977,20 +3979,6 @@ internal fun LibraryYearHero(
         }
     }
 }
-
-/**
- * F28 — the year plate is INK in both themes, like the achievements hero: on
- * paper it is the printed `NightSurface` plate, in the ink theme it steps up to
- * the raised `NightHigh` so it does not disappear into the page. Exposed for
- * the token test; the golden pins the rendering.
- */
-internal fun libraryYearPlateColor(inkTheme: Boolean): Color =
-    if (inkTheme) PaperInkPalette.NightHigh else PaperInkPalette.NightSurface
-
-/** Ink when the screen's own ground is dark — the same test `AchievementsScreen` uses. */
-@Composable
-private fun isInkTheme(): Boolean =
-    ColorContrast.relativeLuminance(MaterialTheme.colorScheme.background) < 0.5
 
 /** #885 — Книги | Полиці | Збережене, the prototype's top-level switch. */
 @Composable

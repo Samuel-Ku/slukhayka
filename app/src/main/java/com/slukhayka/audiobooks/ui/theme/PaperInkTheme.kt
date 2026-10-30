@@ -72,6 +72,35 @@ object PaperInkColors {
 internal fun lampTextFor(darkTheme: Boolean): Color =
     if (darkTheme) PaperInkPalette.LampNight else PaperInkPalette.LampInk
 
+/**
+ * True when the composition's own ground is the ink page.
+ *
+ * The paper/ink decision is ONE rule — the background's luminance, not the
+ * system theme and not a caller flag — so a block can move between themes
+ * without carrying anything with it. This test used to exist as four private
+ * copies (the [PaperInkThemedContent] seam, «Досягнення», «Медіатека» and the
+ * system-bar call in `MainActivity`); a follow-up to F28 (#1641) keeps the one
+ * definition here.
+ */
+@Composable
+fun isPaperInkInkTheme(): Boolean =
+    ColorContrast.relativeLuminance(MaterialTheme.colorScheme.background) < 0.5
+
+/**
+ * F28 (аудит 2026-10-28, #1625/#1641) — the printed statistic plate, used by
+ * «Мій рік у книжках»: **ink in BOTH app themes**, the same language as the
+ * achievements hero panel, because a number that anchors a screen reads as
+ * print rather than as another tinted card. On paper it is the flat
+ * [PaperInkPalette.NightSurface] plate; in the ink theme it steps up to the
+ * raised [PaperInkPalette.NightHigh] so it does not disappear into the page.
+ *
+ * The text roles that ride it are measured in `PaperInkTokensTest`
+ * (`Chalk` 14.00:1/12.53:1, `LampNight` 10.37:1/9.28:1,
+ * `DustNight` 7.06:1/6.32:1 on the paper/ink plates).
+ */
+fun libraryYearPlateColor(inkTheme: Boolean): Color =
+    if (inkTheme) PaperInkPalette.NightHigh else PaperInkPalette.NightSurface
+
 @Composable
 fun PaperInkTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
@@ -106,6 +135,6 @@ fun PaperInkTheme(
  */
 @Composable
 fun PaperInkThemedContent(content: @Composable () -> Unit) {
-    val darkTheme = ColorContrast.relativeLuminance(MaterialTheme.colorScheme.background) < 0.5
+    val darkTheme = isPaperInkInkTheme()
     PaperInkTheme(darkTheme = darkTheme, content = content)
 }

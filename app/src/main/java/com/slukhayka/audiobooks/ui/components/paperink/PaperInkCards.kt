@@ -36,6 +36,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -192,6 +193,108 @@ fun PaperInkHeroCard(
         color = colorScheme.surface,
         border = BorderStroke(1.dp, colorScheme.outlineVariant),
     ) {
+        val largeText = LocalDensity.current.fontScale >= 1.5f
+        if (largeText) {
+            // #1675 — at 200 % text the standard 193 dp row cannot hold the
+            // meta: the narrator ran under the play button and off the card.
+            // The large-text layout lets the card grow, moves the meta lines
+            // (narrator, chapter, remaining) to the FULL width under the cover
+            // and puts the play button in the flow instead of on top of text.
+            Box(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.Top) {
+                        HeroCoverSlot(cover = cover, title = title)
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = eyebrow,
+                                style = PaperInkType.Label,
+                                color = colorScheme.onSurfaceVariant,
+                                modifier = if (eyebrowHeading) Modifier.semantics { heading() } else Modifier,
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = title,
+                                style = PaperInkType.BookTitleHero,
+                                color = colorScheme.onSurface,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = author,
+                                style = PaperInkType.Meta,
+                                color = colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    if (narrator.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = narrator,
+                            style = PaperInkType.Micro,
+                            color = colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("hero_narrator"),
+                        )
+                    }
+                    if (progress != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            PaperInkProgress(progress = progress, modifier = Modifier.weight(1f))
+                            if (progressLabel != null) {
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = progressLabel,
+                                    style = PaperInkType.Timer,
+                                    color = colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = chapterLabel,
+                        style = PaperInkType.Timer,
+                        color = colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("hero_chapter"),
+                    )
+                    if (remainingLabel.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = remainingLabel,
+                            style = PaperInkType.Micro,
+                            color = colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        HeroPlayButton(
+                            onPlayClick = onPlayClick,
+                            playContentDescription = playContentDescription,
+                        )
+                    }
+                }
+            }
+        } else {
         Box(modifier = Modifier.fillMaxWidth().height(PaperInkDimens.HeroHeight)) {
             // The lamp: the only decorative glow, and it belongs to sound.
             Box(
@@ -210,37 +313,7 @@ fun PaperInkHeroCard(
             Row(
                 modifier = Modifier.fillMaxSize().padding(16.dp),
             ) {
-                if (cover != null) {
-                    // The artwork slot keeps the card's OWN size and radius so
-                    // the shelf rhythm cannot drift with the image source.
-                    Box(
-                        modifier = Modifier
-                            .width(PaperInkDimens.CoverHeroWidth)
-                            .height(PaperInkDimens.CoverHeroHeight)
-                            .clip(RoundedCornerShape(PaperInkDimens.RadiusSmall))
-                            .testTag("hero_cover_art"),
-                    ) {
-                        cover()
-                    }
-                } else {
-                    // No art: the pre-fix path is kept EXACTLY, so a Work that
-                    // has no cover cannot change the card's pixels (the golden
-                    // stays the witness of the fallback).
-                    PaperInkCover(
-                        title = title,
-                        modifier = Modifier
-                            .width(PaperInkDimens.CoverHeroWidth)
-                            .height(PaperInkDimens.CoverHeroHeight)
-                            // The title below states the book; the letter is
-                            // decoration. The tag MUST come before the clear:
-                            // `clearAndSetSemantics` wipes the semantics set on
-                            // the same node, so tagging after it left the
-                            // fallback unaddressable (CI caught it).
-                            .testTag("hero_cover_placeholder")
-                            .clearAndSetSemantics { },
-                        radius = PaperInkDimens.RadiusSmall,
-                    )
-                }
+                HeroCoverSlot(cover = cover, title = title)
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
                     Text(
@@ -306,31 +379,85 @@ fun PaperInkHeroCard(
                     }
                 }
             }
-            Box(
+            HeroPlayButton(
+                onPlayClick = onPlayClick,
+                playContentDescription = playContentDescription,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(16.dp)
-                    .size(PaperInkDimens.PrimaryButtonHeight)
-                    .clip(CircleShape)
-                    .background(colorScheme.tertiary)
-                    .clickable(onClick = onPlayClick)
-                    .then(
-                        if (playContentDescription != null) {
-                            Modifier.semantics { contentDescription = playContentDescription }
-                        } else {
-                            Modifier
-                        },
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                PaperInkIcon(
-                    imageVector = PaperInkIcons.Play,
-                    contentDescription = null,
-                    size = PaperInkIconSizes.Inline,
-                    tint = colorScheme.onTertiary,
-                )
-            }
+                    .padding(16.dp),
+            )
         }
+        }
+    }
+}
+
+/** F29/#1675 — the hero's cover slot, shared by both text-size layouts. */
+@Composable
+private fun HeroCoverSlot(
+    cover: (@Composable () -> Unit)?,
+    title: String,
+) {
+    if (cover != null) {
+        // The artwork slot keeps the card's OWN size and radius so the shelf
+        // rhythm cannot drift with the image source.
+        Box(
+            modifier = Modifier
+                .width(PaperInkDimens.CoverHeroWidth)
+                .height(PaperInkDimens.CoverHeroHeight)
+                .clip(RoundedCornerShape(PaperInkDimens.RadiusSmall))
+                .testTag("hero_cover_art"),
+        ) {
+            cover()
+        }
+    } else {
+        // No art: the pre-fix path is kept EXACTLY, so a Work that has no cover
+        // cannot change the card's pixels (the golden stays the witness of the
+        // fallback).
+        PaperInkCover(
+            title = title,
+            modifier = Modifier
+                .width(PaperInkDimens.CoverHeroWidth)
+                .height(PaperInkDimens.CoverHeroHeight)
+                // The title below states the book; the letter is decoration.
+                // The tag MUST come before the clear: `clearAndSetSemantics`
+                // wipes the semantics set on the same node, so tagging after it
+                // left the fallback unaddressable (CI caught it).
+                .testTag("hero_cover_placeholder")
+                .clearAndSetSemantics { },
+            radius = PaperInkDimens.RadiusSmall,
+        )
+    }
+}
+
+/** #1675 — the hero's primary play action, shared by both layouts. */
+@Composable
+private fun HeroPlayButton(
+    onPlayClick: () -> Unit,
+    playContentDescription: String?,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .size(PaperInkDimens.PrimaryButtonHeight)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.tertiary)
+            .clickable(onClick = onPlayClick)
+            .then(
+                if (playContentDescription != null) {
+                    Modifier.semantics { contentDescription = playContentDescription }
+                } else {
+                    Modifier
+                },
+            )
+            .testTag("hero_play"),
+        contentAlignment = Alignment.Center,
+    ) {
+        PaperInkIcon(
+            imageVector = PaperInkIcons.Play,
+            contentDescription = null,
+            size = PaperInkIconSizes.Inline,
+            tint = MaterialTheme.colorScheme.onTertiary,
+        )
     }
 }
 

@@ -575,6 +575,25 @@ CASES = (
         reads=("HEAD_REF",),
         programs=(Program("SAMPLE", "detached HEAD"),),
     ),
+    StandIn(
+        # #1666 — --check ганяє `bootstrap-worker.sh` у тимчасовому корені з
+        # підставними інструментами: `gh auth status` (мусить сказати «ок») і
+        # `pgrep -c` (мусить поводитись як справжній: «0» + код 1).
+        name="підставні gh і pgrep фікстури test_swarm_bootstrap_check",
+        where=("scripts/tests/test_swarm_bootstrap_check.py",),
+        programs=(
+            Program(
+                "BootstrapCheckTest"
+                ".test_check_survives_pgrep_exit_one_with_zero: gh",
+                "exit 0",
+            ),
+            Program(
+                "BootstrapCheckTest"
+                ".test_check_survives_pgrep_exit_one_with_zero: pgrep",
+                "echo 0",
+            ),
+        ),
+    ),
 )
 
 
@@ -886,6 +905,7 @@ class RegistryTest(unittest.TestCase):
              "scripts/tests/test_review_clone.py",
              "scripts/tests/test_review_gate.py",
              "scripts/tests/test_review_pass.py",
+             "scripts/tests/test_swarm_bootstrap_check.py",
              "scripts/tests/test_test_wrappers.py",
              "scripts/tests/test_wide_window.py"],
             sorted(found),

@@ -33,7 +33,8 @@ dsh: MISSING_CREDENTIAL: llm-pi-ai: no credential for provider route
    тож smoke тепер справді перевіряє ключ, а `--no-model-key` дозволяє
    відмовитись (напр., коли ключ віддає keyring).
 6. Якщо ключа не знайдено — `install` не падає мовчки: друкує в stderr, якого
-   `apiKeyEnv` бракує, і лишає env без нього.
+   `apiKeyEnv` бракує, і лишає env без нього (порядок «env до smoke» уточнено
+   в #1662: файл пишеться до димового прогону).
 
 ## Перевірка
 

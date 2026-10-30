@@ -32,6 +32,8 @@ import tempfile
 import textwrap
 import unittest
 from unittest import mock
+from contextlib import redirect_stdout
+import io
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -550,6 +552,13 @@ class ModelKeyTest(unittest.TestCase):
 
     def test_credential_refs_missing_or_broken_file_is_empty(self):
         self.assertEqual({}, patrol.credential_refs(Path("/nonexistent/creds.yaml")))
+        with tempfile.TemporaryDirectory() as raw:
+            broken = Path(raw) / ".credentials.yaml"
+            broken.write_text("refs:\n  NO_COLON_HERE\n", encoding="utf-8")
+            self.assertEqual({}, patrol.credential_refs(broken))
+            non_utf8 = Path(raw) / ".credentials.bin"
+            non_utf8.write_bytes(b"refs:\n  OPENCODE_API_KEY: \xff\xfe\n")
+            self.assertEqual({}, patrol.credential_refs(non_utf8))
 
     def test_resolve_model_key_prefers_environment(self):
         with mock.patch.dict(os.environ, {"OPENCODE_API_KEY": "from-env"}):
@@ -580,6 +589,30 @@ class ModelKeyTest(unittest.TestCase):
         self.assertIn("не комітити й не копіювати в репо", with_key)
         without_key = patrol.render_env_file(["/a/bin"], None)
         self.assertNotIn("OPENCODE_API_KEY=", without_key)
+
+    def test_render_env_file_rejects_newline_in_values(self):
+        # #1662 — без екранування новий рядок у значенні дозволив би інʼєкцію
+        # довільних змінних у файл таймера.
+        with self.assertRaises(patrol.PatrolError):
+            patrol.render_env_file(
+                ["/a/bin"], None, {"OPENCODE_API_KEY": "ok\nevil=1"}
+            )
+
+    def test_write_env_file_does_not_print_the_key(self):
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            buffer = io.StringIO()
+            with mock.patch.dict(os.environ, {"HOME": str(home)}):
+                with redirect_stdout(buffer):
+                    patrol.write_env_file(
+                        write_token=False,
+                        model_env={"OPENCODE_API_KEY": "oc_sk_secret_value"},
+                    )
+            self.assertNotIn("oc_sk_secret_value", buffer.getvalue())
+            env_path = home / ".config" / "slukhayka" / "ui-ux-patrol.env"
+            env_text = env_path.read_text(encoding="utf-8")
+            self.assertIn("OPENCODE_API_KEY=oc_sk_secret_value", env_text)
+            self.assertNotIn("oc_sk_secret_value", buffer.getvalue())
 
     def test_write_env_file_writes_key_with_0600(self):
         with tempfile.TemporaryDirectory() as raw:

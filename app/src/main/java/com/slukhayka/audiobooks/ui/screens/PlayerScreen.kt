@@ -55,8 +55,10 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
@@ -2044,47 +2046,78 @@ private fun QuickTools(
         timerMinutes == -1 -> stringResource(R.string.player_timer_end_value)
         else -> null
     }
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        QuickTool(
-            PaperInkIcons.Speed,
-            speedLabel,
-            speedVisualLabel,
+    val bookmarkLabel = stringResource(R.string.a11y_player_tool_bookmark)
+    val bookmarkVisualLabel = stringResource(R.string.player_tool_bookmark_label)
+    val chaptersLabel = stringResource(R.string.a11y_player_tool_chapters)
+    val chaptersVisualLabel = stringResource(R.string.player_tool_chapters_label)
+    // #1629 — F7/F32 made each tool ONE line (icon + value); that only works
+    // when four of them fit. In the landscape player's RIGHT PANE the control
+    // column is ~294 dp wide, so four slots are ~73 dp and «Закладка»/
+    // «Розділи» were ellipsized on device («Зак…», «Роз…»). Measure the
+    // widest visible string instead of guessing: below four full chips, lay
+    // the tools out 2×2, where each slot gets twice the width.
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val density = LocalDensity.current
+        val measurer = rememberTextMeasurer()
+        val style = MaterialTheme.typography.labelMedium
+        val widestVisual = listOf(
             speedVisualValue,
-            speedState,
-            "speed_chip",
-            speedFocusRequester,
-            onSpeed
-        )
-        QuickTool(
-            PaperInkIcons.Moon,
-            timerLabel,
+            speedVisualLabel,
+            timerVisualValue ?: timerVisualLabel,
             timerVisualLabel,
-            timerVisualValue,
-            timerState,
-            "sleep_timer_chip",
-            timerFocusRequester,
-            onTimer
-        )
-        QuickTool(
-            PaperInkIcons.BookmarkAdd,
-            stringResource(R.string.a11y_player_tool_bookmark),
-            stringResource(R.string.player_tool_bookmark_label),
-            null,
-            null,
-            "add_bookmark_chip",
-            bookmarkFocusRequester,
-            onBookmark
-        )
-        QuickTool(
-            PaperInkIcons.List,
-            stringResource(R.string.a11y_player_tool_chapters),
-            stringResource(R.string.player_tool_chapters_label),
-            null,
-            null,
-            "chapters_chip",
-            chaptersFocusRequester,
-            onChapters
-        )
+            bookmarkVisualLabel,
+            chaptersVisualLabel
+        ).maxOf { text ->
+            with(density) {
+                measurer.measure(AnnotatedString(text), style = style).size.width.toDp()
+            }
+        }
+        // icon + its 4 dp gap + the text + 8 dp of breathing room per slot
+        val neededPerChip = PaperInkIconSizes.Inline + 4.dp + widestVisual + 8.dp
+        val compact = maxWidth / 4 < neededPerChip
+        if (compact) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    QuickTool(
+                        PaperInkIcons.Speed, speedLabel, speedVisualLabel, speedVisualValue,
+                        speedState, "speed_chip", speedFocusRequester, onSpeed, compact = true
+                    )
+                    QuickTool(
+                        PaperInkIcons.Moon, timerLabel, timerVisualLabel, timerVisualValue,
+                        timerState, "sleep_timer_chip", timerFocusRequester, onTimer, compact = true
+                    )
+                }
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    QuickTool(
+                        PaperInkIcons.BookmarkAdd, bookmarkLabel, bookmarkVisualLabel, null,
+                        null, "add_bookmark_chip", bookmarkFocusRequester, onBookmark, compact = true
+                    )
+                    QuickTool(
+                        PaperInkIcons.List, chaptersLabel, chaptersVisualLabel, null,
+                        null, "chapters_chip", chaptersFocusRequester, onChapters, compact = true
+                    )
+                }
+            }
+        } else {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                QuickTool(
+                    PaperInkIcons.Speed, speedLabel, speedVisualLabel, speedVisualValue,
+                    speedState, "speed_chip", speedFocusRequester, onSpeed
+                )
+                QuickTool(
+                    PaperInkIcons.Moon, timerLabel, timerVisualLabel, timerVisualValue,
+                    timerState, "sleep_timer_chip", timerFocusRequester, onTimer
+                )
+                QuickTool(
+                    PaperInkIcons.BookmarkAdd, bookmarkLabel, bookmarkVisualLabel, null,
+                    null, "add_bookmark_chip", bookmarkFocusRequester, onBookmark
+                )
+                QuickTool(
+                    PaperInkIcons.List, chaptersLabel, chaptersVisualLabel, null,
+                    null, "chapters_chip", chaptersFocusRequester, onChapters
+                )
+            }
+        }
     }
 }
 
@@ -2097,7 +2130,9 @@ private fun RowScope.QuickTool(
     accessibilityState: String?,
     testTag: String,
     focusRequester: FocusRequester,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    /** #1629 — 2×2 slot: a full 48 dp target, but no extra vertical padding. */
+    compact: Boolean = false
 ) {
     val toolDescription = accessibilityState?.let {
         stringResource(R.string.a11y_player_tool_state, accessibilityLabel, it)
@@ -2119,7 +2154,7 @@ private fun RowScope.QuickTool(
             .semantics(mergeDescendants = true) {
                 contentDescription = toolDescription
             }
-            .padding(vertical = AppDimens.SpaceSm)
+            .padding(vertical = if (compact) 0.dp else AppDimens.SpaceSm)
             .testTag(testTag),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,

@@ -195,6 +195,75 @@ class PaperInkHeaderGlyphGuardTest {
         )
     }
 
+    /** The last migrated-surface leftovers of the F11 sweep: the update banner,
+     *  the catalogue cards' dismiss, the curator rail's empty fact, the book
+     *  page's chapter/bookmark/edition rows and the review/highlight/abandon
+     *  actions. Per file: the M3 glyphs its chrome may no longer draw, and the
+     *  family/Outlined token that must be there instead. */
+    private val migratedSurfaceRules: Map<String, Pair<Regex, List<String>>> = mapOf(
+        "app/src/main/java/com/slukhayka/audiobooks/ui/components/UpdateBanner.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.(?:Close|SystemUpdateAlt)\b""") to
+                listOf("PaperInkIcons.Close", "Icons.Outlined.SystemUpdateAlt")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/screens/HomeFeedContent.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.(?:Close|Refresh)\b""") to
+                listOf("PaperInkIcons.Close", "PaperInkIcons.Refresh")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/components/PosterCard.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.Close\b""") to
+                listOf("PaperInkIcons.Close")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/screens/collections/PublicCollectionsRail.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.Bookmark\b""") to
+                listOf("PaperInkIcons.Bookmark")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/screens/bookdetail/BookDetailRows.kt" to
+            (Regex("""Icons\.(?:AutoMirrored\.Filled|Default|Filled)\.(?:VolumeUp|Delete|Bookmark)\b""") to
+                listOf("Icons.AutoMirrored.Outlined.VolumeUp", "PaperInkIcons.Trash", "PaperInkIcons.Bookmark")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/screens/bookdetail/BookDetailActions.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.BookmarkAdd\b""") to
+                listOf("PaperInkIcons.BookmarkAdd")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/screens/bookdetail/BookDetailSections.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.(?:Public|RecordVoiceOver)\b""") to
+                listOf("Icons.Outlined.Public", "Icons.Outlined.RecordVoiceOver")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/screens/BookDetailReviews.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.(?:CloudUpload|Edit|Delete)\b""") to
+                listOf("PaperInkIcons.Upload", "PaperInkIcons.Edit", "PaperInkIcons.Trash")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/screens/bookdetail/BookDetailHighlights.kt" to
+            (Regex("""Icons\.(?:Default|Filled)\.(?:Favorite|FavoriteBorder)\b""") to
+                listOf("PaperInkIcons.HeartFilled", "PaperInkIcons.Heart")),
+        "app/src/main/java/com/slukhayka/audiobooks/ui/screens/bookdetail/BookAbandonAction.kt" to
+            (Regex("""Icons\.(?:AutoMirrored\.Filled|Default|Filled)\.(?:Undo|BookmarkRemove)\b""") to
+                listOf("Icons.AutoMirrored.Outlined.Undo", "PaperInkIcons.BookmarkRemove")),
+    )
+
+    @Test
+    fun remainingMigratedSurfacesUseFamilyOrOutlinedGlyphs() {
+        val offenders = mutableListOf<String>()
+        val missing = mutableListOf<String>()
+        for ((path, rule) in migratedSurfaceRules) {
+            val text = File(repoRoot, path).readText()
+            rule.first.findAll(text).forEach { offenders += "$path -> ${it.value}" }
+            rule.second.filterNot { text.contains(it) }.forEach { missing += "$path -> $it" }
+        }
+        assertTrue(
+            "migrated paper surfaces must not fall back to M3 Filled glyphs:\n" +
+                offenders.joinToString("\n"),
+            offenders.isEmpty()
+        )
+        assertTrue(
+            "these migrated surfaces must draw the family/Outlined glyph:\n" +
+                missing.joinToString("\n"),
+            missing.isEmpty()
+        )
+    }
+
+    @Test
+    fun listenScreenCarriesNoDeadFilledWildcardImport() {
+        val path = "app/src/main/java/com/slukhayka/audiobooks/ui/screens/ListenScreen.kt"
+        val text = File(repoRoot, path).readText()
+        assertFalse(
+            "$path must not keep the dead `filled.*` wildcard import (#1654 nit)",
+            text.contains("import androidx.compose.material.icons.filled.*")
+        )
+    }
+
     @Test
     fun webSourceBrowserUsesFamilyOrOutlinedGlyphs() {
         val path = "app/src/main/java/com/slukhayka/audiobooks/ui/screens/WebSourceBrowserScreen.kt"

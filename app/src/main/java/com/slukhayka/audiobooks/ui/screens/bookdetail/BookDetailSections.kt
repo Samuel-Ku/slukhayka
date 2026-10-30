@@ -18,7 +18,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.RecordVoiceOver
+import androidx.compose.material.icons.outlined.Public
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -513,7 +514,7 @@ fun WorkSourceRowCard(
         title = source.name,
         leading = {
             Icon(
-                imageVector = if (source.selectable) PaperInkIcons.Play else Icons.Default.Public,
+                imageVector = if (source.selectable) PaperInkIcons.Play else Icons.Outlined.Public,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
@@ -621,7 +622,7 @@ fun NarrationRowCard(
         title = narrator,
         leading = {
             Icon(
-                imageVector = Icons.Default.RecordVoiceOver,
+                imageVector = Icons.Outlined.RecordVoiceOver,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier

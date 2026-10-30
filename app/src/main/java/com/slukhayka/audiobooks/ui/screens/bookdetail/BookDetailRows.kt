@@ -20,8 +20,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -211,7 +210,7 @@ fun ChapterRowItem(
                 Box(contentAlignment = Alignment.Center) {
                     if (isCurrent) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                            imageVector = Icons.AutoMirrored.Outlined.VolumeUp,
                             contentDescription = null,
                             tint = if (paperInk) {
                                 MaterialTheme.colorScheme.onTertiary
@@ -300,7 +299,7 @@ fun ChapterRowItem(
                 if (isDownloadedCopy && onDeleteCopy != null) {
                     IconButton(onClick = onDeleteCopy) {
                         Icon(
-                            imageVector = Icons.Default.Delete,
+                            imageVector = PaperInkIcons.Trash,
                             contentDescription = stringResource(R.string.book_detail_chapter_delete_copy),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(24.dp)
@@ -365,7 +364,7 @@ fun BookmarkRowItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Default.Bookmark,
+                imageVector = PaperInkIcons.Bookmark,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.size(24.dp)
@@ -412,7 +411,7 @@ fun BookmarkRowItem(
                     .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.Delete,
+                    imageVector = PaperInkIcons.Trash,
                     contentDescription = deleteLabel,
                     tint = MaterialTheme.colorScheme.error
                 )

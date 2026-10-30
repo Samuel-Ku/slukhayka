@@ -1534,76 +1534,36 @@ class MainViewModel @JvmOverloads constructor(
         }
     }
 
-    // Wayfinder #39: the unified Медіатека list — every book with its playback
-    // state and chapter-derived metrics. Filtering and sorting happen in the
-    // screen via the pure filterAndSortLibrary; this flow only combines.
-    //
-    // #1163 — the readable-copy ids ride along: «На пристрої» must be decided by
-    // what is on the disk right now, and the filesystem is not a Room table, so
-    // the answer arrives as [refreshCacheSize]'s fourth flow. A change to it
-    // re-derives the list, which is exactly the moment the filter's set changes.
-    val libraryBooks: StateFlow<List<com.slukhayka.audiobooks.ui.library.LibraryBook>> = combine(
-        libraryEntries.allBooks,
-        libraryEntries.recentProgress,
-        libraryEntries.allChapters,
-        _onDeviceBookIds
-    ) { books, progress, chapters, onDeviceIds ->
-        com.slukhayka.audiobooks.ui.library.buildLibraryBooks(
-            books,
-            progress,
-            chapters.groupBy { it.bookId },
-            onDeviceIds
+    // Wayfinder #39: the unified Медіатека list, moved behind the #1575
+    // composition seam (ADR-0008): the module owns the combine, the #1066
+    // "loaded" flag and the ADR-0042 availability projection, so the ViewModel
+    // no longer inlines them and screens keep receiving flows as parameters.
+    private val libraryComposition by lazy {
+        com.slukhayka.audiobooks.ui.library.LibraryCompositionModule(
+            scope = viewModelScope,
+            allBooks = libraryEntries.allBooks,
+            recentProgress = libraryEntries.recentProgress,
+            allChapters = libraryEntries.allChapters,
+            onDeviceBookIds = _onDeviceBookIds,
+            availabilityVerdicts = App.instance.libraryAvailabilityStore.verdicts,
+            refusedSources = App.instance.sourceAudioRefusal.refusedSources
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    /**
-     * #1066 — whether [libraryBooks] has delivered its FIRST real value yet.
-     *
-     * The list starts as `emptyList()` and fills in asynchronously, so the
-     * screen cannot tell "the library is empty" from "it has not been read
-     * yet" — it showed the empty state, then the books appeared. That flash is
-     * the same transition that makes a lazy list change size while Compose is
-     * measuring it, which is the crash this ticket is about
-     * (`IndexOutOfBoundsException` inside `LazyListMeasure`).
-     *
-     * The flag follows the existing [isSeriesLoading] / [isGenreLoading] shape:
-     * a plain boolean companion to the list, consumed by the screen.
-     */
-    private val _isLibraryLoaded = MutableStateFlow(false)
-    val isLibraryLoaded: StateFlow<Boolean> = _isLibraryLoaded.asStateFlow()
-
-    init {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            // One read just to learn that the data EXISTS — the flow itself
-            // still drives the list. Flips once, and stays true.
-            libraryEntries.allBooks.first()
-            _isLibraryLoaded.value = true
-        }
     }
 
-    // ADR-0042 §1 (spec-56 T1) — the availability state per Work, a pure
-    // projection of the book's own source, the persisted verdicts and the
-    // refusal set. Clean books (available audio) are absent from the map, so
-    // the card never gets noise.
-    val libraryAvailability: StateFlow<Map<String, AvailabilityView>> = combine(
-        libraryBooks,
-        App.instance.libraryAvailabilityStore.verdicts,
-        App.instance.sourceAudioRefusal.refusedSources
-    ) { books, verdicts, refused ->
-        buildMap {
-            for (entry in books) {
-                val book = entry.book
-                // A local copy or an offline download always plays.
-                if (entry.isLocal || book.isDownloaded) continue
-                val mergeKey = book.mergeKey
-                if (mergeKey.isBlank()) continue
-                val available = LibraryAvailabilityPolicy.hasAvailableAudio(book.sourceUrl, refused)
-                val refusedId = LibraryAvailabilityPolicy.refusedSourceId(book.sourceUrl, refused)
-                LibraryAvailabilityPolicy.viewFor(available, refusedId, verdicts[mergeKey])
-                    ?.let { view -> put(mergeKey, view) }
-            }
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+    /** The unified list; filtering and sorting stay pure in the screen. */
+    val libraryBooks: StateFlow<List<com.slukhayka.audiobooks.ui.library.LibraryBook>>
+        get() = libraryComposition.books
+
+    /** #1066 — whether the list has delivered its FIRST real value yet. */
+    val isLibraryLoaded: StateFlow<Boolean> get() = libraryComposition.isLoaded
+
+    /**
+     * ADR-0042 §1 (spec-56 T1) — the availability state per Work, a pure
+     * projection of the book's own source, the persisted verdicts and the
+     * refusal set. Clean books (available audio) are absent from the map.
+     */
+    val libraryAvailability: StateFlow<Map<String, AvailabilityView>>
+        get() = libraryComposition.availability
 
     // Wayfinder #62 — the rule-based personalized Listen: local-only prefs
     // (order / hidden / dismissed) feed the pure ListenComposer, whose output

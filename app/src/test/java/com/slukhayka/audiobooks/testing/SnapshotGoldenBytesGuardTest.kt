@@ -678,22 +678,38 @@ class SnapshotGoldenBytesGuardTest {
          * A full fresh record on the CI runner reproduced the committed set
          * byte-for-byte (the `record-snapshots` dispatch on `6f66ddee`).
          *
+         *
+         * ## Three re-pinned on 2026-10-30 (#1623 — last migrated surfaces)
+         *
+         * The last F11 sweep moved the shared chrome again:
+         *  - `explore_header_collapsed` and `explore_header_expanded` — the same
+         *    43×42 delta at `+815+135`: the gear in the shared header is the
+         *    family's `Settings` instead of M3 `Filled.Settings`;
+         *  - `home_feed_phone_fold` — 653×1763 at `+205+135`: the feed's sort
+         *    chevron, the «seen» check, the empty-catalogue retry/import actions
+         *    and the cover placeholder glyph all switched to the family, and the
+         *    column re-measured around them.
+         *
+         * The other six pins kept AE=0 (the player frames and the library grids
+         * do not render these glyphs), and a full fresh CI record reproduced the
+         * committed set byte-for-byte.
+         *
          */
         val PINS = listOf(
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "collapsed.png",
-                "5293751330af343fcf03176c77da95d9" + "02565b15c1ed65f7042162655f6ae2d7"
+                "f6a098e44de67a46527da478434099d7" + "57fade4461d5db4aa26e89f2430b7ace"
             ),
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "expanded.png",
-                "82ed6af79ac2c079ba0609cde5cfafa2" + "f8d4017fb2834e68754d2b59b51937e9"
+                "ef8e5d348ce5f95c27e7db895b957219" + "39a2ead43c661aadde923111ab1ac30a"
             ),
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",
                 "home_feed_" + "phone_fold.png",
-                "bcc25fb87d604440b8f95e328ca052a2" + "f427dd3d0adf7b5f07140f5ce68a48c7"
+                "6fd40e13e20bb5285c8e7fbde828e698" + "f4855930c151f2ab881a9a9981ce1e1f"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",

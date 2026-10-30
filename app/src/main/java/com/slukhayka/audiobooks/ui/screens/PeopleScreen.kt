@@ -11,10 +11,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -147,7 +143,7 @@ fun PeopleContent(
                 item {
                     val loadingLabel = stringResource(R.string.secondary_loading)
                     EmptyState(
-                        icon = Icons.Filled.Info,
+                        icon = PaperInkIcons.Info,
                         title = loadingLabel,
                         body = "",
                         iconContent = {
@@ -168,7 +164,7 @@ fun PeopleContent(
             loadFailed -> {
                 item {
                     EmptyState(
-                        icon = Icons.Filled.Warning,
+                        icon = PaperInkIcons.Alert,
                         title = stringResource(R.string.secondary_people_error),
                         body = "",
                         stateDescription = stringResource(R.string.secondary_state_error),
@@ -182,7 +178,7 @@ fun PeopleContent(
             people.isEmpty() -> {
                 item {
                     EmptyState(
-                        icon = Icons.Filled.Info,
+                        icon = PaperInkIcons.Info,
                         title = stringResource(R.string.secondary_people_empty),
                         body = "",
                         modifier = Modifier
@@ -230,7 +226,7 @@ fun PeopleContent(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Person,
+                                    imageVector = PaperInkIcons.Person,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp)

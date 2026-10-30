@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -25,6 +23,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.theme.AppDimens
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 
 /**
  * spec-54 T08 (#875) — a collection (or a curator's profile) is a PAGE, not a
@@ -65,7 +64,7 @@ fun CollectionPage(
                         .testTag("${testTag}_back")
                 ) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        imageVector = PaperInkIcons.ChevronLeft,
                         contentDescription = stringResource(R.string.a11y_close_page)
                     )
                 }

@@ -19,8 +19,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -771,7 +769,7 @@ fun HomeHeader(
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Refresh,
+                            imageVector = PaperInkIcons.Refresh,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(22.dp),
@@ -1028,7 +1026,7 @@ fun PeopleNewArrivalsRail(
                     modifier = Modifier.testTag("people_new_arrivals_badge")
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Done,
+                        imageVector = PaperInkIcons.Check,
                         contentDescription = stringResource(R.string.a11y_people_new_mark_seen)
                     )
                 }
@@ -1271,7 +1269,7 @@ fun EmptyCatalogState(
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                 shape = RoundedCornerShape(AppDimens.RadiusCardLg)
             ) {
-                Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(imageVector = PaperInkIcons.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(stringResource(R.string.a11y_refresh_catalogue), fontWeight = FontWeight.Bold)
             }
@@ -1281,7 +1279,7 @@ fun EmptyCatalogState(
                 shape = RoundedCornerShape(AppDimens.RadiusCardLg),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
-                Icon(imageVector = Icons.Default.FileUpload, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                Icon(imageVector = PaperInkIcons.Upload, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(stringResource(R.string.home_import_file), color = MaterialTheme.colorScheme.onSurface)
             }
@@ -1369,7 +1367,7 @@ fun WorkFeedFilters(
                                 modifier = Modifier.clearAndSetSemantics { }
                             )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                            Icon(PaperInkIcons.ChevronDown, contentDescription = null)
                         }
                     }
                     DropdownMenu(

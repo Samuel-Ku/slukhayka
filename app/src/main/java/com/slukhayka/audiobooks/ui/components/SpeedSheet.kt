@@ -13,8 +13,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -49,6 +47,7 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.theme.PaperInkType
 import com.slukhayka.audiobooks.player.AudioPlayerManager
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 
 /**
  * Playback-speed bottom sheet (wayfinder #26): preset chips plus a precise
@@ -114,7 +113,7 @@ fun SpeedSheet(
                     onClick = onDismiss,
                     modifier = Modifier.heightIn(min = 48.dp)
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = closeDescription)
+                    Icon(PaperInkIcons.Close, contentDescription = closeDescription)
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))

@@ -2,8 +2,6 @@ package com.slukhayka.audiobooks.ui.components
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Language
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -41,7 +39,7 @@ fun OpenWebSourceRow(
         testTag = testTag,
         leading = {
             Icon(
-                imageVector = Icons.Default.Language,
+                imageVector = PaperInkIcons.Globe,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier

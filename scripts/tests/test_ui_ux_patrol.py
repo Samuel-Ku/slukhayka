@@ -702,6 +702,42 @@ class ModelKeyTest(unittest.TestCase):
             self.assertEqual(["label", "env"], calls)
             profiles.assert_not_called()
 
+    def test_fchmod_makes_existing_env_private_before_write(self):
+        # #1664 (ніт огляду #1663): для ВЖЕ наявного env-файла з 0644 сам
+        # `os.open(..., 0o600)` режим не змінює, тож без fchmod секрет ліг би
+        # у світ до фінального chmod. Пінимо режим У МОМЕНТ запису.
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            env_dir = home / ".config" / "slukhayka"
+            env_dir.mkdir(parents=True)
+            env_path = env_dir / "ui-ux-patrol.env"
+            env_path.write_text("old=1\n", encoding="utf-8")
+            env_path.chmod(0o644)
+
+            modes: list[int] = []
+            real_write = os.write
+
+            def spy(fd, data):
+                modes.append(os.fstat(fd).st_mode & 0o777)
+                return real_write(fd, data)
+
+            with mock.patch.dict(os.environ, {"HOME": str(home)}), \
+                    mock.patch.object(patrol.os, "write", side_effect=spy):
+                patrol.write_env_file(
+                    write_token=False,
+                    model_env={"OPENCODE_API_KEY": "oc_sk_fchmod"},
+                )
+
+            self.assertEqual(
+                [0o600],
+                modes,
+                "env-файл мусить стати 0600 ДО запису секрету, не після",
+            )
+            self.assertEqual(0o600, env_path.stat().st_mode & 0o777)
+            self.assertIn(
+                "OPENCODE_API_KEY=oc_sk_fchmod", env_path.read_text(encoding="utf-8")
+            )
+
     def test_write_env_file_writes_key_with_0600(self):
         with tempfile.TemporaryDirectory() as raw:
             home = Path(raw)

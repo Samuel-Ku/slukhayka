@@ -454,6 +454,51 @@ class UnitsTest(unittest.TestCase):
         with_token = patrol.render_env_file(["/a/bin"], "gho_example")
         self.assertIn("GH_TOKEN=gho_example", with_token)
 
+    def test_env_path_starts_with_upgrade_proof_dirs(self):
+        # #1657 — таймер падав три ночі, бо PATH тримав версійний каталог gh
+        # (`…/gh/latest/gh_2.102.0…/bin`), який зникає після mise upgrade.
+        # Стабільні каталоги мусять стояти ПЕРШИМИ, щоб активна версія
+        # перемагала мертвий шлях.
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            local_bin = home / ".local" / "bin"
+            shims = home / ".local" / "share" / "mise" / "shims"
+            local_bin.mkdir(parents=True)
+            shims.mkdir(parents=True)
+
+            dirs = patrol.patrol_path_dirs(
+                home, which=lambda _name: None, python="/usr/bin/python3"
+            )
+
+            self.assertEqual(str(local_bin), dirs[0])
+            self.assertEqual(str(shims), dirs[1])
+            text = patrol.render_env_file(dirs, None)
+            self.assertIn("PATH=" + ":".join(dirs), text)
+
+    def test_env_path_skips_absent_upgrade_proof_dirs(self):
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            self.assertEqual([], patrol.stable_tool_dirs(home))
+            dirs = patrol.patrol_path_dirs(
+                home, which=lambda _name: None, python="/usr/bin/python3"
+            )
+            self.assertNotIn(str(home / ".local" / "bin"), dirs)
+            self.assertNotIn(str(home / ".local" / "share" / "mise" / "shims"), dirs)
+
+    def test_stale_versioned_tool_dir_is_only_a_fallback(self):
+        # Найгірший сценарій #1657: `which` віддає мертвий версійний каталог, а
+        # стабільні лишились. Мертвий шлях може бути в PATH, але ПОСЛЯ shims —
+        # тоді таймер усе одно знаходить робочий gh.
+        with tempfile.TemporaryDirectory() as raw:
+            home = Path(raw)
+            shims = home / ".local" / "share" / "mise" / "shims"
+            shims.mkdir(parents=True)
+            dead = "/dead/gh/2.102.0_linux_amd64/bin"
+            dirs = patrol.patrol_path_dirs(
+                home, which=lambda _name: dead + "/gh", python="/usr/bin/python3"
+            )
+            self.assertLess(dirs.index(str(shims)), dirs.index(dead))
+
     def test_env_file_is_marked_as_generated(self):
         self.assertIn(
             patrol.PROFILE_MARKER,

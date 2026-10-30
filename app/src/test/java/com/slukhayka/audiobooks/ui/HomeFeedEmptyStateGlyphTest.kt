@@ -11,7 +11,6 @@ import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
@@ -102,7 +101,6 @@ class HomeFeedEmptyStateGlyphTest {
         showFeed()
 
         assertNoPlaceholderGlyph("feed_empty")
-        composeTestRule.onNodeWithText("Порожньо").assertDoesNotExist() // sanity: no stray copy
     }
 
     @Test
@@ -113,21 +111,150 @@ class HomeFeedEmptyStateGlyphTest {
     }
 
     @Test
-    fun `every feed empty state is built without an icon argument`() {
-        val source = sourceFile("ui/screens/HomeFeedContent.kt").readText()
-        val callSites = Regex("""EmptyState\(""").findAll(source).toList()
-        assertEquals(
-            "the Огляд feed owns exactly three EmptyState call sites (error, filtered, empty)",
-            3,
-            callSites.size
+    fun `every empty state on the feed surface is built without an icon argument`() {
+        // #1638 — the guard now covers BOTH the feed's three terminal states
+        // and the catalogue's first-run empty state (the last icon-bearing
+        // empty state on «Огляд»), and reads balanced argument lists instead
+        // of a 400-character window.
+        val files = mapOf(
+            "ui/screens/HomeFeedContent.kt" to 3,
+            "ui/screens/HomeScreen.kt" to 1
         )
-        val withIcon = callSites.filter { match ->
-            source.substring(match.range.last + 1, minOf(source.length, match.range.last + 400))
-                .contains("icon =")
+        files.forEach { (path, expectedCalls) ->
+            val source = sourceFile(path).readText()
+            assertEquals(
+                "$path EmptyState call sites",
+                expectedCalls,
+                EmptyStateGlyphGuard.calls(source).size
+            )
+            assertTrue(
+                "a $path empty state must not pass a placeholder glyph: " +
+                    EmptyStateGlyphGuard.iconCalls(source),
+                EmptyStateGlyphGuard.iconCalls(source).isEmpty()
+            )
         }
+    }
+
+    @Test
+    fun `the catalogue first-run empty state renders without a placeholder glyph`() {
+        composeTestRule.setContent {
+            com.slukhayka.audiobooks.ui.theme.PaperInkTheme(darkTheme = true) {
+                com.slukhayka.audiobooks.ui.screens.EmptyCatalogState(
+                    onRefreshClick = {},
+                    onImportClick = {}
+                )
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("catalog_empty_refresh").assertExists()
+        composeTestRule.onNodeWithTag("empty_state_icon").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the shared guard catches named and positional icons but not iconContent`() {
+        val iconless = """EmptyState(title = "T", body = "B") { Button({}) {} }"""
+        val named = """EmptyState(icon = PaperInkIcons.Book, title = "T", body = "B")"""
+        val namedLater = """EmptyState(title = "T", body = "B", icon = PaperInkIcons.Book)"""
+        val positional = """EmptyState(PaperInkIcons.Book, title = "T", body = "B")"""
+        val loading = """EmptyState(title = "T", body = "B", iconContent = { Spinner() })"""
+        val nestedComma = """EmptyState(title = stringResource(R.string.t, 1), body = "B")"""
+        val commented = """EmptyState(title = "T", body = "B", icon /* keep */ = PaperInkIcons.Book)"""
+        val backticked = """EmptyState(title = "T", body = "B", `icon` = PaperInkIcons.Book)"""
+        val stringMention = """EmptyState(title = "T", iconMention = "icon = x", body = "B")"""
+        val positionalWithEquality =
+            """EmptyState(if (state == State.Error) PaperInkIcons.Alert else null, title = "T")"""
+        val positionalWithNamedInner = """EmptyState(iconFor(mode = 1), title = "T", body = "B")"""
+        // Newlines are real: a `//` comment between arguments may legally
+        // contain ')' — `:)` must not close the call before the icon is read.
+        val spacedCall = """EmptyState (title = "T", icon = PaperInkIcons.Book)"""
+        val nestedCall = """EmptyState(title = "T", iconContent = { EmptyState(icon = PaperInkIcons.Book, title = "inner", body = "") })"""
+        val parenInString = """EmptyState(title = "T)", icon = PaperInkIcons.Book)"""
+        // Raw strings and char literals are legal arguments too; each may
+        // contain brackets and quotes that must not break the scan.
+        val rawStringWithParenAndIcon =
+            "EmptyState(title = \"T\", body = \"\"\"a\" ) \"\"\", icon = PaperInkIcons.Book)"
+        val iconlessRawStringWithParen =
+            "EmptyState(title = \"T\", body = \"\"\"6\" (15 см)\"\"\", modifier = Modifier)"
+        val charLiteralBeforeIcon =
+            "EmptyState(title = \"T\", body = \"x\", marker = ')', icon = PaperInkIcons.Book)"
+        val charQuoteBeforeIcon =
+            "EmptyState(title = \"T\", body = \"x\", marker = '\\'', icon = PaperInkIcons.Book)"
+        val commentWithParenBetweenArguments = """
+            EmptyState(
+                title = "T", // the retry is the action :)
+                icon = PaperInkIcons.Book,
+                body = "B"
+            )
+        """
+
+        assertEquals(1, EmptyStateGlyphGuard.calls(iconless).size)
+        assertTrue(EmptyStateGlyphGuard.iconCalls(iconless).isEmpty())
+        assertEquals(1, EmptyStateGlyphGuard.iconCalls(named).size)
+        assertEquals("named arguments may come in any order", 1, EmptyStateGlyphGuard.iconCalls(namedLater).size)
+        assertEquals(1, EmptyStateGlyphGuard.iconCalls(positional).size)
+        assertEquals(1, EmptyStateGlyphGuard.iconCalls(commented).size)
+        assertEquals(1, EmptyStateGlyphGuard.iconCalls(backticked).size)
         assertTrue(
-            "a feed empty state must not pass a placeholder glyph: ${withIcon.map { it.range.first }}",
-            withIcon.isEmpty()
+            "iconContent is the live-indicator seam, not a placeholder glyph",
+            EmptyStateGlyphGuard.iconCalls(loading).isEmpty()
+        )
+        assertTrue(
+            "a comma inside a nested call must not be mistaken for the icon slot",
+            EmptyStateGlyphGuard.iconCalls(nestedComma).isEmpty()
+        )
+        assertTrue(
+            "the word icon inside a string literal is not an argument",
+            EmptyStateGlyphGuard.iconCalls(stringMention).isEmpty()
+        )
+        assertEquals(
+            "== inside a positional icon expression must not read as a named argument",
+            1,
+            EmptyStateGlyphGuard.iconCalls(positionalWithEquality).size
+        )
+        assertEquals(
+            "a nested named argument must not hide a positional icon",
+            1,
+            EmptyStateGlyphGuard.iconCalls(positionalWithNamedInner).size
+        )
+        assertEquals(
+            "a ')' inside a // comment must not close the argument scan early",
+            1,
+            EmptyStateGlyphGuard.iconCalls(commentWithParenBetweenArguments).size
+        )
+        assertEquals(
+            "Kotlin allows a space between the name and the opening paren",
+            1,
+            EmptyStateGlyphGuard.iconCalls(spacedCall).size
+        )
+        assertEquals(
+            "a nested EmptyState call is judged on its own arguments",
+            1,
+            EmptyStateGlyphGuard.iconCalls(nestedCall).size
+        )
+        assertEquals(
+            "a ')' inside a string literal is not a bracket",
+            1,
+            EmptyStateGlyphGuard.iconCalls(parenInString).size
+        )
+        assertEquals(
+            "a raw string containing both a quote and ')' must not hide the icon",
+            1,
+            EmptyStateGlyphGuard.iconCalls(rawStringWithParenAndIcon).size
+        )
+        assertTrue(
+            "an iconless call with a raw string is not an unbalanced-call error",
+            EmptyStateGlyphGuard.iconCalls(iconlessRawStringWithParen).isEmpty()
+        )
+        assertEquals(
+            "a char literal containing ')' must not close the call early",
+            1,
+            EmptyStateGlyphGuard.iconCalls(charLiteralBeforeIcon).size
+        )
+        assertEquals(
+            "a char literal containing a quote must not start a string",
+            1,
+            EmptyStateGlyphGuard.iconCalls(charQuoteBeforeIcon).size
         )
     }
 

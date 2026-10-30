@@ -430,7 +430,12 @@ else
   if ! selection=$(python3 "$selector" --root "$repo_root" select --changed-file "$test_path"); then
     refuse "the test partition selector failed for $test_class"
   fi
-  partition=$(python3 - "$selection" "$test_class" <<'PY'
+  # #1636: a changed test file may declare several test classes (#1634 gave the
+  # selector that shape). The named class only has to be ONE of them; requiring
+  # `classes == [target]` refused every class of such a file. When the class is
+  # not among the declared ones the refusal names them, so the next run does not
+  # have to re-derive the file by hand.
+  if ! partition=$(python3 - "$selection" "$test_class" 2>"$scratch/selector-hint" <<'PY'
 import json
 import sys
 
@@ -442,11 +447,21 @@ partitions = payload.get("partitions") or {}
 if payload.get("fullSuite") or len(partitions) != 1:
     sys.exit(1)
 name, classes = next(iter(partitions.items()))
-if classes != [sys.argv[2]]:
+target = sys.argv[2]
+if target not in classes:
+    print(
+        f"{target} is not a test class declared in the changed file; "
+        f"declared: {', '.join(classes)}",
+        file=sys.stderr,
+    )
     sys.exit(1)
 print(name)
 PY
-  ) || refuse "no single test partition claims $test_class"
+  ); then
+    hint=$(cat "$scratch/selector-hint" 2>/dev/null || true)
+    [[ -n $hint ]] || hint="the changed file declares no single test class"
+    refuse "no single test partition claims $test_class — $hint"
+  fi
 
   # Same partition → Gradle task mapping as scripts/test-changed.sh: keep in sync.
   case "$partition" in

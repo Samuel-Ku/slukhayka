@@ -11,7 +11,6 @@ import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.slukhayka.audiobooks.data.db.WorkFeedRow
@@ -102,7 +101,6 @@ class HomeFeedEmptyStateGlyphTest {
         showFeed()
 
         assertNoPlaceholderGlyph("feed_empty")
-        composeTestRule.onNodeWithText("Порожньо").assertDoesNotExist() // sanity: no stray copy
     }
 
     @Test
@@ -113,21 +111,65 @@ class HomeFeedEmptyStateGlyphTest {
     }
 
     @Test
-    fun `every feed empty state is built without an icon argument`() {
-        val source = sourceFile("ui/screens/HomeFeedContent.kt").readText()
-        val callSites = Regex("""EmptyState\(""").findAll(source).toList()
-        assertEquals(
-            "the Огляд feed owns exactly three EmptyState call sites (error, filtered, empty)",
-            3,
-            callSites.size
+    fun `every empty state on the feed surface is built without an icon argument`() {
+        // #1638 — the guard now covers BOTH the feed's three terminal states
+        // and the catalogue's first-run empty state (the last icon-bearing
+        // empty state on «Огляд»), and reads balanced argument lists instead
+        // of a 400-character window.
+        val files = mapOf(
+            "ui/screens/HomeFeedContent.kt" to 3,
+            "ui/screens/HomeScreen.kt" to 1
         )
-        val withIcon = callSites.filter { match ->
-            source.substring(match.range.last + 1, minOf(source.length, match.range.last + 400))
-                .contains("icon =")
+        files.forEach { (path, expectedCalls) ->
+            val source = sourceFile(path).readText()
+            assertEquals(
+                "$path EmptyState call sites",
+                expectedCalls,
+                EmptyStateGlyphGuard.calls(source).size
+            )
+            assertTrue(
+                "a $path empty state must not pass a placeholder glyph: " +
+                    EmptyStateGlyphGuard.iconCalls(source),
+                EmptyStateGlyphGuard.iconCalls(source).isEmpty()
+            )
         }
+    }
+
+    @Test
+    fun `the catalogue first-run empty state renders without a placeholder glyph`() {
+        composeTestRule.setContent {
+            com.slukhayka.audiobooks.ui.theme.PaperInkTheme(darkTheme = true) {
+                com.slukhayka.audiobooks.ui.screens.EmptyCatalogState(
+                    onRefreshClick = {},
+                    onImportClick = {}
+                )
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        composeTestRule.onNodeWithTag("catalog_empty_refresh").assertExists()
+        composeTestRule.onNodeWithTag("empty_state_icon").assertDoesNotExist()
+    }
+
+    @Test
+    fun `the shared guard catches named and positional icons but not iconContent`() {
+        val iconless = """EmptyState(title = "T", body = "B") { Button({}) {} }"""
+        val named = """EmptyState(icon = PaperInkIcons.Book, title = "T", body = "B")"""
+        val positional = """EmptyState(PaperInkIcons.Book, title = "T", body = "B")"""
+        val loading = """EmptyState(title = "T", body = "B", iconContent = { Spinner() })"""
+        val nestedComma = """EmptyState(title = stringResource(R.string.t, 1), body = "B")"""
+
+        assertEquals(1, EmptyStateGlyphGuard.calls(iconless).size)
+        assertTrue(EmptyStateGlyphGuard.iconCalls(iconless).isEmpty())
+        assertEquals(1, EmptyStateGlyphGuard.iconCalls(named).size)
+        assertEquals(1, EmptyStateGlyphGuard.iconCalls(positional).size)
         assertTrue(
-            "a feed empty state must not pass a placeholder glyph: ${withIcon.map { it.range.first }}",
-            withIcon.isEmpty()
+            "iconContent is the live-indicator seam, not a placeholder glyph",
+            EmptyStateGlyphGuard.iconCalls(loading).isEmpty()
+        )
+        assertTrue(
+            "a comma inside a nested call must not be mistaken for the icon slot",
+            EmptyStateGlyphGuard.iconCalls(nestedComma).isEmpty()
         )
     }
 

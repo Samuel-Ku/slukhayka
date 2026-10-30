@@ -1258,7 +1258,6 @@ fun EmptyCatalogState(
     onImportClick: () -> Unit
 ) {
     EmptyState(
-        icon = PaperInkIcons.Book,
         title = stringResource(R.string.home_empty_catalog_title),
         body = stringResource(R.string.home_empty_catalog_body)
     ) {

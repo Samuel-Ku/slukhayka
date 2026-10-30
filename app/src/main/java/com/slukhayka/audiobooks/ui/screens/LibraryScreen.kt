@@ -34,8 +34,6 @@ import androidx.compose.material.icons.outlined.Today
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.CalendarMonth
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable

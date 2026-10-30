@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -31,7 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.AppLocale
 import com.slukhayka.audiobooks.AppLocalePrefs
 import com.slukhayka.audiobooks.R
-import androidx.compose.material.icons.outlined.Language
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 
 /**
  * Spec-45 (#405) R7 (#514) — the «Мова інтерфейсу» destination: a four-value
@@ -79,7 +78,7 @@ fun AppLocaleScreen(
             ) {
                 Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Outlined.Language,
+                        imageVector = PaperInkIcons.Globe,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.width(24.dp)

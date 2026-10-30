@@ -2,7 +2,6 @@ package com.slukhayka.audiobooks.ui.components
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -12,7 +11,6 @@ import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.theme.AppDimens
-import androidx.compose.material.icons.outlined.Language
 
 /**
  * v1.4 E2 — the ONE browser-door row, both doors (Sluhay debug + 4read).
@@ -41,7 +39,7 @@ fun OpenWebSourceRow(
         testTag = testTag,
         leading = {
             Icon(
-                imageVector = Icons.Outlined.Language,
+                imageVector = PaperInkIcons.Globe,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier

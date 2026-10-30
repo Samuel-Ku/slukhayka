@@ -288,7 +288,7 @@ class PaperInkHeaderGlyphGuardTest {
                 listOf("PaperInkIcons.Person", "PaperInkIcons.Alert")),
         "app/src/main/java/com/slukhayka/audiobooks/ui/components/OpenWebSourceRow.kt" to
             (Regex("""Icons\.(?:Default|Filled)\.Language\b""") to
-                listOf("Icons.Outlined.Language")),
+                listOf("PaperInkIcons.Globe")),
         "app/src/main/java/com/slukhayka/audiobooks/ui/components/SleepTimerSheet.kt" to
             (Regex("""Icons\.(?:Default|Filled)\.Close\b""") to listOf("PaperInkIcons.Close")),
         "app/src/main/java/com/slukhayka/audiobooks/ui/components/SpeedSheet.kt" to
@@ -304,9 +304,9 @@ class PaperInkHeaderGlyphGuardTest {
         "app/src/main/java/com/slukhayka/audiobooks/ui/screens/collections/CollectionPage.kt" to
             (Regex("""Icons\.(?:AutoMirrored\.Filled|Default|Filled)\.ArrowBack\b""") to listOf("PaperInkIcons.ChevronLeft")),
         "app/src/main/java/com/slukhayka/audiobooks/ui/screens/AppLocaleScreen.kt" to
-            (Regex("""Icons\.(?:Default|Filled)\.Language\b""") to listOf("Icons.Outlined.Language")),
+            (Regex("""Icons\.(?:Default|Filled)\.Language\b""") to listOf("PaperInkIcons.Globe")),
         "app/src/main/java/com/slukhayka/audiobooks/ui/screens/ContentLanguageScreen.kt" to
-            (Regex("""Icons\.(?:Default|Filled)\.Language\b""") to listOf("Icons.Outlined.Language")),
+            (Regex("""Icons\.(?:Default|Filled)\.Language\b""") to listOf("PaperInkIcons.Globe")),
         "app/src/main/java/com/slukhayka/audiobooks/ui/screens/NetworkPrivacyScreen.kt" to
             (Regex("""Icons\.(?:Default|Filled)\.Shield\b""") to listOf("PaperInkIcons.Shield")),
     )

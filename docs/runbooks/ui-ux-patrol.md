@@ -37,12 +37,17 @@ python3 scripts/ui-ux-patrol.py install --repo ~/Projects/slukhayka
 2. розгортає профіль `dsh --profile headless`, якщо його немає, і пише
    `~/.dsh/profiles/headless/cordis.patch.yml` із маршрутом
    `opencode-go`/`deepseek-v4.1-flash` (той самий, що в `scripts/swarm/bootstrap-worker.sh`);
-3. робить димовий прогін `Reply with exactly: READY` — без робочого ключа
-   моделі таймер не має сенсу;
-4. створює мітку `ui-ux-patrol`;
-5. пише `~/.config/slukhayka/ui-ux-patrol.env` (0600) з `PATH` і `GH_TOKEN`
-   (щоб `gh` працював у таймері без розблокованого keyring). `--no-gh-token`
-   лишає файл без токена — тоді токен треба додати вручну;
+3. створює мітку `ui-ux-patrol`;
+4. пише `~/.config/slukhayka/ui-ux-patrol.env` (0600) з `PATH`, `GH_TOKEN`
+   (щоб `gh` працював у таймері без розблокованого keyring) і **ключем
+   моделі** headless-профілю (`apiKeyEnv`, типово `OPENCODE_API_KEY`):
+   значення береться з оточення, а якщо його немає — з `refs:` у
+   `~/.dsh/.credentials.yaml` (#1659). `--no-gh-token` лишає файл без
+   GH_TOKEN, `--no-model-key` — без ключа моделі; тоді їх треба додати вручну;
+5. робить димовий прогін `Reply with exactly: READY` — без робочого ключа
+   моделі таймер не має сенсу. Env уже записано (крок 4), тож якщо ключа
+   немає, install усе одно лишає оновлений файл і падає гучним
+   smoke-провалом (#1662);
 6. ставить `~/.config/systemd/user/ui-ux-patrol.{service,timer}` і вмикає
    таймер. `--no-enable` лише ставить файли.
 

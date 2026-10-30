@@ -621,6 +621,14 @@ def render_env_file(
             " не комітити й не копіювати в репо."
         )
         for name, value in model_env.items():
+            if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+                raise PatrolError(f"непридатне імʼя змінної для env-файла: {name!r}")
+            if "\n" in value or "\r" in value:
+                # #1662 — значення пишуться в env без екранування; новий рядок
+                # дозволив би ін'єкцію довільних змінних у файл таймера.
+                raise PatrolError(
+                    f"значення {name} містить новий рядок — не пишу env-файл"
+                )
             lines.append(f"{name}={value}")
     return "\n".join(lines) + "\n"
 
@@ -648,7 +656,9 @@ def credential_refs(credentials_path: Path) -> dict[str, str]:
     """
     try:
         text = credentials_path.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
+        # #1662 — битий/не-UTF8 файл не має валити install: це той самий
+        # «ключа не знайдено», який install назве вголос.
         return {}
     refs: dict[str, str] = {}
     in_refs = False
@@ -953,9 +963,6 @@ def cmd_install(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
 
-    if not args.skip_smoke:
-        smoke_headless(dsh, model_env=model_env)
-
     ensure_label(repo)
     env_path = write_env_file(
         write_token=not args.no_gh_token,
@@ -965,6 +972,12 @@ def cmd_install(args: argparse.Namespace) -> int:
         print(
             "env: ключ моделі " + ", ".join(model_env) + " записано (значення не друкується)"
         )
+
+    # #1662 — env-файл пишеться ДО димового прогону: якщо ключа немає, install
+    # усе одно лишає оновлений env (PATH+GH_TOKEN, без ключа) і падає гучним
+    # smoke-провалом, а не мовчки й без файла.
+    if not args.skip_smoke:
+        smoke_headless(dsh, model_env=model_env)
     units_dir = Path.home() / ".config" / "systemd" / "user"
     units_dir.mkdir(parents=True, exist_ok=True)
     (units_dir / "ui-ux-patrol.service").write_text(
@@ -1149,7 +1162,17 @@ def write_env_file(
         proc = run(["gh", "auth", "token"], check=False, timeout=30)
         if proc.returncode == 0:
             token = proc.stdout.strip() or None
-    path.write_text(render_env_file(dirs, token, model_env), encoding="utf-8")
+    # #1662 — файл містить секрети: створюємо одразу з 0600, щоб не лишати
+    # вікна з umask-правами між write_text і chmod.
+    payload = render_env_file(dirs, token, model_env)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        # #1662 — fchmod одразу: для вже наявного файла з 0644 create-права не
+        # діють, і без цього секрет ліг би у світ до chmod після запису.
+        os.fchmod(fd, 0o600)
+        os.write(fd, payload.encode("utf-8"))
+    finally:
+        os.close(fd)
     path.chmod(0o600)
     if token:
         print(f"GH_TOKEN записано у {path} (0600) — щоб таймер працював без keyring")

@@ -5,6 +5,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.slukhayka.audiobooks.ui.screens.libraryYearPlateColor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -227,6 +228,33 @@ class PaperInkTokensTest {
         assertEquals(8.dp, PaperInkDimens.RadiusMicro)
         assertEquals(28.dp, PaperInkDimens.RadiusXl)
         assertEquals(999.dp, PaperInkDimens.RadiusFull)
+    }
+
+    @Test
+    fun `the year plate is ink in both themes, never an M3 container`() {
+        // F28 (аудит 2026-10-28): «Мій рік» left M3 behind. The plate is the
+        // achievements hero's language — printed ink on paper, raised night in
+        // the ink theme — and the three text roles that ride it must clear the
+        // text floor on BOTH plates (F4: lamp as TEXT is `LampNight` here, not
+        // the graphic amber).
+        assertEquals(PaperInkPalette.NightSurface, libraryYearPlateColor(inkTheme = false))
+        assertEquals(PaperInkPalette.NightHigh, libraryYearPlateColor(inkTheme = true))
+        assertFalse(
+            "the paper year plate must not be an M3 primaryContainer",
+            light.primaryContainer == libraryYearPlateColor(inkTheme = false),
+        )
+        assertFalse(
+            "the ink year plate must not be an M3 primaryContainer",
+            dark.primaryContainer == libraryYearPlateColor(inkTheme = true),
+        )
+        listOf(
+            PaperInkPalette.NightSurface to "paper-plate",
+            PaperInkPalette.NightHigh to "ink-plate",
+        ).forEach { (plate, name) ->
+            assertText(name, "Chalk/year plate", PaperInkPalette.Chalk, plate)
+            assertText(name, "DustNight/year plate", PaperInkPalette.DustNight, plate)
+            assertText(name, "LampNight/year plate", PaperInkPalette.LampNight, plate)
+        }
     }
 
     @Test

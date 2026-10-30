@@ -599,7 +599,11 @@ def render_timer_unit() -> str:
     )
 
 
-def render_env_file(path_dirs: list[str], gh_token: str | None) -> str:
+def render_env_file(
+    path_dirs: list[str],
+    gh_token: str | None,
+    model_env: dict[str, str] | None = None,
+) -> str:
     lines = [
         PROFILE_MARKER + " install",
         "# PATH мусить містити dsh, gh, git, python3 — таймер не читає ~/.bashrc.",
@@ -608,7 +612,74 @@ def render_env_file(path_dirs: list[str], gh_token: str | None) -> str:
     if gh_token:
         lines.append("# GH_TOKEN: файл 0600; не комітити й не копіювати в репо.")
         lines.append("GH_TOKEN=" + gh_token)
+    if model_env:
+        # #1659 — headless-агент резолвить ключ моделі з ENV (`apiKeyEnv` у
+        # профілі), а таймер не читає ні ~/.bashrc, ні keyring: без цього
+        # рядка кожен нічний прогін падає з MISSING_CREDENTIAL.
+        lines.append(
+            "# Ключ моделі headless-агента (apiKeyEnv профілю): файл 0600;"
+            " не комітити й не копіювати в репо."
+        )
+        for name, value in model_env.items():
+            lines.append(f"{name}={value}")
     return "\n".join(lines) + "\n"
+
+
+PROFILE_API_KEY_ENV_RE = re.compile(r"^\s*apiKeyEnv:\s*([A-Za-z_][A-Za-z0-9_]*)\s*$", re.M)
+
+
+def profile_api_key_env(profile_patch: Path) -> str | None:
+    """Імʼя змінної, яку headless-профіль резолвить як ключ моделі (#1659)."""
+    try:
+        text = profile_patch.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = PROFILE_API_KEY_ENV_RE.search(text)
+    return match.group(1) if match else None
+
+
+def credential_refs(credentials_path: Path) -> dict[str, str]:
+    """`refs:` з `~/.dsh/.credentials.yaml` мінімальним stdlib-парсером.
+
+    #1659 — ключ моделі живе там (0600), але не експортований ні в
+    systemd-оточення, ні в ~/.bashrc таймера. PyYAML заборонений: скрипт
+    самодостатній (лише stdlib). Парсер читає рівно дворівневий блок
+    `refs:` → `NAME: value`; інші ключі ігнорує. Значення не друкуються.
+    """
+    try:
+        text = credentials_path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    refs: dict[str, str] = {}
+    in_refs = False
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if re.match(r"^refs:\s*(#.*)?$", line):
+            in_refs = True
+            continue
+        if not in_refs:
+            continue
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line.startswith((" ", "\t")):
+            break  # наступний top-level ключ
+        match = re.match(
+            r"^\s{2,}([A-Za-z_][A-Za-z0-9_]*):\s*(\S+?)\s*$", line
+        )
+        if match:
+            refs[match.group(1)] = match.group(2).strip("'\"")
+    return refs
+
+
+def resolve_model_key(api_key_env: str | None, home: Path | None = None) -> str | None:
+    """Ключ моделі: спершу оточення, потім `~/.dsh/.credentials.yaml` (#1659)."""
+    if not api_key_env:
+        return None
+    from_env = os.environ.get(api_key_env)
+    if from_env:
+        return from_env
+    home = home or Path.home()
+    return credential_refs(home / ".dsh" / ".credentials.yaml").get(api_key_env)
 
 
 # ---------------------------------------------------------------------------
@@ -863,11 +934,37 @@ def cmd_install(args: argparse.Namespace) -> int:
     profile_dir = Path.home() / ".dsh" / "profiles" / "headless"
     ensure_headless_profile(dsh, profile_dir)
 
+    # #1659 — headless-профіль резолвить ключ моделі з ENV (`apiKeyEnv`), а
+    # systemd-таймер не читає ~/.bashrc/keyring. Беремо ключ з оточення або з
+    # ~/.dsh/.credentials.yaml і кладьмо у env-файл таймера; без нього кожен
+    # нічний прогін падає з MISSING_CREDENTIAL.
+    api_key_env = None
+    model_env: dict[str, str] | None = None
+    if not args.no_model_key:
+        api_key_env = profile_api_key_env(profile_dir / "cordis.patch.yml")
+        model_key = resolve_model_key(api_key_env)
+        if api_key_env and model_key:
+            model_env = {api_key_env: model_key}
+        elif api_key_env:
+            print(
+                f"УВАГА: ключ {api_key_env} не знайдено ні в оточенні, ні в "
+                "~/.dsh/.credentials.yaml — таймер отримає MISSING_CREDENTIAL; "
+                "додай ключ у Models (web) або в env вручну",
+                file=sys.stderr,
+            )
+
     if not args.skip_smoke:
-        smoke_headless(dsh)
+        smoke_headless(dsh, model_env=model_env)
 
     ensure_label(repo)
-    env_path = write_env_file(write_token=not args.no_gh_token)
+    env_path = write_env_file(
+        write_token=not args.no_gh_token,
+        model_env=model_env,
+    )
+    if model_env:
+        print(
+            "env: ключ моделі " + ", ".join(model_env) + " записано (значення не друкується)"
+        )
     units_dir = Path.home() / ".config" / "systemd" / "user"
     units_dir.mkdir(parents=True, exist_ok=True)
     (units_dir / "ui-ux-patrol.service").write_text(
@@ -960,11 +1057,14 @@ def ensure_headless_profile(dsh: str, profile_dir: Path) -> None:
     )
 
 
-def smoke_headless(dsh: str) -> None:
+def smoke_headless(dsh: str, *, model_env: dict[str, str] | None = None) -> None:
     print("димовий прогін headless (ключ моделі)…")
+    env = {"DSH_PERMISSION_MODE": "danger-full-access"}
+    if model_env:
+        env.update(model_env)
     proc = run(
         [dsh, "--profile", "headless", "Reply with exactly: READY"],
-        env={"DSH_PERMISSION_MODE": "danger-full-access"},
+        env=env,
         timeout=240,
         check=False,
     )
@@ -1035,7 +1135,11 @@ def patrol_path_dirs(
     return list(dict.fromkeys(dirs))
 
 
-def write_env_file(*, write_token: bool) -> Path:
+def write_env_file(
+    *,
+    write_token: bool,
+    model_env: dict[str, str] | None = None,
+) -> Path:
     env_dir = Path.home() / ".config" / "slukhayka"
     env_dir.mkdir(parents=True, exist_ok=True)
     path = env_dir / "ui-ux-patrol.env"
@@ -1045,7 +1149,7 @@ def write_env_file(*, write_token: bool) -> Path:
         proc = run(["gh", "auth", "token"], check=False, timeout=30)
         if proc.returncode == 0:
             token = proc.stdout.strip() or None
-    path.write_text(render_env_file(dirs, token), encoding="utf-8")
+    path.write_text(render_env_file(dirs, token, model_env), encoding="utf-8")
     path.chmod(0o600)
     if token:
         print(f"GH_TOKEN записано у {path} (0600) — щоб таймер працював без keyring")
@@ -1303,6 +1407,11 @@ def build_parser() -> argparse.ArgumentParser:
     install.add_argument("--skip-smoke", action="store_true")
     install.add_argument("--no-enable", action="store_true")
     install.add_argument("--no-gh-token", action="store_true")
+    install.add_argument(
+        "--no-model-key",
+        action="store_true",
+        help="не переносити ключ моделі headless-профілю в env таймера (#1659)",
+    )
     install.set_defaults(func=cmd_install)
 
     run_cmd = with_repo(sub.add_parser("run", help="нічний прогін"))

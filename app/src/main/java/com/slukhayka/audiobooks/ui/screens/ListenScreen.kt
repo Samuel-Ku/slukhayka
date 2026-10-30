@@ -14,6 +14,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.SettingsBackupRestore
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -222,7 +225,7 @@ fun ListenScreen(
         if (dedupedBlocks.isEmpty()) {
             item(key = "all-shelves-hidden") {
                 EmptyState(
-                    icon = Icons.Default.VisibilityOff,
+                    icon = Icons.Outlined.VisibilityOff,
                     title = stringResource(R.string.listen_all_shelves_hidden_title),
                     body = stringResource(R.string.listen_all_shelves_hidden_body)
                 )
@@ -423,7 +426,7 @@ fun ListenShelvesSheetContent(
             if (onClose != null) {
                 IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
                     Icon(
-                        imageVector = Icons.Default.Close,
+                        imageVector = PaperInkIcons.Close,
                         contentDescription = stringResource(R.string.a11y_listen_shelves_close)
                     )
                 }
@@ -450,7 +453,7 @@ fun ListenShelvesSheetContent(
                     .testTag("listen_shelves_restore_all")
             ) {
                 Icon(
-                    imageVector = Icons.Default.SettingsBackupRestore,
+                    imageVector = Icons.Outlined.SettingsBackupRestore,
                     contentDescription = null,
                     modifier = Modifier.size(18.dp)
                 )
@@ -526,7 +529,7 @@ private fun ListenShelfRow(
                 .testTag("listen_shelf_toggle_${block.id.name}")
         ) {
             Icon(
-                imageVector = if (hidden) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                imageVector = if (hidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
                 contentDescription = stringResource(
                     if (hidden) R.string.a11y_listen_shelf_show else R.string.a11y_listen_shelf_hide,
                     block.title
@@ -796,7 +799,7 @@ fun ListenEmptyState(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Icon(
-                imageVector = Icons.Filled.Headphones,
+                imageVector = PaperInkIcons.Headphones,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.tertiary,
                 modifier = Modifier.size(28.dp),
@@ -826,7 +829,7 @@ fun ListenEmptyState(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Explore,
+                    imageVector = PaperInkIcons.Compass,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onPrimary,
                     modifier = Modifier.size(18.dp),
@@ -850,7 +853,7 @@ fun ListenEmptyState(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    imageVector = Icons.Filled.FileUpload,
+                    imageVector = PaperInkIcons.Upload,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp),

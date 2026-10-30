@@ -30,6 +30,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Today
+import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.material.icons.outlined.DateRange
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -539,7 +543,7 @@ fun LibraryScreen(
                                 .testTag("library_section_back")
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                imageVector = PaperInkIcons.ChevronLeft,
                                 contentDescription = stringResource(
                                     com.slukhayka.audiobooks.R.string.a11y_library_back_to_books
                                 )
@@ -725,7 +729,7 @@ fun LibraryScreen(
                             // canonical compact state, never a bare Text column.
                             item {
                                 EmptyStateRow(
-                                    icon = Icons.Default.Group,
+                                    icon = PaperInkIcons.Friends,
                                     title = stringResource(R.string.lib_saved_empty_people_title),
                                     body = stringResource(R.string.lib_saved_empty_people_body),
                                     modifier = Modifier.testTag("library_saved_people_empty"),
@@ -790,7 +794,7 @@ fun LibraryScreen(
                             item {
                                 // spec-46 T16 (#577): canonical compact state.
                                 EmptyStateRow(
-                                    icon = Icons.Default.Bookmark,
+                                    icon = PaperInkIcons.Bookmark,
                                     title = stringResource(R.string.lib_saved_empty_bookmarks_title),
                                     body = stringResource(R.string.lib_saved_empty_bookmarks_body),
                                     modifier = Modifier.testTag("library_saved_bookmarks_empty"),
@@ -886,7 +890,7 @@ fun LibraryScreen(
                     val importedEntries by viewModel.importedEntries.collectAsState()
                     if (importedEntries.isEmpty()) {
                         EmptyState(
-                            icon = Icons.Default.Inbox,
+                            icon = Icons.Outlined.Inbox,
                             title = stringResource(R.string.lib_imported_empty_title),
                             body = stringResource(R.string.lib_imported_empty_body)
                         )
@@ -2605,14 +2609,14 @@ fun ListeningStatsCard(
             StatItemCard(
                 title = stringResource(R.string.lib_stats_today),
                 value = stringResource(R.string.lib_stats_today_value, todayMinutes),
-                icon = Icons.Default.Today,
+                icon = Icons.Outlined.Today,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f)
             )
             StatItemCard(
                 title = stringResource(R.string.lib_stats_week),
                 value = stringResource(R.string.lib_stats_week_value, weekHours),
-                icon = Icons.Default.DateRange,
+                icon = Icons.Outlined.DateRange,
                 color = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.weight(1f)
             )
@@ -2627,7 +2631,7 @@ fun ListeningStatsCard(
             StatItemCard(
                 title = stringResource(R.string.lib_stats_streak),
                 value = stringResource(R.string.lib_stats_streak_value, streakDays),
-                icon = Icons.Default.Whatshot,
+                icon = PaperInkIcons.Flame,
                 color = AppStatStreak,
                 modifier = Modifier.weight(1f)
             )
@@ -2716,7 +2720,7 @@ fun GlobalBookmarkItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Default.Bookmark,
+                imageVector = PaperInkIcons.Bookmark,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.size(24.dp)
@@ -2771,7 +2775,7 @@ fun GlobalBookmarkItem(
                     .testTag("bookmark_delete_${bookmark.id}")
             ) {
                 Icon(
-                    imageVector = Icons.Default.Delete,
+                    imageVector = PaperInkIcons.Trash,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.error
                 )
@@ -3410,7 +3414,7 @@ fun BookmarkedPersonRow(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Person,
+                        imageVector = PaperInkIcons.Person,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
@@ -3440,7 +3444,7 @@ fun BookmarkedPersonRow(
                 }
 
                 Icon(
-                    imageVector = Icons.Default.Bookmark,
+                    imageVector = PaperInkIcons.Bookmark,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
@@ -3587,7 +3591,7 @@ fun LibraryReadingYearSection(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 EmptyState(
-                    icon = Icons.Default.CalendarMonth,
+                    icon = Icons.Outlined.CalendarMonth,
                     title = stringResource(R.string.lib_year_error_title),
                     body = stringResource(R.string.lib_year_error_body)
                 )
@@ -3608,7 +3612,7 @@ fun LibraryReadingYearSection(
             // words — this is a real empty library, not a failed read.
             if (projection.year.totalFinished == 0 && projection.active.isEmpty()) {
                 EmptyState(
-                    icon = Icons.Default.CalendarMonth,
+                    icon = Icons.Outlined.CalendarMonth,
                     title = stringResource(R.string.lib_year_empty_title),
                     body = stringResource(R.string.lib_year_empty_body)
                 )

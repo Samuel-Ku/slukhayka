@@ -1390,10 +1390,14 @@ internal fun LibraryHeaderActionsInner(
  * пошуку" is superseded by that ADR. So the field stays visible and moves INTO
  * the tab row.
  *
- * At 360–411 dp the row is inline (search 160 dp, never below its 140 dp floor);
- * on a narrower 320 dp window the search takes its own 48 dp line under the
- * tabs rather than squeezing either control below the touch/width floors. Both
- * branches keep the field visible without any action.
+ * The row is inline from 400 dp — and only while three EQUAL tabs can hold the
+ * widest label at the current fontScale (#1627 measures «Збережене»/«Shelves»
+ * with a TextMeasurer, not with a guess). The search pill is 140 dp, its floor,
+ * so the tabs get `maxWidth − 32 − 4 − 140` and one line is guaranteed only
+ * when `3 × widest ≤ that`. Below 400 dp, or when the labels do not fit at
+ * enlarged text, the search takes its own 48 dp line under the tabs (the same
+ * fallback; #1627 also lets a label wrap there rather than be ellipsized).
+ * Both branches keep the field visible without any action.
  */
 @Composable
 internal fun LibraryTabsWithSearch(

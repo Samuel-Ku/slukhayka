@@ -123,6 +123,42 @@ class PaperInkHeaderGlyphGuardTest {
         )
     }
 
+    /** The book page's own M3 leftovers: the header back arrow, the ⋮ menu
+     *  entries (mark listened, edit order/metadata, update published, save to
+     *  library, delete) and the «open on Sluhay» door. The family owns the
+     *  arrow (`ChevronLeft`), `Check`, `Edit`, `Upload`, `BookmarkAdd` and
+     *  `Trash`; `OpenInNew` has no family glyph, so it moves to the Outlined
+     *  weight (§5.4.7). */
+    private val bookDetailBanned: Regex by lazy {
+        Regex("""Icons\.(?:AutoMirrored\.)?(?:Default|Filled)\.(?:ArrowBack|OpenInNew|CheckCircle|Edit|CloudUpload|BookmarkAdd|Delete)\b""")
+    }
+
+    private val bookDetailRequired: List<String> = listOf(
+        "PaperInkIcons.ChevronLeft",
+        "PaperInkIcons.Check",
+        "PaperInkIcons.Edit",
+        "PaperInkIcons.Upload",
+        "PaperInkIcons.BookmarkAdd",
+        "PaperInkIcons.Trash",
+        "Icons.AutoMirrored.Outlined.OpenInNew",
+    )
+
+    @Test
+    fun bookDetailScreenUsesFamilyOrOutlinedGlyphs() {
+        val path = "app/src/main/java/com/slukhayka/audiobooks/ui/screens/BookDetailScreen.kt"
+        val text = File(repoRoot, path).readText()
+        val offenders = bookDetailBanned.findAll(text).map { it.value }.toList()
+        assertTrue(
+            "$path must not keep M3 Filled glyphs the family or Outlined weight owns: $offenders",
+            offenders.isEmpty()
+        )
+        val missing = bookDetailRequired.filterNot { text.contains(it) }
+        assertTrue(
+            "$path is missing the migrated glyphs: " + missing.joinToString(),
+            missing.isEmpty()
+        )
+    }
+
     @Test
     fun webSourceBrowserUsesFamilyOrOutlinedGlyphs() {
         val path = "app/src/main/java/com/slukhayka/audiobooks/ui/screens/WebSourceBrowserScreen.kt"

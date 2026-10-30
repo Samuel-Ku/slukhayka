@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -765,7 +766,7 @@ fun BookDetailScreen(
                         modifier = Modifier.testTag("book_detail_back_button")
                     ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = PaperInkIcons.ChevronLeft,
                             contentDescription = stringResource(R.string.book_detail_back)
                         )
                     }
@@ -834,7 +835,7 @@ fun BookDetailScreen(
                             if (currentBook.sourceUrl.contains("sluhay.com") && !currentBook.sourceUrl.contains("sluhay.com.ua")) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.a11y_book_detail_open_sluhay, currentBook.title)) },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = null) },
                                     onClick = {
                                         showOverflowMenu = false
                                         viewModel.openWebSource("sluhay", "https://sluhay.com/", "Sluhay")
@@ -851,7 +852,7 @@ fun BookDetailScreen(
                                     )
                                 },
                                 leadingIcon = {
-                                    Icon(Icons.Default.CheckCircle, contentDescription = null)
+                                    Icon(PaperInkIcons.Check, contentDescription = null)
                                 },
                                 modifier = Modifier
                                     .testTag("book_detail_listened_toggle")
@@ -880,7 +881,7 @@ fun BookDetailScreen(
                             if (chapters.size > 1) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.chapter_order_edit)) },
-                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                    leadingIcon = { Icon(PaperInkIcons.Edit, contentDescription = null) },
                                     modifier = Modifier.testTag("book_detail_chapter_order"),
                                     onClick = {
                                         showOverflowMenu = false
@@ -892,7 +893,7 @@ fun BookDetailScreen(
                             // Spec-53 T7 — a bad parse is fixable, locally…
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.book_detail_correct_metadata)) },
-                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                leadingIcon = { Icon(PaperInkIcons.Edit, contentDescription = null) },
                                 modifier = Modifier.testTag("book_detail_correct_metadata"),
                                 onClick = {
                                     showOverflowMenu = false
@@ -904,7 +905,7 @@ fun BookDetailScreen(
                             if (bookPublishedSubmission) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.book_detail_update_published)) },
-                                    leadingIcon = { Icon(Icons.Default.CloudUpload, contentDescription = null) },
+                                    leadingIcon = { Icon(PaperInkIcons.Upload, contentDescription = null) },
                                     modifier = Modifier.testTag("book_detail_update_published"),
                                     onClick = {
                                         showOverflowMenu = false
@@ -920,7 +921,7 @@ fun BookDetailScreen(
                             if (!isPersonalBook) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.book_detail_save_to_library)) },
-                                    leadingIcon = { Icon(Icons.Default.BookmarkAdd, contentDescription = null) },
+                                    leadingIcon = { Icon(PaperInkIcons.BookmarkAdd, contentDescription = null) },
                                     modifier = Modifier.testTag("book_detail_save_to_library"),
                                     onClick = {
                                         showOverflowMenu = false
@@ -932,7 +933,7 @@ fun BookDetailScreen(
                                 text = { Text(stringResource(R.string.a11y_book_detail_delete_work, currentBook.title)) },
                                 leadingIcon = {
                                     Icon(
-                                        imageVector = Icons.Default.Delete,
+                                        imageVector = PaperInkIcons.Trash,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.error
                                     )

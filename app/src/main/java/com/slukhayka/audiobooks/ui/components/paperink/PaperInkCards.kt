@@ -29,6 +29,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -177,6 +178,12 @@ fun PaperInkHeroCard(
     cover: (@Composable () -> Unit)? = null,
 ) {
     val colorScheme = MaterialTheme.colorScheme
+    // #1675 — at 200 % text the hero used to be a FIXED-height card: the
+    // growing title/author/narrator ran past the right edge, were clipped by
+    // the card and slid under the play button (QA on device, font_scale 2.0).
+    // The card now grows from the same minimum height, reserves the play corner
+    // for text and gives meta lines an honest second line.
+    val largeText = LocalDensity.current.fontScale >= 1.5f
     Surface(
         modifier = modifier
             .fillMaxWidth()
@@ -192,7 +199,13 @@ fun PaperInkHeroCard(
         color = colorScheme.surface,
         border = BorderStroke(1.dp, colorScheme.outlineVariant),
     ) {
-        Box(modifier = Modifier.fillMaxWidth().height(PaperInkDimens.HeroHeight)) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                // #1675 — the minimum keeps normal type pixel-identical to the
+                // golden; at 200 % the same card grows instead of clipping.
+                .heightIn(min = PaperInkDimens.HeroHeight)
+        ) {
             // The lamp: the only decorative glow, and it belongs to sound.
             Box(
                 modifier = Modifier
@@ -242,7 +255,17 @@ fun PaperInkHeroCard(
                     )
                 }
                 Spacer(modifier = Modifier.width(16.dp))
-                Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        // #1675 — the play button overlays the bottom corner;
+                        // reserving its gutter keeps meta text out from under it.
+                        .then(
+                            if (largeText) Modifier.padding(end = 72.dp, bottom = 56.dp)
+                            else Modifier
+                        )
+                ) {
                     Text(
                         text = eyebrow,
                         style = PaperInkType.Label,
@@ -254,30 +277,33 @@ fun PaperInkHeroCard(
                         text = title,
                         style = PaperInkType.BookTitleHero,
                         color = colorScheme.onSurface,
-                        maxLines = 2,
+                        maxLines = if (largeText) 3 else 2,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("hero_title"),
                     )
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = author,
                         style = PaperInkType.Meta,
                         color = colorScheme.onSurfaceVariant,
-                        maxLines = 1,
+                        maxLines = if (largeText) 2 else 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("hero_author"),
                     )
                     if (narrator.isNotBlank()) {
                         Text(
                             text = narrator,
                             style = PaperInkType.Micro,
                             color = colorScheme.onSurfaceVariant,
-                            maxLines = 1,
+                            maxLines = if (largeText) 2 else 1,
                             overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.testTag("hero_narrator"),
                         )
                     }
                     Spacer(modifier = Modifier.weight(1f))
                     if (progress != null) {
                         Row(
-                            modifier = Modifier.padding(end = 64.dp),
+                            modifier = Modifier.padding(end = if (largeText) 0.dp else 64.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             PaperInkProgress(progress = progress, modifier = Modifier.weight(1f))
@@ -298,8 +324,9 @@ fun PaperInkHeroCard(
                         text = chapterLabel,
                         style = PaperInkType.Timer,
                         color = colorScheme.onSurfaceVariant,
-                        maxLines = 1,
+                        maxLines = if (largeText) 2 else 1,
                         overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.testTag("hero_chapter"),
                     )
                     if (remainingLabel.isNotBlank()) {
                         Text(text = remainingLabel, style = PaperInkType.Micro, color = colorScheme.onSurfaceVariant)
@@ -311,6 +338,7 @@ fun PaperInkHeroCard(
                     .align(Alignment.BottomEnd)
                     .padding(16.dp)
                     .size(PaperInkDimens.PrimaryButtonHeight)
+                    .testTag("hero_play_button")
                     .clip(CircleShape)
                     .background(colorScheme.tertiary)
                     .clickable(onClick = onPlayClick)

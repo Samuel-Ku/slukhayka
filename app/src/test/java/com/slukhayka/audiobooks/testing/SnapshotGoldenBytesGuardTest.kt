@@ -658,37 +658,57 @@ class SnapshotGoldenBytesGuardTest {
          * include it move by 4 dp: `explore_header_collapsed/expanded` and
          * `home_feed_phone_fold`. Recorded by the `record-snapshots`
          * workflow, not locally.
+         *
+         * ## Six re-pinned on 2026-10-30 (#1623 — F11 header/search glyphs)
+         *
+         * The migrated paper chrome stopped mixing M3 glyphs into the family:
+         * the library header's ⋮/«+», the search fields and the recommendation
+         * menu draw `PaperInkIcons.More`/`Plus`/`Search`. Measured against the
+         * previous record, frame by frame:
+         *  - `explore_header_collapsed` and `explore_header_expanded` — the
+         *    same 44×44 delta at `+97+341`, the search affordance in the
+         *    shared header;
+         *  - `home_feed_phone_fold` — 625×488 at `+97+341`: the search surface
+         *    (icon + its field chrome) on the Home feed;
+         *  - `library_redesign_browsing`, `library_redesign_dense` and
+         *    `library_redesign_grid` — the same 158×264 at `+699+134`, the
+         *    header's top-end actions: the ⋮ menu, «+» and the search pill.
+         *
+         * The three player pins kept AE=0: nothing on the player changed.
+         * A full fresh record on the CI runner reproduced the committed set
+         * byte-for-byte (the `record-snapshots` dispatch on `6f66ddee`).
+         *
          */
         val PINS = listOf(
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "collapsed.png",
-                "92f41d154d5f3ee00d679ffb8dab00c1" + "5973c9215236ce5322e86133f5ad9382"
+                "5293751330af343fcf03176c77da95d9" + "02565b15c1ed65f7042162655f6ae2d7"
             ),
             Pin(
                 "CatalogRows" + "SnapshotTest",
                 "explore_header_" + "expanded.png",
-                "47719b2b6f0dda1eb4f560d8b86c905b" + "c9e3b838f3950bb33d2ae6bdb9f17dc2"
+                "82ed6af79ac2c079ba0609cde5cfafa2" + "f8d4017fb2834e68754d2b59b51937e9"
             ),
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",
                 "home_feed_" + "phone_fold.png",
-                "a07224348e4c2da897019acf0cd96b99" + "27397c108e9422668724c9d6c0d7d2cb"
+                "bcc25fb87d604440b8f95e328ca052a2" + "f427dd3d0adf7b5f07140f5ce68a48c7"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "d3a06ed83c40a2f63d52dd66eb5eb8e8" + "c682b3a74233a8d7be256bc7c9de8c3b"
+                "b978b23267b27181d45bf07d469bbf8f" + "fc764972a549c4572f4d30646ed2046c"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "6fca2d7b1521a73e405d2ade9d553858" + "30e1c71d49052401f05900ecb0ce63d2"
+                "482509dcb37a58038ec85b9d23161fa1" + "738c1c925a721846bed82722e7ff159c"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "4a4c79604528a1a2f20f92643a27b212" + "15707999c52b62f159d282813fa70809"
+                "9f4c0c3c95622d069b1e60b486b0c530" + "e5e8ce3560ef7b7c76aadbce20e68d1f"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

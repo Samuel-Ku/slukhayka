@@ -582,16 +582,10 @@ CASES = (
         name="підставні gh і pgrep фікстури test_swarm_bootstrap_check",
         where=("scripts/tests/test_swarm_bootstrap_check.py",),
         programs=(
-            Program(
-                "BootstrapCheckTest"
-                ".test_check_survives_pgrep_exit_one_with_zero: gh",
-                "exit 0",
-            ),
-            Program(
-                "BootstrapCheckTest"
-                ".test_check_survives_pgrep_exit_one_with_zero: pgrep",
-                "echo 0",
-            ),
+            # Фікстура створюється в спільному хелпері, тому скан називає
+            # програми за ним, а не за тестом-споживачем.
+            Program("BootstrapCheckTest._run_check: gh", "exit 0"),
+            Program("BootstrapCheckTest._run_check: pgrep", "echo 0"),
         ),
     ),
 )

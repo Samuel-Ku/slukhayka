@@ -67,6 +67,39 @@ class PaperInkHeaderGlyphGuardTest {
         )
     }
 
+    /** The browser screen's own M3 leftovers: Warning/Close/Link/Refresh/Home
+     *  and the AutoMirrored OpenInNew. The family owns Warning→Alert, Close,
+     *  Link and Refresh; Home/OpenInNew have no family glyph, so they move to
+     *  the Outlined weight instead of staying Filled (§5.4.7). */
+    private val browserBanned: Regex by lazy {
+        Regex("""Icons\.(?:Default|Filled)\.(?:Warning|Close|Link|Refresh|Home)\b|Icons\.AutoMirrored\.Filled\.OpenInNew\b""")
+    }
+
+    private val browserRequired: List<String> = listOf(
+        "PaperInkIcons.Alert",
+        "PaperInkIcons.Close",
+        "PaperInkIcons.Link",
+        "PaperInkIcons.Refresh",
+        "Icons.Outlined.Home",
+        "Icons.AutoMirrored.Outlined.OpenInNew",
+    )
+
+    @Test
+    fun webSourceBrowserUsesFamilyOrOutlinedGlyphs() {
+        val path = "app/src/main/java/com/slukhayka/audiobooks/ui/screens/WebSourceBrowserScreen.kt"
+        val text = File(repoRoot, path).readText()
+        val offenders = browserBanned.findAll(text).map { it.value }.toList()
+        assertTrue(
+            "$path must not keep M3 Filled glyphs the family or Outlined weight owns: $offenders",
+            offenders.isEmpty()
+        )
+        val missing = browserRequired.filterNot { text.contains(it) }
+        assertTrue(
+            "$path is missing the migrated glyphs: " + missing.joinToString(),
+            missing.isEmpty()
+        )
+    }
+
     @Test
     fun everyMigratedSurfaceDrawsItsFamilyGlyph() {
         val missing = surfaces.flatMap { (path, glyphs) ->

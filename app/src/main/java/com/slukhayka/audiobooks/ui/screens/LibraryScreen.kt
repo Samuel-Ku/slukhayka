@@ -3927,40 +3927,76 @@ internal fun libraryChrome(
 }
 
 /**
- * #885 — «Мій рік» as a hero card on top of «Мої книги» (prototype:
- * docs/prototypes/slukhayka-expressive.html). Reuses the SAME year data the
+ * #885 — «Мій рік у книжках», now the top of the «Статистика» tab (F30b,
+ * #1580/#1617, moved it out of the books list). Reuses the SAME year data the
  * separate year view shows, so the two can never disagree.
+ *
+ * F28 of the 2026-10-28 device audit (issue #1625): the card was still amber
+ * M3 — `primaryContainer` + `displaySmall`. The direction's statistic is a
+ * printed INK plate, the same language as the achievements hero panel
+ * (`AchievementHeroPanel`): ink stays ink in both app themes because a number
+ * that anchors the screen reads as print, not as another tinted card. So
+ * `StatXL` (Literata 48/52) carries the finished count, the year uses the
+ * lamp TEXT role (6.2:1 on the plate — F4) and the units use `Meta`.
+ *
+ * No progress bar: a yearly TARGET does not exist in the domain
+ * ([com.slukhayka.audiobooks.data.entries.YearlyReadingGoal] carries only what
+ * was finished), so no invented "12".
  */
 @Composable
-private fun LibraryYearHero(goal: com.slukhayka.audiobooks.data.entries.YearlyReadingGoal) {
-    // Prototype («Нічна бібліотека») shows the year as a TONAL hero card: the
-    // amber container, the year as a small label, the finished count big.
-    // A progress bar would need a yearly TARGET, which the domain does not have
-    // (YearlyReadingGoal carries only what was finished) — so no invented "12".
+internal fun LibraryYearHero(
+    goal: com.slukhayka.audiobooks.data.entries.YearlyReadingGoal
+) {
     Surface(
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        shape = MaterialTheme.shapes.extraLarge,
+        color = libraryYearPlateColor(inkTheme = isInkTheme()),
+        contentColor = PaperInkPalette.Chalk,
+        shape = RoundedCornerShape(PaperInkDimens.RadiusXl),
         modifier = Modifier
             .fillMaxWidth()
             .testTag("library_year_hero")
     ) {
-        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
+        Column(modifier = Modifier.padding(PaperInkDimens.SpaceXl)) {
             Text(
                 text = stringResource(R.string.lib_year_hero_title, goal.year),
-                style = MaterialTheme.typography.labelLarge
+                style = PaperInkType.Label,
+                color = PaperInkPalette.LampNight,
+                modifier = Modifier.testTag("library_year_hero_title")
             )
-            Text(
-                text = goal.totalFinished.toString(),
-                style = MaterialTheme.typography.displaySmall
-            )
-            Text(
-                text = stringResource(R.string.lib_year_hero_units),
-                style = MaterialTheme.typography.bodyMedium
-            )
+            Spacer(modifier = Modifier.height(PaperInkDimens.SpaceSm))
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = goal.totalFinished.toString(),
+                    style = PaperInkType.StatXL,
+                    color = PaperInkPalette.Chalk,
+                    modifier = Modifier.testTag("library_year_hero_count")
+                )
+                Spacer(modifier = Modifier.width(PaperInkDimens.SpaceMd))
+                Text(
+                    text = stringResource(R.string.lib_year_hero_units),
+                    style = PaperInkType.Meta,
+                    color = PaperInkPalette.DustNight,
+                    modifier = Modifier
+                        .padding(bottom = 2.dp)
+                        .testTag("library_year_hero_units")
+                )
+            }
         }
     }
 }
+
+/**
+ * F28 — the year plate is INK in both themes, like the achievements hero: on
+ * paper it is the printed `NightSurface` plate, in the ink theme it steps up to
+ * the raised `NightHigh` so it does not disappear into the page. Exposed for
+ * the token test; the golden pins the rendering.
+ */
+internal fun libraryYearPlateColor(inkTheme: Boolean): Color =
+    if (inkTheme) PaperInkPalette.NightHigh else PaperInkPalette.NightSurface
+
+/** Ink when the screen's own ground is dark — the same test `AchievementsScreen` uses. */
+@Composable
+private fun isInkTheme(): Boolean =
+    ColorContrast.relativeLuminance(MaterialTheme.colorScheme.background) < 0.5
 
 /** #885 — Книги | Полиці | Збережене, the prototype's top-level switch. */
 @Composable

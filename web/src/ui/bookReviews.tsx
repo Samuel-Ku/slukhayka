@@ -11,33 +11,53 @@
  * pin the same document identity, so a review written here is the same
  * document Android reads (the AC's cross-platform visibility).
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { useTranslate } from '../i18n/locale'
-import type { ListenerProfile } from '../identity/listenerIdentity'
-import { combinedAverage, type CombinedAverageResult } from '../reviews/combinedAverage'
-import type { NarrationRating } from '../reviews/narrationRatingModel'
-import { NarrationRatingLimits } from '../reviews/narrationRatingModel'
-import { ListenerReviewLimits, type ListenerReview } from '../reviews/reviewModel'
-import type { NarrationRatingsStore, ReviewsStore } from '../reviews/store'
-import { SectionHeader } from './components'
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useTranslate, useUiLocale } from "../i18n/locale";
+import type { ListenerProfile } from "../identity/listenerIdentity";
+import {
+  combinedAverage,
+  type CombinedAverageResult,
+} from "../reviews/combinedAverage";
+import type { NarrationRating } from "../reviews/narrationRatingModel";
+import { NarrationRatingLimits } from "../reviews/narrationRatingModel";
+import {
+  ListenerReviewLimits,
+  type ListenerReview,
+} from "../reviews/reviewModel";
+import type { NarrationRatingsStore, ReviewsStore } from "../reviews/store";
+import { SectionHeader } from "./components";
 
 /** Android's reviewWorkIdFor(editionId, workId) — the Work's mergeKey when mergeable, else the Edition id. */
 export function reviewWorkIdFor(mergeKey: string, editionId: string): string {
-  return mergeKey.trim() !== '' ? mergeKey : editionId
+  return mergeKey.trim() !== "" ? mergeKey : editionId;
 }
 
 /** «12 серп. 2026 р.» style label for a review's createdAt stamp (Android MEDIUM, uk). */
-export function reviewDateLabel(createdAtMillis: number, locale = 'uk'): string {
+export function reviewDateLabel(
+  createdAtMillis: number,
+  locale = "uk"
+): string {
   try {
-    return new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(new Date(createdAtMillis))
+    return new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(
+      new Date(createdAtMillis)
+    );
   } catch {
-    return new Date(createdAtMillis).toLocaleDateString()
+    return new Date(createdAtMillis).toLocaleDateString();
   }
 }
 
-function starRow(rating: number, interactive: boolean, onRatingChange: (rating: number) => void, starLabel: (position: number) => string) {
+function starRow(
+  rating: number,
+  interactive: boolean,
+  onRatingChange: (rating: number) => void,
+  starLabel: (position: number) => string
+) {
   return (
-    <span className={`review-stars${interactive ? ' review-stars-interactive' : ''}`} role={interactive ? 'radiogroup' : undefined} aria-label={interactive ? undefined : starLabel(rating)}>
+    <span
+      className={`review-stars${interactive ? " review-stars-interactive" : ""}`}
+      role={interactive ? "radiogroup" : undefined}
+      aria-label={interactive ? undefined : starLabel(rating)}
+    >
       {Array.from({ length: 5 }, (_, index) => index + 1).map((position) =>
         interactive ? (
           <button
@@ -46,19 +66,23 @@ function starRow(rating: number, interactive: boolean, onRatingChange: (rating: 
             role="radio"
             aria-checked={position === rating}
             aria-label={starLabel(position)}
-            className={`review-star${position <= rating ? ' review-star-on' : ''}`}
+            className={`review-star${position <= rating ? " review-star-on" : ""}`}
             onClick={() => onRatingChange(position)}
           >
             ★
           </button>
         ) : (
-          <span key={position} className={`review-star${position <= rating ? ' review-star-on' : ''}`} aria-hidden="true">
+          <span
+            key={position}
+            className={`review-star${position <= rating ? " review-star-on" : ""}`}
+            aria-hidden="true"
+          >
             ★
           </span>
-        ),
+        )
       )}
     </span>
-  )
+  );
 }
 
 /**
@@ -76,21 +100,33 @@ export function ReviewCard({
   onEdit,
   onDelete,
 }: {
-  review: ListenerReview
-  workTitle: string
-  isOwn: boolean
-  onEdit: () => void
-  onDelete: () => void
+  review: ListenerReview;
+  workTitle: string;
+  isOwn: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
-  const t = useTranslate()
+  const t = useTranslate();
+  const locale = useUiLocale();
   return (
     <li className="review-card">
-      {starRow(review.rating, false, () => undefined, (position) => t('reviewRatingSummary', { rating: position }))}
+      {starRow(
+        review.rating,
+        false,
+        () => undefined,
+        (position) => t("reviewRatingSummary", { rating: position })
+      )}
       {review.body && <p className="review-body">{review.body}</p>}
-      {review.editionTag && <span className="review-edition-chip">Начитка: {review.editionTag}</span>}
+      {review.editionTag && (
+        <span className="review-edition-chip">
+          {t("reviewNarrationChip", { tag: review.editionTag })}
+        </span>
+      )}
       <span className="review-meta">
         <span className="review-author">{review.authorName}</span>
-        <span className="review-date">{reviewDateLabel(review.createdAt)}</span>
+        <span className="review-date">
+          {reviewDateLabel(review.createdAt, locale)}
+        </span>
       </span>
       <span className="review-actions">
         {isOwn && (
@@ -98,15 +134,21 @@ export function ReviewCard({
             <button
               type="button"
               onClick={onEdit}
-              aria-label={t('reviewEditAria', { title: workTitle, rating: review.rating })}
+              aria-label={t("reviewEditAria", {
+                title: workTitle,
+                rating: review.rating,
+              })}
             >
-              Змінити
+              {t("reviewEdit")}
             </button>
             <button
               type="button"
               className="review-delete"
               onClick={onDelete}
-              aria-label={t('reviewDeleteAria', { title: workTitle, rating: review.rating })}
+              aria-label={t("reviewDeleteAria", {
+                title: workTitle,
+                rating: review.rating,
+              })}
             >
               🗑
             </button>
@@ -114,7 +156,7 @@ export function ReviewCard({
         )}
       </span>
     </li>
-  )
+  );
 }
 
 /**
@@ -136,52 +178,74 @@ export function ListenerReviewFormSheet({
   isSaving,
   errorMessage,
 }: {
-  bookTitle: string
-  editing: ListenerReview | null
-  editionOptions: string[]
-  defaultEditionTag: string
-  onSave: (rating: number, body: string | null, editionTag: string | null) => void
-  onDismiss: () => void
-  isSaving: boolean
-  errorMessage: string | null
+  bookTitle: string;
+  editing: ListenerReview | null;
+  editionOptions: string[];
+  defaultEditionTag: string;
+  onSave: (
+    rating: number,
+    body: string | null,
+    editionTag: string | null
+  ) => void;
+  onDismiss: () => void;
+  isSaving: boolean;
+  errorMessage: string | null;
 }) {
-  const t = useTranslate()
-  const headingRef = useRef<HTMLHeadingElement>(null)
-  const [selectedRating, setSelectedRating] = useState(editing?.rating ?? 0)
-  const [bodyText, setBodyText] = useState(editing?.body ?? '')
-  const [selectedTag, setSelectedTag] = useState<string | null>(editing?.editionTag ?? (defaultEditionTag || null))
-  const [tagMenuOpen, setTagMenuOpen] = useState(false)
+  const t = useTranslate();
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const [selectedRating, setSelectedRating] = useState(editing?.rating ?? 0);
+  const [bodyText, setBodyText] = useState(editing?.body ?? "");
+  const [selectedTag, setSelectedTag] = useState<string | null>(
+    editing?.editionTag ?? (defaultEditionTag || null)
+  );
+  const [tagMenuOpen, setTagMenuOpen] = useState(false);
 
   useEffect(() => {
-    headingRef.current?.focus()
-  }, [])
+    headingRef.current?.focus();
+  }, []);
 
   const editionChoices = useMemo(
-    () => [...new Set([...(editionOptions.filter((option) => option.trim() !== ''))])],
-    [editionOptions],
-  )
+    () => [
+      ...new Set([...editionOptions.filter((option) => option.trim() !== "")]),
+    ],
+    [editionOptions]
+  );
 
   return (
-    <div className="lib-dialog-backdrop" onClick={() => { if (!isSaving) onDismiss() }}>
+    <div
+      className="lib-dialog-backdrop"
+      onClick={() => {
+        if (!isSaving) onDismiss();
+      }}
+    >
       <div
         className="lib-sheet"
         role="dialog"
         aria-modal="true"
-        aria-label={t('reviewFormPane', { title: bookTitle })}
+        aria-label={t("reviewFormPane", { title: bookTitle })}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="lib-sheet-head">
           <h2 ref={headingRef} tabIndex={-1} className="lib-sheet-title">
-            {t(editing === null ? 'reviewNewTitle' : 'reviewEditTitle')}
+            {t(editing === null ? "reviewNewTitle" : "reviewEditTitle")}
           </h2>
-          <button type="button" className="tabheader-btn" onClick={onDismiss} disabled={isSaving}>✕</button>
+          <button
+            type="button"
+            className="tabheader-btn"
+            onClick={onDismiss}
+            disabled={isSaving}
+          >
+            ✕
+          </button>
         </div>
         <p className="lib-sheet-hint">«{bookTitle}»</p>
 
-        <p className="review-form-label">{t('reviewRatingLabel')}</p>
-        {starRow(selectedRating, !isSaving, setSelectedRating, (position) => t('reviewRatingSummary', { rating: position }))}
+        <p className="review-form-label">{t("reviewRatingLabel")}</p>
+        {starRow(selectedRating, !isSaving, setSelectedRating, (position) =>
+          t("reviewRatingSummary", { rating: position })
+        )}
 
-        <p className="review-form-label">{t('reviewEditionLabel')}</p>
+        <p className="review-form-label">{t("reviewEditionLabel")}</p>
         <div className="review-tag-select">
           <button
             type="button"
@@ -189,18 +253,30 @@ export function ListenerReviewFormSheet({
             onClick={() => setTagMenuOpen((open) => !open)}
             aria-expanded={tagMenuOpen}
           >
-            {selectedTag ?? t('editionTagNone')}
+            {selectedTag ?? t("editionTagNone")}
           </button>
           {tagMenuOpen && (
             <ul className="review-tag-menu">
               <li>
-                <button type="button" onClick={() => { setSelectedTag(null); setTagMenuOpen(false) }}>
-                  {t('editionTagNone')}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedTag(null);
+                    setTagMenuOpen(false);
+                  }}
+                >
+                  {t("editionTagNone")}
                 </button>
               </li>
               {editionChoices.map((option) => (
                 <li key={option}>
-                  <button type="button" onClick={() => { setSelectedTag(option); setTagMenuOpen(false) }}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedTag(option);
+                      setTagMenuOpen(false);
+                    }}
+                  >
                     {option}
                   </button>
                 </li>
@@ -210,7 +286,7 @@ export function ListenerReviewFormSheet({
         </div>
 
         <label className="review-form-label" htmlFor="review-body">
-          {t('reviewBodyLabel')}
+          {t("reviewBodyLabel")}
         </label>
         <textarea
           id="review-body"
@@ -225,23 +301,35 @@ export function ListenerReviewFormSheet({
           {bodyText.length} / {ListenerReviewLimits.MAX_BODY_LEN}
         </p>
 
-        {errorMessage && <p className="review-error" role="status">{errorMessage}</p>}
+        {errorMessage && (
+          <p className="review-error" role="status">
+            {errorMessage}
+          </p>
+        )}
 
         <div className="lib-dialog-actions">
           <button type="button" onClick={onDismiss} disabled={isSaving}>
-            {t('cancel')}
+            {t("cancel")}
           </button>
           <button
             type="button"
-            onClick={() => onSave(selectedRating, bodyText.trim() === '' ? null : bodyText.trim(), selectedTag)}
+            onClick={() =>
+              onSave(
+                selectedRating,
+                bodyText.trim() === "" ? null : bodyText.trim(),
+                selectedTag
+              )
+            }
             disabled={!selectedRating || isSaving}
           >
-            {isSaving ? t('reviewSaving') : t(editing === null ? 'reviewPublish' : 'reviewSave')}
+            {isSaving
+              ? t("reviewSaving")
+              : t(editing === null ? "reviewPublish" : "reviewSave")}
           </button>
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 /** Exact, destructive confirmation for the listener's own review (spec-27). */
@@ -251,45 +339,53 @@ export function ReviewDeleteConfirmation({
   onConfirm,
   onDismiss,
 }: {
-  workTitle: string
-  review: ListenerReview
-  onConfirm: () => void
-  onDismiss: () => void
+  workTitle: string;
+  review: ListenerReview;
+  onConfirm: () => void;
+  onDismiss: () => void;
 }) {
-  const t = useTranslate()
-  const headingRef = useRef<HTMLHeadingElement>(null)
+  const t = useTranslate();
+  const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
-    headingRef.current?.focus()
-  }, [])
+    headingRef.current?.focus();
+  }, []);
   return (
     <div className="lib-dialog-backdrop" onClick={onDismiss}>
       <div
         className="lib-sheet"
         role="alertdialog"
         aria-modal="true"
-        aria-label={t('reviewDeletePane')}
+        aria-label={t("reviewDeletePane")}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="lib-sheet-head">
-          <h2 ref={headingRef} tabIndex={-1} className="lib-sheet-title">{t('reviewDeleteTitle')}</h2>
+          <h2 ref={headingRef} tabIndex={-1} className="lib-sheet-title">
+            {t("reviewDeleteTitle")}
+          </h2>
         </div>
         <p className="lib-sheet-hint">
           {t(
-            review.body ? 'reviewDeleteConsequenceWithText' : 'reviewDeleteConsequenceWithoutText',
-            { title: workTitle, rating: review.rating },
+            review.body
+              ? "reviewDeleteConsequenceWithText"
+              : "reviewDeleteConsequenceWithoutText",
+            { title: workTitle, rating: review.rating }
           )}
         </p>
         <div className="lib-dialog-actions">
           <button type="button" onClick={onDismiss}>
-            {t('cancel')}
+            {t("cancel")}
           </button>
-          <button type="button" className="review-delete-confirm" onClick={onConfirm}>
-            {t('reviewDeleteConfirm')}
+          <button
+            type="button"
+            className="review-delete-confirm"
+            onClick={onConfirm}
+          >
+            {t("reviewDeleteConfirm")}
           </button>
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 /**
@@ -307,36 +403,48 @@ export function NarrationRatingRow({
   onRate,
   onDeleteOwn,
 }: {
-  average: number | null
-  voteCount: number
-  ownRating: number | null
-  canRate: boolean
-  onRate: (rating: number) => void
-  onDeleteOwn?: () => void
+  average: number | null;
+  voteCount: number;
+  ownRating: number | null;
+  canRate: boolean;
+  onRate: (rating: number) => void;
+  onDeleteOwn?: () => void;
 }) {
-  const t = useTranslate()
-  if (average === null && !canRate) return null
+  const t = useTranslate();
+  if (average === null && !canRate) return null;
   return (
     <div className="narration-rating-row">
       {average !== null && (
         <p className="narration-rating-average">
-          <span className="narration-rating-label">{t('narrationRatingLabel')}</span>
-          {starRow(Math.round(average), false, () => undefined, (position) => t('reviewRatingSummary', { rating: position }))}
+          <span className="narration-rating-label">
+            {t("narrationRatingLabel")}
+          </span>
+          {starRow(
+            Math.round(average),
+            false,
+            () => undefined,
+            (position) => t("reviewRatingSummary", { rating: position })
+          )}
           <span className="narration-rating-count">
-            {t('narrationRatingAverage', { value: average.toFixed(1), count: voteCount })}
+            {t("narrationRatingAverage", {
+              value: average.toFixed(1),
+              count: voteCount,
+            })}
           </span>
         </p>
       )}
       {canRate && (
         <p className="narration-rating-ask">
-          <span>{t('narrationRatingAsk')}</span>
-          {starRow(ownRating ?? 0, true, onRate, (position) => t('reviewRatingSummary', { rating: position }))}
+          <span>{t("narrationRatingAsk")}</span>
+          {starRow(ownRating ?? 0, true, onRate, (position) =>
+            t("reviewRatingSummary", { rating: position })
+          )}
           {ownRating !== null && onDeleteOwn && (
             <button
               type="button"
               className="review-delete"
               onClick={onDeleteOwn}
-              aria-label={t('narrationRatingDeleteAria')}
+              aria-label={t("narrationRatingDeleteAria")}
             >
               🗑
             </button>
@@ -344,7 +452,7 @@ export function NarrationRatingRow({
         </p>
       )}
     </div>
-  )
+  );
 }
 
 /**
@@ -352,18 +460,33 @@ export function NarrationRatingRow({
  * mean over every SOURCE rating that exists and every listener review.
  * No addends → no row at all (ADR-0014: zeros are never drawn).
  */
-export function CombinedAverageRow({ average }: { average: CombinedAverageResult | null }) {
-  const t = useTranslate()
-  if (average === null) return null
+export function CombinedAverageRow({
+  average,
+}: {
+  average: CombinedAverageResult | null;
+}) {
+  const t = useTranslate();
+  if (average === null) return null;
   return (
-    <p className="reviews-average" aria-label={t('reviewsCombinedAria', { value: average.value.toFixed(1), count: average.count })}>
-      <span className="review-star review-star-on" aria-hidden="true">★</span>
+    <p
+      className="reviews-average"
+      aria-label={t("reviewsCombinedAria", {
+        value: average.value.toFixed(1),
+        count: average.count,
+      })}
+    >
+      <span className="review-star review-star-on" aria-hidden="true">
+        ★
+      </span>
       <span className="reviews-average-value">{average.value.toFixed(1)}</span>
       <span className="reviews-average-count">
-        {t('reviewsCombinedSummary', { value: average.value.toFixed(1), count: average.count })}
+        {t("reviewsCombinedSummary", {
+          value: average.value.toFixed(1),
+          count: average.count,
+        })}
       </span>
     </p>
-  )
+  );
 }
 
 /**
@@ -384,42 +507,49 @@ export function ReviewsBlock({
   narrationRatingsStore,
   narrationEditionId,
 }: {
-  workId: string
-  bookTitle: string
-  defaultEditionTag: string
-  editionOptions: string[]
+  workId: string;
+  bookTitle: string;
+  defaultEditionTag: string;
+  editionOptions: string[];
   /** The source's own rating of THIS book (the honest source vote), when the page declared one. */
-  sourceRating?: number
-  profile: ListenerProfile | null
-  store: ReviewsStore
-  narrationRatingsStore: NarrationRatingsStore
-  narrationEditionId: string
+  sourceRating?: number;
+  profile: ListenerProfile | null;
+  store: ReviewsStore;
+  narrationRatingsStore: NarrationRatingsStore;
+  narrationEditionId: string;
 }) {
-  const t = useTranslate()
-  const [reviews, setReviews] = useState<ListenerReview[]>([])
-  const [ratings, setRatings] = useState<NarrationRating[]>([])
-  const [showForm, setShowForm] = useState(false)
-  const [editingReview, setEditingReview] = useState<ListenerReview | null>(null)
-  const [reviewToDelete, setReviewToDelete] = useState<ListenerReview | null>(null)
-  const [isSaving, setIsSaving] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
-  const [loaded, setLoaded] = useState(false)
+  const t = useTranslate();
+  const [reviews, setReviews] = useState<ListenerReview[]>([]);
+  const [ratings, setRatings] = useState<NarrationRating[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [editingReview, setEditingReview] = useState<ListenerReview | null>(
+    null
+  );
+  const [reviewToDelete, setReviewToDelete] = useState<ListenerReview | null>(
+    null
+  );
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
-  const uid = profile?.uid ?? null
+  const uid = profile?.uid ?? null;
 
   useEffect(() => {
-    let alive = true
-    setLoaded(false)
-    void Promise.all([store.getForWork(workId), narrationRatingsStore.getForWork(workId)]).then(([workReviews, workRatings]) => {
-      if (!alive) return
-      setReviews(workReviews)
-      setRatings(workRatings)
-      setLoaded(true)
-    })
+    let alive = true;
+    setLoaded(false);
+    void Promise.all([
+      store.getForWork(workId),
+      narrationRatingsStore.getForWork(workId),
+    ]).then(([workReviews, workRatings]) => {
+      if (!alive) return;
+      setReviews(workReviews);
+      setRatings(workRatings);
+      setLoaded(true);
+    });
     return () => {
-      alive = false
-    }
-  }, [store, narrationRatingsStore, workId])
+      alive = false;
+    };
+  }, [store, narrationRatingsStore, workId]);
 
   const average = useMemo(
     () =>
@@ -427,30 +557,41 @@ export function ReviewsBlock({
         // The source's own rating of THIS book is the honest source vote;
         // a page without one contributes nothing (ADR-0014: never a 0).
         [sourceRating],
-        reviews.map((review) => review.rating),
+        reviews.map((review) => review.rating)
       ),
-    [sourceRating, reviews],
-  )
-  const ownRatings = ratings.filter((rating) => rating.editionId === narrationEditionId)
-  const ownNarrationRating = ownRatings.find((rating) => rating.uid === uid)?.rating ?? null
+    [sourceRating, reviews]
+  );
+  const ownRatings = ratings.filter(
+    (rating) => rating.editionId === narrationEditionId
+  );
+  const ownNarrationRating =
+    ownRatings.find((rating) => rating.uid === uid)?.rating ?? null;
   const narrationAverage = (() => {
-    const own = ownRatings.filter((rating) => rating.rating >= NarrationRatingLimits.MIN_RATING && rating.rating <= NarrationRatingLimits.MAX_RATING)
-    if (own.length === 0) return null
-    return own.reduce((sum, rating) => sum + rating.rating, 0) / own.length
-  })()
+    const own = ownRatings.filter(
+      (rating) =>
+        rating.rating >= NarrationRatingLimits.MIN_RATING &&
+        rating.rating <= NarrationRatingLimits.MAX_RATING
+    );
+    if (own.length === 0) return null;
+    return own.reduce((sum, rating) => sum + rating.rating, 0) / own.length;
+  })();
 
-  const canWrite = uid !== null
+  const canWrite = uid !== null;
 
-  const saveReview = (rating: number, body: string | null, editionTag: string | null): void => {
-    if (uid === null) return
-    setIsSaving(true)
-    setSaveError(null)
-    const now = Date.now()
+  const saveReview = (
+    rating: number,
+    body: string | null,
+    editionTag: string | null
+  ): void => {
+    if (uid === null) return;
+    setIsSaving(true);
+    setSaveError(null);
+    const now = Date.now();
     void store
       .putReview({
         workId,
         uid,
-        authorName: profile?.nickname ?? 'Слухач',
+        authorName: profile?.nickname ?? t("listenerFallback"),
         rating,
         ...(body ? { body } : {}),
         ...(editionTag ? { editionTag } : {}),
@@ -458,54 +599,61 @@ export function ReviewsBlock({
         ...(editingReview ? { editedAt: now } : {}),
       })
       .then((accepted) => {
-        setIsSaving(false)
+        setIsSaving(false);
         if (!accepted) {
-          setSaveError(t('reviewSaveError'))
-          return
+          setSaveError(t("reviewSaveError"));
+          return;
         }
-        setShowForm(false)
-        setEditingReview(null)
+        setShowForm(false);
+        setEditingReview(null);
         // Re-read the whole work list (the write may replace an own review).
-        void Promise.all([store.getForWork(workId), narrationRatingsStore.getForWork(workId)]).then(([workReviews, workRatings]) => {
-          setReviews(workReviews)
-          setRatings(workRatings)
-        })
-      })
-  }
+        void Promise.all([
+          store.getForWork(workId),
+          narrationRatingsStore.getForWork(workId),
+        ]).then(([workReviews, workRatings]) => {
+          setReviews(workReviews);
+          setRatings(workRatings);
+        });
+      });
+  };
 
   const deleteReview = (review: ListenerReview): void => {
     void store.deleteReview(review.workId, review.uid).then(() => {
-      setReviewToDelete(null)
-      void store.getForWork(workId).then(setReviews)
-    })
-  }
+      setReviewToDelete(null);
+      void store.getForWork(workId).then(setReviews);
+    });
+  };
 
   const saveNarrationRating = (rating: number): void => {
-    if (uid === null) return
+    if (uid === null) return;
     void narrationRatingsStore
       .putRating({
         workId,
         uid,
         editionId: narrationEditionId,
         rating,
-        createdAt: ownRatings.find((entry) => entry.uid === uid)?.createdAt ?? Date.now(),
-        ...(ownRatings.find((entry) => entry.uid === uid) ? { editedAt: Date.now() } : {}),
+        createdAt:
+          ownRatings.find((entry) => entry.uid === uid)?.createdAt ??
+          Date.now(),
+        ...(ownRatings.find((entry) => entry.uid === uid)
+          ? { editedAt: Date.now() }
+          : {}),
       })
-      .then(() => narrationRatingsStore.getForWork(workId).then(setRatings))
-  }
+      .then(() => narrationRatingsStore.getForWork(workId).then(setRatings));
+  };
 
   const deleteNarrationRating = (): void => {
-    if (uid === null) return
-    void narrationRatingsStore.deleteRating(workId, uid, narrationEditionId).then(() =>
-      narrationRatingsStore.getForWork(workId).then(setRatings),
-    )
-  }
+    if (uid === null) return;
+    void narrationRatingsStore
+      .deleteRating(workId, uid, narrationEditionId)
+      .then(() => narrationRatingsStore.getForWork(workId).then(setRatings));
+  };
 
   return (
-    <section className="reviews-block" aria-label={t('reviewsTitle')}>
+    <section className="reviews-block" aria-label={t("reviewsTitle")}>
       <SectionHeader
         level="section"
-        title={t('reviewsTitle')}
+        title={t("reviewsTitle")}
         count={loaded ? reviews.length : undefined}
         action={
           canWrite ? (
@@ -513,18 +661,20 @@ export function ReviewsBlock({
               type="button"
               className="feed-chip"
               onClick={() => {
-                setEditingReview(null)
-                setSaveError(null)
-                setShowForm(true)
+                setEditingReview(null);
+                setSaveError(null);
+                setShowForm(true);
               }}
             >
-              {t('writeReview')}
+              {t("writeReview")}
             </button>
           ) : undefined
         }
       />
       {loaded && <CombinedAverageRow average={average} />}
-      {loaded && reviews.length === 0 && <p className="reviews-empty">{t('reviewsEmpty')}</p>}
+      {loaded && reviews.length === 0 && (
+        <p className="reviews-empty">{t("reviewsEmpty")}</p>
+      )}
       {reviews.length > 0 && (
         <ul className="review-list">
           {reviews.map((review) => (
@@ -534,9 +684,9 @@ export function ReviewsBlock({
               workTitle={bookTitle}
               isOwn={uid === review.uid}
               onEdit={() => {
-                setEditingReview(review)
-                setSaveError(null)
-                setShowForm(true)
+                setEditingReview(review);
+                setSaveError(null);
+                setShowForm(true);
               }}
               onDelete={() => setReviewToDelete(review)}
             />
@@ -550,7 +700,9 @@ export function ReviewsBlock({
         ownRating={ownNarrationRating}
         canRate={canWrite}
         onRate={saveNarrationRating}
-        onDeleteOwn={ownNarrationRating !== null ? deleteNarrationRating : undefined}
+        onDeleteOwn={
+          ownNarrationRating !== null ? deleteNarrationRating : undefined
+        }
       />
 
       {showForm && (
@@ -564,9 +716,9 @@ export function ReviewsBlock({
           onSave={saveReview}
           onDismiss={() => {
             if (!isSaving) {
-              setShowForm(false)
-              setEditingReview(null)
-              setSaveError(null)
+              setShowForm(false);
+              setEditingReview(null);
+              setSaveError(null);
             }
           }}
         />
@@ -580,5 +732,5 @@ export function ReviewsBlock({
         />
       )}
     </section>
-  )
+  );
 }

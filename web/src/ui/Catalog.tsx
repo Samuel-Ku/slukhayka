@@ -990,8 +990,13 @@ export function Catalog({
               {showingCachedCatalog && (
                 <EmptyStateRow
                   message={t("cachedCatalogNotice", {
+                    // #1687 — the preposition lives in the localized key, the
+                    // DATE is formatted for the CURRENT UI locale (old code
+                    // hardcoded «від» + uk-UA, so EN said «… catalog від …»).
                     date: cachedAt
-                      ? ` від ${new Date(cachedAt).toLocaleString("uk-UA")}`
+                      ? new Date(cachedAt).toLocaleString(
+                          locale === "en" ? "en-GB" : "uk-UA"
+                        )
                       : "",
                   })}
                 />

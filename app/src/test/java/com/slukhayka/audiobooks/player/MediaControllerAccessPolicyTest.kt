@@ -51,6 +51,24 @@ class MediaControllerAccessPolicyTest {
     }
 
     @Test
+    fun legacyControllerUidIsRejectedByDefault() {
+        assertFalse(trusted(callerUid = MediaControllerAccessPolicy.LEGACY_CONTROLLER_UID))
+    }
+
+    @Test
+    fun legacyControllerUidIsAllowedOnlyForMediaButtonHandshake() {
+        assertTrue(
+            MediaControllerAccessPolicy.isTrusted(
+                ownUid = ownUid,
+                callerUid = MediaControllerAccessPolicy.LEGACY_CONTROLLER_UID,
+                callerPackages = emptyList(),
+                isSystemPackage = { false },
+                legacyMediaButtonController = true,
+            )
+        )
+    }
+
+    @Test
     fun sharedUidWithOneSystemPackageIsTrusted() {
         assertTrue(
             trusted(

@@ -46,6 +46,15 @@ class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
 
+    /**
+     * MediaButtonReceiver starts this service with a legacy, session-less
+     * ACTION_MEDIA_BUTTON intent; MediaSessionService then asks [onGetSession]
+     * with Media3's synthetic legacy controller (UID -1).  The flag is true
+     * only for the synchronous super call that performs that handshake, so a
+     * third-party bind with UID -1 cannot use the same door.
+     */
+    private var legacyMediaButtonControllerAllowed = false
+
     // #805 — the resumption callback resolves the freshest progress row through
     // the database, so the session's future is completed off the session's
     // binder thread. Main.immediate keeps the player itself on the application
@@ -91,6 +100,16 @@ class PlaybackService : MediaSessionService() {
      * SystemUI, Bluetooth and OEM variants of Auto/Wear) keep access; unknown
      * third-party UIDs receive null and cannot connect.
      */
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!isLegacyMediaButtonStart(intent)) return super.onStartCommand(intent, flags, startId)
+        legacyMediaButtonControllerAllowed = true
+        return try {
+            super.onStartCommand(intent, flags, startId)
+        } finally {
+            legacyMediaButtonControllerAllowed = false
+        }
+    }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
         val session = mediaSession ?: return null
         return if (isTrustedController(controllerInfo)) session else null
@@ -104,6 +123,7 @@ class PlaybackService : MediaSessionService() {
                 ?.toList()
                 .orEmpty(),
             isSystemPackage = ::isSystemPackage,
+            legacyMediaButtonController = legacyMediaButtonControllerAllowed,
         )
 
     private fun isSystemPackage(packageName: String): Boolean =
@@ -196,15 +216,28 @@ internal object MediaControllerAccessPolicy {
         "com.google.android.googlequicksearchbox",
     )
 
+    const val LEGACY_CONTROLLER_UID: Int = -1
+
     fun isTrusted(
         ownUid: Int,
         callerUid: Int,
         callerPackages: List<String>,
         isSystemPackage: (String) -> Boolean,
+        legacyMediaButtonController: Boolean = false,
     ): Boolean {
         if (callerUid == ownUid) return true
+        if (legacyMediaButtonController && callerUid == LEGACY_CONTROLLER_UID) return true
         return callerPackages.any { packageName ->
             packageName in KNOWN_MEDIA_CONTROLLERS || isSystemPackage(packageName)
         }
     }
 }
+
+/**
+ * MediaButtonReceiver delivers the legacy media-button handshake as an
+ * ACTION_MEDIA_BUTTON intent with **no data URI**.  The same action with a
+ * session URI is the notification-transport path, which MediaSessionService
+ * resolves without calling [PlaybackService.onGetSession].
+ */
+internal fun isLegacyMediaButtonStart(intent: Intent?): Boolean =
+    intent?.action == Intent.ACTION_MEDIA_BUTTON && intent.data == null

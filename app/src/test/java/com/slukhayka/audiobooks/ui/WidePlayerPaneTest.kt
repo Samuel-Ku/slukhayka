@@ -321,7 +321,10 @@ class WidePlayerPaneTest {
         compose.runOnIdle { viewModel.setShowFullPlayer(true) }
         awaitTag("player_pane")
 
-        val pane = compose.onNodeWithTag("player_pane", useUnmergedTree = true)
+        // The player root IS the right-hand pane's content (PlayerPane puts it
+        // in WideDetailPane's 0.6 detail slot), and `player_pane` tags the
+        // whole content area — so measure the surface the controls live in.
+        val pane = compose.onNodeWithTag("full_player_screen", useUnmergedTree = true)
             .getUnclippedBoundsInRoot()
         val order = listOf(
             "player_previous_button",

@@ -87,6 +87,19 @@ private class RecordingEditor(
     private val terminalCalls: MutableList<String>
 ) : SharedPreferences.Editor by delegate {
 
+    // The builder methods must return THIS wrapper, not the delegate: otherwise
+    // `edit().putLong(..).putString(..).apply()` would end on the real editor
+    // and the terminal call would never be recorded.
+    override fun putLong(key: String?, value: Long): SharedPreferences.Editor {
+        delegate.putLong(key, value)
+        return this
+    }
+
+    override fun putString(key: String?, value: String?): SharedPreferences.Editor {
+        delegate.putString(key, value)
+        return this
+    }
+
     override fun commit(): Boolean {
         terminalCalls += "commit"
         return delegate.commit()

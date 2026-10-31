@@ -13,10 +13,10 @@ import android.content.Context
  * the accepted side of the trade — a duplicate report, never a missed one.
  */
 class SharedPreferencesProcessExitCursorStore(context: Context) : ProcessExitCursorStore {
-    private val prefs = context.applicationContext.getSharedPreferences(
-        PREFS_NAME,
-        Context.MODE_PRIVATE
-    )
+    // The caller passes the application context (App.kt); do not re-wrap it,
+    // so a test context can intercept the store without Robolectric shadowing
+    // ContextWrapper.getApplicationContext().
+    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     override fun load(): ProcessExitCursor? {
         if (!prefs.contains(KEY_TIMESTAMP) || !prefs.contains(KEY_HASH)) return null

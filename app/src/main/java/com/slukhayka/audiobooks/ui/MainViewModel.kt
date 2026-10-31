@@ -45,6 +45,7 @@ import com.slukhayka.audiobooks.data.facets.ContentLanguagePrefs
 import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
 import com.slukhayka.audiobooks.data.facets.orderContentLanguages
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
+import com.slukhayka.audiobooks.data.personbookmarks.PersonNewArrivals
 import com.slukhayka.audiobooks.data.privacy.NetworkPrivacy
 import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
 import com.slukhayka.audiobooks.data.privacy.RouteResolution
@@ -105,6 +106,8 @@ import com.slukhayka.audiobooks.data.ingest.SubmissionState
 import com.slukhayka.audiobooks.data.ingest.sharedSubmissionUrlOf
 import com.slukhayka.audiobooks.data.privacy.PacingPolicy
 import com.slukhayka.audiobooks.data.source.NewPipeChannelListFetcher
+import com.slukhayka.audiobooks.ui.screens.HomeCycleShelves
+import com.slukhayka.audiobooks.ui.screens.HomeProjections
 import com.slukhayka.audiobooks.ui.screens.SubmissionUiState
 import com.slukhayka.audiobooks.ui.catalog.catalogSessionCandidates
 import com.slukhayka.audiobooks.ui.catalog.hasUsableSourceSession
@@ -4598,6 +4601,84 @@ class MainViewModel @JvmOverloads constructor(
         )
     }.debounce(1_000L).flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // #1743 — the Огляд projections that depend only on data, never on scroll.
+    // They used to run in `remember { … }` on the composition thread; a
+    // catalogue refresh landing during the first scroll recomputed the whole
+    // projection on main and caught two 370–390 ms frames. The builders stay
+    // pure; this seam moves them to Dispatchers.Default and hands the screen
+    // already-projected lists. `stateIn` keeps the previous value while a new
+    // one is computed, so a refresh neither blanks a shelf nor adds a spinner;
+    // the initial value is the same empty projection the screen starts with.
+    private val homeProjections = HomeProjections()
+
+    private data class HomePeopleNewArrivalsInputs(
+        val bookmarks: List<com.slukhayka.audiobooks.data.db.PersonBookmarkEntity>,
+        val works: List<com.slukhayka.audiobooks.data.db.WorkEntity>,
+        val editions: List<com.slukhayka.audiobooks.data.db.EditionEntity>,
+        val unifiedCatalog: List<GlobalSearchResult>,
+        val libraryEntries: List<com.slukhayka.audiobooks.data.db.LibraryEntryEntity>
+    )
+
+    private data class HomeCycleInputs(
+        val books: List<com.slukhayka.audiobooks.data.db.AudiobookEntity>,
+        val progress: List<com.slukhayka.audiobooks.data.db.PlaybackProgressEntity>,
+        val works: List<com.slukhayka.audiobooks.data.db.WorkEntity>,
+        val recommendations: List<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Recommendation>
+    )
+
+    private val homePeopleNewArrivalsInputs = combine(
+        personBookmarks.allBookmarks(),
+        sourceCatalog.discoverableWorks,
+        sourceCatalog.allEditions,
+        sourceCatalog.unifiedCatalog,
+        sourceCatalog.allLibraryEntries
+    ) { bookmarks, works, editions, catalog, entries ->
+        HomePeopleNewArrivalsInputs(bookmarks, works, editions, catalog, entries)
+    }
+
+    val peopleNewArrivals: StateFlow<PersonNewArrivals.CatalogProjection> =
+        homePeopleNewArrivalsInputs
+            .map { input ->
+                homeProjections.peopleNewArrivals(
+                    bookmarks = input.bookmarks,
+                    works = input.works,
+                    editions = input.editions,
+                    unifiedCatalog = input.unifiedCatalog,
+                    libraryEntries = input.libraryEntries
+                )
+            }
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                PersonNewArrivals.CatalogProjection(emptyList(), emptySet())
+            )
+
+    val homeDurationBooks: StateFlow<DurationBooks> = libraryEntries.allBooks
+        .map { books -> homeProjections.durationBooks(books) }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            DurationBooks(short = emptyList(), long = emptyList())
+        )
+
+    val homeCycleShelves: StateFlow<HomeCycleShelves> = combine(
+        libraryEntries.allBooks,
+        libraryEntries.recentProgress,
+        sourceCatalog.discoverableWorks,
+        recommendedBooks
+    ) { books, progress, works, recommendations ->
+        HomeCycleInputs(books, progress, works, recommendations)
+    }
+        .map { input ->
+            homeProjections.cycleShelves(
+                libraryBooks = input.books,
+                progress = input.progress,
+                works = input.works,
+                recommendations = input.recommendations
+            )
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeCycleShelves())
 
     private val pendingRecommendationBookId = java.util.concurrent.atomic.AtomicReference<String?>(null)
 

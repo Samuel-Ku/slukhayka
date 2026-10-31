@@ -8,6 +8,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.search.SearchCache
+import com.slukhayka.audiobooks.data.search.SearchDocumentId
 import com.slukhayka.audiobooks.data.search.SearchFreshness
 import com.slukhayka.audiobooks.data.search.SearchResultCodec
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
@@ -296,10 +297,10 @@ class GlobalSearchRepositoryTest {
         val documents = mutableMapOf<String, Map<String, Any>>()
         var nowMillis: Long = 1_000_000L
 
-        override suspend fun readDocument(queryKey: String): Map<String, Any>? = documents[queryKey]
+        override suspend fun readDocument(documentId: String): Map<String, Any>? = documents[documentId]
 
-        override suspend fun writeDocument(queryKey: String, document: Map<String, Any>) {
-            documents[queryKey] = document
+        override suspend fun writeDocument(documentId: String, document: Map<String, Any>) {
+            documents[documentId] = document
         }
 
         override fun nowMillis(): Long = nowMillis
@@ -382,8 +383,8 @@ class GlobalSearchRepositoryTest {
 
         assertEquals(1, results.size)
         // The merged result is still available to shared-cache consumers
-        // under the normalized key (including replacement mapping).
-        val document = cache.documents["кобзар"]
+        // under the derived document id (including replacement mapping).
+        val document = cache.documents[SearchDocumentId.of("кобзар")!!]
         assertNotNull(document)
         assertEquals(results, SearchResultCodec.fromMap(document!!)?.results)
     }
@@ -415,7 +416,7 @@ class GlobalSearchRepositoryTest {
         // The stale entry did not serve the query — the source was asked again.
         assertEquals(1, adapter.searchCalls)
         // ... and the entry was refreshed with the new fetch time.
-        val refreshed = SearchResultCodec.fromMap(cache.documents["кобзар"]!!)!!
+        val refreshed = SearchResultCodec.fromMap(cache.documents[SearchDocumentId.of("кобзар")!!]!!)!!
         assertEquals(cache.nowMillis, refreshed.fetchedAt)
     }
 
@@ -433,6 +434,24 @@ class GlobalSearchRepositoryTest {
         assertEquals(live, cached)
         // Each query consults sources, even when its result shape is unchanged.
         assertEquals(2, adapter.searchCalls)
+    }
+
+    @Test
+    fun `with no shared cache - the Firebase-absent shape - search still resolves from the sources`() = runBlocking {
+        // FirestoreSearchCache.create() returns null when Firebase is not
+        // configured; the catalog receives that null and search must behave
+        // exactly as it did before the shared cache existed.
+        val adapter = CountingAdapter(
+            "sluhayua",
+            searchBooks = listOf(book("Кобзар", "Тарас Шевченко", "sluhayua"))
+        )
+        val repository = repo(adapter)
+
+        val results = repository.searchAllSources("кобзар")
+
+        assertEquals(1, results.size)
+        assertEquals("Кобзар", results.single().title)
+        assertEquals(1, adapter.searchCalls)
     }
 
     @Test

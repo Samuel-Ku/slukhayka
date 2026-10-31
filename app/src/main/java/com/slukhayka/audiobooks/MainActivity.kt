@@ -62,6 +62,7 @@ import com.slukhayka.audiobooks.ui.components.miniPlayerHasBook
 import com.slukhayka.audiobooks.ui.components.WideDetailPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
+import com.slukhayka.audiobooks.ui.library.ListenDismissUndo
 import com.slukhayka.audiobooks.ui.screens.BookDetailScreen
 import com.slukhayka.audiobooks.ui.screens.AuthorsIndexScreen
 import com.slukhayka.audiobooks.ui.screens.SourceAudioRefusalScreen
@@ -461,7 +462,26 @@ fun AudiobookApp(
     val firstChoiceLanguages by firstLanguageChoice.languages.collectAsState()
     var appVisibility by remember { mutableStateOf(AppVisibility.FOREGROUND) }
     val lifecycleOwner = LocalLifecycleOwner.current
-    val achievementSnackbar = remember { SnackbarHostState() }
+    // The ONE root host: achievement notices and the Listen «Повернути» offer
+    // both ride it.
+    val rootSnackbar = remember { SnackbarHostState() }
+    // #1703 — the Listen undo is created at the ROOT, not inside the tab: its
+    // scope must outlive a tab switch, because changing tabs leaves the tab's
+    // composition (and would cancel a tab-owned `showSnackbar`). The host is
+    // the same one, so the offer and its scope share one lifetime.
+    val rootScope = rememberCoroutineScope()
+    val listenDismissedMessage = stringResource(R.string.listen_dismissed_message)
+    val listenUndoLabel = stringResource(R.string.listen_dismiss_undo)
+    val listenDismissUndo = remember(rootSnackbar, rootScope, listenDismissedMessage, listenUndoLabel) {
+        ListenDismissUndo(
+            snackbarHostState = rootSnackbar,
+            scope = rootScope,
+            message = listenDismissedMessage,
+            actionLabel = listenUndoLabel,
+            onDismiss = viewModel::dismissListenBook,
+            onUndo = viewModel::undismissListenBook,
+        )
+    }
     val allowAchievementNotices = !crashReportingState.shouldShowPrompt && !firstChoiceVisible &&
         narrationSwitchPrompt == null && !fullPlayerModalActive && !fullPlayerContentPresent
     LaunchedEffect(lifecycleOwner, allowAchievementNotices) {
@@ -476,7 +496,7 @@ fun AudiobookApp(
                 if (!App.instance.achievements.backfilled) return@collect
                 while (true) {
                     val earned = App.instance.achievements.takeNotice() ?: break
-                    achievementSnackbar.showSnackbar(
+                    rootSnackbar.showSnackbar(
                         com.slukhayka.audiobooks.ui.achievements.achievementNotice(context, earned.id),
                         duration = SnackbarDuration.Short)
                 }
@@ -490,7 +510,7 @@ fun AudiobookApp(
     val showcasePublishMessage by viewModel.publishMessage.collectAsState()
     LaunchedEffect(showcasePublishMessage) {
         showcasePublishMessage?.let { message ->
-            achievementSnackbar.showSnackbar(message, duration = SnackbarDuration.Short)
+            rootSnackbar.showSnackbar(message, duration = SnackbarDuration.Short)
             viewModel.consumePublishMessage()
         }
     }
@@ -1150,7 +1170,7 @@ fun AudiobookApp(
             // bar cannot show legacy paper above a paper-ink body.
             containerColor = systemBarsGround,
             snackbarHost = {
-                SnackbarHost(achievementSnackbar,
+                SnackbarHost(rootSnackbar,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp))
             },
             bottomBar = {
@@ -1544,7 +1564,11 @@ fun AudiobookApp(
                                     viewModel.setShowFullPlayer(true)
                                 },
                                 onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
-                                onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) }
+                                onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) },
+                                // #1703 — dismissals are answered by the root
+                                // undo snackbar, so changing tabs cannot
+                                // silently consume the only way back.
+                                onDismissBook = { bookId -> listenDismissUndo.dismiss(bookId) }
                             ) }
                             // Plan 2026-2027: «Огляд» is the next screen on the
                             // direction. The header/search/chips are migrated;

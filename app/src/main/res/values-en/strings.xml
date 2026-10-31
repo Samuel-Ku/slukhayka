@@ -255,6 +255,9 @@
     <!-- #885 (wave 3) — every shelf hidden is a STATE, not a blank screen. -->
     <string name="listen_all_shelves_hidden_title">All shelves are hidden</string>
     <string name="listen_all_shelves_hidden_body">Your books are still here — bring a shelf back and it appears here again.</string>
+    <!-- #1703 — «Не цікаво» is reversible from the shelf it was chosen on. -->
+    <string name="listen_dismissed_message">Book hidden from Listen shelves</string>
+    <string name="listen_dismiss_undo">Undo</string>
     <string name="collection_with_book_title">Collections with this book</string>
     <string name="collection_by_pseudonym">a listener collection by %1$s</string>
     <string name="collection_no_ratings">No ratings yet</string>

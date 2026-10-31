@@ -30,6 +30,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -471,6 +472,10 @@ private fun HeroPlayButton(
  * A shelf poster: 132×198 cover, UI-sans title (the serif is reserved for the
  * display sizes), 3 dp progress, and a solid "playing" pill — never a
  * translucent badge over artwork.
+ *
+ * The optional dismiss slot is a 32 dp visual inside the 48 dp interactive
+ * floor (#1703); [dismissTestTag] names both nodes, following the legacy
+ * `PosterCard` convention (`not_interested_<id>` / `..._visual_<id>`).
  */
 @Composable
 fun PaperInkPosterCard(
@@ -483,6 +488,7 @@ fun PaperInkPosterCard(
     onClick: (() -> Unit)? = null,
     onNotInterested: (() -> Unit)? = null,
     dismissContentDescription: String? = null,
+    dismissTestTag: String? = null,
     stateDescription: String? = null,
     testTag: String? = null,
     progressTestTag: String? = null,
@@ -559,14 +565,25 @@ fun PaperInkPosterCard(
                 modifier = Modifier.weight(1f),
             )
             if (onNotInterested != null) {
-                // The dismissed action stays OFF the artwork (the reference
-                // design has no «×» over the cover), but it remains a real
-                // visible target with its contextual name.
+                // #1703 — the dismissed action stays OFF the artwork (the
+                // reference design has no «×» over the cover), but it remains
+                // a real visible target with its contextual name. The quiet
+                // 32 dp disc is only the VISUAL: the interactive zone is the
+                // 48 dp floor (ADR-0044 / spec §7), exactly as the legacy
+                // `PosterCard` kept it (#372). A 32 dp target made a miss
+                // destructive until the undo snackbar learned to repair it.
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
+                        .size(PaperInkDimens.TouchTarget)
                         .clip(CircleShape)
-                        .clickable(onClick = onNotInterested)
+                        .clickable(role = Role.Button, onClick = onNotInterested)
+                        .then(
+                            if (dismissTestTag != null) {
+                                Modifier.testTag(dismissTestTag)
+                            } else {
+                                Modifier
+                            },
+                        )
                         .then(
                             if (dismissContentDescription != null) {
                                 Modifier.semantics { contentDescription = dismissContentDescription }
@@ -576,12 +593,33 @@ fun PaperInkPosterCard(
                         ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    PaperInkIcon(
-                        imageVector = PaperInkIcons.Close,
-                        contentDescription = null,
-                        size = PaperInkIconSizes.Inline,
-                        tint = colorScheme.onSurfaceVariant,
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .then(
+                                if (dismissTestTag != null) {
+                                    // Mirrors the #372 contract: the visible
+                                    // disc stays `not_interested_visual_<id>`.
+                                    Modifier.testTag(
+                                        dismissTestTag.replaceFirst(
+                                            "not_interested_",
+                                            "not_interested_visual_",
+                                        ),
+                                    )
+                                } else {
+                                    Modifier
+                                },
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        PaperInkIcon(
+                            imageVector = PaperInkIcons.Close,
+                            contentDescription = null,
+                            size = PaperInkIconSizes.Inline,
+                            tint = colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }

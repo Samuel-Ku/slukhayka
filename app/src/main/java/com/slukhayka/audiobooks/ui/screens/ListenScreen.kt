@@ -91,6 +91,12 @@ fun ListenScreen(
     onPlayClick: (AudiobookEntity) -> Unit,
     onBrowseClick: () -> Unit,
     onImportClick: () -> Unit,
+    /**
+     * #1703 — «Не цікаво» is only an INTENT here: the root `AudiobookApp`
+     * pairs it with the «Повернути» snackbar (and scopes it past a tab
+     * switch), so this screen stays a pure renderer of the shelf action.
+     */
+    onDismissBook: (String) -> Unit,
     /** ADR-0049 / #860 — the gear opens Settings from THIS root. */
     onOpenSettings: () -> Unit = {}
 ) {
@@ -103,6 +109,14 @@ fun ListenScreen(
     // unrendered here.
     val listenBlocks by viewModel.listenBlocks.collectAsState()
     val hiddenBlocks by viewModel.hiddenListenBlocks.collectAsState()
+    // #1704 review — composer published vs not; see ListenContentState.
+    val blocksReady by viewModel.listenBlocksReady.collectAsState()
+    // #1704 — "empty" and "not read yet" are different states. The list above
+    // starts as `emptyList()` on every cold start; without this flag the tab
+    // claimed the fresh-install empty state (and, once blocks lag, that every
+    // shelf was hidden) before the first real read. The same #1066 contract
+    // the Медіатека uses.
+    val libraryLoaded by viewModel.isLibraryLoaded.collectAsState()
 
     // Refresh the "continue the series" suggestion whenever the hero book
     // changes (keyed on its id so position updates don't refetch).
@@ -140,17 +154,6 @@ fun ListenScreen(
                 onSettingsClick = onOpenSettings,
             )
         }
-        // Fresh install: placeholder hero + clear next actions.
-        if (allBooks.isEmpty()) {
-            item {
-                ListenEmptyState(
-                    onBrowseClick = onBrowseClick,
-                    onImportClick = onImportClick
-                )
-            }
-            return@LazyColumn
-        }
-
         // Wayfinder #62 — the rule-based block list. Every eligible block
         // renders with its reason; hidden blocks are skipped (still computed).
         val visibleBlocks = listenBlocks.filter { it.id !in hiddenBlocks }
@@ -162,6 +165,30 @@ fun ListenScreen(
         // order, so the user's reorder re-prioritises which shelf claims a
         // book. A block emptied by dedup renders nothing (no empty header).
         val dedupedBlocks = deduplicateListenShelves(visibleBlocks)
+
+        // #1704 — what the tab may claim right now. `Loading` is the cold
+        // start: the library flow still holds its `emptyList()` initial value
+        // and the block composer starts empty too, so NEITHER empty state is
+        // allowed to speak for the listener yet — only the header renders.
+        val content = listenContentFor(
+            libraryLoaded = libraryLoaded,
+            blocksReady = blocksReady,
+            allBooksEmpty = allBooks.isEmpty(),
+            composedBlocks = listenBlocks.size,
+            dedupedBlocks = dedupedBlocks.size,
+        )
+        if (content == ListenContent.Loading) return@LazyColumn
+
+        // Fresh install: placeholder hero + clear next actions.
+        if (content == ListenContent.FreshInstall) {
+            item {
+                ListenEmptyState(
+                    onBrowseClick = onBrowseClick,
+                    onImportClick = onImportClick
+                )
+            }
+            return@LazyColumn
+        }
 
         for (block in dedupedBlocks) {
             when (block.id) {
@@ -201,7 +228,10 @@ fun ListenScreen(
                         ListenBlockShelf(
                             books = block.books,
                             onBookClick = onBookClick,
-                            onNotInterested = { viewModel.dismissListenBook(it) },
+                            // #1703 — every dismissal is answered by the
+                            // root «Повернути» snackbar; the tab only reports
+                            // the intent.
+                            onNotInterested = onDismissBook,
                             // spec-28 (#201): the «Далі у серії» shelf restores
                             // the series context — each card names which part
                             // is next. No one-tap play triangle (ADR-0018).
@@ -221,7 +251,11 @@ fun ListenScreen(
         // header and the manage door, so a listener who hid all shelves saw
         // what looked like a broken screen rather than a choice they had made.
         // The door below stays visible either way — it is the way back.
-        if (dedupedBlocks.isEmpty()) {
+        //
+        // #1704 — only AFTER composition can this state be claimed:
+        // `composedBlocks == 0` is the composer's initial value, not a choice,
+        // and `listenContentFor` keeps it in `Loading` above.
+        if (content == ListenContent.AllShelvesHidden) {
             item(key = "all-shelves-hidden") {
                 EmptyState(
                     icon = Icons.Outlined.VisibilityOff,
@@ -545,8 +579,9 @@ private fun ListenShelfRow(
  * resume CTA, a poster opens the book page.
  *
  * The reversible «Не цікаво» action stays, but it is NOT a cross over the
- * artwork (the reference design removed that): it is a quiet 32 dp target at
- * the end of the meta line, named after the book for a screen reader.
+ * artwork (the reference design removed that): it is a quiet 32 dp disc inside
+ * a 48 dp target (#1703) at the end of the meta line, named after the book for
+ * a screen reader, and paired with the «Повернути» snackbar by the tab.
  */
 @Composable
 fun ListenBlockShelf(
@@ -593,6 +628,7 @@ fun ListenBlockShelf(
                         R.string.a11y_not_interested_work,
                         book.title
                     ),
+                    dismissTestTag = "not_interested_${book.id}",
                     stateDescription = workState,
                     testTag = "compact_book_${book.id}",
                     progressTestTag = "compact_book_progress_${book.id}",

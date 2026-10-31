@@ -747,6 +747,9 @@
     <string name="chapter_order_saving">Zapisujemy…</string>
     <string name="listen_all_shelves_hidden_body">Twoje książki są na miejscu — przywróć potrzebną półkę, a znów się tu pojawi.</string>
     <string name="listen_all_shelves_hidden_title">Wszystkie półki ukryte</string>
+    <!-- #1703 — «Не цікаво» is reversible from the shelf it was chosen on. -->
+    <string name="listen_dismissed_message">Książka ukryta z półek «Słuchaj»</string>
+    <string name="listen_dismiss_undo">Przywróć</string>
 
     <!-- #1478 — shelf titles and reasons come from resources, not ListenComposer code. -->
     <string name="listen_shelf_hero">Słuchaj dalej</string>

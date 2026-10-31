@@ -948,14 +948,14 @@ class App : Application() {
     }
 
     /**
-     * #528 — the one-shot pass that repairs chapter durations a short
-     * interstitial already poisoned. Its own flag, so it runs for installs the
-     * seed has already visited. Database-only: no probing on the start path.
+     * #528 — the repeatable pass that repairs chapter durations a short
+     * interstitial already poisoned. Database-only: no probing on the start
+     * path. #1723 — it owns no preferences at all: the old unused flag file was
+     * still a synchronous disk read while this lazy was built on main.
      */
     val chapterDurationRepair: com.slukhayka.audiobooks.data.duration.ChapterDurationRepair by lazy {
         com.slukhayka.audiobooks.data.duration.ChapterDurationRepair(
             dao = database.audiobookDao(),
-            prefs = getSharedPreferences("chapter_duration_repair", MODE_PRIVATE)
         )
     }
 

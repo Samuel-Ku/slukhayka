@@ -1,7 +1,5 @@
 package com.slukhayka.audiobooks.data.duration
 
-import android.content.Context
-import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.testing.FakeAudiobookDao
@@ -44,15 +42,11 @@ class ChapterDurationRepairTest {
         )
     }
 
-    private fun prefs() =
-        ApplicationProvider.getApplicationContext<Context>()
-            .getSharedPreferences("repair-test", Context.MODE_PRIVATE)
-
     @Test
     fun `resets the poisoned book once and then does nothing`() = runTest {
         val dao = FakeAudiobookDao(chapters = chapters())
         dao.insertTracks(tracks())
-        val repair = ChapterDurationRepair(dao, prefs())
+        val repair = ChapterDurationRepair(dao)
 
         assertEquals("first pass repairs every poisoned chapter", 15, repair.runOnce())
         assertEquals("second pass is a no-op", 0, repair.runOnce())
@@ -72,6 +66,6 @@ class ChapterDurationRepairTest {
                 SourceTrackEntity("soundbooks-${editionId}_tr_2", "soundbooks-$editionId", 1, "https://a/2.mp3")
             )
         )
-        assertEquals(0, ChapterDurationRepair(dao, prefs()).runOnce())
+        assertEquals(0, ChapterDurationRepair(dao).runOnce())
     }
 }

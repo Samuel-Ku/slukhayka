@@ -109,6 +109,8 @@ fun ListenScreen(
     // unrendered here.
     val listenBlocks by viewModel.listenBlocks.collectAsState()
     val hiddenBlocks by viewModel.hiddenListenBlocks.collectAsState()
+    // #1704 review — composer published vs not; see ListenContentState.
+    val blocksReady by viewModel.listenBlocksReady.collectAsState()
     // #1704 — "empty" and "not read yet" are different states. The list above
     // starts as `emptyList()` on every cold start; without this flag the tab
     // claimed the fresh-install empty state (and, once blocks lag, that every
@@ -170,6 +172,7 @@ fun ListenScreen(
         // allowed to speak for the listener yet — only the header renders.
         val content = listenContentFor(
             libraryLoaded = libraryLoaded,
+            blocksReady = blocksReady,
             allBooksEmpty = allBooks.isEmpty(),
             composedBlocks = listenBlocks.size,
             dedupedBlocks = dedupedBlocks.size,

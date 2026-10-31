@@ -22,6 +22,7 @@ class ListenColdStartEmptyStateTest {
             ListenContent.Loading,
             listenContentFor(
                 libraryLoaded = false,
+                blocksReady = false,
                 allBooksEmpty = true,
                 composedBlocks = 0,
                 dedupedBlocks = 0,
@@ -35,6 +36,7 @@ class ListenColdStartEmptyStateTest {
             ListenContent.Loading,
             listenContentFor(
                 libraryLoaded = false,
+                blocksReady = false,
                 allBooksEmpty = false,
                 composedBlocks = 0,
                 dedupedBlocks = 0,
@@ -48,6 +50,7 @@ class ListenColdStartEmptyStateTest {
             ListenContent.FreshInstall,
             listenContentFor(
                 libraryLoaded = true,
+                blocksReady = true,
                 allBooksEmpty = true,
                 composedBlocks = 0,
                 dedupedBlocks = 0,
@@ -58,10 +61,26 @@ class ListenColdStartEmptyStateTest {
     @Test
     fun `uncomposed blocks are not read as all shelves hidden`() {
         assertEquals(
-            "listenBlocks starts at emptyList(); that is loading, not a choice",
+            "listenBlocks has not published yet; that is loading, not a choice",
             ListenContent.Loading,
             listenContentFor(
                 libraryLoaded = true,
+                blocksReady = false,
+                allBooksEmpty = false,
+                composedBlocks = 0,
+                dedupedBlocks = 0,
+            ),
+        )
+    }
+
+    @Test
+    fun `a ready composer with zero blocks is all shelves hidden, not loading`() {
+        assertEquals(
+            "all dismissed / no eligible book is a legitimate empty composer",
+            ListenContent.AllShelvesHidden,
+            listenContentFor(
+                libraryLoaded = true,
+                blocksReady = true,
                 allBooksEmpty = false,
                 composedBlocks = 0,
                 dedupedBlocks = 0,
@@ -75,6 +94,7 @@ class ListenColdStartEmptyStateTest {
             ListenContent.AllShelvesHidden,
             listenContentFor(
                 libraryLoaded = true,
+                blocksReady = true,
                 allBooksEmpty = false,
                 composedBlocks = 9,
                 dedupedBlocks = 0,
@@ -84,6 +104,7 @@ class ListenColdStartEmptyStateTest {
             ListenContent.Shelves,
             listenContentFor(
                 libraryLoaded = true,
+                blocksReady = true,
                 allBooksEmpty = false,
                 composedBlocks = 9,
                 dedupedBlocks = 2,

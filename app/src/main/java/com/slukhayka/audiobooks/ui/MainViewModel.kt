@@ -1581,6 +1581,12 @@ class MainViewModel @JvmOverloads constructor(
     private val _nextInSeries = MutableStateFlow<AudiobookEntity?>(null)
     val nextInSeries: StateFlow<AudiobookEntity?> = _nextInSeries.asStateFlow()
 
+    // #1704 review: a block composer that has published once can legitimately
+    // produce zero blocks (every book dismissed / no rule matches). The UI must
+    // distinguish that from the pre-first-emission `emptyList()` initial value.
+    private val _listenBlocksReady = MutableStateFlow(false)
+    val listenBlocksReady: StateFlow<Boolean> = _listenBlocksReady.asStateFlow()
+
     val listenBlocks: StateFlow<List<com.slukhayka.audiobooks.ui.library.ListenComposer.Block>> = combine(
         libraryBooks,
         nextInSeries,
@@ -1588,6 +1594,7 @@ class MainViewModel @JvmOverloads constructor(
         _listenPrefsVersion,
         _localeVersion
     ) { books, seriesBook, finishedWorkIds, _, _ ->
+        _listenBlocksReady.value = true
         com.slukhayka.audiobooks.ui.library.ListenComposer.compose(
             library = books,
             nextInSeries = seriesBook,

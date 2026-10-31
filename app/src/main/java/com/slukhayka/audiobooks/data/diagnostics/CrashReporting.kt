@@ -88,7 +88,15 @@ class CrashReporting(
     private val processStateSummarySink: ProcessStateSummarySink = ProcessStateSummarySink { }
 ) {
     private val contextLock = Any()
+    private val publishLock = Any()
     private var currentContext = CrashContext()
+    // #1730 — contextLock guards every write above, so the snapshot start()
+    // takes can never be a torn read; publishLock orders the sink calls made
+    // from start() (IO) and from the setters (main). A version, not the lock
+    // order, decides which context the sinks end with: a stale snapshot must
+    // never overwrite a newer update.
+    private var contextVersion = 0L
+    private var publishedContextVersion = -1L
     // #1723 — the constructor runs wherever the lazy App.crashReporting is
     // first touched, and that can be the main thread (Activity.onStart). It
     // must not read prefs: the initial UNDECIDED state is the honest "not
@@ -116,13 +124,21 @@ class CrashReporting(
     fun start(consent: CrashConsent = consentStore.load()) {
         _state.value = CrashReportingState(consent)
         sink.setCollectionEnabled(enabledForBuild && consent == CrashConsent.ALLOWED)
+        // #1730 — start() runs on IO while the setters run on main. Take the
+        // accumulated context AND mark the module started under one lock: a
+        // setter that lost the race is either inside this snapshot or sees
+        // started == true and publishes its own newer context. The sinks are
+        // called after the lock is released.
+        val (contextSnapshot, version) = synchronized(contextLock) {
+            started = true
+            currentContext to contextVersion
+        }
         if (enabledForBuild) {
             // Publish the context that accumulated before start() ran — now
-            // that the consent is known. DENIED still publishes nothing.
-            processStateSummarySink.set(currentContext)
-            if (consent != CrashConsent.DENIED) sink.setContext(currentContext)
+            // that the consent is known. DENIED still publishes nothing to
+            // the crash sink.
+            publishStartContext(contextSnapshot, version)
         }
-        started = true
 
         if (!enabledForBuild) return
 
@@ -175,8 +191,11 @@ class CrashReporting(
     }
 
     fun updateContext(context: CrashContext) {
-        synchronized(contextLock) { currentContext = context }
-        publishContext(context)
+        val version = synchronized(contextLock) {
+            currentContext = context
+            ++contextVersion
+        }
+        publishContext(context, version)
     }
 
     fun record(exception: Throwable) {
@@ -216,15 +235,45 @@ class CrashReporting(
     }
 
     private fun updateCurrentContext(transform: CrashContext.() -> CrashContext) {
-        val updated = synchronized(contextLock) {
-            currentContext.transform().also { currentContext = it }
+        val (updated, version) = synchronized(contextLock) {
+            val next = currentContext.transform()
+            currentContext = next
+            ++contextVersion
+            next to contextVersion
         }
-        publishContext(updated)
+        publishContext(updated, version)
     }
 
-    private fun publishContext(context: CrashContext) {
-        if (enabledForBuild && started) {
+    /**
+     * #1730 — publish one context snapshot unless a newer one already reached
+     * the sinks. The version check and both sink calls share [publishLock], so
+     * two threads cannot interleave an older setContext after a newer one; the
+     * lock is NOT [contextLock], so a slow sink never blocks a context write.
+     */
+    private fun publishContext(context: CrashContext, version: Long) {
+        if (!enabledForBuild || !started) return
+        synchronized(publishLock) {
+            if (version <= publishedContextVersion) return
+            publishedContextVersion = version
             processStateSummarySink.set(context)
+            if (_state.value.consent != CrashConsent.DENIED) sink.setContext(context)
+        }
+    }
+
+    /**
+     * #1730 — the start-time publish. It keeps the same process-summary
+     * contract (written even when reporting is denied) and the same crash-sink
+     * guard, but a context update published from inside a sink callback must
+     * win over this older snapshot.
+     */
+    private fun publishStartContext(context: CrashContext, version: Long) {
+        synchronized(publishLock) {
+            if (version < publishedContextVersion) return
+            publishedContextVersion = version
+            processStateSummarySink.set(context)
+            // A reentrant/concurrent setter may have published a newer context
+            // while this sink call was running; do not put the old one back.
+            if (version != publishedContextVersion) return
             if (_state.value.consent != CrashConsent.DENIED) sink.setContext(context)
         }
     }

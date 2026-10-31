@@ -407,11 +407,22 @@ class SourceCatalog(
     private var curatedCollectionLists: List<com.slukhayka.audiobooks.data.collections.CollectionList> =
         collectionLists
 
-    private fun currentCollectionLists(): List<com.slukhayka.audiobooks.data.collections.CollectionList> {
-        val provided = collectionListsProvider?.invoke() ?: return curatedCollectionLists
-        if (provided != curatedCollectionLists) curatedCollectionLists = provided
-        return curatedCollectionLists
-    }
+    // #1730 — one lock for the curated lists and the corpus they are matched
+    // against. It is NOT held across a database read; it covers the snapshot
+    // of both inputs and the resulting publish, so a re-match that runs after
+    // the startup batch cannot be interleaved by an in-flight refresh still
+    // holding the old (empty) lists, and the newer publication cannot be
+    // overwritten by the older one.
+    private val collectionsLock = Any()
+
+    private fun currentCollectionLists(): List<com.slukhayka.audiobooks.data.collections.CollectionList> =
+        synchronized(collectionsLock) {
+            val provided = collectionListsProvider?.invoke()
+            if (provided != null && provided != curatedCollectionLists) {
+                curatedCollectionLists = provided
+            }
+            curatedCollectionLists
+        }
 
     /**
      * #1723 — re-match the already-drawn shelves after the startup batch has
@@ -528,17 +539,23 @@ class SourceCatalog(
                 // the library never appears in a collection. Live sources stay
                 // best-effort and TTL-cached; matchAll drops empty collections.
                 _liveCollections.value = liveCollectionsFor()
-                collectionsMatchCorpus =
-                    com.slukhayka.audiobooks.data.collections.libraryMatchCorpus(
-                        // ADR-0063 §5 — collections are the listener's own
-                        // shelf; a technical anchor is not a collection member.
-                        dao.getPersonalAudiobooksOnce().map { it.toAudiobookEntity() }
-                    )
-                _smartCollections.value =
-                    com.slukhayka.audiobooks.data.collections.CollectionMatcher.matchAll(
-                        currentCollectionLists() + _liveCollections.value,
-                        collectionsMatchCorpus
-                    )
+                val corpus = com.slukhayka.audiobooks.data.collections.libraryMatchCorpus(
+                    // ADR-0063 §5 — collections are the listener's own
+                    // shelf; a technical anchor is not a collection member.
+                    dao.getPersonalAudiobooksOnce().map { it.toAudiobookEntity() }
+                )
+                // #1730 — publish the corpus and the match over the curated
+                // lists as ONE critical section: the startup batch's re-match
+                // must see either this refresh's full inputs or the previous
+                // ones, never a half-published pair.
+                synchronized(collectionsLock) {
+                    collectionsMatchCorpus = corpus
+                    _smartCollections.value =
+                        com.slukhayka.audiobooks.data.collections.CollectionMatcher.matchAll(
+                            currentCollectionLists() + _liveCollections.value,
+                            corpus
+                        )
+                }
                 visible
             } finally {
                 _isUnifiedCatalogLoading.value = false
@@ -656,11 +673,16 @@ class SourceCatalog(
         // the last refresh — an owned Work shows in its collection regardless
         // of the content-language selection, and a Work the listener does not
         // own can never appear. Empty collections are absent from the flow.
-        _smartCollections.value =
-            com.slukhayka.audiobooks.data.collections.CollectionMatcher.matchAll(
-                currentCollectionLists() + _liveCollections.value,
-                collectionsMatchCorpus
-            )
+        // #1730 — read both inputs and publish under the same lock the refresh
+        // uses, so a re-match started before the startup batch cannot publish
+        // its stale curated list after the newer one.
+        synchronized(collectionsLock) {
+            _smartCollections.value =
+                com.slukhayka.audiobooks.data.collections.CollectionMatcher.matchAll(
+                    currentCollectionLists() + _liveCollections.value,
+                    collectionsMatchCorpus
+                )
+        }
     }
 
     private val _isFeedsLoading = MutableStateFlow(false)

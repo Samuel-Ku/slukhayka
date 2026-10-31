@@ -336,10 +336,17 @@ class DownloadNotificationService : Service() {
             }
         }
         fun notifyPaused(ctx: Context, bookId: String) {
-            if (!isRunning) return
-            ctx.startService(Intent(ctx, DownloadNotificationService::class.java).apply {
+            val intent = Intent(ctx, DownloadNotificationService::class.java).apply {
                 action = ACTION_PAUSED; putExtra(EXTRA_BOOK_ID, bookId)
-            })
+            }
+            try {
+                // No isRunning guard: a pause that races the pending
+                // startForegroundService must still replace the notification.
+                ctx.startService(intent)
+            } catch (_: IllegalStateException) {
+                // The app is in the background and the service is already
+                // gone; OfflineDownloads has persisted the paused state.
+            }
         }
         fun stop(ctx: Context) {
             // #1734 — a direct cancel+stopService is idempotent and legal

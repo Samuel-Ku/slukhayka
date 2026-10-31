@@ -212,18 +212,25 @@ fun calculatePlayerMarkers(
     currentChapterIndex: Int,
     currentChapterDurationMs: Long,
     bookmarks: List<BookmarkEntity>,
-    bookTotalDurationSeconds: Long = 0L
+    bookTotalDurationSeconds: Long = 0L,
+    // #1733 — the caller may hand in the chapter ruler it already remembered
+    // (see [rememberEffectiveChapterDurations]). Null keeps the one-shot
+    // contract for every other caller.
+    effectiveDurations: List<Long>? = null
 ): PlayerMarkers {
     if (chapters.isEmpty()) return PlayerMarkers(emptyList(), emptyList())
-    val selectedIndex = currentChapterIndex.coerceIn(chapters.indices)
-    val effectiveDurations = effectiveChapterDurations(
-        chapters = chapters,
-        currentChapterIndex = selectedIndex,
-        currentChapterDurationMs = currentChapterDurationMs,
-        bookTotalDurationSeconds = bookTotalDurationSeconds
-    )
+    // A supplied list is trusted only for THIS chapter layout: a stale list of
+    // another size is ignored, never used to place a different book.
+    val chapterDurations = effectiveDurations
+        ?.takeIf { it.size == chapters.size }
+        ?: effectiveChapterDurations(
+            chapters = chapters,
+            currentChapterIndex = currentChapterIndex.coerceIn(chapters.indices),
+            currentChapterDurationMs = currentChapterDurationMs,
+            bookTotalDurationSeconds = bookTotalDurationSeconds
+        )
     val totalSeconds = knownBookTotalSeconds(chapters, bookTotalDurationSeconds)
-    return markersFor(effectiveDurations, bookmarks, totalSeconds)
+    return markersFor(chapterDurations, bookmarks, totalSeconds)
 }
 
 /**
@@ -273,16 +280,16 @@ private fun markersFor(
  *
  * #1187 — two rulers, deliberately, and this is where the defect lived.
  *
- * [effectiveDurations] is the CHAPTER ruler and stays as it is: the playing
- * chapter's measured length, the position inside it, [chapterFraction], and
- * where the chapter/bookmark markers sit are all positions on that timeline. A
- * chapter measured only by being played is placed with what is known about it —
- * that is honest, and it is what keeps the current chapter's own progress
- * working.
+ * The CHAPTER ruler ([effectiveDurations] when the caller remembered it,
+ * otherwise recomputed) stays as it is: the playing chapter's measured length,
+ * the position inside it, [chapterFraction], and where the chapter/bookmark
+ * markers sit are all positions on that timeline. A chapter measured only by
+ * being played is placed with what is known about it — that is honest, and it is
+ * what keeps the current chapter's own progress working.
  *
  * `bookDurationSeconds` is the BOOK ruler, and it may NOT be the same sum. For
  * a local book (no site total) whose chapters are only measured one by one as
- * they are played, `effectiveDurations.sum()` is the count of what has been
+ * they are played, the chapter ruler's sum is the count of what has been
  * heard so far: three 300-second chapters with the first played and the third
  * only 60 s in summed to 360, and the listener 60 s into that third chapter read
  * as sitting at the end of the book (`bookFraction == 1f`) — the player said
@@ -306,7 +313,11 @@ fun calculatePlayerProgress(
     // #1707 — the player passes the marker lists it already remembered for
     // these same inputs. Null keeps the one-shot contract for every other
     // caller; the marker math itself is [markersFor].
-    markers: PlayerMarkers? = null
+    markers: PlayerMarkers? = null,
+    // #1733 — the chapter ruler the player already remembered. Null keeps the
+    // one-shot contract for every other caller; a list of another size is
+    // ignored so a stale cache cannot place this book's chapters.
+    effectiveDurations: List<Long>? = null
 ): PlayerProgressUi {
     if (chapters.isEmpty()) {
         return PlayerProgressUi(0f, 0f, 0L, 0L, emptyList(), emptyList())
@@ -315,12 +326,14 @@ fun calculatePlayerProgress(
     val selectedIndex = currentChapterIndex.coerceIn(chapters.indices)
     // Chapter ruler: positions only (see the KDoc above — this is the line that
     // must NOT be reused as the book's length).
-    val effectiveDurations = effectiveChapterDurations(chapters, selectedIndex, currentChapterDurationMs, bookTotalDurationSeconds)
-    val currentDurationSeconds = effectiveDurations[selectedIndex]
+    val chapterDurations = effectiveDurations
+        ?.takeIf { it.size == chapters.size }
+        ?: effectiveChapterDurations(chapters, selectedIndex, currentChapterDurationMs, bookTotalDurationSeconds)
+    val currentDurationSeconds = chapterDurations[selectedIndex]
     // Book ruler: the honest total, 0 when no chapter sum proves one (#1187).
     val totalSeconds = knownBookTotalSeconds(chapters, bookTotalDurationSeconds)
     val positionInChapter = (currentPositionMs / 1000L).coerceIn(0L, currentDurationSeconds)
-    val elapsedBefore = effectiveDurations.take(selectedIndex).sum()
+    val elapsedBefore = chapterDurations.take(selectedIndex).sum()
     val bookPosition = elapsedBefore + positionInChapter
 
     val chapterFraction = if (currentDurationSeconds > 0L) {
@@ -333,7 +346,7 @@ fun calculatePlayerProgress(
     // and bookmarks have no fraction to sit at (null, dropped) — the same
     // refusal as the fraction above. The player hands its remembered lists in
     // (#1707); this call is the fallback for callers without that cache.
-    val markerFractions = markers ?: markersFor(effectiveDurations, bookmarks, totalSeconds)
+    val markerFractions = markers ?: markersFor(chapterDurations, bookmarks, totalSeconds)
 
     return PlayerProgressUi(
         chapterFraction = chapterFraction.coerceIn(0f, 1f),
@@ -388,6 +401,33 @@ internal fun rememberLiveDurationPlayerState(
 }
 
 /**
+ * #1733 — the chapter ruler is position-independent too: [effectiveChapterDurations]
+ * changes only with the chapter layout, the playing chapter's measured length
+ * and the authoritative book total. Remembering it here keeps the per-tick
+ * progress from rebuilding an O(chapters) list every second, and lets the
+ * markers and the progress share one instance.
+ */
+@Composable
+internal fun rememberEffectiveChapterDurations(
+    chapters: List<ChapterEntity>,
+    currentChapterIndex: Int,
+    currentChapterDurationMs: Long,
+    bookTotalDurationSeconds: Long
+): List<Long> = remember(
+    chapters,
+    currentChapterIndex,
+    currentChapterDurationMs,
+    bookTotalDurationSeconds
+) {
+    effectiveChapterDurations(
+        chapters = chapters,
+        currentChapterIndex = currentChapterIndex,
+        currentChapterDurationMs = currentChapterDurationMs,
+        bookTotalDurationSeconds = bookTotalDurationSeconds
+    )
+}
+
+/**
  * #1707 — the book-ruler markers are position-independent, so the player
  * remembers them instead of rebuilding them on every position tick.
  *
@@ -396,6 +436,10 @@ internal fun rememberLiveDurationPlayerState(
  * chapters around it, so switching a chapter may move the boundaries — that is
  * a chapter change, not a tick, and it must keep rendering the same markers as
  * before.
+ *
+ * #1733 — when the caller already remembered the chapter ruler
+ * ([rememberEffectiveChapterDurations]), it passes it in so this stays a cache
+ * fill instead of a second [effectiveChapterDurations].
  */
 @Composable
 internal fun rememberPlayerMarkers(
@@ -403,20 +447,25 @@ internal fun rememberPlayerMarkers(
     currentChapterIndex: Int,
     currentChapterDurationMs: Long,
     bookmarks: List<BookmarkEntity>,
-    bookTotalDurationSeconds: Long
+    bookTotalDurationSeconds: Long,
+    // #1733 — the chapter ruler the player already remembered; null keeps the
+    // one-shot contract for callers without it.
+    effectiveDurations: List<Long>? = null
 ): PlayerMarkers = remember(
     chapters,
     currentChapterIndex,
     currentChapterDurationMs,
     bookmarks,
-    bookTotalDurationSeconds
+    bookTotalDurationSeconds,
+    effectiveDurations
 ) {
     calculatePlayerMarkers(
         chapters = chapters,
         currentChapterIndex = currentChapterIndex,
         currentChapterDurationMs = currentChapterDurationMs,
         bookmarks = bookmarks,
-        bookTotalDurationSeconds = bookTotalDurationSeconds
+        bookTotalDurationSeconds = bookTotalDurationSeconds,
+        effectiveDurations = effectiveDurations
     )
 }
 
@@ -591,12 +640,22 @@ fun PlayerScreen(
     // the ticking position: remember them once per chapter layout + bookmark
     // set, and let the per-tick recomposition only recompute the fractions that
     // actually move.
+    // #1733 — the chapter ruler feeds both the markers and the progress, so it
+    // is remembered once here instead of being rebuilt inside each of them on
+    // every position tick.
+    val effectiveDurations = rememberEffectiveChapterDurations(
+        chapters = playerState.chapters,
+        currentChapterIndex = playerState.currentChapterIndex,
+        currentChapterDurationMs = playerState.durationMs,
+        bookTotalDurationSeconds = book.totalDurationSeconds
+    )
     val markers = rememberPlayerMarkers(
         chapters = playerState.chapters,
         currentChapterIndex = playerState.currentChapterIndex,
         currentChapterDurationMs = playerState.durationMs,
         bookmarks = bookmarks,
-        bookTotalDurationSeconds = book.totalDurationSeconds
+        bookTotalDurationSeconds = book.totalDurationSeconds,
+        effectiveDurations = effectiveDurations
     )
     val progress = remember(
         playerState.chapters,
@@ -605,7 +664,8 @@ fun PlayerScreen(
         playerState.durationMs,
         bookmarks,
         book.totalDurationSeconds,
-        markers
+        markers,
+        effectiveDurations
     ) {
         calculatePlayerProgress(
             chapters = playerState.chapters,
@@ -614,7 +674,8 @@ fun PlayerScreen(
             currentChapterDurationMs = playerState.durationMs,
             bookmarks = bookmarks,
             bookTotalDurationSeconds = book.totalDurationSeconds,
-            markers = markers
+            markers = markers,
+            effectiveDurations = effectiveDurations
         )
     }
 

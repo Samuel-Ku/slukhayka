@@ -62,6 +62,27 @@ class UnexpectedExitReporterTest {
     }
 
     @Test
+    fun `watermark is advanced before the exit can be reported`() {
+        val order = mutableListOf<String>()
+        val reporting = CrashReporting(
+            FakeConsentStore(CrashConsent.ALLOWED),
+            FakeCrashReportSink { order += "report" },
+            true
+        )
+        UnexpectedExitReporter(
+            FakeHistoricalExitSource(true, actionableExit()),
+            FakeExitCursorStore { order += "cursor" },
+            reporting,
+            enabledForBuild = true
+        ).inspectLatest()
+
+        // #1709 turns the cursor write into apply(): the in-memory value is
+        // current before the report leaves, so a lost disk flush can at worst
+        // repeat this exit on a later launch — it can never drop the report.
+        assertEquals(listOf("cursor", "report"), order)
+    }
+
+    @Test
     fun `unsupported platform does not inspect or report exits`() {
         val sink = FakeCrashReportSink()
         val reporting = CrashReporting(FakeConsentStore(CrashConsent.ALLOWED), sink, true)
@@ -125,12 +146,15 @@ class UnexpectedExitReporterTest {
         }
     }
 
-    private class FakeExitCursorStore : ProcessExitCursorStore {
+    private class FakeExitCursorStore(
+        private val onSave: (ProcessExitCursor) -> Unit = {}
+    ) : ProcessExitCursorStore {
         var cursor: ProcessExitCursor? = null
 
         override fun load(): ProcessExitCursor? = cursor
         override fun save(cursor: ProcessExitCursor) {
             this.cursor = cursor
+            onSave(cursor)
         }
     }
 
@@ -147,7 +171,9 @@ class UnexpectedExitReporterTest {
         override fun consumeFailurePromptPending(): Boolean = failurePromptPending.also { failurePromptPending = false }
     }
 
-    private class FakeCrashReportSink : CrashReportSink {
+    private class FakeCrashReportSink(
+        private val onUnexpectedExit: (UnexpectedPlaybackExitEvent) -> Unit = {}
+    ) : CrashReportSink {
         val unexpectedExits = mutableListOf<UnexpectedPlaybackExitEvent>()
         override fun setCollectionEnabled(enabled: Boolean) = Unit
         override fun checkForUnsentReports(onResult: (Boolean) -> Unit) = onResult(false)
@@ -156,6 +182,7 @@ class UnexpectedExitReporterTest {
         override fun setContext(context: CrashContext) = Unit
         override fun recordUnexpectedPlaybackExit(event: UnexpectedPlaybackExitEvent) {
             unexpectedExits += event
+            onUnexpectedExit(event)
         }
     }
 }

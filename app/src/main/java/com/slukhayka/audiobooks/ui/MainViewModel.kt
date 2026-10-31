@@ -412,6 +412,26 @@ class MainViewModel @JvmOverloads constructor(
     val updateChecker: UpdateChecker = App.instance.updateChecker
 
     val playerState: StateFlow<PlayerState> = playerManager.playerState
+
+    /**
+     * #1705 — the composition root's only question about playback: is there a
+     * book the mini player can draw?
+     *
+     * The root used to collect [playerState] itself, and that state gets a new
+     * value every second while audio plays. Every tick invalidated the whole
+     * `AudiobookApp` composition, so the Scaffold's `bottomBar` slot (the bar
+     * plus the navigation bar) could not skip. This derived flow changes only
+     * when the book's presence changes, not when its position does.
+     */
+    val hasPlayerBook: StateFlow<Boolean> = playerState
+        .map { it.currentBook != null }
+        .distinctUntilChanged()
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            playerState.value.currentBook != null
+        )
+
     private val automaticPlaybackRecoveryGate = AutomaticPlaybackRecoveryGate()
 
     /**

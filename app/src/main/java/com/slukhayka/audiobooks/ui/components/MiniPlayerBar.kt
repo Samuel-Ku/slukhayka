@@ -8,6 +8,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
@@ -21,6 +23,7 @@ import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkMiniPlayerBar
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * How much of the bar's width a leftward swipe must cover to close the player.
@@ -56,6 +59,39 @@ val MiniPlayerColumnWidth: Dp = 360.dp
  * column. Both callers ask here, so the two answers cannot drift apart.
  */
 fun miniPlayerHasBook(playerState: PlayerState): Boolean = playerState.currentBook != null
+
+/**
+ * #1705 — the mini-player as its own composition boundary.
+ *
+ * [PlayerState] gets a new value every second while audio plays. When the
+ * composition root collected that state itself, every tick invalidated the
+ * whole `AudiobookApp` composition and the Scaffold's `bottomBar` slot (the bar
+ * plus the navigation bar) could never skip. The root now reads only
+ * `MainViewModel.hasPlayerBook`, and this host owns the 1 Hz collection, so a
+ * position tick recomposes the bar alone.
+ *
+ * The behaviour is unchanged: [MiniPlayerBar] keeps its own visibility gate
+ * ([miniPlayerHasBook]), so a flow without a current book draws nothing.
+ */
+@Composable
+fun MiniPlayerHost(
+    playerState: StateFlow<PlayerState>,
+    onPlayPauseClick: () -> Unit,
+    onBarClick: () -> Unit,
+    onCloseClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    viewedBookId: String? = null
+) {
+    val state by playerState.collectAsState()
+    MiniPlayerBar(
+        playerState = state,
+        onPlayPauseClick = onPlayPauseClick,
+        onBarClick = onBarClick,
+        onCloseClick = onCloseClick,
+        modifier = modifier,
+        viewedBookId = viewedBookId
+    )
+}
 
 @Composable
 fun MiniPlayerBar(

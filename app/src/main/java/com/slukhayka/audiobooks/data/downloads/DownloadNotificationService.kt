@@ -22,8 +22,21 @@ import com.slukhayka.audiobooks.App
  * - During active download: Pause + Cancel buttons
  * - When paused: Continue + Cancel buttons
  * - Swipe disabled on ongoing (active); swipe on PAUSED hides notification only
+ *
+ * #1734 — on Android 15+ a `dataSync` foreground service gets a 6-hour budget
+ * per 24 hours. Pausing therefore leaves the foreground — a paused transfer
+ * must not spend that budget — and [onTimeout] stops the service within the
+ * system's grace period instead of letting the process be killed.
  */
 class DownloadNotificationService : Service() {
+
+    private var isForeground = false
+    private var timeoutHandled = false
+
+    override fun onCreate() {
+        super.onCreate()
+        isRunning = true
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -35,12 +48,17 @@ class DownloadNotificationService : Service() {
                 author = intent.getStringExtra(EXTRA_AUTHOR).orEmpty()
                 currentBookId = bookId
                 isPaused = false
+                timeoutHandled = false
                 startForeground(NOTIFICATION_ID, buildNotification(bookId, 0, 0, null, false))
+                isForeground = true
             }
             ACTION_UPDATE -> {
-                val nm = getSystemService(NotificationManager::class.java)
-                isPaused = false
                 currentBookId = intent.getStringExtra(EXTRA_BOOK_ID) ?: currentBookId
+                // #1734 — a late progress tick must not turn a paused state
+                // back into "active": only ACTION_START (the explicit resume)
+                // returns the service to the foreground.
+                if (isPaused) return START_NOT_STICKY
+                val nm = getSystemService(NotificationManager::class.java)
                 nm.notify(NOTIFICATION_ID, buildNotification(
                     currentBookId,
                     intent.getIntExtra(EXTRA_COMPLETED, 0),
@@ -53,7 +71,13 @@ class DownloadNotificationService : Service() {
                 isPaused = true
                 currentBookId = intent.getStringExtra(EXTRA_BOOK_ID) ?: currentBookId
                 val nm = getSystemService(NotificationManager::class.java)
-                nm.notify(NOTIFICATION_ID, buildPausedNotification(currentBookId))
+                nm.notify(NOTIFICATION_ID, buildPausedNotification(
+                    currentBookId, R.string.download_notification_paused
+                ))
+                // #1734 — paused is not data transfer. DETACH keeps the
+                // paused notification and its Continue action; the service
+                // itself stops counting as a dataSync foreground service.
+                leaveForeground()
             }
             ACTION_PAUSE_REQUEST -> {
                 val bookId = intent.getStringExtra(EXTRA_BOOK_ID) ?: currentBookId
@@ -73,6 +97,42 @@ class DownloadNotificationService : Service() {
             }
         }
         return START_NOT_STICKY
+    }
+
+    /**
+     * #1734 — Android 15+ calls this when the app's `dataSync` foreground
+     * time budget is exhausted (targetSdk 36). At that point the service is
+     * no longer counted as foreground; it has a few seconds to stop itself
+     * or the system throws a `RemoteServiceException` (shipped as a process
+     * kill / ANR). A transfer that was still in flight becomes an honest
+     * "stopped by the system" notification, detached so its Continue/Cancel
+     * actions outlive the service.
+     *
+     * https://developer.android.com/develop/background-work/services/fgs/timeout
+     */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        if (timeoutHandled) return
+        timeoutHandled = true
+        val transferInFlight = !isPaused
+        if (transferInFlight) isPaused = true
+        // DETACH keeps the (now non-foreground) notification: it is the only
+        // place the listener can resume from. REMOVE here would erase it.
+        // Detach first, then replace the content: the replacement must not be
+        // tied back to the foreground-service notification.
+        leaveForeground()
+        if (transferInFlight && currentBookId.isNotEmpty()) {
+            val nm = getSystemService(NotificationManager::class.java)
+            nm.notify(NOTIFICATION_ID, buildPausedNotification(
+                currentBookId, R.string.download_notification_system_stopped
+            ))
+        }
+        stopSelf(startId)
+    }
+
+    /** #1734 — leave the foreground without dropping the notification. */
+    private fun leaveForeground() {
+        stopForeground(STOP_FOREGROUND_DETACH)
+        isForeground = false
     }
 
     /**
@@ -138,7 +198,7 @@ class DownloadNotificationService : Service() {
         return builder.build()
     }
 
-    private fun buildPausedNotification(bookId: String): Notification {
+    private fun buildPausedNotification(bookId: String, textRes: Int): Notification {
         ensureChannel()
         val tapIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -153,7 +213,7 @@ class DownloadNotificationService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle(getString(R.string.download_notification_title, displayTitle))
-            .setContentText(getString(R.string.download_notification_paused))
+            .setContentText(getString(textRes))
             .setOngoing(false) // swipe allowed when paused
             .setContentIntent(tapPending)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
@@ -204,19 +264,30 @@ class DownloadNotificationService : Service() {
         ).build()
     }
 
-    override fun onDestroy() { super.onDestroy(); stopForeground(STOP_FOREGROUND_REMOVE) }
+    override fun onDestroy() {
+        // #1734 — a paused / system-stopped notification was detached on
+        // purpose: it is the listener's only Continue/Cancel surface after
+        // the service is gone. Only an active foreground notification is
+        // ours to remove here.
+        if (isForeground) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            isForeground = false
+        }
+        isRunning = false
+        super.onDestroy()
+    }
 
     companion object {
         const val CHANNEL_ID = "download_progress"
         const val NOTIFICATION_ID = 2001
-        private const val ACTION_START = "com.slukhayka.DOWNLOAD_START"
-        private const val ACTION_UPDATE = "com.slukhayka.DOWNLOAD_UPDATE"
-        private const val ACTION_PAUSED = "com.slukhayka.DOWNLOAD_PAUSED"
-        private const val ACTION_STOP = "com.slukhayka.DOWNLOAD_STOP"
+        internal const val ACTION_START = "com.slukhayka.DOWNLOAD_START"
+        internal const val ACTION_UPDATE = "com.slukhayka.DOWNLOAD_UPDATE"
+        internal const val ACTION_PAUSED = "com.slukhayka.DOWNLOAD_PAUSED"
+        internal const val ACTION_STOP = "com.slukhayka.DOWNLOAD_STOP"
         const val ACTION_PAUSE_REQUEST = "com.slukhayka.DOWNLOAD_PAUSE_REQUEST"
         const val ACTION_CONTINUE_REQUEST = "com.slukhayka.DOWNLOAD_CONTINUE_REQUEST"
         const val ACTION_CANCEL_REQUEST = "com.slukhayka.DOWNLOAD_CANCEL_REQUEST"
-        private const val EXTRA_BOOK_ID = "book_id"
+        internal const val EXTRA_BOOK_ID = "book_id"
         private const val EXTRA_TITLE = "title"
         private const val EXTRA_AUTHOR = "author"
         private const val EXTRA_COMPLETED = "completed"
@@ -228,6 +299,10 @@ class DownloadNotificationService : Service() {
         private var title = ""
         private var author = ""
         private var isPaused = false
+
+        /** #1734 — guards late progress/pause ticks after the service stopped. */
+        @Volatile
+        private var isRunning = false
 
         fun start(ctx: Context, bookId: String, title: String, author: String) {
             val intent = Intent(ctx, DownloadNotificationService::class.java).apply {
@@ -244,20 +319,41 @@ class DownloadNotificationService : Service() {
             }
         }
         fun updateProgress(ctx: Context, bookId: String, completed: Int, total: Int, totalBytes: Long?, isApprox: Boolean) {
-            ctx.startService(Intent(ctx, DownloadNotificationService::class.java).apply {
+            // #1734 — after the dataSync timeout the service is stopping; a
+            // late progress tick must not restart it from the background.
+            if (!isRunning) return
+            val intent = Intent(ctx, DownloadNotificationService::class.java).apply {
                 action = ACTION_UPDATE; putExtra(EXTRA_COMPLETED, completed)
                 putExtra(EXTRA_BOOK_ID, bookId)
                 putExtra(EXTRA_TOTAL, total); putExtra(EXTRA_TOTAL_BYTES, totalBytes ?: -1L)
                 putExtra(EXTRA_IS_APPROXIMATE, isApprox)
-            })
+            }
+            try {
+                ctx.startService(intent)
+            } catch (_: IllegalStateException) {
+                // The service stopped between the check and the call; the
+                // next ACTION_START carries the state that matters.
+            }
         }
         fun notifyPaused(ctx: Context, bookId: String) {
-            ctx.startService(Intent(ctx, DownloadNotificationService::class.java).apply {
+            val intent = Intent(ctx, DownloadNotificationService::class.java).apply {
                 action = ACTION_PAUSED; putExtra(EXTRA_BOOK_ID, bookId)
-            })
+            }
+            try {
+                // No isRunning guard: a pause that races the pending
+                // startForegroundService must still replace the notification.
+                ctx.startService(intent)
+            } catch (_: IllegalStateException) {
+                // The app is in the background and the service is already
+                // gone; OfflineDownloads has persisted the paused state.
+            }
         }
         fun stop(ctx: Context) {
-            ctx.startService(Intent(ctx, DownloadNotificationService::class.java).apply { action = ACTION_STOP })
+            // #1734 — a direct cancel+stopService is idempotent and legal
+            // from the background, unlike startService(ACTION_STOP): it also
+            // removes a detached paused/system-stopped notification.
+            ctx.getSystemService(NotificationManager::class.java).cancel(NOTIFICATION_ID)
+            ctx.stopService(Intent(ctx, DownloadNotificationService::class.java))
         }
     }
 }

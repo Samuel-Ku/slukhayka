@@ -29,6 +29,8 @@
     <string name="book_detail_download_progress_unknown_total">%1$d/%2$d • завантажено %3$d МБ</string>
     <!-- #394 — Download controls -->
     <string name="download_notification_paused">Призупинено</string>
+    <!-- #1734 — Android 15+ dataSync timeout: honest system-stopped state. -->
+    <string name="download_notification_system_stopped">Зупинено системою: вичерпано ліміт часу</string>
     <string name="download_action_pause">Пауза</string>
     <string name="download_action_continue">Продовжити</string>
     <string name="download_action_cancel">Скасувати</string>

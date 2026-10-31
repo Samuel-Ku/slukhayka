@@ -20,16 +20,16 @@ import org.robolectric.annotation.Config
 @Config(sdk = [36])
 class MiniPlayerDismissalTest {
 
-    // viewModelScope is Dispatchers.Main.immediate, so its first playerState
-    // emission can be delivered while the constructor is still assigning
-    // fields. An already-playing session at construction time is the case that
-    // used to reach a not-yet-initialised flag.
+    // #1742 — the playerState collectors now start from start(), called by
+    // AudiobookApp's first effect, not from the constructor. The behaviour is
+    // unchanged: an already-playing session at start() still keeps the bar.
     @Test
     fun `view model built during an already playing session keeps the bar`() {
         val app = ApplicationProvider.getApplicationContext<App>()
         app.playerManager.mirrorCastState { it.copy(isPlaying = true) }
 
         val viewModel = MainViewModel(app)
+        viewModel.start()
         shadowOf(Looper.getMainLooper()).idle()
 
         assertFalse(viewModel.miniPlayerDismissed.value)
@@ -39,6 +39,7 @@ class MiniPlayerDismissalTest {
     fun `closing a paused player hides the bar without touching playback`() {
         val app = ApplicationProvider.getApplicationContext<App>()
         val viewModel = MainViewModel(app)
+        viewModel.start()
 
         viewModel.dismissMiniPlayer()
         shadowOf(Looper.getMainLooper()).idle()
@@ -51,6 +52,7 @@ class MiniPlayerDismissalTest {
     fun `closing a playing player pauses it and hides the bar`() {
         val app = ApplicationProvider.getApplicationContext<App>()
         val viewModel = MainViewModel(app)
+        viewModel.start()
         app.playerManager.mirrorCastState { it.copy(isPlaying = true) }
 
         viewModel.dismissMiniPlayer()
@@ -64,6 +66,7 @@ class MiniPlayerDismissalTest {
     fun `audio resuming brings the dismissed bar back`() {
         val app = ApplicationProvider.getApplicationContext<App>()
         val viewModel = MainViewModel(app)
+        viewModel.start()
         viewModel.dismissMiniPlayer()
         shadowOf(Looper.getMainLooper()).idle()
         assertTrue(viewModel.miniPlayerDismissed.value)

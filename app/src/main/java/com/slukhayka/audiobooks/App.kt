@@ -183,6 +183,17 @@ class App : Application() {
         startupScope.async { startupReads.load() }
     }
 
+    /**
+     * #1742 — the ONE cover-image loader, application-scoped.
+     *
+     * It used to be built on main in `MainActivity.onCreate` before
+     * `setContent`. The prewarm in [onCreate] builds it on [startupScope]
+     * (Dispatchers.IO) and installs the same instance with
+     * `Coil.setImageLoader`, so every screen's `AsyncImage` keeps reading one
+     * loader while Activity creation no longer touches Coil.
+     */
+    val imageLoader: coil.ImageLoader by lazy { CoverImageLoader.build(this) }
+
     /** The batch's result once it is safe for main-thread readers to consult. */
     private val _completedStartupValues = MutableStateFlow<StartupValues?>(null)
 
@@ -1826,6 +1837,10 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // #1742 — start the cover loader build on IO as early as possible and
+        // install it there. The Activity no longer builds it on main before
+        // setContent; screens keep reading the same singleton through Coil.
+        startupScope.launch { CoverImageLoader.install(imageLoader) }
         // #1723 privacy exception: the route MUST be installed before the
         // first frame can start any network call (HomeScreen's LaunchedEffect
         // is not the only door), so this one preference read stays on main.

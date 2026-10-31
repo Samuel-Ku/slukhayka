@@ -305,11 +305,11 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         handleDownloadIntent(intent)
         super.onCreate(savedInstanceState)
-        // #1478 — the Listen shelves' copy follows the STORED UI language, and
-        // on API < 33 that choice is pinned on the Activity's context: rebuild
-        // it after every (re)create so a language switch is reflected.
-        androidx.lifecycle.ViewModelProvider(this)[com.slukhayka.audiobooks.ui.MainViewModel::class.java]
-            .onUiLocaleApplied()
+        // #1478/#1742 — the Listen shelves' copy follows the STORED UI language,
+        // and on API < 33 that choice is pinned on the Activity's context. The
+        // version bump now lives in an effect inside AudiobookApp, so the
+        // ViewModel is no longer constructed here, before setContent; the
+        // effect still runs on every (re)create.
         // #532 — the cold-start seed MUST run at APP startup, not from a
         // screen's composition: a clean install opens on Слухати, so a
         // HomeScreen-only trigger left the bundled seed unimported (measured
@@ -318,22 +318,6 @@ class MainActivity : FragmentActivity() {
         // #528 — repair chapter durations the interstitial poisoned.
         lifecycleScope.launch { App.instance.chapterDurationRepair.runOnce() }
         enableEdgeToEdge()
-        
-        // Globally disable hardware bitmaps in Coil to prevent E/ashmem Pinning is deprecated errors
-        // Spec-38 (#252): cover-image traffic is transport traffic too — it rides
-        // the same browser identity (real WebView UA) and the same privacy route
-        // as the shared fetcher.
-        // Spec-38 T4 (#256): that one client is now the shared
-        // [TransportClients.okHttp] — same pool, current route, and
-        // domain names resolved through the DoH door, so cover lookups no
-        // longer leak to the system resolver either.
-        val imageLoader = coil.ImageLoader.Builder(this)
-            .allowHardware(false)
-            .callFactory {
-                com.slukhayka.audiobooks.data.privacy.TransportClients.calls
-            }
-            .build()
-        coil.Coil.setImageLoader(imageLoader)
 
         setContent {
             // Plan 2026-2027 — the visible theme follows the listener's choice;
@@ -382,6 +366,16 @@ fun AudiobookApp(
     // before the theme, so the switch and the rendered scheme cannot drift.
     appearance: AppearancePreferencesStore? = null,
 ) {
+    // #1742 — the ViewModel is created by `viewModel()` in this composition,
+    // after `performCreate`; its module graph is lazy. This effect is the first
+    // real use: rebuild the Listen shelf copy for the Activity's locale (the
+    // old synchronous call in `MainActivity.onCreate` constructed the VM
+    // before setContent), and start the playback/identity collectors that used
+    // to run in the constructor.
+    LaunchedEffect(viewModel) {
+        viewModel.onUiLocaleApplied()
+        viewModel.start()
+    }
     val context = LocalContext.current
     val appearanceStore = appearance ?: remember { AppearancePreferencesStore(context) }
     val playerAlwaysInk by appearanceStore.playerAlwaysInk.collectAsState()

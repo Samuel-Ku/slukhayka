@@ -241,14 +241,26 @@ class MainViewModel @JvmOverloads constructor(
     // survives the Activity/ViewModel being destroyed by the system.
     // ADR-0002 (#140): the god repository is gone — the ViewModel composes the
     // deep modules directly.
-    val listeningState: ListeningStateStore = App.instance.listeningState
+    //
+    // #1742 — every module reference below is DEFERRED. The constructor used to
+    // build the whole App graph (Room included) before `setContent` ran, which
+    // the cold-start profile showed as 259–333 ms of `performCreate`. `by lazy`
+    // moves each module to its first real use; the property names, types and
+    // DI edges are unchanged.
+    private val listeningStateLazy = lazy { App.instance.listeningState }
+    val listeningState: ListeningStateStore get() = listeningStateLazy.value
 
     /** ADR-0051 (spec-43 T6): pull-before-resume and push-after-save. */
-    private val progressSync = App.instance.progressSync
-    val libraryImport: LibraryImport = App.instance.libraryImport
-    val sourceCatalog: SourceCatalog = App.instance.sourceCatalog
-    val offlineDownloads: OfflineDownloads = App.instance.offlineDownloads
-    val libraryEntries: LibraryEntries = App.instance.libraryEntries
+    private val progressSyncLazy = lazy { App.instance.progressSync }
+    private val progressSync get() = progressSyncLazy.value
+    private val libraryImportLazy = lazy { App.instance.libraryImport }
+    val libraryImport: LibraryImport get() = libraryImportLazy.value
+    private val sourceCatalogLazy = lazy { App.instance.sourceCatalog }
+    val sourceCatalog: SourceCatalog get() = sourceCatalogLazy.value
+    private val offlineDownloadsLazy = lazy { App.instance.offlineDownloads }
+    val offlineDownloads: OfflineDownloads get() = offlineDownloadsLazy.value
+    private val libraryEntriesLazy = lazy { App.instance.libraryEntries }
+    val libraryEntries: LibraryEntries get() = libraryEntriesLazy.value
 
     /**
      * ADR-0046 / #1286 — the reading-progress module. The screen reads its
@@ -257,8 +269,27 @@ class MainViewModel @JvmOverloads constructor(
      * inside the module from one snapshot, so the ViewModel no longer maps rows
      * or refreshes two separate flows after every action.
      */
-    val readingProgress: com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder =
-        App.instance.readingProgressRecorder
+    private val readingProgressLazy = lazy { App.instance.readingProgressRecorder }
+    val readingProgress: com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder
+        get() = readingProgressLazy.value
+
+    /**
+     * #1742 — the seven module fields the cold-start audit named. Their
+     * delegates are explicit so the startup witness can ask whether the
+     * constructor touched any of them: an empty set after `MainViewModel(app)`
+     * is the regression assertion, and a non-empty set after the first real
+     * use proves the deferred fields still work.
+     */
+    @androidx.annotation.VisibleForTesting
+    internal fun initializedDeferredModules(): Set<String> = buildSet {
+        if (listeningStateLazy.isInitialized()) add("listeningState")
+        if (progressSyncLazy.isInitialized()) add("progressSync")
+        if (libraryImportLazy.isInitialized()) add("libraryImport")
+        if (sourceCatalogLazy.isInitialized()) add("sourceCatalog")
+        if (offlineDownloadsLazy.isInitialized()) add("offlineDownloads")
+        if (libraryEntriesLazy.isInitialized()) add("libraryEntries")
+        if (readingProgressLazy.isInitialized()) add("readingProgress")
+    }
 
     /**
      * ADR-0047 / #867 — the «Імпортоване» queue: rows whose origin the data does
@@ -314,9 +345,11 @@ class MainViewModel @JvmOverloads constructor(
      * proven (one that arrived from another device, say) is not a mark any
      * surface can show, so it is not one the award may count either.
      */
-    val abandonedBookIds: StateFlow<Set<String>> = App.instance.abandonedBooks
-        .observeLiveAbandonedBookIds()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+    val abandonedBookIds: StateFlow<Set<String>> by lazy {
+        App.instance.abandonedBooks
+            .observeLiveAbandonedBookIds()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+    }
 
     /**
      * #1174 — «покинути книгу»: an explicit act of the listener, never inferred
@@ -389,28 +422,28 @@ class MainViewModel @JvmOverloads constructor(
             refreshImportedEntries()
         }
     }
-    val durationEnrichment: DurationEnrichment = App.instance.durationEnrichment
+    val durationEnrichment: DurationEnrichment by lazy { App.instance.durationEnrichment }
     // spec-24 T8 (#169): the throttled chapter-duration probing pass — the
     // same detached-window idiom as the duration enrichment above.
-    val chapterDurationProbe: ChapterDurationProbe = App.instance.chapterDurationProbe
+    val chapterDurationProbe: ChapterDurationProbe by lazy { App.instance.chapterDurationProbe }
     // Spec-25 (#171): the lazy series-universe resolution over the curated assets.
-    val seriesUniverses: SeriesUniverses = App.instance.seriesUniverses
+    val seriesUniverses: SeriesUniverses by lazy { App.instance.seriesUniverses }
 
     // Spec-42 #431: shared metadata store for verified profile publish
-    val sharedMetaStore: FirestoreBookMetaStore? = App.instance.sharedMetaStore
-    val playerManager: AudioPlayerManager = App.instance.playerManager
+    val sharedMetaStore: FirestoreBookMetaStore? by lazy { App.instance.sharedMetaStore }
+    val playerManager: AudioPlayerManager by lazy { App.instance.playerManager }
     val crashReportingModule get() = App.instance.crashReporting
-    val recommendationPersonalization = App.instance.recommendationPreferences
+    val recommendationPersonalization by lazy { App.instance.recommendationPreferences }
 
     // #399/#400 — person bookmarks module (ADR-0008: screens read Flows directly).
-    val personBookmarks: PersonBookmarks = App.instance.personBookmarks
+    val personBookmarks: PersonBookmarks by lazy { App.instance.personBookmarks }
 
     // Spec-36 T1 (#244): the app-release check — a pass-through module
     // reference like the fields above (the screen reads its flow directly,
     // ADR-0008; no forwarding StateFlows here).
-    val updateChecker: UpdateChecker = App.instance.updateChecker
+    val updateChecker: UpdateChecker by lazy { App.instance.updateChecker }
 
-    val playerState: StateFlow<PlayerState> = playerManager.playerState
+    val playerState: StateFlow<PlayerState> by lazy { playerManager.playerState }
 
     /**
      * #1705 — the composition root's only question about playback: is there a
@@ -422,14 +455,16 @@ class MainViewModel @JvmOverloads constructor(
      * plus the navigation bar) could not skip. This derived flow changes only
      * when the book's presence changes, not when its position does.
      */
-    val hasPlayerBook: StateFlow<Boolean> = playerState
-        .map { it.currentBook != null }
-        .distinctUntilChanged()
-        .stateIn(
-            viewModelScope,
-            SharingStarted.WhileSubscribed(5_000),
-            playerState.value.currentBook != null
-        )
+    val hasPlayerBook: StateFlow<Boolean> by lazy {
+        playerState
+            .map { it.currentBook != null }
+            .distinctUntilChanged()
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                playerState.value.currentBook != null
+            )
+    }
 
     private val automaticPlaybackRecoveryGate = AutomaticPlaybackRecoveryGate()
 
@@ -500,7 +535,7 @@ class MainViewModel @JvmOverloads constructor(
     // Spec-601 T3/T5 — the listener-submission surface: the flow owns the
     // request discipline and the verdict rule; the VM only bridges it to the
     // sheet and to the player's factual playing event.
-    private val listenerSubmissionFlow = App.instance.listenerSubmissionFlow
+    private val listenerSubmissionFlow by lazy { App.instance.listenerSubmissionFlow }
     private val _submissionState = MutableStateFlow<SubmissionUiState>(SubmissionUiState.Idle)
     val submissionState: StateFlow<SubmissionUiState> = _submissionState.asStateFlow()
     private val _submissionRemaining = MutableStateFlow<Int?>(null)
@@ -1366,11 +1401,10 @@ class MainViewModel @JvmOverloads constructor(
      */
     private val _onDeviceBookIds = MutableStateFlow<Set<String>>(emptySet())
 
-    // Spec-40: these fields must be initialized before the init block starts
-    // identity resolution on Dispatchers.IO. Keeping them below init made a
-    // fast local-only ensure() race the constructor and write into a field
-    // that Kotlin had not initialized yet.
-    val listenerIdentityModule: ListenerIdentity = App.instance.listenerIdentity
+    // Spec-40: identity resolution starts from [start], after the first
+    // composition; the module is lazy so the constructor does not build the
+    // Firebase-backed graph (#1742).
+    val listenerIdentityModule: ListenerIdentity by lazy { App.instance.listenerIdentity }
     private val _listenerIdentity =
         MutableStateFlow<com.slukhayka.audiobooks.data.identity.ListenerProfile?>(null)
     val listenerIdentity: StateFlow<com.slukhayka.audiobooks.data.identity.ListenerProfile?> =
@@ -1387,7 +1421,20 @@ class MainViewModel @JvmOverloads constructor(
     private val _socialSnapshot = MutableStateFlow(SocialSnapshot())
     val socialSnapshot: StateFlow<SocialSnapshot> = _socialSnapshot.asStateFlow()
 
-    init {
+    /** #1742 — [start] is idempotent; every Activity recreation reuses it. */
+    private val started = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * #1742 — the first-frame side effects that used to run in `init`.
+     *
+     * The constructor is built during the first composition; these collectors
+     * need `playerManager` (Room, the player transport and the submission
+     * flow), so starting them in the constructor built that whole graph before
+     * the first frame. `AudiobookApp` calls [start] from a `LaunchedEffect`,
+     * i.e. on the first real use after composition; repeated calls are inert.
+     */
+    fun start() {
+        if (!started.compareAndSet(false, true)) return
         refreshCacheSize()
         // ADR-0061 §2 / #1185 T4 — once per device: free the private copies an
         // older version wrote where the tree grant is alive and the bytes still
@@ -1404,12 +1451,6 @@ class MainViewModel @JvmOverloads constructor(
             if (report != null && report.changed) {
                 _importMessage.value = OutcomeMessages.localCopyMigration(report)
             }
-        }
-        // #916 — the local social facts feed the «Друзі» screen directly. The
-        // collector starts here, before any screen exists, so the feed is
-        // populated on the first show instead of flashing an empty state.
-        viewModelScope.launch(Dispatchers.IO) {
-            App.instance.socialStore.snapshot().collect { _socialSnapshot.value = it }
         }
         // A real engine start, not an optimistic prepare, permits one future
         // automatic recovery if this playing session later loses its media.
@@ -1483,6 +1524,19 @@ class MainViewModel @JvmOverloads constructor(
         // resolved-profile state; the reviews block unlocks for writing the
         // moment ensure() answers (or degrades to local-only, its contract).
         attachListenerIdentity(listenerIdentityModule)
+    }
+
+    init {
+        // #916 — the local social facts feed the «Друзі» screen directly. The
+        // collector starts here, before any screen exists, so the feed is
+        // populated on the first show instead of flashing an empty state.
+        viewModelScope.launch(Dispatchers.IO) {
+            App.instance.socialStore.snapshot().collect { _socialSnapshot.value = it }
+        }
+        // #1742 — the playback/identity collectors used to start here, in the
+        // constructor, which forced `playerManager` (and the whole Room-backed
+        // App graph) before the first frame. They now start from [start], the
+        // first real use called by `AudiobookApp` after its first composition.
         // #394 — notification button actions are handled by the App-scoped
         // DownloadNotificationActionCoordinator (works with no Activity);
         // the VM-side collect was removed with that change.
@@ -1589,10 +1643,11 @@ class MainViewModel @JvmOverloads constructor(
     // is the ordered, eligible block list with reasons. The version counter
     // re-runs the composer whenever the user reorders/hides/dismisses.
     //
-    // Declared BEFORE listenBlocks: the composer reads nextInSeries, and a
-    // property initializer must never reference a field initialized later
-    // (it would read the JVM default null).
-    private val listenPrefs = com.slukhayka.audiobooks.ui.library.ListenPrefsStore(getApplication())
+    // Declared BEFORE listenBlocks for readability; both are lazy, so the
+    // composer's first read happens on the first real collection (#1742).
+    private val listenPrefs by lazy {
+        com.slukhayka.audiobooks.ui.library.ListenPrefsStore(getApplication())
+    }
     private val _listenPrefsVersion = MutableStateFlow(0)
     // #1478 — the shelf copy is locale-dependent; MainActivity re-creates on a
     // language change and bumps this so the composer rebuilds its copy.
@@ -1606,25 +1661,27 @@ class MainViewModel @JvmOverloads constructor(
     private val _listenBlocksReady = MutableStateFlow(false)
     val listenBlocksReady: StateFlow<Boolean> = _listenBlocksReady.asStateFlow()
 
-    val listenBlocks: StateFlow<List<com.slukhayka.audiobooks.ui.library.ListenComposer.Block>> = combine(
-        libraryBooks,
-        nextInSeries,
-        libraryEntries.finishedWorkIds,
-        _listenPrefsVersion,
-        _localeVersion
-    ) { books, seriesBook, finishedWorkIds, _, _ ->
-        _listenBlocksReady.value = true
-        com.slukhayka.audiobooks.ui.library.ListenComposer.compose(
-            library = books,
-            nextInSeries = seriesBook,
-            prefs = listenPrefs,
-            finishedWorkIds = finishedWorkIds,
-            // #1478 — every shelf word comes from the STORED UI language
-            // (explicit choice wins over the device one), never from the
-            // composer itself.
-            copy = com.slukhayka.audiobooks.ui.library.ResourceListenCopy.forApp(getApplication())
-        )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val listenBlocks: StateFlow<List<com.slukhayka.audiobooks.ui.library.ListenComposer.Block>> by lazy {
+        combine(
+            libraryBooks,
+            nextInSeries,
+            libraryEntries.finishedWorkIds,
+            _listenPrefsVersion,
+            _localeVersion
+        ) { books, seriesBook, finishedWorkIds, _, _ ->
+            _listenBlocksReady.value = true
+            com.slukhayka.audiobooks.ui.library.ListenComposer.compose(
+                library = books,
+                nextInSeries = seriesBook,
+                prefs = listenPrefs,
+                finishedWorkIds = finishedWorkIds,
+                // #1478 — every shelf word comes from the STORED UI language
+                // (explicit choice wins over the device one), never from the
+                // composer itself.
+                copy = com.slukhayka.audiobooks.ui.library.ResourceListenCopy.forApp(getApplication())
+            )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
 
     /** #1478 — the «Наступна частина» caption of the next-in-series shelf card. */
     fun listenPartCaption(book: com.slukhayka.audiobooks.ui.library.LibraryBook): String =
@@ -1689,12 +1746,14 @@ class MainViewModel @JvmOverloads constructor(
 
     // Spec-10 T2: positions are stored per source, so the raw flow can hold
     // several rows per book; the UI wants one card per Work — the latest.
-    val recentProgress: StateFlow<List<PlaybackProgressEntity>> = libraryEntries.recentProgress
-        .map { rows ->
-            rows.groupBy { it.bookId }
-                .map { (_, perBook) -> perBook.maxBy { it.lastListenedAt } }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val recentProgress: StateFlow<List<PlaybackProgressEntity>> by lazy {
+        libraryEntries.recentProgress
+            .map { rows ->
+                rows.groupBy { it.bookId }
+                    .map { (_, perBook) -> perBook.maxBy { it.lastListenedAt } }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
 
     private val _selectedTab = MutableStateFlow(SelectedTab.LISTEN)
     val selectedTab: StateFlow<SelectedTab> = _selectedTab.asStateFlow()
@@ -2597,7 +2656,7 @@ class MainViewModel @JvmOverloads constructor(
 
     private val _recommendationSettingsOpen = MutableStateFlow(false)
     val recommendationSettingsOpen: StateFlow<Boolean> = _recommendationSettingsOpen.asStateFlow()
-    val recommendationSettings = recommendationPersonalization.settings
+    val recommendationSettings by lazy { recommendationPersonalization.settings }
 
     fun openRecommendationSettings() { _recommendationSettingsOpen.value = true }
     fun closeRecommendationSettings() { _recommendationSettingsOpen.value = false }
@@ -2610,7 +2669,9 @@ class MainViewModel @JvmOverloads constructor(
     val contentLanguagesOpen: StateFlow<Boolean> = _contentLanguagesOpen.asStateFlow()
 
     /** The checked content languages — the store's live flow (both on = «Усі»). */
-    val contentLanguages: StateFlow<Set<String>> = App.instance.contentLanguagePrefs.languages
+    val contentLanguages: StateFlow<Set<String>> by lazy {
+        App.instance.contentLanguagePrefs.languages
+    }
 
     fun openContentLanguages() {
         _contentLanguagesOpen.value = true
@@ -2647,12 +2708,13 @@ class MainViewModel @JvmOverloads constructor(
      * never stranded invisibly. Replaces the Огляд chip's old cycle, which
      * only worked while there were exactly two languages.
      */
-    val contentLanguageOptions: StateFlow<List<String>> =
+    val contentLanguageOptions: StateFlow<List<String>> by lazy {
         App.instance.audiobookDao.observeKnownEditionLanguages()
             .map { tags ->
                 orderContentLanguages(tags.filter { it in ContentLanguagePrefs.KNOWN_CONTENT_LANGUAGES })
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }
 
     // Spec-45 (#405) R7 (#514): the «Мова інтерфейсу» destination (⚙️
     // overflow) — navigation only; the screen reads/writes the App Locale
@@ -2679,7 +2741,7 @@ class MainViewModel @JvmOverloads constructor(
     fun closeAchievements() { _achievementsOpen.value = false }
 
     /** What the screen shows. The RULE lives in [AchievementBoard], not here. */
-    val achievementsBoard: StateFlow<com.slukhayka.audiobooks.data.achievements.AchievementBoard> =
+    val achievementsBoard: StateFlow<com.slukhayka.audiobooks.data.achievements.AchievementBoard> by lazy {
         App.instance.achievements.earned
             .map { earned ->
                 com.slukhayka.audiobooks.data.achievements.AchievementBoard.of(
@@ -2691,6 +2753,7 @@ class MainViewModel @JvmOverloads constructor(
                 viewModelScope, SharingStarted.WhileSubscribed(5000),
                 com.slukhayka.audiobooks.data.achievements.AchievementBoard.of(emptyList(), emptySet())
             )
+    }
 
     /**
      * F18 — the snapshot the «Досягнення» registry reads its status lines from.
@@ -2701,12 +2764,13 @@ class MainViewModel @JvmOverloads constructor(
      * the whole listening history.
      */
     val achievementProgress:
-        StateFlow<com.slukhayka.audiobooks.data.achievements.AchievementProgress> =
+        StateFlow<com.slukhayka.audiobooks.data.achievements.AchievementProgress> by lazy {
         App.instance.achievements.snapshot
             .stateIn(
                 viewModelScope, SharingStarted.WhileSubscribed(5000),
                 com.slukhayka.audiobooks.data.achievements.AchievementProgress()
             )
+    }
 
     /**
      * F18 — the current-week strip: the listener's local week, Monday first,
@@ -2714,7 +2778,7 @@ class MainViewModel @JvmOverloads constructor(
      * is pure, so the only thing that can be wrong here is the date.
      */
     val achievementWeek:
-        StateFlow<com.slukhayka.audiobooks.ui.achievements.AchievementPresentation.Week> =
+        StateFlow<com.slukhayka.audiobooks.ui.achievements.AchievementPresentation.Week> by lazy {
         App.instance.achievementDays
             .map { days ->
                 com.slukhayka.audiobooks.ui.achievements.AchievementPresentation.week(
@@ -2727,15 +2791,17 @@ class MainViewModel @JvmOverloads constructor(
                 viewModelScope, SharingStarted.WhileSubscribed(5000),
                 com.slukhayka.audiobooks.ui.achievements.AchievementPresentation.Week.Empty
             )
+    }
 
     /** The title, derived from the same snapshot the evaluator uses. */
-    val listenerTitle: StateFlow<com.slukhayka.audiobooks.data.achievements.ListenerTitle> =
+    val listenerTitle: StateFlow<com.slukhayka.audiobooks.data.achievements.ListenerTitle> by lazy {
         App.instance.achievements.snapshot
             .map { com.slukhayka.audiobooks.data.achievements.AchievementTitle.of(it) }
             .stateIn(
                 viewModelScope, SharingStarted.WhileSubscribed(5000),
                 com.slukhayka.audiobooks.data.achievements.ListenerTitle.LISTENER
             )
+    }
 
     /**
      * #704 (T6) — put an award on the showcase, or take it off.
@@ -2758,16 +2824,17 @@ class MainViewModel @JvmOverloads constructor(
     }
 
     /** The pinned showcase, newest first. */
-    val achievementShowcase: StateFlow<List<String>> =
+    val achievementShowcase: StateFlow<List<String>> by lazy {
         App.instance.achievementStore.observeShowcase()
             .map { rows -> rows.map { it.id } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
 
     // #705 (T7) — the showcase's public life. Pinning is local; publishing is a
     // separate, explicit act, and this is where the two meet.
 
     /** True once the listener confirmed publishing their showcase. */
-    val showcasePublished: StateFlow<Boolean> = App.instance.showcaseConsent.published
+    val showcasePublished: StateFlow<Boolean> by lazy { App.instance.showcaseConsent.published }
 
     private val _showcasePreview =
         MutableStateFlow<com.slukhayka.audiobooks.data.achievements.ShowcasePreview?>(null)
@@ -3227,7 +3294,7 @@ class MainViewModel @JvmOverloads constructor(
     private val _selectedPeopleKind = MutableStateFlow<PeopleKind?>(null)
     val selectedPeopleKind: StateFlow<PeopleKind?> = _selectedPeopleKind.asStateFlow()
 
-    val peopleEntries: StateFlow<List<CatalogPerson>> =
+    val peopleEntries: StateFlow<List<CatalogPerson>> by lazy {
         sourceCatalog.libraryNarrators
             .map { narrators ->
                 narrators.map {
@@ -3240,6 +3307,7 @@ class MainViewModel @JvmOverloads constructor(
                 }
             }
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    }
 
     private val _isPeopleLoading = MutableStateFlow(false)
     val isPeopleLoading: StateFlow<Boolean> = _isPeopleLoading.asStateFlow()
@@ -3438,9 +3506,10 @@ class MainViewModel @JvmOverloads constructor(
     val personLoadFailed: StateFlow<Boolean> = personLoader.failed
 
     /** #559 — індекс людей ще добудовується (книги з'являються хвилинами). */
-    val authorIndexBackfillPending: StateFlow<Boolean> =
+    val authorIndexBackfillPending: StateFlow<Boolean> by lazy {
         sourceCatalog.authorIndexBackfillPending
             .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    }
 
     /**
      * #874 — the authors index uses the SAME person route a narrator does. The
@@ -3801,7 +3870,7 @@ class MainViewModel @JvmOverloads constructor(
     private val _feedSharedLibraryOnly = MutableStateFlow(false)
     val feedSharedLibraryOnly: StateFlow<Boolean> = _feedSharedLibraryOnly.asStateFlow()
 
-    val workFeed: Flow<PagingData<WorkFeedRow>> =
+    val workFeed: Flow<PagingData<WorkFeedRow>> by lazy {
         // Spec-45 (#405) T4/T6: the content-language dimension rides the
         // SAME persisted preference flow as every other surface — a change
         // (⚙️ destination or the Огляд chip) rebuilds the Pager live, no
@@ -3810,29 +3879,30 @@ class MainViewModel @JvmOverloads constructor(
             _feedGenreFilters,
             _feedDurationFilters,
             _feedSortByTitle,
-            App.instance.contentLanguagePrefs.languages,
+            contentLanguages,
             _feedSharedLibraryOnly
         ) { genres, durations, byTitle, languages, sharedOnly ->
             FilterKey(genres, durations, byTitle, languages, sharedOnly)
         }
-        .distinctUntilChanged()
-        .flatMapLatest { key ->
-            val filter = WorkFacetFilter(
-                genreIds = key.genres,
-                durationBucketIds = key.durations,
-                languages = key.languages,
-                sharedLibraryOnly = key.sharedOnly
-            )
-            Pager(
-                config = PagingConfig(pageSize = 30, prefetchDistance = 15, enablePlaceholders = false)
-            ) {
-                if (key.byTitle) {
-                    sourceCatalog.pagedWorkFeedByTitle(filter)
-                } else {
-                    sourceCatalog.pagedWorkFeedRecent(filter)
-                }
-            }.flow
-        }.cachedIn(viewModelScope)
+            .distinctUntilChanged()
+            .flatMapLatest { key ->
+                val filter = WorkFacetFilter(
+                    genreIds = key.genres,
+                    durationBucketIds = key.durations,
+                    languages = key.languages,
+                    sharedLibraryOnly = key.sharedOnly
+                )
+                Pager(
+                    config = PagingConfig(pageSize = 30, prefetchDistance = 15, enablePlaceholders = false)
+                ) {
+                    if (key.byTitle) {
+                        sourceCatalog.pagedWorkFeedByTitle(filter)
+                    } else {
+                        sourceCatalog.pagedWorkFeedRecent(filter)
+                    }
+                }.flow
+            }.cachedIn(viewModelScope)
+    }
 
     fun setFeedGenreFilters(genres: Set<String>) {
         _feedGenreFilters.value = genres
@@ -4246,8 +4316,10 @@ class MainViewModel @JvmOverloads constructor(
     // pool is the CLAIMED Works only — a Work whose every Source was removed
     // can never be opened and must not be offered (the ghost behind the
     // 2026-09-15 «Рекомендовано для вас» report).
-    private val recommendationWorks = sourceCatalog.discoverableWorks
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val recommendationWorks by lazy {
+        sourceCatalog.discoverableWorks
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
 
 
     fun refreshEmbeddingVectors() {
@@ -4322,10 +4394,14 @@ class MainViewModel @JvmOverloads constructor(
     // Q7: catalogue vectors come from the file cache keyed by catalogue
     // version (CatalogEmbeddingService) — the background pass recomputes
     // only on a version change; the row reads the cached map.
-    private val embeddingCache = com.slukhayka.audiobooks.data.recommend.RoomEmbeddingCache(
-        App.instance.audiobookDao
-    )
-    private val embeddingService = com.slukhayka.audiobooks.data.recommend.CatalogEmbeddingService(embeddingCache)
+    private val embeddingCache by lazy {
+        com.slukhayka.audiobooks.data.recommend.RoomEmbeddingCache(
+            App.instance.audiobookDao
+        )
+    }
+    private val embeddingService by lazy {
+        com.slukhayka.audiobooks.data.recommend.CatalogEmbeddingService(embeddingCache)
+    }
 
     private val embeddingModelDir = File(application.filesDir, "models/e5")
     private val _embeddingModelState = MutableStateFlow<com.slukhayka.audiobooks.data.recommend.EmbeddingModelState>(
@@ -4449,9 +4525,10 @@ class MainViewModel @JvmOverloads constructor(
         )
     }
 
-    val recommendationPreferences: StateFlow<List<RecommendationPreferenceEntity>> =
+    val recommendationPreferences: StateFlow<List<RecommendationPreferenceEntity>> by lazy {
         recommendationPersonalization.preferences
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
 
     /**
      * #481 — the library as the recommendation row sees it: re-emitted only
@@ -4459,7 +4536,7 @@ class MainViewModel @JvmOverloads constructor(
      * added-removed), never on an intermediate 5-second progress tick. The
      * pure [RecommendationRefreshPolicy] owns the key.
      */
-    private val recommendationLibrarySignals: StateFlow<List<com.slukhayka.audiobooks.ui.library.LibraryBook>> =
+    private val recommendationLibrarySignals: StateFlow<List<com.slukhayka.audiobooks.ui.library.LibraryBook>> by lazy {
         libraryBooks
             .map { books ->
                 books to com.slukhayka.audiobooks.data.recommend.RecommendationRefreshPolicy.libraryKey(
@@ -4476,19 +4553,22 @@ class MainViewModel @JvmOverloads constructor(
             .distinctUntilChanged { old, new -> old.second == new.second }
             .map { it.first }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), libraryBooks.value)
+    }
 
     /**
      * #484 — genre/description already known per Work, read ONCE and shared by
      * the warm-up and the row builder; no per-candidate catalogue scan.
      */
     private val recommendationFacts:
-        StateFlow<Map<String, com.slukhayka.audiobooks.data.db.WorkFacts>> =
+        StateFlow<Map<String, com.slukhayka.audiobooks.data.db.WorkFacts>> by lazy {
         App.instance.audiobookDao.observeWorkFacts()
             .map { facts -> facts.associateBy { it.mergeKey } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    }
 
     @OptIn(kotlinx.coroutines.FlowPreview::class)
-    val recommendedBooks: StateFlow<List<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Recommendation>> = combine(
+    val recommendedBooks: StateFlow<List<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Recommendation>> by lazy {
+        combine(
         recommendationLibrarySignals,
         recommendationWorks,
         catalogVectors,
@@ -4598,6 +4678,7 @@ class MainViewModel @JvmOverloads constructor(
         )
     }.debounce(1_000L).flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
 
     private val pendingRecommendationBookId = java.util.concurrent.atomic.AtomicReference<String?>(null)
 
@@ -5119,10 +5200,11 @@ class MainViewModel @JvmOverloads constructor(
     // because writing needs a listener identity but reading does not.
     // ---------------------------------------------------------------------
 
-    val listenerReviews: com.slukhayka.audiobooks.data.reviews.ListenerReviewsStore? =
+    val listenerReviews: com.slukhayka.audiobooks.data.reviews.ListenerReviewsStore? by lazy {
         App.instance.listenerReviews
+    }
 
-    internal val bookFeedbackStore = App.instance.bookFeedbackStore
+    internal val bookFeedbackStore by lazy { App.instance.bookFeedbackStore }
     internal val bookFeedback by lazy {
         BookFeedbackController(viewModelScope, bookFeedbackStore,
             App.instance.audiobookDao::getAudiobookById,
@@ -5141,8 +5223,9 @@ class MainViewModel @JvmOverloads constructor(
     // --- ADR-0023 (#348): «Оцінка начитки» — stars per (Work × Edition) ----
 
     /** Null without Firebase keys: the rating UI simply does not render. */
-    val narrationRatingsStore: com.slukhayka.audiobooks.data.reviews.NarrationRatingsStore? =
+    val narrationRatingsStore: com.slukhayka.audiobooks.data.reviews.NarrationRatingsStore? by lazy {
         App.instance.narrationRatings
+    }
 
     private val _narrationRatings =
         MutableStateFlow<List<com.slukhayka.audiobooks.data.reviews.NarrationRating>>(emptyList())
@@ -5228,13 +5311,16 @@ class MainViewModel @JvmOverloads constructor(
     // acceptance, the pending overlay and the backend acknowledgement all live
     // there now; MainViewModel only composes it with the local mute list and
     // feeds the screens.
-    private val listenerReviewLifecycle =
+    private val listenerReviewLifecycle by lazy {
         com.slukhayka.audiobooks.data.reviews.ListenerReviewLifecycle(listenerReviews,
             onAccepted = { App.instance.recordAchievementFact(com.slukhayka.audiobooks.data.achievements.AchievementFact.REVIEW_ACCEPTED) })
+    }
 
     /** Optimistically submitted reviews not yet confirmed online (#280). */
-    val pendingReviewKeys: StateFlow<Set<String>> = listenerReviewLifecycle.state
-        .map { it.pending.keys }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+    val pendingReviewKeys: StateFlow<Set<String>> by lazy {
+        listenerReviewLifecycle.state
+            .map { it.pending.keys }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+    }
 
     /**
      * Spec-620 (#623) — the CONFIRMED listener ratings the headline average is
@@ -5242,17 +5328,21 @@ class MainViewModel @JvmOverloads constructor(
      * the previous confirmed rating; a locally hidden author changes card
      * visibility only, never this number (#281).
      */
-    val confirmedReviewRatings: StateFlow<List<Int>> = listenerReviewLifecycle.state
-        .map { state -> state.confirmed.map { it.rating } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val confirmedReviewRatings: StateFlow<List<Int>> by lazy {
+        listenerReviewLifecycle.state
+            .map { state -> state.confirmed.map { it.rating } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
 
 
     // A submission result is an event, not accessibility-specific state: the
     // screen uses it to keep failed input open and to retire successful forms.
-    val reviewSaveResults: SharedFlow<ReviewSaveEvent> = listenerReviewLifecycle.results
+    val reviewSaveResults: SharedFlow<ReviewSaveEvent> by lazy { listenerReviewLifecycle.results }
 
     /** Spec-620 (#626) — the ordered delete outcomes of the open Work. */
-    val reviewDeleteResults: SharedFlow<ReviewDeleteEvent> = listenerReviewLifecycle.deleteResults
+    val reviewDeleteResults: SharedFlow<ReviewDeleteEvent> by lazy {
+        listenerReviewLifecycle.deleteResults
+    }
 
     // Spec-40 #281 — the LOCAL mute list: purely per-device, server-free.
     private val _hiddenAuthors = MutableStateFlow<Set<String>>(emptySet())
@@ -5302,21 +5392,25 @@ class MainViewModel @JvmOverloads constructor(
      * mute list hides. They still stand behind the headline average, so the
      * surface explains the gap instead of leaving two numbers disagreeing.
      */
-    val hiddenConfirmedReviewCount: StateFlow<Int> = combine(
-        listenerReviewLifecycle.state,
-        _hiddenAuthors
-    ) { reviewState, hidden -> reviewState.confirmed.count { it.authorName in hidden } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    val hiddenConfirmedReviewCount: StateFlow<Int> by lazy {
+        combine(
+            listenerReviewLifecycle.state,
+            _hiddenAuthors
+        ) { reviewState, hidden -> reviewState.confirmed.count { it.authorName in hidden } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+    }
 
     /** Server truth overlaid with the honest pending cards, newest first. */
-    val bookReviews: StateFlow<List<com.slukhayka.audiobooks.data.reviews.ListenerReview>> = combine(
-        listenerReviewLifecycle.state,
-        _hiddenAuthors
-    ) { reviewState, hidden ->
-        // Local mute changes VISIBILITY only — the confirmed votes behind the
-        // headline average are untouched (#281).
-        reviewState.visible.filterNot { it.authorName in hidden }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val bookReviews: StateFlow<List<com.slukhayka.audiobooks.data.reviews.ListenerReview>> by lazy {
+        combine(
+            listenerReviewLifecycle.state,
+            _hiddenAuthors
+        ) { reviewState, hidden ->
+            // Local mute changes VISIBILITY only — the confirmed votes behind the
+            // headline average are untouched (#281).
+            reviewState.visible.filterNot { it.authorName in hidden }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
 
     /**
      * Best-effort refresh of one Work's reviews; a failed read keeps the last
@@ -5815,34 +5909,38 @@ class MainViewModel @JvmOverloads constructor(
      * progress indicator the moment the tap lands (the import happens first,
      * then the loop starts writing real progress).
      */
-    val catalogDownloadProgress: StateFlow<Map<String, Float>> = combine(
-        _catalogDownloadingKeys,
-        // ADR-0063 — a catalogue card may be a TECHNICAL materialization, so
-        // this mirror-facing flow reads every materialized book, not the
-        // personal shelf.
-        libraryEntries.materializedBooks
-    ) { keys, books ->
-        keys.associateWith { key ->
-            books.firstOrNull { book ->
-                book.mergeKey == key || book.sourceUrl == key
-            }?.downloadProgress?.coerceIn(0f, 1f) ?: 0.02f
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+    val catalogDownloadProgress: StateFlow<Map<String, Float>> by lazy {
+        combine(
+            _catalogDownloadingKeys,
+            // ADR-0063 — a catalogue card may be a TECHNICAL materialization, so
+            // this mirror-facing flow reads every materialized book, not the
+            // personal shelf.
+            libraryEntries.materializedBooks
+        ) { keys, books ->
+            keys.associateWith { key ->
+                books.firstOrNull { book ->
+                    book.mergeKey == key || book.sourceUrl == key
+                }?.downloadProgress?.coerceIn(0f, 1f) ?: 0.02f
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+    }
 
     /**
      * Card keys whose book is already downloaded offline (so the card shows
      * CloudDone instead of the download affordance). Matched on the same
      * identity the union cards use — merge key, else source url.
      */
-    val catalogDownloadedKeys: StateFlow<Set<String>> = libraryEntries.materializedBooks
-        .map { books ->
-            books.asSequence()
-                .filter { it.isDownloaded }
-                .mapNotNull { it.mergeKey.ifBlank { it.sourceUrl } }
-                .filter { it.isNotBlank() }
-                .toSet()
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+    val catalogDownloadedKeys: StateFlow<Set<String>> by lazy {
+        libraryEntries.materializedBooks
+            .map { books ->
+                books.asSequence()
+                    .filter { it.isDownloaded }
+                    .mapNotNull { it.mergeKey.ifBlank { it.sourceUrl } }
+                    .filter { it.isNotBlank() }
+                    .toSet()
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+    }
 
     /**
      * Spec-15 T4 — one-tap download from a catalogue card: import the book
@@ -6043,10 +6141,11 @@ class MainViewModel @JvmOverloads constructor(
      * #397 — per-book Source Track download counts for the honest partial
      * offline badge («Офлайн (N/M)»); full offline stays `downloaded == total`.
      */
-    val bookDownloadCounts: StateFlow<Map<String, com.slukhayka.audiobooks.data.db.BookDownloadCount>> =
+    val bookDownloadCounts: StateFlow<Map<String, com.slukhayka.audiobooks.data.db.BookDownloadCount>> by lazy {
         App.instance.audiobookDao.observeBookDownloadCounts()
             .map { counts -> counts.associateBy { it.bookId } }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    }
 
     // =====================================================================
     // #899 — Менеджер завантажень: черга, дії та підсумок памʼяті.
@@ -6072,33 +6171,35 @@ class MainViewModel @JvmOverloads constructor(
      * [com.slukhayka.audiobooks.data.downloads.DownloadQueue.build]. A book
      * with no download fact (IDLE, nothing on disk) is not an item.
      */
-    val downloadQueue: StateFlow<List<com.slukhayka.audiobooks.data.downloads.DownloadQueueItem>> = combine(
-        libraryBooks,
-        bookDownloadCounts,
-        _downloadingBookId,
-        _downloadRecoveryBookIds,
-        _downloadQueueBytes
-    ) { books, counts, activeBookId, recoveryBookIds, bytesByBook ->
-        com.slukhayka.audiobooks.data.downloads.DownloadQueue.build(
-            facts = books.map { entry ->
-                val count = counts[entry.book.id]
-                com.slukhayka.audiobooks.data.downloads.DownloadQueueFacts(
-                    bookId = entry.book.id,
-                    title = entry.book.title,
-                    author = entry.book.author,
-                    isDownloaded = entry.book.isDownloaded,
-                    downloadState = entry.book.downloadState,
-                    downloadedChapters = count?.downloaded ?: 0,
-                    totalChapters = count?.total ?: 0,
-                    progress = entry.book.downloadProgress,
-                    requiresBrowserRefresh = entry.book.id in recoveryBookIds,
-                    isLocal = entry.isLocal
-                )
-            },
-            activeBookId = activeBookId,
-            bytesOnDisk = bytesByBook
-        )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val downloadQueue: StateFlow<List<com.slukhayka.audiobooks.data.downloads.DownloadQueueItem>> by lazy {
+        combine(
+            libraryBooks,
+            bookDownloadCounts,
+            _downloadingBookId,
+            _downloadRecoveryBookIds,
+            _downloadQueueBytes
+        ) { books, counts, activeBookId, recoveryBookIds, bytesByBook ->
+            com.slukhayka.audiobooks.data.downloads.DownloadQueue.build(
+                facts = books.map { entry ->
+                    val count = counts[entry.book.id]
+                    com.slukhayka.audiobooks.data.downloads.DownloadQueueFacts(
+                        bookId = entry.book.id,
+                        title = entry.book.title,
+                        author = entry.book.author,
+                        isDownloaded = entry.book.isDownloaded,
+                        downloadState = entry.book.downloadState,
+                        downloadedChapters = count?.downloaded ?: 0,
+                        totalChapters = count?.total ?: 0,
+                        progress = entry.book.downloadProgress,
+                        requiresBrowserRefresh = entry.book.id in recoveryBookIds,
+                        isLocal = entry.isLocal
+                    )
+                },
+                activeBookId = activeBookId,
+                bytesOnDisk = bytesByBook
+            )
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }
 
     /**
      * #899 — re-reads what Room cannot answer: the device's free space, each

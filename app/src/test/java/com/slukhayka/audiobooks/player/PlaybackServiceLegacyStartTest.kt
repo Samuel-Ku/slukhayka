@@ -27,7 +27,7 @@ class PlaybackServiceLegacyStartTest {
 
     @Test
     fun otherActionsAreNotTheLegacyHandshake() {
-        assertFalse(isLegacyMediaButtonStart(Intent(Intent.ACTION_PLAY)))
+        assertFalse(isLegacyMediaButtonStart(Intent(Intent.ACTION_VIEW)))
         assertFalse(isLegacyMediaButtonStart(null))
     }
 }

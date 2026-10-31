@@ -142,6 +142,11 @@ android {
     create("minifiedDebug") {
       initWith(getByName("debug"))
       applicationIdSuffix = ".debug"
+      // AGP disables optimization and obfuscation for debuggable build types,
+      // even when minification is on. The canary must exercise the real release
+      // pipeline, so it is not debuggable; it stays installable because it is
+      // signed with the debug key (and keeps its own .debug application id).
+      isDebuggable = false
       isMinifyEnabled = true
       isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -749,3 +754,10 @@ val downloadTdlib by tasks.registering(Exec::class) {
 // #829 — the AAR is a compile dependency, so the pinned artifact must exist
 // before any build; the download task is the only supported producer.
 tasks.named("preBuild") { dependsOn(downloadTdlib) }
+
+// #1702 — the minified canary deliberately ships without google-services.json:
+// it is an installable keep-rule check, not a Firebase release. The Crashlytics
+// mapping upload therefore has no app id (gmpAppId/minifiedDebug.txt) and would
+// fail assembleMinifiedDebug. Release still uploads its mapping in CI.
+tasks.matching { it.name == "uploadCrashlyticsMappingFileMinifiedDebug" }
+    .configureEach { enabled = false }

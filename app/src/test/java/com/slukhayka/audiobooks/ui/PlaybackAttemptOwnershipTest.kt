@@ -12,21 +12,30 @@ import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * #1241 — a slow preparation A must not steal the player from a newer B.
  *
  * The delay is a controlled test adapter ([playbackPreparationHook]): real
  * preparation still runs; the test decides completion order with
- * [CompletableDeferred]s — no sleep, no network. Without the ownership guard the
- * finishing A installs itself and this test goes red, which is the negative
- * case the ticket asks to reproduce first.
+ * [CompletableDeferred]s — no network.
+ *
+ * #1732 — the negative proof is a terminal signal, not a window: the stale
+ * attempt's decision is awaited through [MainViewModel]'s
+ * `playbackAttemptSettled` seam. The old `Thread.sleep(300)` could pass before
+ * A even reached the ownership check on a loaded CI, and `awaitInstalled`
+ * returned silently when its deadline expired.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -71,12 +80,48 @@ class PlaybackAttemptOwnershipTest {
         )
     }
 
-    private fun awaitInstalled(installed: List<String>, expected: String, deadlineMs: Long = 5_000) {
+    /**
+     * Waits for a positive install record and fails on timeout. The list is
+     * live (not a snapshot), so a late adapter call is still observed.
+     */
+    private fun awaitInstalled(
+        installed: List<String>,
+        expected: String,
+        deadlineMs: Long = 5_000
+    ) {
         val deadline = System.currentTimeMillis() + deadlineMs
         while (System.currentTimeMillis() < deadline) {
             shadowOf(Looper.getMainLooper()).idle()
             if (installed.contains(expected)) return
             Thread.sleep(10)
+        }
+        fail("install '$expected' did not arrive within ${deadlineMs}ms; installed=${installed.toList()}")
+    }
+
+    /**
+     * The attempt's terminal decision, delivered by the production seam. A
+     * superseded attempt reports `false` only after it has actually reached the
+     * ownership check, so the assertion cannot race a slow CI.
+     */
+    private class Settlements {
+        private val decisions = ConcurrentHashMap<Long, Boolean>()
+        private val latches = ConcurrentHashMap<Long, CountDownLatch>()
+
+        val observe: (Long, Boolean) -> Unit = { attemptId, installed ->
+            decisions[attemptId] = installed
+            latches.getOrPut(attemptId) { CountDownLatch(1) }.countDown()
+        }
+
+        fun await(attemptId: Long, deadlineMs: Long = 5_000): Boolean {
+            val latch = latches.getOrPut(attemptId) { CountDownLatch(1) }
+            val deadline = System.currentTimeMillis() + deadlineMs
+            while (System.currentTimeMillis() < deadline) {
+                shadowOf(Looper.getMainLooper()).idle()
+                decisions[attemptId]?.let { return it }
+                latch.await(1, TimeUnit.MILLISECONDS)
+            }
+            fail("attempt $attemptId did not settle within ${deadlineMs}ms; settled=${decisions.keys}")
+            return decisions.getValue(attemptId)
         }
     }
 
@@ -104,8 +149,9 @@ class PlaybackAttemptOwnershipTest {
             )
         }
 
-        val installed = java.util.Collections.synchronizedList(mutableListOf<Long>())
+        val installed = java.util.Collections.synchronizedList(mutableListOf<String>())
         val gates = ConcurrentHashMap<Long, CompletableDeferred<Unit>>()
+        val settlements = Settlements()
         val seam = ExplicitPlaybackAttempts(AutomaticPlaybackRecoveryGate()) {}
         val viewModel = MainViewModel(
             app,
@@ -113,7 +159,8 @@ class PlaybackAttemptOwnershipTest {
             playbackPreparationHook = { attemptId, _ ->
                 gates.getOrPut(attemptId) { CompletableDeferred() }.await()
             },
-            playbackInstallAdapter = { request -> installed += request.attemptId }
+            playbackInstallAdapter = { request -> installed += "${request.bookId}#${request.attemptId}" },
+            playbackAttemptSettled = settlements.observe
         )
 
         viewModel.playAudiobook(book("book-a"))
@@ -121,12 +168,14 @@ class PlaybackAttemptOwnershipTest {
 
         // A2 (attempt 2) is the listener's latest gesture.
         gates.getOrPut(2L) { CompletableDeferred() }.complete(Unit)
-        awaitInstalled(installed.map { it.toString() }, "2")
-        gates.getOrPut(1L) { CompletableDeferred() }.complete(Unit)
-        shadowOf(Looper.getMainLooper()).idle()
-        Thread.sleep(300)
+        awaitInstalled(installed, "book-a#2")
+        assertTrue("the newer same-Edition request must install", settlements.await(2L))
 
-        assertEquals("only the newer same-Edition request may install", listOf(2L), installed.toList())
+        // A1 finishes last — its terminal decision is what proves it did not install.
+        gates.getOrPut(1L) { CompletableDeferred() }.complete(Unit)
+        assertFalse("the superseded same-Edition request must not install", settlements.await(1L))
+
+        assertEquals("only the newer same-Edition request may install", listOf("book-a#2"), installed.toList())
         assertEquals(
             "the winning attempt consumed the pause marker exactly once",
             null,
@@ -142,6 +191,7 @@ class PlaybackAttemptOwnershipTest {
 
         val installed = java.util.Collections.synchronizedList(mutableListOf<String>())
         val gates = ConcurrentHashMap<Long, CompletableDeferred<Unit>>()
+        val settlements = Settlements()
         val seam = ExplicitPlaybackAttempts(AutomaticPlaybackRecoveryGate()) {}
         val viewModel = MainViewModel(
             app,
@@ -149,7 +199,8 @@ class PlaybackAttemptOwnershipTest {
             playbackPreparationHook = { attemptId, _ ->
                 gates.getOrPut(attemptId) { CompletableDeferred() }.await()
             },
-            playbackInstallAdapter = { request -> installed += request.bookId }
+            playbackInstallAdapter = { request -> installed += request.bookId },
+            playbackAttemptSettled = settlements.observe
         )
 
         viewModel.jumpToBookmark(bookmark("book-a"))
@@ -159,8 +210,7 @@ class PlaybackAttemptOwnershipTest {
         awaitInstalled(installed, "book-b")
 
         gates.getOrPut(1L) { CompletableDeferred() }.complete(Unit)
-        shadowOf(Looper.getMainLooper()).idle()
-        Thread.sleep(300)
+        assertFalse("the superseded Bookmark must not install", settlements.await(1L))
 
         assertEquals(
             "the superseded Bookmark must not steal the player",
@@ -177,6 +227,7 @@ class PlaybackAttemptOwnershipTest {
 
         val installed = java.util.Collections.synchronizedList(mutableListOf<String>())
         val gates = ConcurrentHashMap<Long, CompletableDeferred<Unit>>()
+        val settlements = Settlements()
         val seam = ExplicitPlaybackAttempts(AutomaticPlaybackRecoveryGate()) {}
         val viewModel = MainViewModel(
             app,
@@ -184,7 +235,8 @@ class PlaybackAttemptOwnershipTest {
             playbackPreparationHook = { attemptId, _ ->
                 gates.getOrPut(attemptId) { CompletableDeferred() }.await()
             },
-            playbackInstallAdapter = { request -> installed += request.bookId }
+            playbackInstallAdapter = { request -> installed += request.bookId },
+            playbackAttemptSettled = settlements.observe
         )
 
         viewModel.relistenBook(book("book-a"))
@@ -194,8 +246,7 @@ class PlaybackAttemptOwnershipTest {
         awaitInstalled(installed, "book-b")
 
         gates.getOrPut(1L) { CompletableDeferred() }.complete(Unit)
-        shadowOf(Looper.getMainLooper()).idle()
-        Thread.sleep(300)
+        assertFalse("the superseded relisten must not install", settlements.await(1L))
 
         assertEquals(
             "the superseded relisten must not steal the player",
@@ -212,6 +263,7 @@ class PlaybackAttemptOwnershipTest {
 
         val installed = java.util.Collections.synchronizedList(mutableListOf<String>())
         val gates = ConcurrentHashMap<Long, CompletableDeferred<Unit>>()
+        val settlements = Settlements()
         val seam = ExplicitPlaybackAttempts(AutomaticPlaybackRecoveryGate()) {}
         val viewModel = MainViewModel(
             app,
@@ -219,7 +271,8 @@ class PlaybackAttemptOwnershipTest {
             playbackPreparationHook = { attemptId, _ ->
                 gates.getOrPut(attemptId) { CompletableDeferred() }.await()
             },
-            playbackInstallAdapter = { request -> installed += request.bookId }
+            playbackInstallAdapter = { request -> installed += request.bookId },
+            playbackAttemptSettled = settlements.observe
         )
 
         viewModel.playAudiobook(book("book-a"))
@@ -229,10 +282,10 @@ class PlaybackAttemptOwnershipTest {
         gates.getOrPut(2L) { CompletableDeferred() }.complete(Unit)
         awaitInstalled(installed, "book-b")
 
-        // A finishes last — it must NOT replace B.
+        // A finishes last — it must NOT replace B, and its terminal decision
+        // is awaited before the assertion.
         gates.getOrPut(1L) { CompletableDeferred() }.complete(Unit)
-        shadowOf(Looper.getMainLooper()).idle()
-        Thread.sleep(300)
+        assertFalse("the slow preparation must not install", settlements.await(1L))
 
         assertEquals(
             "only the newest gesture may install; the slow A must not steal the player",

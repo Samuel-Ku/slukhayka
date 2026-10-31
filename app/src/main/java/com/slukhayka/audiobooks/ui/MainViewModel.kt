@@ -234,7 +234,11 @@ class MainViewModel @JvmOverloads constructor(
     private val playbackPreparationHook: (suspend (attemptId: Long, bookId: String) -> Unit)? = null,
     // #1241 — engine adapter: production passes null (real player); tests
     // record installs without constructing ExoPlayer.
-    private val playbackInstallAdapter: (suspend (PlaybackInstallRequest) -> Unit)? = null
+    private val playbackInstallAdapter: (suspend (PlaybackInstallRequest) -> Unit)? = null,
+    // #1732 — terminal seam: called once per explicit attempt after it installs
+    // (true) or is superseded (false). Production passes null; the ownership
+    // test awaits it instead of sleeping a fixed "negative proof" window.
+    private val playbackAttemptSettled: ((attemptId: Long, installed: Boolean) -> Unit)? = null
 ) : AndroidViewModel(application) {
 
     // Playback stack is application-scoped (see App.kt) so background playback
@@ -443,6 +447,19 @@ class MainViewModel @JvmOverloads constructor(
             recoveryGate = automaticPlaybackRecoveryGate,
             clearPreviousFailure = { playerManager.clearPlaybackFailureForNewAttempt() }
         )
+
+    /**
+     * #1732 — the terminal half of the ownership seam: an explicit attempt is
+     * settled exactly once, on the thread that made its install decision. Tests
+     * await this instead of proving absence with [Thread.sleep]; production has
+     * no observer and pays one null check.
+     */
+    private fun settlePlaybackAttempt(
+        attempt: ExplicitPlaybackAttempts.Attempt?,
+        installed: Boolean
+    ) {
+        if (attempt != null) playbackAttemptSettled?.invoke(attempt.id, installed)
+    }
 
     // Closing the mini player hides the bar WITHOUT forgetting the book: the
     // listening position stays, playback merely pauses. Audio starting again
@@ -5515,7 +5532,10 @@ class MainViewModel @JvmOverloads constructor(
             // Code-review LOW: if the book was deleted while this IO fetch was
             // in flight (e.g. deleteBook on another screen), do not resurrect
             // playback for it.
-            if (libraryEntries.getBookSync(updatedBook.id) == null) return
+            if (libraryEntries.getBookSync(updatedBook.id) == null) {
+                settlePlaybackAttempt(attempt, installed = false)
+                return
+            }
             // Spec-49 T2b — player preparation asks the replacement mapping
             // once per touch: resume/auto-play of a refused-only (or
             // sourceless) book self-heals through the same resolver the card
@@ -5549,7 +5569,10 @@ class MainViewModel @JvmOverloads constructor(
             }
             // #1241 — the replacement mapping may resolve to a different
             // Edition; a record deleted meanwhile must not be installed later.
-            if (libraryEntries.getBookSync(playbackBook.id) == null) return
+            if (libraryEntries.getBookSync(playbackBook.id) == null) {
+                settlePlaybackAttempt(attempt, installed = false)
+                return
+            }
             if (playbackBook.id != updatedBook.id) {
                 chapterStructureVersion = playerManager.chapterStructureVersion(playbackBook.id)
                 playable = try {
@@ -5567,7 +5590,10 @@ class MainViewModel @JvmOverloads constructor(
             val chapters = playable.map { it.chapter }
             val requestedChapterId = chapterId ?: chapterIndex?.let { chapters.getOrNull(it)?.id }
             val requestedIndex = requestedChapterId?.let { id -> chapters.indexOfFirst { it.id == id } }
-            if (requestedIndex != null && requestedIndex < 0) return
+            if (requestedIndex != null && requestedIndex < 0) {
+                settlePlaybackAttempt(attempt, installed = false)
+                return
+            }
             // ADR-0051 (spec-43 T6): the cloud mirror lands BEFORE the resume
             // decision — «почав на телефоні — продовж тут». A forced
             // re-listen skips it: the explicit restart intent wins.
@@ -5596,7 +5622,10 @@ class MainViewModel @JvmOverloads constructor(
             // #1241 — ownership covers the WHOLE preparation: a slower attempt
             // that a newer gesture superseded must not consume the pause marker
             // or install its queue.
-            if (!playbackStartSeam.shouldInstall(attempt)) return
+            if (!playbackStartSeam.shouldInstall(attempt)) {
+                settlePlaybackAttempt(attempt, installed = false)
+                return
+            }
 
             // #1241 — controlled delay point: the test adapter suspends here so
             // a newer gesture can complete first; production has no hook.
@@ -5610,7 +5639,10 @@ class MainViewModel @JvmOverloads constructor(
             withContext(Dispatchers.Main) {
                 // #1241 — re-check on the install thread: a newer gesture may
                 // have won while the preparation finished.
-                if (!playbackStartSeam.shouldInstall(attempt)) return@withContext
+                if (!playbackStartSeam.shouldInstall(attempt)) {
+                    settlePlaybackAttempt(attempt, installed = false)
+                    return@withContext
+                }
                 // #1241 — the pause marker is consumed only by the winning
                 // attempt, and only AFTER its install; a loser never clears or
                 // restores it (same-Edition A1/A2 must not resurrect a marker
@@ -5635,6 +5667,7 @@ class MainViewModel @JvmOverloads constructor(
                 if (playbackInstallAdapter != null) {
                     playbackInstallAdapter.invoke(installRequest)
                     if (pausedAt != null) listeningState.updatePausedAt(playbackBook.id, null)
+                    settlePlaybackAttempt(attempt, installed = true)
                     return@withContext
                 }
                 playerManager.loadAndPlayBook(
@@ -5650,6 +5683,7 @@ class MainViewModel @JvmOverloads constructor(
                     cookieHeader = streamCookieHeader
                 )
                 if (pausedAt != null) listeningState.updatePausedAt(playbackBook.id, null)
+                settlePlaybackAttempt(attempt, installed = true)
             }
 
             // Asynchronously refresh metadata/cover in background without delaying audio startup
@@ -5696,6 +5730,7 @@ class MainViewModel @JvmOverloads constructor(
                 // list has no join, so a dead entry looks alive and leads
                 // nowhere. Say it instead of returning in silence.
                 _bookmarkMessage.value = bookmarkUnavailableMessage
+                settlePlaybackAttempt(bookmarkAttempt, installed = false)
                 return@launch
             }
             // ADR-0007: chapter→track pairing rides the same fetch.
@@ -5743,7 +5778,10 @@ class MainViewModel @JvmOverloads constructor(
                 // spend this allowance.
                 // #1241 — a slower Bookmark that a newer gesture superseded
                 // must not reopen the player or a deleted record.
-                if (!playbackStartSeam.shouldInstall(bookmarkAttempt)) return@launch
+                if (!playbackStartSeam.shouldInstall(bookmarkAttempt)) {
+                    settlePlaybackAttempt(bookmarkAttempt, installed = false)
+                    return@launch
+                }
                 playbackStartSeam.armOnSuccess(bookmarkAttempt, bookmark.bookId)
                 val bookmarkLoads = playerState.value.currentBook?.id != bookmark.bookId ||
                     chapterStructureVersion != playerManager.chapterStructureVersion(bookmark.bookId)
@@ -5761,6 +5799,7 @@ class MainViewModel @JvmOverloads constructor(
                         )
                     )
                     _showFullPlayer.value = true
+                    settlePlaybackAttempt(bookmarkAttempt, installed = true)
                     return@launch
                 }
                 if (bookmarkLoads) {
@@ -5783,6 +5822,7 @@ class MainViewModel @JvmOverloads constructor(
                     playerManager.play()
                 }
                 _showFullPlayer.value = true
+                settlePlaybackAttempt(bookmarkAttempt, installed = true)
             }
         }
     }

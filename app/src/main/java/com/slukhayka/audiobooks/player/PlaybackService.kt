@@ -12,7 +12,7 @@ import androidx.media3.session.MediaSessionService
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import com.slukhayka.audiobooks.App
-import com.slukhayka.audiobooks.MainActivity
+import com.slukhayka.audiobooks.NotificationIntents
 import com.slukhayka.audiobooks.data.diagnostics.DiagnosticPlaybackService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -78,12 +78,9 @@ class PlaybackService : MediaSessionService() {
         val sessionActivity = PendingIntent.getActivity(
             this,
             /* requestCode = */ 0,
-            Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-                // ADR-0052 §6 — the service (playback) notification's tap
-                // opens the full player, not merely the app.
-                putExtra(MainActivity.EXTRA_OPEN_PLAYER, true)
-            },
+            // ADR-0052 §6 — the service (playback) notification's tap
+            // opens the full player, not merely the app.
+            NotificationIntents.openPlayer(this),
             PendingIntent.FLAG_IMMUTABLE
         )
         mediaSession = mediaSessionFactory?.invoke(this)

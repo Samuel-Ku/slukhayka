@@ -100,6 +100,15 @@ class CrashReporting(
     val state: StateFlow<CrashReportingState> = _state.asStateFlow()
 
     /**
+     * #1723 — false until [start] has read (or received) the persisted consent.
+     * Activity.onStart can update the visibility before the IO batch answers;
+     * nothing may reach the sink until the consent is known, or a listener who
+     * denied reporting would briefly have diagnostic context published.
+     */
+    @Volatile
+    private var started = false
+
+    /**
      * @param consent the value a caller already loaded off the main thread
      *   (#1723); the default keeps the old self-contained contract for tests
      *   and for any future caller that has no startup batch.
@@ -107,7 +116,13 @@ class CrashReporting(
     fun start(consent: CrashConsent = consentStore.load()) {
         _state.value = CrashReportingState(consent)
         sink.setCollectionEnabled(enabledForBuild && consent == CrashConsent.ALLOWED)
-        if (enabledForBuild) processStateSummarySink.set(currentContext)
+        if (enabledForBuild) {
+            // Publish the context that accumulated before start() ran — now
+            // that the consent is known. DENIED still publishes nothing.
+            processStateSummarySink.set(currentContext)
+            if (consent != CrashConsent.DENIED) sink.setContext(currentContext)
+        }
+        started = true
 
         if (!enabledForBuild) return
 
@@ -165,7 +180,9 @@ class CrashReporting(
     }
 
     fun record(exception: Throwable) {
-        if (enabledForBuild && _state.value.consent != CrashConsent.DENIED) sink.record(exception)
+        if (enabledForBuild && started && _state.value.consent != CrashConsent.DENIED) {
+            sink.record(exception)
+        }
     }
 
     fun setAppVisibility(visibility: AppVisibility) = updateCurrentContext {
@@ -184,7 +201,7 @@ class CrashReporting(
     }
 
     fun reportUnexpectedPlaybackExit(event: UnexpectedPlaybackExitEvent) {
-        if (!enabledForBuild) return
+        if (!enabledForBuild || !started) return
         when (_state.value.consent) {
             CrashConsent.DENIED -> Unit
             CrashConsent.ALLOWED -> sink.recordUnexpectedPlaybackExit(event)
@@ -206,7 +223,7 @@ class CrashReporting(
     }
 
     private fun publishContext(context: CrashContext) {
-        if (enabledForBuild) {
+        if (enabledForBuild && started) {
             processStateSummarySink.set(context)
             if (_state.value.consent != CrashConsent.DENIED) sink.setContext(context)
         }

@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.data.diagnostics
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -124,6 +125,40 @@ class CrashReportingTest {
 
         assertEquals(DiagnosticPlaybackState.PLAYING, summarySink.context?.playbackState)
         assertEquals(DiagnosticAudioOrigin.LOCAL, summarySink.context?.audioOrigin)
+    }
+
+    @Test
+    fun `context before start is not published to a listener who later denies`() {
+        val sink = FakeCrashReportSink(hasUnsentReports = false)
+        val reporting = CrashReporting(
+            FakeConsentStore(CrashConsent.DENIED),
+            sink,
+            enabledForBuild = true
+        )
+
+        // Activity.onStart can land before the IO batch has loaded consent.
+        reporting.setAppVisibility(AppVisibility.BACKGROUND)
+        assertNull("no sink write before consent is known", sink.reportedContext)
+
+        reporting.start()
+        assertNull("a denied listener's context is never published", sink.reportedContext)
+        assertFalse(sink.automaticCollectionEnabled)
+    }
+
+    @Test
+    fun `context accumulated before start is published once consent allows it`() {
+        val sink = FakeCrashReportSink(hasUnsentReports = false)
+        val reporting = CrashReporting(
+            FakeConsentStore(CrashConsent.ALLOWED),
+            sink,
+            enabledForBuild = true
+        )
+
+        reporting.setAppVisibility(AppVisibility.BACKGROUND)
+        assertNull(sink.reportedContext)
+
+        reporting.start(CrashConsent.ALLOWED)
+        assertEquals(AppVisibility.BACKGROUND, sink.reportedContext?.appVisibility)
     }
 
     @Test

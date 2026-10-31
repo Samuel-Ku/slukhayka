@@ -190,6 +190,13 @@ class App : Application() {
     private val privacyInstalled = CompletableDeferred<Unit>()
 
     /**
+     * Completed after the batch has PUBLISHED its values (not merely loaded
+     * them): the first achievement refresh must not race the assignment of
+     * [completedStartupValues] and match the curated lists as empty.
+     */
+    private val startupApplied = CompletableDeferred<Unit>()
+
+    /**
      * The persisted privacy choice as soon as the startup batch has it. The
      * default (direct, DoH on) is exactly what [PrivacyPrefs] means before a
      * listener saves a route, so the screen can render immediately and update.
@@ -1834,12 +1841,14 @@ class App : Application() {
                 _privacyPrefs.value = values.privacyPrefs
                 TransportPrivacy.install(values.privacyPrefs)
                 showcaseConsent.seed(values.showcasePublished)
-            } catch (failure: Throwable) {
+            } catch (failure: Exception) {
                 // Degrade to the defaults the app had before startup saved
                 // anything: Direct route, undecided consent, hidden showcase.
+                // Errors (OOM) still crash: the batch must not hide them.
                 Log.w("Startup", "startup reads failed; using defaults", failure)
             } finally {
                 privacyInstalled.complete(Unit)
+                startupApplied.complete(Unit)
             }
         }
         // #1722 — warm the player's 4read session cookie from the persisted
@@ -1851,7 +1860,7 @@ class App : Application() {
         // wait for the curated lists (the awards read them) instead of building
         // the engine's asset-backed inputs on main.
         achievementScope.launch {
-            runCatching { startup.await() }
+            startupApplied.await()
             achievements.refresh()
         }
         // ADR-0039 / spec #681 T3 (#684): the ONE politeness gate for every

@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -315,8 +316,14 @@ class PlayerPaneQuickToolsFitTest {
      * #1708 — fontScale 2.0 in the landscape pane. The two-column branch has
      * no scroll and a fixed 208 dp cover slot, so the enlarged title slid under
      * the top bar and the timer row fell out of the 411 dp. A large font must
-     * use the portrait branch, which scrolls: every primary control is
-     * reachable and nothing starts above the top bar.
+     * use the portrait branch, which scrolls: the scroll viewport starts below
+     * the top bar (so nothing is drawn under it) and every primary control is
+     * reachable by scrolling.
+     *
+     * The viewport is the assertion, not the artwork's unclipped bounds: focus
+     * lands on the context line, the scroll brings it into view and the cover
+     * therefore has a NEGATIVE unclipped offset even though the viewport clips
+     * it — `getUnclippedBoundsInRoot` would call the correct layout a defect.
      */
     @Test
     fun `landscape pane at fontScale 2_0 scrolls instead of sliding under the top bar`() {
@@ -324,14 +331,17 @@ class PlayerPaneQuickToolsFitTest {
 
         val topBar = composeTestRule.onNodeWithTag("close_player_button", useUnmergedTree = true)
             .getUnclippedBoundsInRoot()
-        for (tag in listOf("player_cover", "player_context")) {
-            val bounds = composeTestRule.onNodeWithTag(tag, useUnmergedTree = true)
-                .getUnclippedBoundsInRoot()
-            assertTrue(
-                "$tag заходить під верхню панель: $bounds, панель=$topBar",
-                bounds.top.value >= topBar.bottom.value - 1f
-            )
-        }
+        val scroll = composeTestRule.onNode(hasScrollAction())
+        scroll.assertExists()
+        val viewport = scroll.getUnclippedBoundsInRoot()
+        assertTrue(
+            "the scroll viewport must start below the top bar: viewport=$viewport, topBar=$topBar",
+            viewport.top.value >= topBar.bottom.value - 1f
+        )
+        assertTrue(
+            "the scrolling column must have positive height: $viewport",
+            viewport.bottom.value - viewport.top.value > 0f
+        )
         for (tag in listOf(
             "player_play_pause_button",
             "speed_chip",

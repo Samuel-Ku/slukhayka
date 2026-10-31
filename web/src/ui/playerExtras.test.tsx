@@ -527,6 +527,79 @@ describe("PlayerSheet panes (W5.1)", () => {
     expect(screen.getByText("До кінця розділу")).toBeTruthy();
   });
 
+  it("seeks across the real chapter duration, not a 100-second literal", async () => {
+    // #1686 — the range input used `max={100}` while positions are absolute
+    // seconds, so a 10-minute chapter could only ever seek to 1:40.
+    const engine = freshEngine();
+    await engine.loadBook(
+      {
+        title: "Книга",
+        chapters: CHAPTERS,
+        editionId: "ed-1",
+        workId: "Книга|Автор",
+      },
+      0,
+      { forceChapter: true, startPositionSeconds: 300 }
+    );
+    engine.pause();
+    render(
+      <PlayerSheet
+        engine={engine}
+        onClose={vi.fn()}
+        lastPlayed={null}
+        profile={null}
+        reviewsStore={null}
+        bookmarksStore={null}
+      />
+    );
+    const slider = screen.getByRole("slider", {
+      name: "Позиція відтворення",
+    }) as HTMLInputElement;
+    expect(slider.max).toBe("600");
+    // 5:00 of a 10-minute chapter: the thumb sits in the middle, not at the end.
+    expect(slider.value).toBe("300");
+    expect(slider.getAttribute("aria-valuetext")).toBe("5:00 / 10:00");
+    fireEvent.change(slider, { target: { value: "420" } });
+    expect(engine.getState().positionSeconds).toBe(420);
+    engine.dispose();
+  });
+
+  it("hides the seek range instead of guessing when the duration is unknown", async () => {
+    // ADR-0014/0059: an unknown duration is not a range. A literal max would
+    // lie about where the listener can seek; the honest state is no slider.
+    const engine = freshEngine();
+    await engine.loadBook(
+      {
+        title: "Книга",
+        chapters: [
+          {
+            title: "Глава 1",
+            streamUrl: "https://4read.org/uploads/audio/1.mp3",
+          },
+        ],
+        editionId: "ed-1",
+        workId: "Книга|Автор",
+      },
+      0,
+      { forceChapter: true }
+    );
+    engine.pause();
+    render(
+      <PlayerSheet
+        engine={engine}
+        onClose={vi.fn()}
+        lastPlayed={null}
+        profile={null}
+        reviewsStore={null}
+        bookmarksStore={null}
+      />
+    );
+    expect(
+      screen.queryByRole("slider", { name: "Позиція відтворення" })
+    ).toBeNull();
+    engine.dispose();
+  });
+
   it("draws the same player as a right-hand pane when the window has room", async () => {
     const engine = freshEngine();
     await engine.loadBook(

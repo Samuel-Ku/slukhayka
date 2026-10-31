@@ -74,6 +74,22 @@ export function PlayerSheet({
 
   const chapters = engine.chaptersOf();
   const workId = engine.workIdOf();
+  // #1686 — the seek slider must span the REAL chapter duration. The old
+  // `max={100}` was a literal, so on any chapter longer than 1:40 the browser
+  // clamped both the thumb and every drag to the first 100 seconds. An unknown
+  // duration is not a range: hiding the slider is honest (ADR-0014/0059),
+  // guessing one would lie about where the listener can seek.
+  const chapterDurationSeconds = chapters[state.chapterIndex]?.durationSeconds;
+  const seekDurationSeconds =
+    typeof chapterDurationSeconds === "number" &&
+    Number.isFinite(chapterDurationSeconds) &&
+    chapterDurationSeconds > 0
+      ? chapterDurationSeconds
+      : null;
+  const seekPositionSeconds =
+    seekDurationSeconds === null
+      ? 0
+      : Math.min(Math.max(state.positionSeconds, 0), seekDurationSeconds);
 
   // W6.2 — the honest «у кеші» badges: read from the REAL offline cache,
   // never guessed; refreshed when the loaded book changes.
@@ -203,14 +219,19 @@ export function PlayerSheet({
           </span>
         )}
       </p>
-      <input
-        type="range"
-        min={0}
-        max={100}
-        value={state.positionSeconds}
-        onChange={(e) => engine.seek(Number(e.target.value))}
-        style={{ width: "100%", margin: "16px 0" }}
-      />
+      {seekDurationSeconds !== null && (
+        <input
+          type="range"
+          min={0}
+          max={seekDurationSeconds}
+          step={1}
+          value={seekPositionSeconds}
+          onChange={(e) => engine.seek(Number(e.target.value))}
+          aria-label={t("playbackPosition")}
+          aria-valuetext={`${formatClock(seekPositionSeconds)} / ${formatClock(seekDurationSeconds)}`}
+          style={{ width: "100%", margin: "16px 0" }}
+        />
+      )}
       <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
         <button onClick={() => engine.skip(-15)}>⏪ 15s</button>
         <button

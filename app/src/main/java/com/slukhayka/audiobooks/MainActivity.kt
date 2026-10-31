@@ -55,10 +55,9 @@ import com.slukhayka.audiobooks.ui.adaptive.showsWideDetailPane
 import com.slukhayka.audiobooks.ui.adaptive.showsWideExploreDetailPane
 import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.components.AppNavigationRail
-import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
+import com.slukhayka.audiobooks.ui.components.MiniPlayerHost
 import com.slukhayka.audiobooks.ui.components.MiniPlayerColumnWidth
 import com.slukhayka.audiobooks.ui.components.PlayerPane
-import com.slukhayka.audiobooks.ui.components.miniPlayerHasBook
 import com.slukhayka.audiobooks.ui.components.WideDetailPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
@@ -434,13 +433,17 @@ fun AudiobookApp(
     PaperInkSystemBars(darkTheme = systemBarsDark)
     val systemBarsGround = systemBarAppearanceFor(systemBarsDark).ground
     var fullPlayerContentPresent by remember { mutableStateOf(false) }
-    val playerState by viewModel.playerState.collectAsState()
     val miniPlayerDismissed by viewModel.miniPlayerDismissed.collectAsState()
+    // #1705 — the root reads only whether a book is present, never the 1 Hz
+    // PlayerState itself: the per-tick collection now lives inside
+    // [MiniPlayerHost]. A position tick therefore invalidates only the bar, not
+    // this composition (and the Scaffold's bottomBar slot that holds the
+    // navigation bar with it).
+    val barHasBook by viewModel.hasPlayerBook.collectAsState()
     // #1205 — the bar's own gate, asked in the bar's OWN words
     // ([miniPlayerHasBook]): the leading column must not widen for a bar that
     // will draw nothing.
     val miniPlayerVisible = !miniPlayerDismissed && selectedTab != SelectedTab.LISTEN
-    val barHasBook = miniPlayerHasBook(playerState)
     // The bar leaves the leading column while the full player is open — pane or
     // modal. That is what the modal does today by covering it, and it is what
     // keeps the player pane on a window with room at the width the audit
@@ -967,8 +970,8 @@ fun AudiobookApp(
     // UI: на «Слухати» міні-плеєр не потрібен — угорі вже стоїть hero-картка
     // «Продовжити слухати» з тим самим керуванням, тож панель лише дублювала її.
     val miniPlayerContent: @Composable () -> Unit = {
-        MiniPlayerBar(
-            playerState = playerState,
+        MiniPlayerHost(
+            playerState = viewModel.playerState,
             viewedBookId = selectedBookId,
             onPlayPauseClick = {
                 val current = viewModel.playerManager.playerState.value

@@ -69,7 +69,11 @@ class StartupReadsTest {
         val values = StartupReads(source, Dispatchers.IO).load()
 
         assertTrue(values.coldStartSeedDone)
-        assertEquals("the once-per-install flag must skip the JSON parse", 0, source.seedParses)
+        assertEquals(
+            "the once-per-install flag must skip the JSON parse",
+            0L,
+            source.seedParses.toLong()
+        )
         assertTrue(values.coldStartSeed.isEmpty())
         assertTrue("seed" !in source.events)
     }

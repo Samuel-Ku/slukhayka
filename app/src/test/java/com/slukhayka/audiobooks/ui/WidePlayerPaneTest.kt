@@ -8,6 +8,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
@@ -254,13 +255,15 @@ class WidePlayerPaneTest {
      * and there is none: the pane answers by width alone, exactly as the
      * decision says («умови на висоту немає»).
      *
-     * The pane is 0.6 × (905 − 80) ≈ 495 dp wide and only 411 dp tall, so this
-     * is the tightest window the pane ever gets. `PlayerScreen` picks its
-     * two-column landscape layout from the WINDOW's configuration
-     * (`PlayerScreen.kt:559`), so that layout is what runs inside this pane; the
-     * assertion is the one #962 made about the full-screen player: every control
-     * is LAID OUT (a non-zero box) and inside the window, never clipped by the
-     * bottom edge.
+     * The pane is 0.6 × (905 − 80) ≈ 494 dp wide and only 411 dp tall, so this
+     * is the tightest window the pane ever gets. Since #1708 the player picks
+     * its two-column layout from its OWN width (not the window's), so this
+     * pane deliberately gets the ONE-column layout: the two-column split left
+     * its control column ~262 dp against the 288 dp transport row, and the
+     * targets overlapped by 7–11 dp. That column is still too tall for 411 dp
+     * minus the top bar, so it scrolls; the assertion is that every control is
+     * LAID OUT (a non-zero box) and reachable inside the window, never clipped
+     * off the bottom edge.
      */
     @Test
     @Config(qualifiers = "uk-rUA-w905dp-h411dp-560dpi", sdk = [36])
@@ -280,8 +283,13 @@ class WidePlayerPaneTest {
             "add_bookmark_chip",
             "chapters_chip"
         ).forEach { tag ->
-            val bounds = compose.onNodeWithTag(tag, useUnmergedTree = true)
-                .getUnclippedBoundsInRoot()
+            // #1708 — this pane is too narrow for two columns and too short
+            // for the one-screen portrait column, so the player scrolls: the
+            // control is reachable, which is what "laid out inside the pane"
+            // means here (and the scroll is the fix, not a workaround).
+            val node = compose.onNodeWithTag(tag, useUnmergedTree = true)
+            node.performScrollTo()
+            val bounds = node.getUnclippedBoundsInRoot()
             assertTrue(
                 "$tag was never laid out in the 905 × 411 pane: bounds=" +
                     "[${bounds.left},${bounds.top}][${bounds.right},${bounds.bottom}]",
@@ -292,6 +300,61 @@ class WidePlayerPaneTest {
                 "$tag falls outside the landscape window: bounds=$bounds, window=$window",
                 bounds.bottom.value <= window.bottom.value + 1f &&
                     bounds.right.value <= window.right.value + 1f
+            )
+        }
+    }
+
+    /**
+     * #1708 — the criterion the 905 × 411 case above did not state: the five
+     * transport targets must not COLLIDE in the real pane. The pane is
+     * `0.6 × (905 − 80) − 1 dp hairline ≈ 494 dp`; the old window-wide
+     * decision still ran the two columns here, left the control column at
+     * ~262 dp and `Arrangement.SpaceBetween` drew the 52 dp targets over one
+     * another. One column gives the row its 288 dp, so this asserts the
+     * geometry rather than only that each target has a box.
+     */
+    @Test
+    @Config(qualifiers = "uk-rUA-w905dp-h411dp-560dpi", sdk = [36])
+    fun `the real 494 dp pane keeps the transport targets apart`() {
+        val viewModel = composeRootWithAPausedBook()
+
+        compose.runOnIdle { viewModel.setShowFullPlayer(true) }
+        awaitTag("player_pane")
+
+        // The player root IS the right-hand pane's content (PlayerPane puts it
+        // in WideDetailPane's 0.6 detail slot), and `player_pane` tags the
+        // whole content area — so measure the surface the controls live in.
+        val pane = compose.onNodeWithTag("full_player_screen", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot()
+        val order = listOf(
+            "player_previous_button",
+            "player_rewind_button",
+            "player_play_pause_button",
+            "player_forward_button",
+            "player_next_button"
+        )
+        val targets = order.map { tag ->
+            tag to compose.onNodeWithTag(tag, useUnmergedTree = true)
+                .getUnclippedBoundsInRoot()
+        }
+        targets.forEach { (tag, bounds) ->
+            assertTrue(
+                "$tag was never laid out in the 494 dp pane: $bounds",
+                bounds.right.value - bounds.left.value > 0f &&
+                    bounds.bottom.value - bounds.top.value > 0f
+            )
+            assertTrue(
+                "$tag is outside the pane: $bounds, pane=$pane",
+                bounds.left.value >= pane.left.value - 1f &&
+                    bounds.right.value <= pane.right.value + 1f
+            )
+        }
+        targets.zipWithNext { (tag, left), (nextTag, right) ->
+            assertTrue(
+                "the transport targets overlap in the " +
+                    "${pane.right.value - pane.left.value} dp pane: " +
+                    "$tag ends at ${left.right}, $nextTag starts at ${right.left}",
+                right.left.value >= left.right.value - 0.5f
             )
         }
     }

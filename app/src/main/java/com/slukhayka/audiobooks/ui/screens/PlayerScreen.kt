@@ -802,6 +802,21 @@ fun PlayerScreenContent(
     }
 }
 
+/**
+ * #1708 — the player's OWN width at which its two columns hold the transport.
+ *
+ * The transport row is five fixed controls: four 52 dp targets plus the 80 dp
+ * play box, 288 dp in all. The right column takes 1.15/2 of the width left
+ * after the page sides, so those 288 dp need
+ * `288 × 2 ÷ 1.15 + 2 × 16 ≈ 533 dp` of PLAYER, not of window. At the 486–495
+ * dp right pane of an 840–905 dp window the window-wide decision gave the
+ * control column ~261 dp and the targets overlapped by 7–11 dp.
+ */
+private val PlayerTwoColumnMinWidth =
+    AppDimens.PageSides * 2 +
+        (PaperInkDimens.PlayerTransportTarget * 4 + PaperInkDimens.PlayerPlayButtonWidth) *
+        2 / 1.15f
+
 @Composable
 private fun PlayerScreenContentBody(
     playerState: PlayerState,
@@ -850,7 +865,11 @@ private fun PlayerScreenContentBody(
     // give it, so the quick-tool row fell past the bottom edge and reported
     // `bounds=[0,0][0,0]` while the transport row was clipped. This window
     // lays out in two columns instead.
-    val landscape = rememberIsLandscapePhoneWindow()
+    //
+    // #1708 — this answers for the WINDOW. The two-column branch below also
+    // measures the player's OWN width (it can be the right pane) and stops
+    // applying under a large font.
+    val landscapeWindow = rememberIsLandscapePhoneWindow()
     val contentScrollState = rememberScrollState()
     val playerContextFocusRequester = remember { FocusRequester() }
     val speedFocusRequester = remember { FocusRequester() }
@@ -877,6 +896,11 @@ private fun PlayerScreenContentBody(
     )
 
     LaunchedEffect(playerContextFocusRequester) {
+        // #1708 — the context pane now sits inside a BoxWithConstraints, whose
+        // content is composed during MEASURE, so the requester is attached a
+        // beat after this effect starts. Wait one frame before asking for
+        // focus — the same pattern ChapterOrderDialog uses for the same reason.
+        withFrameNanos { }
         playerContextFocusRequester.requestFocus()
     }
     LaunchedEffect(activeTool) {
@@ -947,312 +971,341 @@ private fun PlayerScreenContentBody(
             // wide surface in this app does: the artwork and identity on the
             // LEFT, progress + transport + tools BESIDE them, each in a column
             // with real height to give.
-            if (landscape) {
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .padding(horizontal = AppDimens.PageSides),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .weight(0.85f)
-                            .fillMaxHeight(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        PlayerArtworkPane(
-                            book = book,
-                            playerNarrator = playerNarrator,
-                            currentChapterTitle = currentChapterTitle,
-                            playerContextDescription = playerContextDescription,
-                            artworkAspect = artworkAspect,
-                            onArtworkLoaded = onArtworkLoaded,
-                            playerContextFocusRequester = playerContextFocusRequester,
-                            largeFont = largeFont,
-                            tint = tint,
-                            slotWeight = 1f
-                        )
-                    }
-                    Column(
-                        modifier = Modifier
-                            .weight(1.15f)
-                            .fillMaxHeight(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                                        Spacer(Modifier.height(AppDimens.SpaceLg))
-                                        DualProgress(
-                                            progress = progress,
-                                            chapterPositionSeconds = playerState.currentPositionMs / 1000L,
-                                            chapterDurationMs = playerState.durationMs,
-                                            onSeek = onSeek,
-                                            onBookSeek = onBookSeek,
-                                            bookmarkTarget = lastBookmarkTarget,
-                                            bookmarkFocusRequester = bookmarksFocusRequester,
-                                            onJumpToBookmark = onJumpToBookmark,
-                                            onShowAllBookmarks = onShowAllBookmarks
-                                        )
-
-                                        Spacer(Modifier.height(AppDimens.SpaceMd))
-                                        TransportControls(
-                                            bookTitle = book.title,
-                                            currentChapterTitle = currentChapterTitle,
-                                            isPlaying = playerState.isPlaying,
-                                            // Issue #381: під час резолюції стріму кнопка не має
-                                            // промовляти застаріле «Призупинено».
-                                            isBuffering = playerState.isBuffering,
-                                            seekSumLabel = seekSumLabel,
-                                            onPreviousChapter = onPreviousChapter,
-                                            onBack = onBack,
-                                            onPlayPause = onPlayPause,
-                                            onForward = onForward,
-                                            onNextChapter = onNextChapter
-                                        )
-
-                                        if (playerState.canUndoSeek) {
-                                            TextButton(
-                                                onClick = onUndoSeek,
-                                                modifier = Modifier
-                                                    .heightIn(min = AppDimens.TouchTarget)
-                                                    .testTag("undo_seek_row")
-                                            ) {
-                                                Icon(Icons.AutoMirrored.Outlined.Undo, contentDescription = null)
-                                                Spacer(Modifier.width(AppDimens.SpaceSm))
-                                                Text(stringResource(R.string.player_return_to, MainViewModel.formatTime(playerState.undoFromPositionMs / 1000L)))
-                                            }
-                                        }
-
-                                        Spacer(Modifier.height(AppDimens.SpaceMd))
-                                        QuickTools(
-                                            speed = playerState.playbackSpeed,
-                                            timerMinutes = playerState.sleepTimerMinutes,
-                                            onSpeed = onSpeed,
-                                            onTimer = onTimer,
-                                            onBookmark = onBookmark,
-                                            onChapters = onChapters,
-                                            speedFocusRequester = speedFocusRequester,
-                                            timerFocusRequester = timerFocusRequester,
-                                            bookmarkFocusRequester = bookmarkFocusRequester,
-                                            chaptersFocusRequester = chaptersFocusRequester
-                                        )
-                    }
-                }
-                // The player is a full-screen OVERLAY rendered outside the host
-                // Scaffold, so it gets no bottom inset from it. Pad past the
-                // system navigation bar / gesture zone so the quick-tools row
-                // is never hidden behind it (3-button nav is ~48dp tall).
-                Spacer(Modifier.navigationBarsPadding())
-            } else {
-                Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .then(
-                            if (largeFont) Modifier.verticalScroll(contentScrollState)
-                            else Modifier
-                        )
-                        .fillMaxWidth()
-                        .padding(horizontal = AppDimens.PageSides),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    PlayerArtworkPane(
-                        book = book,
-                        playerNarrator = playerNarrator,
-                        currentChapterTitle = currentChapterTitle,
-                        playerContextDescription = playerContextDescription,
-                        artworkAspect = artworkAspect,
-                        onArtworkLoaded = onArtworkLoaded,
-                        playerContextFocusRequester = playerContextFocusRequester,
-                        largeFont = largeFont,
-                        tint = tint,
-                        slotWeight = 1f
-                    )
-                if (playerState.isBuffering) {
-                    // Issue #381 (a11y/UX-аудит v1.3.6): під час резолюції
-                    // YouTube-стріму TalkBack промовляв застаріле «Призупинено»
-                    // — polite liveRegion оголошує «Завантаження» поки стрім
-                    // готується і немає помилки (зразок HomeFeedContent).
-                    val loadingLabel = stringResource(R.string.a11y_player_state_loading)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("player_loading_status")
-                            .semantics(mergeDescendants = true) {
-                                liveRegion = LiveRegionMode.Polite
-                            },
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(AppDimens.TouchTarget / 2))
-                        Spacer(Modifier.width(AppDimens.SpaceXs))
-                        Text(
-                            text = loadingLabel,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-
-                if (!playerState.isBuffering && playerState.lastErrorMsg.isNotBlank()) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceContainer,
-                        shape = RoundedCornerShape(AppDimens.RadiusCard),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("player_recovery_failed")
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+            //
+            // #1708 — but the window's width is not the player's width: at
+            // 840–905 dp the player is the RIGHT PANE of WideDetailPane
+            // (≈456–495 dp), where the same 0.85/1.15 split leaves the control
+            // column ~261 dp against the transport row's 288 dp, and the 52 dp
+            // targets overlap by 7–11 dp. So the two-column shape is decided
+            // by the player's OWN width (BoxWithConstraints — the same
+            // "measure, don't guess" seam QuickTools uses), and never taken
+            // under a large font: at fontScale 2.0 two columns are not tall
+            // enough for the enlarged title and timer row, while the portrait
+            // branch already scrolls.
+            BoxWithConstraints(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+            ) {
+                val twoColumns = landscapeWindow &&
+                    !largeFont &&
+                    maxWidth >= PlayerTwoColumnMinWidth
+                // #1708 — in an 840–905 dp landscape window the player's pane
+                // is only ≈456–495 dp wide and 411 dp tall: too narrow for two
+                // columns and too short for the one-screen portrait column.
+                // The portrait branch then scrolls (the treatment a large font
+                // already gets), so no control is clipped off the bottom edge.
+                val scrolls = largeFont || (landscapeWindow && !twoColumns)
+                Column(modifier = Modifier.fillMaxSize()) {
+                    if (twoColumns) {
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .padding(horizontal = AppDimens.PageSides),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = stringResource(R.string.player_recovery_failed),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            FlowRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                            Column(
+                                modifier = Modifier
+                                    .weight(0.85f)
+                                    .fillMaxHeight(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
                             ) {
-                                TextButton(onClick = onRetryPlayback, modifier = Modifier.heightIn(min = 48.dp).testTag("player_retry")) {
-                                    Text(stringResource(R.string.player_retry))
-                                }
-                                TextButton(onClick = onFindAnotherSource, modifier = Modifier.heightIn(min = 48.dp).testTag("player_find_another_source")) {
-                                    Text(stringResource(R.string.player_find_another_source))
-                                }
-                                // #597 — a secondary diagnostic action; it never
-                                // crowds the primary retry/source buttons.
-                                TextButton(onClick = { showProblemReport = true }, modifier = Modifier.heightIn(min = 48.dp).testTag("player_problem_report")) {
-                                    Text(stringResource(R.string.player_problem_report_view))
-                                }
+                                PlayerArtworkPane(
+                                    book = book,
+                                    playerNarrator = playerNarrator,
+                                    currentChapterTitle = currentChapterTitle,
+                                    playerContextDescription = playerContextDescription,
+                                    artworkAspect = artworkAspect,
+                                    onArtworkLoaded = onArtworkLoaded,
+                                    playerContextFocusRequester = playerContextFocusRequester,
+                                    largeFont = largeFont,
+                                    tint = tint,
+                                    slotWeight = 1f
+                                )
+                            }
+                            Column(
+                                modifier = Modifier
+                                    .weight(1.15f)
+                                    .fillMaxHeight(),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                                Spacer(Modifier.height(AppDimens.SpaceLg))
+                                                DualProgress(
+                                                    progress = progress,
+                                                    chapterPositionSeconds = playerState.currentPositionMs / 1000L,
+                                                    chapterDurationMs = playerState.durationMs,
+                                                    onSeek = onSeek,
+                                                    onBookSeek = onBookSeek,
+                                                    bookmarkTarget = lastBookmarkTarget,
+                                                    bookmarkFocusRequester = bookmarksFocusRequester,
+                                                    onJumpToBookmark = onJumpToBookmark,
+                                                    onShowAllBookmarks = onShowAllBookmarks
+                                                )
+
+                                                Spacer(Modifier.height(AppDimens.SpaceMd))
+                                                TransportControls(
+                                                    bookTitle = book.title,
+                                                    currentChapterTitle = currentChapterTitle,
+                                                    isPlaying = playerState.isPlaying,
+                                                    // Issue #381: під час резолюції стріму кнопка не має
+                                                    // промовляти застаріле «Призупинено».
+                                                    isBuffering = playerState.isBuffering,
+                                                    seekSumLabel = seekSumLabel,
+                                                    onPreviousChapter = onPreviousChapter,
+                                                    onBack = onBack,
+                                                    onPlayPause = onPlayPause,
+                                                    onForward = onForward,
+                                                    onNextChapter = onNextChapter
+                                                )
+
+                                                if (playerState.canUndoSeek) {
+                                                    TextButton(
+                                                        onClick = onUndoSeek,
+                                                        modifier = Modifier
+                                                            .heightIn(min = AppDimens.TouchTarget)
+                                                            .testTag("undo_seek_row")
+                                                    ) {
+                                                        Icon(Icons.AutoMirrored.Outlined.Undo, contentDescription = null)
+                                                        Spacer(Modifier.width(AppDimens.SpaceSm))
+                                                        Text(stringResource(R.string.player_return_to, MainViewModel.formatTime(playerState.undoFromPositionMs / 1000L)))
+                                                    }
+                                                }
+
+                                                Spacer(Modifier.height(AppDimens.SpaceMd))
+                                                QuickTools(
+                                                    speed = playerState.playbackSpeed,
+                                                    timerMinutes = playerState.sleepTimerMinutes,
+                                                    onSpeed = onSpeed,
+                                                    onTimer = onTimer,
+                                                    onBookmark = onBookmark,
+                                                    onChapters = onChapters,
+                                                    speedFocusRequester = speedFocusRequester,
+                                                    timerFocusRequester = timerFocusRequester,
+                                                    bookmarkFocusRequester = bookmarkFocusRequester,
+                                                    chaptersFocusRequester = chaptersFocusRequester
+                                                )
                             }
                         }
-                    }
-                }
-
-                // #530 — the ordered alternatives, shown before anything
-                // switches; a different narration carries «Перемкнути».
-                if (fallbackCandidates.isNotEmpty()) {
-                    Spacer(Modifier.height(AppDimens.SpaceSm))
-                    FallbackCandidatesCard(
-                        candidates = fallbackCandidates,
-                        onSelect = onSelectFallback
-                    )
-                }
-
-                if (showProblemReport) {
-                    // #597 — allowlisted fields only; the listener reviews the
-                    // whole text and shares it explicitly (never automatic).
-                    val report = com.slukhayka.audiobooks.data.diagnostics.PlaybackProblemReport.build(
-                        category = playerState.errorKind.name,
-                        stage = "PLAYBACK",
-                        appVersion = com.slukhayka.audiobooks.BuildConfig.VERSION_NAME,
-                        appVariant = if (com.slukhayka.audiobooks.BuildConfig.DEBUG) "debug" else "release",
-                        androidRelease = android.os.Build.VERSION.RELEASE ?: "unknown",
-                        androidSdk = android.os.Build.VERSION.SDK_INT,
-                        webViewVersion = if (android.os.Build.VERSION.SDK_INT >= 26) {
-                            runCatching { android.webkit.WebView.getCurrentWebViewPackage()?.versionName }.getOrNull()
-                        } else {
-                            null
-                        }
-                    )
-                    AlertDialog(
-                        onDismissRequest = { showProblemReport = false },
-                        title = { Text(stringResource(R.string.player_problem_report_title)) },
-                        text = {
-                            Column {
-                                Text(report.toPlainText())
-                                Spacer(Modifier.height(AppDimens.SpaceSm))
+                        // The player is a full-screen OVERLAY rendered outside the host
+                        // Scaffold, so it gets no bottom inset from it. Pad past the
+                        // system navigation bar / gesture zone so the quick-tools row
+                        // is never hidden behind it (3-button nav is ~48dp tall).
+                        Spacer(Modifier.navigationBarsPadding())
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .then(
+                                    if (scrolls) Modifier.verticalScroll(contentScrollState)
+                                    else Modifier
+                                )
+                                .fillMaxWidth()
+                                .padding(horizontal = AppDimens.PageSides),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            PlayerArtworkPane(
+                                book = book,
+                                playerNarrator = playerNarrator,
+                                currentChapterTitle = currentChapterTitle,
+                                playerContextDescription = playerContextDescription,
+                                artworkAspect = artworkAspect,
+                                onArtworkLoaded = onArtworkLoaded,
+                                playerContextFocusRequester = playerContextFocusRequester,
+                                largeFont = largeFont,
+                                scrolls = scrolls,
+                                tint = tint,
+                                slotWeight = 1f
+                            )
+                        if (playerState.isBuffering) {
+                            // Issue #381 (a11y/UX-аудит v1.3.6): під час резолюції
+                            // YouTube-стріму TalkBack промовляв застаріле «Призупинено»
+                            // — polite liveRegion оголошує «Завантаження» поки стрім
+                            // готується і немає помилки (зразок HomeFeedContent).
+                            val loadingLabel = stringResource(R.string.a11y_player_state_loading)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("player_loading_status")
+                                    .semantics(mergeDescendants = true) {
+                                        liveRegion = LiveRegionMode.Polite
+                                    },
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(AppDimens.TouchTarget / 2))
+                                Spacer(Modifier.width(AppDimens.SpaceXs))
                                 Text(
-                                    text = stringResource(R.string.player_problem_report_body_note),
-                                    style = MaterialTheme.typography.labelSmall,
+                                    text = loadingLabel,
+                                    style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                        },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                showProblemReport = false
-                                val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(android.content.Intent.EXTRA_TEXT, report.toPlainText())
+                        }
+
+                        if (!playerState.isBuffering && playerState.lastErrorMsg.isNotBlank()) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceContainer,
+                                shape = RoundedCornerShape(AppDimens.RadiusCard),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("player_recovery_failed")
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.player_recovery_failed),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    FlowRow(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)
+                                    ) {
+                                        TextButton(onClick = onRetryPlayback, modifier = Modifier.heightIn(min = 48.dp).testTag("player_retry")) {
+                                            Text(stringResource(R.string.player_retry))
+                                        }
+                                        TextButton(onClick = onFindAnotherSource, modifier = Modifier.heightIn(min = 48.dp).testTag("player_find_another_source")) {
+                                            Text(stringResource(R.string.player_find_another_source))
+                                        }
+                                        // #597 — a secondary diagnostic action; it never
+                                        // crowds the primary retry/source buttons.
+                                        TextButton(onClick = { showProblemReport = true }, modifier = Modifier.heightIn(min = 48.dp).testTag("player_problem_report")) {
+                                            Text(stringResource(R.string.player_problem_report_view))
+                                        }
+                                    }
                                 }
-                                runCatching {
-                                    reportContext.startActivity(android.content.Intent.createChooser(send, null))
-                                }
-                            }) {
-                                Text(stringResource(R.string.player_problem_report_share))
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showProblemReport = false }) {
-                                Text(stringResource(R.string.player_problem_report_close))
                             }
                         }
-                    )
-                }
-                // F7 — one inter-row gap went: the freed height belongs to the
-                // artwork slot (the audit's 272 dp cover budget).
-                DualProgress(
-                    progress = progress,
-                    chapterPositionSeconds = playerState.currentPositionMs / 1000L,
-                    chapterDurationMs = playerState.durationMs,
-                    onSeek = onSeek,
-                    onBookSeek = onBookSeek,
-                    bookmarkTarget = lastBookmarkTarget,
-                    bookmarkFocusRequester = bookmarksFocusRequester,
-                    onJumpToBookmark = onJumpToBookmark,
-                    onShowAllBookmarks = onShowAllBookmarks
-                )
 
-                Spacer(Modifier.height(2.dp))
-                TransportControls(
-                    bookTitle = book.title,
-                    currentChapterTitle = currentChapterTitle,
-                    isPlaying = playerState.isPlaying,
-                    // Issue #381: під час резолюції стріму кнопка не має
-                    // промовляти застаріле «Призупинено».
-                    isBuffering = playerState.isBuffering,
-                    seekSumLabel = seekSumLabel,
-                    onPreviousChapter = onPreviousChapter,
-                    onBack = onBack,
-                    onPlayPause = onPlayPause,
-                    onForward = onForward,
-                    onNextChapter = onNextChapter
-                )
+                        // #530 — the ordered alternatives, shown before anything
+                        // switches; a different narration carries «Перемкнути».
+                        if (fallbackCandidates.isNotEmpty()) {
+                            Spacer(Modifier.height(AppDimens.SpaceSm))
+                            FallbackCandidatesCard(
+                                candidates = fallbackCandidates,
+                                onSelect = onSelectFallback
+                            )
+                        }
 
-                if (playerState.canUndoSeek) {
-                    TextButton(
-                        onClick = onUndoSeek,
-                        modifier = Modifier
-                            .heightIn(min = AppDimens.TouchTarget)
-                            .testTag("undo_seek_row")
-                    ) {
-                        Icon(Icons.AutoMirrored.Outlined.Undo, contentDescription = null)
-                        Spacer(Modifier.width(AppDimens.SpaceSm))
-                        Text(stringResource(R.string.player_return_to, MainViewModel.formatTime(playerState.undoFromPositionMs / 1000L)))
+                        if (showProblemReport) {
+                            // #597 — allowlisted fields only; the listener reviews the
+                            // whole text and shares it explicitly (never automatic).
+                            val report = com.slukhayka.audiobooks.data.diagnostics.PlaybackProblemReport.build(
+                                category = playerState.errorKind.name,
+                                stage = "PLAYBACK",
+                                appVersion = com.slukhayka.audiobooks.BuildConfig.VERSION_NAME,
+                                appVariant = if (com.slukhayka.audiobooks.BuildConfig.DEBUG) "debug" else "release",
+                                androidRelease = android.os.Build.VERSION.RELEASE ?: "unknown",
+                                androidSdk = android.os.Build.VERSION.SDK_INT,
+                                webViewVersion = if (android.os.Build.VERSION.SDK_INT >= 26) {
+                                    runCatching { android.webkit.WebView.getCurrentWebViewPackage()?.versionName }.getOrNull()
+                                } else {
+                                    null
+                                }
+                            )
+                            AlertDialog(
+                                onDismissRequest = { showProblemReport = false },
+                                title = { Text(stringResource(R.string.player_problem_report_title)) },
+                                text = {
+                                    Column {
+                                        Text(report.toPlainText())
+                                        Spacer(Modifier.height(AppDimens.SpaceSm))
+                                        Text(
+                                            text = stringResource(R.string.player_problem_report_body_note),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                },
+                                confirmButton = {
+                                    TextButton(onClick = {
+                                        showProblemReport = false
+                                        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(android.content.Intent.EXTRA_TEXT, report.toPlainText())
+                                        }
+                                        runCatching {
+                                            reportContext.startActivity(android.content.Intent.createChooser(send, null))
+                                        }
+                                    }) {
+                                        Text(stringResource(R.string.player_problem_report_share))
+                                    }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { showProblemReport = false }) {
+                                        Text(stringResource(R.string.player_problem_report_close))
+                                    }
+                                }
+                            )
+                        }
+                        // F7 — one inter-row gap went: the freed height belongs to the
+                        // artwork slot (the audit's 272 dp cover budget).
+                        DualProgress(
+                            progress = progress,
+                            chapterPositionSeconds = playerState.currentPositionMs / 1000L,
+                            chapterDurationMs = playerState.durationMs,
+                            onSeek = onSeek,
+                            onBookSeek = onBookSeek,
+                            bookmarkTarget = lastBookmarkTarget,
+                            bookmarkFocusRequester = bookmarksFocusRequester,
+                            onJumpToBookmark = onJumpToBookmark,
+                            onShowAllBookmarks = onShowAllBookmarks
+                        )
+
+                        Spacer(Modifier.height(2.dp))
+                        TransportControls(
+                            bookTitle = book.title,
+                            currentChapterTitle = currentChapterTitle,
+                            isPlaying = playerState.isPlaying,
+                            // Issue #381: під час резолюції стріму кнопка не має
+                            // промовляти застаріле «Призупинено».
+                            isBuffering = playerState.isBuffering,
+                            seekSumLabel = seekSumLabel,
+                            onPreviousChapter = onPreviousChapter,
+                            onBack = onBack,
+                            onPlayPause = onPlayPause,
+                            onForward = onForward,
+                            onNextChapter = onNextChapter
+                        )
+
+                        if (playerState.canUndoSeek) {
+                            TextButton(
+                                onClick = onUndoSeek,
+                                modifier = Modifier
+                                    .heightIn(min = AppDimens.TouchTarget)
+                                    .testTag("undo_seek_row")
+                            ) {
+                                Icon(Icons.AutoMirrored.Outlined.Undo, contentDescription = null)
+                                Spacer(Modifier.width(AppDimens.SpaceSm))
+                                Text(stringResource(R.string.player_return_to, MainViewModel.formatTime(playerState.undoFromPositionMs / 1000L)))
+                            }
+                        }
+
+                        // F7 — the quick-tools row sits right under the transport;
+                        // the 12 dp gap was artwork height.
+                        QuickTools(
+                            speed = playerState.playbackSpeed,
+                            timerMinutes = playerState.sleepTimerMinutes,
+                            onSpeed = onSpeed,
+                            onTimer = onTimer,
+                            onBookmark = onBookmark,
+                            onChapters = onChapters,
+                            speedFocusRequester = speedFocusRequester,
+                            timerFocusRequester = timerFocusRequester,
+                            bookmarkFocusRequester = bookmarkFocusRequester,
+                            chaptersFocusRequester = chaptersFocusRequester
+                        )
+                        // The player is a full-screen OVERLAY rendered outside the
+                        // host Scaffold, so it gets no bottom inset from it. Pad
+                        // past the system navigation bar / gesture zone so the
+                        // quick-tools row is never hidden behind it.
+                        Spacer(Modifier.navigationBarsPadding())
+                        }
                     }
-                }
-
-                // F7 — the quick-tools row sits right under the transport;
-                // the 12 dp gap was artwork height.
-                QuickTools(
-                    speed = playerState.playbackSpeed,
-                    timerMinutes = playerState.sleepTimerMinutes,
-                    onSpeed = onSpeed,
-                    onTimer = onTimer,
-                    onBookmark = onBookmark,
-                    onChapters = onChapters,
-                    speedFocusRequester = speedFocusRequester,
-                    timerFocusRequester = timerFocusRequester,
-                    bookmarkFocusRequester = bookmarkFocusRequester,
-                    chaptersFocusRequester = chaptersFocusRequester
-                )
-                    // The player is a full-screen OVERLAY rendered outside the
-                    // host Scaffold, so it gets no bottom inset from it. Pad
-                    // past the system navigation bar / gesture zone so the
-                    // quick-tools row is never hidden behind it.
-                    Spacer(Modifier.navigationBarsPadding())
                 }
             }
         }
@@ -1291,9 +1344,11 @@ private fun ColumnScope.PlayerArtworkPane(
     onArtworkLoaded: (Drawable) -> Unit,
     playerContextFocusRequester: FocusRequester,
     largeFont: Boolean,
-    slotWeight: Float
+    slotWeight: Float,
+    /** #1708 — a scrolling column has no bounded height to weight a slot in. */
+    scrolls: Boolean = false
 ) {
-    val slotModifier: Modifier = if (largeFont) {
+    val slotModifier: Modifier = if (largeFont || scrolls) {
         Modifier.height(208.dp)
     } else {
         Modifier.weight(slotWeight)
@@ -1941,7 +1996,12 @@ private fun TransportControls(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-        TransportIcon(PaperInkIcons.SkipBack, previousDescription, onPreviousChapter)
+        TransportIcon(
+            PaperInkIcons.SkipBack,
+            previousDescription,
+            onPreviousChapter,
+            testTag = "player_previous_button"
+        )
         // F9 (аудит 2026-10-28): the step is IN the glyph — `Rew15`/`Fwd30`
         // carry their own numeral, so the visible «15 с»/«30 с» caption and
         // the mirrored Replay are gone.
@@ -1949,6 +2009,7 @@ private fun TransportControls(
             icon = PaperInkIcons.Rew15,
             description = backDescription,
             onClick = onBack,
+            testTag = "player_rewind_button",
             glyphSize = PaperInkIconSizes.Transport,
         )
         FilledIconButton(
@@ -1993,9 +2054,15 @@ private fun TransportControls(
             icon = PaperInkIcons.Fwd30,
             description = forwardDescription,
             onClick = onForward,
+            testTag = "player_forward_button",
             glyphSize = PaperInkIconSizes.Transport,
         )
-        TransportIcon(PaperInkIcons.SkipFwd, nextDescription, onNextChapter)
+        TransportIcon(
+            PaperInkIcons.SkipFwd,
+            nextDescription,
+            onNextChapter,
+            testTag = "player_next_button"
+        )
         }
         // Temporary and closest to the action: it is not a second clock and
         // never argues with the «Return to …» rewind-undo row.
@@ -2020,12 +2087,17 @@ private fun TransportIcon(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     description: String,
     onClick: () -> Unit,
+    // #1708 — the geometry test needs the five targets by name; the row is
+    // sized by them (4 × 52 dp + the 80 dp play box), so a name per target is
+    // what lets the pane test state "these do not overlap" without reading px.
+    testTag: String,
     glyphSize: androidx.compose.ui.unit.Dp = PaperInkDimens.PlayerTransportGlyph,
 ) {
     IconButton(
         onClick = onClick,
         modifier = Modifier
             .size(PaperInkDimens.PlayerTransportTarget)
+            .testTag(testTag)
             .semantics { contentDescription = description }
     ) {
         Icon(

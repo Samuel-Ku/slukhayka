@@ -896,6 +896,11 @@ private fun PlayerScreenContentBody(
     )
 
     LaunchedEffect(playerContextFocusRequester) {
+        // #1708 — the context pane now sits inside a BoxWithConstraints, whose
+        // content is composed during MEASURE, so the requester is attached a
+        // beat after this effect starts. Wait one frame before asking for
+        // focus — the same pattern ChapterOrderDialog uses for the same reason.
+        withFrameNanos { }
         playerContextFocusRequester.requestFocus()
     }
     LaunchedEffect(activeTool) {

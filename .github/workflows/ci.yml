@@ -379,8 +379,12 @@ jobs:
   # the same R8 + resource shrinking as `release` on the debug package, needs
   # no signing or Firebase secrets, and therefore can gate every Android PR.
   # A dead/contradictory keep rule or a build type that silently stops
-  # minifying fails here. Runtime keep-rule smoke is the release step in
-  # docs/runbooks/release-r8-smoke.md (a device is not available in CI).
+  # minifying fails here. #1731 pins the canary's identity too: AGP turns
+  # optimization OFF for a debuggable build type, and an applicationId without
+  # its `.debug` suffix would make this APK the shipping package. Runtime
+  # keep-rule smoke is the release step in
+  # docs/runbooks/release-r8-smoke.md (a device is not available in CI); that
+  # runbook also owns the real release-candidate smoke a tag requires.
   r8-minified-apk:
     name: R8 minified APK
     runs-on: ubuntu-latest
@@ -428,7 +432,17 @@ jobs:
       # minification. Its absence is exactly the #1702 regression (dead
       # proguardFiles because isMinifyEnabled=false), so assert it, then put
       # the measured size in the run summary for release-size tracking.
-      - name: Verify R8 ran and report the APK size
+      #
+      # #1731 — a green build is not enough. Three properties make this APK
+      # the R8 canary rather than an unminified debug build:
+      #   * no `application-debuggable`: AGP silently disables optimization
+      #     and obfuscation for a debuggable build type, so this line is what
+      #     makes the mapping.txt assert above mean anything;
+      #   * the applicationId is the `.debug` package — this APK must never be
+      #     installable as the shipping com.slukhayka.audiobooks;
+      #   * the signer is the Android debug key — release signing belongs to
+      #     the release-candidate smoke, not to the canary.
+      - name: Verify the canary is a non-debuggable .debug build
         if: needs.classify.outputs.android == 'true'
         run: |
           set -euo pipefail
@@ -436,9 +450,41 @@ jobs:
           test -n "$apk"
           mapping=app/build/outputs/mapping/minifiedDebug/mapping.txt
           test -s "$mapping"
+
+          android_home=${ANDROID_HOME:?ANDROID_HOME is not set}
+          aapt2=$(find "$android_home/build-tools" -type f -name aapt2 | sort -V | tail -n 1)
+          test -x "$aapt2"
+          badging=$("$aapt2" dump badging "$apk")
+
+          if grep -q '^application-debuggable' <<<"$badging"; then
+            echo "::error::minifiedDebug is application-debuggable: AGP disables R8 optimization and obfuscation for debuggable build types, so a green job would prove nothing."
+            exit 1
+          fi
+
+          application_id=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" <<<"$badging")
+          if [ "$application_id" != "com.slukhayka.audiobooks.debug" ]; then
+            echo "::error::minifiedDebug applicationId is '$application_id', not the .debug canary package; this build must never be the shipping package."
+            exit 1
+          fi
+
+          apksigner=$(find "$android_home/build-tools" -type f -name apksigner | sort -V | tail -n 1)
+          test -x "$apksigner"
+          if ! certificates=$("$apksigner" verify --print-certs "$apk" 2>&1); then
+            echo "::error::apksigner could not verify the minifiedDebug APK."
+            echo "$certificates"
+            exit 1
+          fi
+          if ! grep -q 'certificate DN:.*CN=Android Debug' <<<"$certificates"; then
+            echo "::error::minifiedDebug is not signed with the Android debug key; the canary must never carry the release key."
+            echo "$certificates"
+            exit 1
+          fi
+
           bytes=$(stat -c%s "$apk")
           echo "minifiedDebug APK: $apk ($bytes bytes)"
+          echo "applicationId: $application_id (not debuggable, Android debug key)"
           echo "### R8 canary APK: $bytes bytes" >> "$GITHUB_STEP_SUMMARY"
+          echo "- applicationId: \`$application_id\` (not debuggable, Android debug key)" >> "$GITHUB_STEP_SUMMARY"
 
   timing-start:
     name: Start workflow timer

@@ -238,8 +238,21 @@ class AudioPlayerManager(
      * failure, no fabricated audio (ADR-0019).
      */
     private val streamUrlResolver: suspend (String) -> String? = { url -> url },
-    /** Local WebView cookies, scoped by the source header policy. */
+    /**
+     * The 4read session cookie for stream headers, ALREADY resolved off the
+     * main thread (production wires [StreamCookieCache.cachedHeader]).
+     *
+     * #1722 — this must stay a plain memory read: `CookieManager.getCookie`
+     * is a synchronous Binder call, and every [prepareChapter] (play,
+     * auto-advance) runs on the application looper.
+     */
     private val cookieProvider: () -> String = { "" },
+    /**
+     * #1722 — refreshes [cookieProvider]'s value from the WebView jar. Always
+     * invoked on [ioDispatcher], never on the main thread; null in tests that
+     * only exercise the cached value.
+     */
+    private val refreshCookie: (suspend () -> Unit)? = null,
     /** Fresh metadata for a Play invalidated by confirmed topology replacement. */
     private val bookFetcher: (suspend (String) -> AudiobookEntity?)? = null,
     private val onBookCompleted: (String) -> Unit = {},
@@ -1347,7 +1360,10 @@ class AudioPlayerManager(
         // is the last chapter's in-chapter seconds, below the book total).
         forceRelisten: Boolean = false,
         initialChapterId: String? = null,
-        expectedChapterStructureVersion: Long? = null
+        expectedChapterStructureVersion: Long? = null,
+        // #1722 — the 4read session cookie resolved on IO by the caller. The
+        // immediate prepare consumes it; null keeps the cached value.
+        cookieHeader: String? = null
     ) {
         resetActualCastReceiverEvidence()
         val request = ++loadRequestSequence
@@ -1466,7 +1482,12 @@ class AudioPlayerManager(
             }
         }
 
-        prepareChapter(chapterIdx, positionSeconds * 1000L, autoPlay)
+        prepareChapter(
+            chapterIdx,
+            positionSeconds * 1000L,
+            autoPlay,
+            cookieHeader = cookieHeader
+        )
     }
 
     /**
@@ -1628,6 +1649,24 @@ class AudioPlayerManager(
         _playerState.value = _playerState.value.copy(canUndoSeek = jump != null, undoFromPositionMs = jump?.fromPositionMs ?: 0L)
     }
 
+    /**
+     * #1722 — refreshes the cached stream cookie off the main thread. Fire and
+     * forget: the current prepare consumes the value its caller resolved (or
+     * the last refresh), and the next prepare sees the fresh session value.
+     */
+    private fun refreshCookieInBackground() {
+        val refresh = refreshCookie ?: return
+        scope.launch(ioDispatcher) {
+            try {
+                refresh()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Keep the previous value; playback degrades honestly.
+            }
+        }
+    }
+
     fun prepareChapter(
         chapterIndex: Int,
         startPositionMs: Long = 0L,
@@ -1635,10 +1674,18 @@ class AudioPlayerManager(
         // Spec-32 T4 (#234): every user-initiated prepare resets the heal
         // budget; the self-heal retry passes FALSE so a dead fresh URL cannot
         // re-heal in a loop within the same chapter prepare.
-        resetHealBudget: Boolean = true
+        resetHealBudget: Boolean = true,
+        // #1722 — an already-resolved session cookie from the caller's IO
+        // refresh. Null falls back to the cached value; neither path may call
+        // CookieManager on the main thread.
+        cookieHeader: String? = null
     ) {
         val chapters = _playerState.value.chapters
         if (chapters.isEmpty() || chapterIndex !in chapters.indices) return
+        // #1722 — keep the cache warm for the NEXT prepare. The read itself is
+        // a Binder call, so it runs on IO; this prepare only consumes the
+        // already-resolved value below.
+        refreshCookieInBackground()
         actualCastTerminal = null
         stopActualListening()
         val requestId = ++prepareRequestId
@@ -1768,7 +1815,7 @@ class AudioPlayerManager(
                         playableChapters.getOrNull(chapterIndex)?.sourceId
                             ?: sourceIdForUrl(it.sourceUrl),
                         track?.url.orEmpty(),
-                        cookieProvider()
+                        cookieHeader ?: cookieProvider()
                     )
                 }
                 ?: emptyMap()
@@ -2011,7 +2058,12 @@ class AudioPlayerManager(
         )
     }
 
-    fun play() {
+    /**
+     * @param cookieHeader #1722 — a session cookie already resolved on IO for
+     *   this play; null keeps the cached value. Either way no Binder call
+     *   happens here: this runs on the main thread.
+     */
+    fun play(cookieHeader: String? = null) {
         actualCastTerminal = null
         val wasPlaying = _playerState.value.isPlaying
         // The user's latest transport action owns the pending READY result.
@@ -2051,14 +2103,29 @@ class AudioPlayerManager(
                 if (mp.playbackState == Player.STATE_READY || mp.playbackState == Player.STATE_ENDED) {
                     mp.play()
                 } else if (currentChapter != null) {
-                    prepareChapter(_playerState.value.currentChapterIndex, _playerState.value.currentPositionMs, true)
+                    prepareChapter(
+                        _playerState.value.currentChapterIndex,
+                        _playerState.value.currentPositionMs,
+                        true,
+                        cookieHeader = cookieHeader
+                    )
                 }
             } catch (e: Exception) {
                 Log.e("AudioPlayer", "Error resume play", e)
-                prepareChapter(_playerState.value.currentChapterIndex, _playerState.value.currentPositionMs, true)
+                prepareChapter(
+                    _playerState.value.currentChapterIndex,
+                    _playerState.value.currentPositionMs,
+                    true,
+                    cookieHeader = cookieHeader
+                )
             }
         } else {
-            prepareChapter(_playerState.value.currentChapterIndex, _playerState.value.currentPositionMs, true)
+            prepareChapter(
+                _playerState.value.currentChapterIndex,
+                _playerState.value.currentPositionMs,
+                true,
+                cookieHeader = cookieHeader
+            )
         }
     }
 
@@ -2101,11 +2168,11 @@ class AudioPlayerManager(
         saveCurrentProgressToDb(immediateSync = true)
     }
 
-    fun togglePlayPause() {
+    fun togglePlayPause(cookieHeader: String? = null) {
         if (_playerState.value.isPlaying) {
             pause()
         } else {
-            play()
+            play(cookieHeader)
         }
     }
 

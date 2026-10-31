@@ -122,6 +122,7 @@ import com.slukhayka.audiobooks.data.universe.WikidataResponse
 import com.slukhayka.audiobooks.data.universe.WikidataSeriesProvider
 import com.slukhayka.audiobooks.player.AudioPlayerManager
 import com.slukhayka.audiobooks.player.CastPlaybackController
+import com.slukhayka.audiobooks.player.StreamCookieCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -1615,6 +1616,19 @@ class App : Application() {
         )
     }
 
+    /**
+     * #1722 — the 4read session cookie used for stream headers. Resolved from
+     * the live WebView jar on IO at explicit refresh points and read as plain
+     * memory by the player; `CookieManager.getCookie` must never run on the
+     * main thread (it is a synchronous Binder call, and play/auto-advance do).
+     */
+    val streamCookieCache: StreamCookieCache by lazy {
+        StreamCookieCache(
+            provider = com.slukhayka.audiobooks.data.source.AndroidSourceCookieProvider,
+            url = "https://4read.org/"
+        )
+    }
+
     val playerManager: AudioPlayerManager by lazy {
         // The player runs on the store; chapter materialisation (incl. the
         // 4read page fallback) stays on the catalog's chapter-fetch path.
@@ -1678,11 +1692,10 @@ class App : Application() {
             },
             // Spec 2026-08-26: YouTube watch URLs resolve per-use before setMediaItem.
             streamUrlResolver = { url -> youTubeStreamResolver.resolve(url) },
-            cookieProvider = {
-                runCatching {
-                    android.webkit.CookieManager.getInstance().getCookie("https://4read.org/")
-                }.getOrNull().orEmpty()
-            }
+            // #1722 — play/auto-advance read the cached session cookie only;
+            // the refresh below is the one Binder call and always runs on IO.
+            cookieProvider = streamCookieCache::cachedHeader,
+            refreshCookie = { streamCookieCache.refresh() }
         ).also { manager ->
             diagnosticScope.launch {
                 manager.playerState.collect { state ->
@@ -1729,6 +1742,10 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // #1722 — warm the player's 4read session cookie from the persisted
+        // WebView jar. The read is a Binder call, so it runs on IO; play and
+        // auto-advance then reuse the cached header without touching main.
+        CoroutineScope(Dispatchers.IO).launch { streamCookieCache.refresh() }
         // #1574 — the start trigger: one explicit pull instead of a permanent
         // watcher; the first successful refresh is the silent backfill.
         achievementScope.launch { achievements.refresh() }

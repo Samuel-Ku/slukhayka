@@ -1738,8 +1738,18 @@ class App : Application() {
         SourceGateProvider.install(
             SourceRequestGate(budgetStore = SharedPreferencesSourceGateBudgetStore(this))
         )
-        crashReporting.start()
-        unexpectedExitReporter.inspectLatest()
+        // #1709 — both calls do I/O that startup must not do on the main
+        // thread: start() reads prefs and drives Firebase, and inspectLatest()
+        // reads ActivityManager's exit history over Binder and writes the
+        // cursor prefs. They share ONE IO coroutine so the order is a fact, not
+        // a hope: crash reporting is started before the exit reporter can
+        // produce a report, and the reporter is the only reader/writer of its
+        // cursor, so the watermark cannot race itself. The cursor write itself
+        // uses apply() instead of commit() (SharedPreferencesProcessExitCursorStore).
+        CoroutineScope(Dispatchers.IO).launch {
+            crashReporting.start()
+            unexpectedExitReporter.inspectLatest()
+        }
         PeopleNewArrivalWorker.schedule(this)
         // Install the attestation provider before any background module may
         // open Firestore; bookmark sync starts immediately below.

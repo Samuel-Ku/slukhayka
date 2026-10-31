@@ -1,6 +1,7 @@
 import type { Credentials } from "./credentials";
 import { decodeRecoveryCode } from "./recoveryCodec";
 import { getUiLocale } from "../i18n/locale";
+import { translate, type UiLocale } from "../i18n/strings";
 
 /**
  * spec-43/T2 — the auth seam of the silent web profile. The pure identity
@@ -36,13 +37,47 @@ export interface IdentityDeps {
 }
 
 /**
- * #1687 — the browser-local default name is born in the UI locale: an English
- * listener must not get a Ukrainian «Слухач» saved into their shared identity
- * (and then into every review). The stored nickname is DATA once created —
- * switching the locale later never renames an existing listener.
+ * #1687/#1693 — the default pseudonym follows the UI locale through the ONE
+ * string table (`listenerFallback`), not a second hardcoded phrase that could
+ * drift. A user-chosen nickname is never touched: this function is only the
+ * fallback for an identity that has none.
  */
-function defaultListenerName(): string {
-  return getUiLocale() === "en" ? "Listener" : "Слухач";
+function defaultListenerName(locale: UiLocale): string {
+  return translate(locale, "listenerFallback");
+}
+
+/** The display pseudonym derived from a uid, in the given UI locale. */
+export function nicknameForUid(uid: string, locale: UiLocale): string {
+  if (uid.startsWith("local-")) return defaultListenerName(locale);
+  let hash = 0;
+  for (let i = 0; i < uid.length; i++)
+    hash = (hash * 31 + uid.charCodeAt(i)) >>> 0;
+  return `${defaultListenerName(locale)}-${String(hash % 10000).padStart(4, "0")}`;
+}
+
+/**
+ * Is this nickname one of the GENERATED defaults (either locale)? Only those
+ * are re-localized; a name the listener chose is data and stays byte-identical.
+ */
+function isGeneratedNickname(nickname: string, uid: string): boolean {
+  return (
+    nickname === nicknameForUid(uid, "uk") ||
+    nickname === nicknameForUid(uid, "en")
+  );
+}
+
+/**
+ * #1693 — the profile as the CURRENT UI locale renders it. App recomputes this
+ * on every locale change, so a language switch no longer leaves the GENERATED
+ * fallback pseudonym in the previous language until reload. The uid is the
+ * identity; a CUSTOM nickname is returned untouched.
+ */
+export function localizedProfile(
+  profile: ListenerProfile,
+  locale: UiLocale
+): ListenerProfile {
+  if (!isGeneratedNickname(profile.nickname, profile.uid)) return profile;
+  return { uid: profile.uid, nickname: nicknameForUid(profile.uid, locale) };
 }
 
 function localProfile(randomToken: () => string): ListenerProfile {
@@ -50,14 +85,8 @@ function localProfile(randomToken: () => string): ListenerProfile {
     .replace(/[^a-z0-9]/gi, "")
     .slice(0, 12)
     .toLowerCase();
-  return { uid: `local-${token || "anon"}`, nickname: defaultListenerName() };
-}
-
-function nicknameFor(uid: string): string {
-  let hash = 0;
-  for (let i = 0; i < uid.length; i++)
-    hash = (hash * 31 + uid.charCodeAt(i)) >>> 0;
-  return `${defaultListenerName()}-${String(hash % 10000).padStart(4, "0")}`;
+  const uid = `local-${token || "anon"}`;
+  return { uid, nickname: nicknameForUid(uid, getUiLocale()) };
 }
 
 /**
@@ -86,7 +115,7 @@ export async function ensureProfile(
         pair.password
       );
     }
-    return { uid: user.uid, nickname: nicknameFor(user.uid) };
+    return { uid: user.uid, nickname: nicknameForUid(user.uid, getUiLocale()) };
   } catch {
     return localProfile(deps.randomToken);
   }
@@ -99,7 +128,7 @@ export function currentProfile(
   const user = gateway?.currentUser() ?? null;
   return user === null
     ? null
-    : { uid: user.uid, nickname: nicknameFor(user.uid) };
+    : { uid: user.uid, nickname: nicknameForUid(user.uid, getUiLocale()) };
 }
 
 /**
@@ -122,7 +151,7 @@ export async function restoreFromCode(
       decoded.password
     );
     persistPair(decoded);
-    return { uid: user.uid, nickname: nicknameFor(user.uid) };
+    return { uid: user.uid, nickname: nicknameForUid(user.uid, getUiLocale()) };
   } catch {
     return null;
   }

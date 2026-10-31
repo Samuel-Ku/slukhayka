@@ -105,7 +105,14 @@ data class PlayerState(
     // Position-history undo (wayfinder #25): true while a big accidental seek
     // can be undone back to [undoFromPositionMs].
     val canUndoSeek: Boolean = false,
-    val undoFromPositionMs: Long = 0L
+    val undoFromPositionMs: Long = 0L,
+    /**
+     * #1752 — why the last cast session handed playback back to the phone.
+     * Separate from [lastErrorMsg] because [prepareChapter] clears that field
+     * on every local prepare; this notice is written after the hand-back
+     * prepare instead.
+     */
+    val castSessionOutcome: CastSessionOutcome? = null
 )
 
 /** A factual engine callback, used where optimistic transport state is unsafe. */
@@ -577,6 +584,49 @@ class AudioPlayerManager(
     internal fun playableTracksForCast(): List<SourceCatalog.PlayableChapter> = playableChapters.toList()
 
     /**
+     * #1750 — the cast takeover owns audio now. Stop the local engine WITHOUT
+     * the public [pause] side effects: no PAUSE event, no `pausedAt` marker,
+     * no smart rewind and no progress write. The receiver mirror becomes the
+     * only source of truth for play state and position.
+     */
+    internal fun activateCastTakeover() {
+        shouldAutoPlay = false
+        stopActualListening()
+        mediaPlayer?.let { mp ->
+            try {
+                mp.pause()
+            } catch (e: Exception) {
+                Log.e("AudioPlayer", "Error stopping local engine for cast takeover", e)
+            }
+        }
+        _playerState.value = _playerState.value.copy(
+            isPlaying = false,
+            isBuffering = false,
+            castSessionOutcome = null
+        )
+    }
+
+    /**
+     * #1752 — hand playback back to the phone after a cast session ends.
+     *
+     * [prepareChapter] clears [PlayerState.lastErrorMsg] on every local
+     * prepare, so the listener-facing outcome is written AFTER it. `null`
+     * means the takeover never became active, so there is nothing to report.
+     */
+    internal fun finishCastHandback(
+        outcome: CastSessionOutcome?,
+        chapterIndex: Int,
+        positionMs: Long,
+        playbackSpeed: Float
+    ) {
+        mirrorCastState {
+            it.copy(isPlaying = false, isBuffering = false, playbackSpeed = playbackSpeed)
+        }
+        runCatching { prepareChapter(chapterIndex, positionMs, autoPlay = false) }
+        _playerState.value = _playerState.value.copy(castSessionOutcome = outcome)
+    }
+
+    /**
      * ADR-0024 (#362): the receiver is the truth while it plays — the cast
      * controller mirrors position, play state and chapter index into the ONE
      * StateFlow the UI, the progress tracker and the persistence path read,
@@ -967,42 +1017,49 @@ class AudioPlayerManager(
             if (playbackState != Player.STATE_READY && !isCasting) stopActualListening()
             if (playbackState == Player.STATE_READY) {
                 prepareTimeoutJob?.cancel()
-                val mp = mediaPlayer ?: return
-                // #471: the local verdict is one shared decision
-                // ([SmartRetryPolicy.localAddressReady]) — the retry policy
-                // can never disagree with what the engine actually plays.
-                val isLocal = SmartRetryPolicy.localAddressReady(currentTrack?.localFilePath, currentTrack?.url)
-                _playerState.value = _playerState.value.copy(
-                    isBuffering = false,
-                    durationMs = if (mp.duration > 0) mp.duration else _playerState.value.durationMs,
-                    audioEngineMode = if (isLocal) "Offline Local File" else "4read Direct Stream"
-                )
-                // Persist the real chapter duration once the stream reports it,
-                // so the book's total duration is honest instead of a seeded
-                // placeholder ("4:00:00" for every catalogue book).
-                persistRealDurationIfKnown(mp.duration)
-                applyPlaybackSpeed(_playerState.value.playbackSpeed)
-                val validDur = if (mp.duration > 0) mp.duration else _playerState.value.durationMs
-                // One-shot resume seek (see [pendingResumeSeekMs]): fire it once
-                // and consume it. Never seek from the live state position here -
-                // that re-armed on every READY and stalled resume forever.
-                val pendingSeek = pendingResumeSeekMs
-                pendingResumeSeekMs = -1L
-                if (pendingSeek > 0 && pendingSeek < validDur) {
-                    try { mp.seekTo(pendingSeek) } catch (_: Exception) {}
-                }
-                if (shouldAutoPlay || _playerState.value.isPlaying) {
-                    try {
-                        mp.play()
-                        _playerState.value = _playerState.value.copy(isPlaying = true)
-                    } catch (e: Exception) {
-                        Log.e("AudioPlayer", "Error starting after prepare", e)
+                // #1750: while a receiver is active it owns the play state and
+                // position. A late LOCAL READY must not resurrect the phone
+                // engine beside it, nor overwrite the mirrored state.
+                if (!isCasting) {
+                    val mp = mediaPlayer ?: return
+                    // #471: the local verdict is one shared decision
+                    // ([SmartRetryPolicy.localAddressReady]) — the retry policy
+                    // can never disagree with what the engine actually plays.
+                    val isLocal = SmartRetryPolicy.localAddressReady(currentTrack?.localFilePath, currentTrack?.url)
+                    _playerState.value = _playerState.value.copy(
+                        isBuffering = false,
+                        durationMs = if (mp.duration > 0) mp.duration else _playerState.value.durationMs,
+                        audioEngineMode = if (isLocal) "Offline Local File" else "4read Direct Stream"
+                    )
+                    // Persist the real chapter duration once the stream reports it,
+                    // so the book's total duration is honest instead of a seeded
+                    // placeholder ("4:00:00" for every catalogue book).
+                    persistRealDurationIfKnown(mp.duration)
+                    applyPlaybackSpeed(_playerState.value.playbackSpeed)
+                    val validDur = if (mp.duration > 0) mp.duration else _playerState.value.durationMs
+                    // One-shot resume seek (see [pendingResumeSeekMs]): fire it once
+                    // and consume it. Never seek from the live state position here -
+                    // that re-armed on every READY and stalled resume forever.
+                    val pendingSeek = pendingResumeSeekMs
+                    pendingResumeSeekMs = -1L
+                    if (pendingSeek > 0 && pendingSeek < validDur) {
+                        try { mp.seekTo(pendingSeek) } catch (_: Exception) {}
                     }
-                } else {
-                    _playerState.value = _playerState.value.copy(isPlaying = false)
+                    if (shouldAutoPlay || _playerState.value.isPlaying) {
+                        try {
+                            mp.play()
+                            _playerState.value = _playerState.value.copy(isPlaying = true)
+                        } catch (e: Exception) {
+                            Log.e("AudioPlayer", "Error starting after prepare", e)
+                        }
+                    } else {
+                        _playerState.value = _playerState.value.copy(isPlaying = false)
+                    }
                 }
             } else if (playbackState == Player.STATE_ENDED) {
-                onChapterCompleted()
+                // #1750: a local ENDED may still arrive after the takeover;
+                // only the receiver's owned FINISHED may advance the book.
+                if (!isCasting) onChapterCompleted()
             }
         }
 
@@ -1434,7 +1491,8 @@ class AudioPlayerManager(
             // the chapter reaches READY.
             playbackSpeed = book.preferredSpeed ?: playbackSettings.defaultSpeed,
             canUndoSeek = false,
-            undoFromPositionMs = 0L
+            undoFromPositionMs = 0L,
+            castSessionOutcome = null
         )
         // The caller already chose this load's start (including any resume
         // rewind). A pause from the previous item must not shift it again.
@@ -1728,6 +1786,9 @@ class AudioPlayerManager(
             currentSourceId = chapterSourceId,
             lastErrorMsg = "",
             errorKind = PlaybackErrorKind.NONE,
+            // #1752: a fresh prepare owns playback again; the hand-back method
+            // writes its outcome after this reset.
+            castSessionOutcome = null,
             // A chapter switch is deliberate — the seek history is cleared.
             canUndoSeek = false,
             undoFromPositionMs = 0L
@@ -2075,7 +2136,11 @@ class AudioPlayerManager(
         // no break at all — a fresh start). Read the gap before the smart
         // rewind consumes the pause marker.
         val resumeGapMs = if (wasPlaying) null else pausedAtEpochMs?.let { now() - it }
-        _playerState.value = _playerState.value.copy(isPlaying = true)
+        _playerState.value = _playerState.value.copy(
+            isPlaying = true,
+            // #1752: resuming is the listener acknowledging the hand-back.
+            castSessionOutcome = null
+        )
         ensurePlaybackServiceStarted()
         // Smart rewind (wayfinder #25): coming back from a pause rewinds a few
         // seconds to a few tens of seconds depending on how long the break was.
@@ -2558,15 +2623,20 @@ class AudioPlayerManager(
                 actualListeningClock.flush()
                 if (state.isPlaying && !state.isBuffering) {
                     var newPos = state.currentPositionMs
-                    val mp = mediaPlayer
+                    // #1750: while the receiver owns playback, the local engine
+                    // is stopped and its position is stale. Only the mirror may
+                    // feed the tracker (and therefore the database).
+                    if (!remote) {
+                        val mp = mediaPlayer
 
-                    if (mp != null) {
-                        try {
-                            if (mp.isPlaying) {
-                                newPos = mp.currentPosition
+                        if (mp != null) {
+                            try {
+                                if (mp.isPlaying) {
+                                    newPos = mp.currentPosition
+                                }
+                            } catch (e: Exception) {
+                                // Ignore get position errors
                             }
-                        } catch (e: Exception) {
-                            // Ignore get position errors
                         }
                     }
 

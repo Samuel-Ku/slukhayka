@@ -893,4 +893,7 @@
     <string name="settings_density_comfortable">Comfortable</string>
     <string name="settings_density_compact">Compact</string>
     <string name="settings_density_desc">Compact shrinks rows and posters, never touch targets.</string>
+    <!-- #1752: cast hand-back is an info banner, not a playback failure. -->
+    <string name="player_cast_ended">Casting ended. You can keep listening on this phone.</string>
+    <string name="player_cast_lost">Lost connection to the cast device. You can keep listening on this phone.</string>
 </resources>

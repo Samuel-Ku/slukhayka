@@ -807,4 +807,7 @@
     <string name="timer_remaining_countdown">Pozostało: %1$d:%2$02d</string>
     <string name="timer_until_chapter_end">Do końca rozdziału</string>
     <string name="timer_until_chapter_end_countdown">Do końca rozdziału: %1$d:%2$02d</string>
+    <!-- #1752: cast hand-back is an info banner, not a playback failure. -->
+    <string name="player_cast_ended">Przesyłanie zakończone. Możesz słuchać dalej na telefonie.</string>
+    <string name="player_cast_lost">Utracono połączenie z urządzeniem. Możesz słuchać dalej na telefonie.</string>
 </resources>

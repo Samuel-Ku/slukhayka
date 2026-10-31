@@ -1174,31 +1174,57 @@ fun AudiobookApp(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp))
             },
             bottomBar = {
-                Column {
-                    // #1205 — the phone's slot for the bar. A window with room
-                    // draws the same [miniPlayerContent] in its leading column
-                    // instead (see AdaptiveNavigationLayout below), so this slot
-                    // stays empty there and the content rectangle keeps its
-                    // height.
-                    if (bottomMiniPlayer) {
-                        miniPlayerContent()
-                    }
-
-                    // Four primary destinations, including the settings home (#547).
-                    // #900 — on a wide window the rail leads instead, so this
-                    // slot draws nothing (see AdaptiveNavigationLayout).
-                    AppBottomBarSlot(
-                        layout = windowLayout,
-                        selectedTab = selectedTab,
-                        bookDetailOpen = selectedBookId != null,
-                        onSelect = { tab ->
-                            secondaryBookRoute = SecondaryBookRouteFrame()
-                            bookDetailChildRouteOpen = false
-                            bookDetailChildOrigin = null
-                            bookDetailChildEditionId = null
-                            viewModel.selectTab(tab)
+                // #1711 — only a bar that DRAWS something is emitted. An empty
+                // Column is still a bottomBar placeable, so M3 Scaffold reports
+                // bottomBarHeight = 0 and never falls back to
+                // contentWindowInsets.bottom. On EXPANDED the rail replaces the
+                // bar, so the Scaffold itself must hand the content the
+                // navigation-bar inset.
+                if (windowLayout == WindowLayout.COMPACT || bottomMiniPlayer) {
+                    Column {
+                        // #1205 — the phone's slot for the bar. A window with
+                        // room draws the same [miniPlayerContent] in its leading
+                        // column instead (see AdaptiveNavigationLayout below),
+                        // so this slot stays empty there and the content
+                        // rectangle keeps its height.
+                        if (bottomMiniPlayer) {
+                            // #1711 — in the 600–839 dp band there is no
+                            // AppBottomBar under the bar, so this line is the
+                            // LAST thing the Scaffold draws at the bottom: it
+                            // carries the navigation-bar inset itself. On a
+                            // phone the AppBottomBar below already does.
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .then(
+                                        if (windowLayout == WindowLayout.EXPANDED) {
+                                            Modifier.navigationBarsPadding()
+                                        } else {
+                                            Modifier
+                                        }
+                                    )
+                            ) {
+                                miniPlayerContent()
+                            }
                         }
-                    )
+
+                        // Four primary destinations, including the settings
+                        // home (#547). #900 — on a wide window the rail leads
+                        // instead, so this slot draws nothing (see
+                        // AdaptiveNavigationLayout).
+                        AppBottomBarSlot(
+                            layout = windowLayout,
+                            selectedTab = selectedTab,
+                            bookDetailOpen = selectedBookId != null,
+                            onSelect = { tab ->
+                                secondaryBookRoute = SecondaryBookRouteFrame()
+                                bookDetailChildRouteOpen = false
+                                bookDetailChildOrigin = null
+                                bookDetailChildEditionId = null
+                                viewModel.selectTab(tab)
+                            }
+                        )
+                    }
                 }
             }
         ) { innerPadding ->
@@ -1214,13 +1240,27 @@ fun AudiobookApp(
                     viewModel.selectTab(tab)
                 },
                 // #1205 — the second slot of the same bar: the leading column,
-                // under the rail, on a window with room for it.
+                // under the rail, on a window with room for it. #1711 — with no
+                // bottomBar on EXPANDED, this column sits outside the content
+                // Box that pays the navigation-bar inset, so the slot carries
+                // it itself (see AdaptiveNavigationLayout).
                 miniPlayer = miniPlayerContent.takeIf { leadingMiniPlayer }
             ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
+                    // #1711 — the host has already paid these insets. Nested
+                    // Scaffolds (IndexScreenScaffold, SettingsDestinationScaffold)
+                    // and the player's own top bar must not add them a second
+                    // time.
+                    .consumeWindowInsets(innerPadding)
+                    // #1712 — the one IME padding for the whole window content.
+                    // It sits on the content container, below the Scaffold
+                    // whose contentWindowInsets carry the system bars, so one
+                    // keyboard inset is applied once and consumed for the
+                    // screens below.
+                    .imePadding()
             ) {
                 // #1205 — the Scaffold's content as ONE value: the phone
                 // route draws it alone, a window with room draws it beside the
@@ -1916,7 +1956,20 @@ fun AdaptiveNavigationLayout(
                         // rail itself (no mini-player) is left to the rail.
                         .then(if (miniPlayer == null) Modifier else Modifier.fillMaxWidth())
                 )
-                miniPlayer?.invoke()
+                // #1711 — the content Box beside this column pays the
+                // navigation-bar inset from the Scaffold; the column itself is
+                // outside it, so the bar inside the column carries its own
+                // bottom inset. Only the bar gets it — the rail stays full
+                // height, and a column without a bar has no inset to carry.
+                miniPlayer?.let { bar ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                    ) {
+                        bar()
+                    }
+                }
             }
         }
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {

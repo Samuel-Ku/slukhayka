@@ -1689,6 +1689,9 @@ private fun PlayerTopBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // #1711 — tagged so the pane placement can prove the host's
+            // consumed status-bar inset is not added a second time here.
+            .testTag("player_top_bar")
             .statusBarsPadding()
             // F7 — 48 dp header line: the controls inside are 48 dp targets,
             // so the line itself carries no air; the height belongs to the art.

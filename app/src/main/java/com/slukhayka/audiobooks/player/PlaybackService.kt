@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Process
+import androidx.annotation.VisibleForTesting
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.google.common.util.concurrent.ListenableFuture
@@ -47,6 +48,16 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
 
     /**
+     * #1710 test seam: a Robolectric test that exercises only the controller
+     * gate injects a session built over an inert player, so it does not boot
+     * ExoPlayer, Room and the rest of the application graph. Production leaves
+     * this null and [onCreate] builds the real session around
+     * [App.playerManager.player] exactly as before.
+     */
+    @VisibleForTesting
+    internal var mediaSessionFactory: ((Context) -> MediaSession)? = null
+
+    /**
      * MediaButtonReceiver starts this service with a legacy, session-less
      * ACTION_MEDIA_BUTTON intent; MediaSessionService then asks [onGetSession]
      * with Media3's synthetic legacy controller (UID -1).  The flag is true
@@ -75,16 +86,19 @@ class PlaybackService : MediaSessionService() {
             },
             PendingIntent.FLAG_IMMUTABLE
         )
-        mediaSession = MediaSession.Builder(this, App.instance.playerManager.player)
-            .setSessionActivity(sessionActivity)
-            .setCallback(PlaybackResumptionCallback())
-            .build()
-        // ADR-0024 (#362): while a cast session is live, the CastPlayer owns
-        // the session (notification + media buttons drive the RECEIVER); when
-        // it ends, the local player takes back over. A null argument means
-        // «restore local».
-        App.instance.castController.sessionPlayerSwapper = { remoteOrNull ->
-            mediaSession?.player = remoteOrNull ?: App.instance.playerManager.player
+        mediaSession = mediaSessionFactory?.invoke(this)
+            ?: MediaSession.Builder(this, App.instance.playerManager.player)
+                .setSessionActivity(sessionActivity)
+                .setCallback(PlaybackResumptionCallback())
+                .build()
+        if (mediaSessionFactory == null) {
+            // ADR-0024 (#362): while a cast session is live, the CastPlayer owns
+            // the session (notification + media buttons drive the RECEIVER); when
+            // it ends, the local player takes back over. A null argument means
+            // «restore local».
+            App.instance.castController.sessionPlayerSwapper = { remoteOrNull ->
+                mediaSession?.player = remoteOrNull ?: App.instance.playerManager.player
+            }
         }
     }
 

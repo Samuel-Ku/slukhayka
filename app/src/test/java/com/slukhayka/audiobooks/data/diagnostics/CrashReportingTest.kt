@@ -93,6 +93,9 @@ class CrashReportingTest {
             sink = sink,
             enabledForBuild = true
         )
+        // #1723 — the constructor no longer reads consent; the running app
+        // starts the module before publishing diagnostic context.
+        reporting.start()
         reporting.setAppVisibility(AppVisibility.BACKGROUND)
         reporting.setPlayback(DiagnosticPlaybackState.BUFFERING, DiagnosticAudioOrigin.REMOTE)
         reporting.setPlaybackService(DiagnosticPlaybackService.STARTED)

@@ -92,7 +92,7 @@ class ListenHeroFontScaleLayoutTest {
 
         assertTrue(
             "the narrator must not run past the card: narrator.right=${narrator.right} panel.right=${panel.right}",
-            narrator.right <= panel.right + 1f,
+            narrator.right <= panel.right + 1.dp,
         )
         assertTrue(
             "the meta must move BELOW the cover at 200 %: narrator.top=${narrator.top} cover.bottom=${cover.bottom}",
@@ -139,7 +139,7 @@ class ListenHeroFontScaleLayoutTest {
             .getUnclippedBoundsInRoot()
         assertTrue(
             "chapter.right=${chapter.right} panel.right=${panel.right}",
-            chapter.right <= panel.right + 1f,
+            chapter.right <= panel.right + 1.dp,
         )
     }
 }

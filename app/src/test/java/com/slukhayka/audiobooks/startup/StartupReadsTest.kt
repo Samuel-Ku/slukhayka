@@ -3,8 +3,6 @@ package com.slukhayka.audiobooks.startup
 import com.slukhayka.audiobooks.data.collective.CollectiveCardPublication
 import com.slukhayka.audiobooks.data.collections.CollectionList
 import com.slukhayka.audiobooks.data.diagnostics.CrashConsent
-import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
-import com.slukhayka.audiobooks.data.privacy.RouteMode
 import com.slukhayka.audiobooks.data.universe.UniverseList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -19,7 +17,9 @@ import org.junit.Test
  * #1723 — the regression witness for the cold-start ANR: every value the old
  * startup path read on the main thread (privacy prefs, crash consent, showcase
  * consent, the curated JSON and the cold-start seed) now goes through
- * [StartupReads.load], which performs the whole batch on IO exactly once.
+ * [StartupReads.load], which performs the batch on IO exactly once. The
+ * privacy route is the documented main-thread exception: it must be installed
+ * before the first frame can reach the network.
  *
  * The fake source records the thread of every read, so this is a THREAD
  * assertion, not a proxy: a future edit that removes `withContext(io)` (or
@@ -45,7 +45,7 @@ class StartupReadsTest {
 
         assertEquals(
             "the batch reads every source exactly once, in the documented order",
-            listOf("privacy", "crash", "showcase", "collections", "universes", "seed-flag", "seed"),
+            listOf("crash", "showcase", "collections", "universes", "seed-flag", "seed"),
             source.events
         )
         assertTrue(
@@ -53,7 +53,6 @@ class StartupReadsTest {
             source.threads.values.all { it !== caller }
         )
 
-        assertEquals(RouteMode.CUSTOM_PROXY, values.privacyPrefs.routeMode)
         assertEquals(CrashConsent.DENIED, values.crashConsent)
         assertTrue(values.showcasePublished)
         assertEquals(listOf("nobel"), values.collectionLists.map { it.id })
@@ -85,8 +84,8 @@ class StartupReadsTest {
 
         StartupReads(source, Dispatchers.IO).load()
 
-        assertNotNull("the batch must have read privacy", source.threads["privacy"])
-        assertNotSame(caller, source.threads["privacy"])
+        assertNotNull("the batch must have read crash consent", source.threads["crash"])
+        assertNotSame(caller, source.threads["crash"])
     }
 
     private class RecordingSource(
@@ -103,15 +102,6 @@ class StartupReadsTest {
             threads[name] = Thread.currentThread()
             return value
         }
-
-        override fun privacyPrefs() = read(
-            "privacy",
-            PrivacyPrefs(
-                routeMode = RouteMode.CUSTOM_PROXY,
-                proxyAddress = "127.0.0.1:9050",
-                dohEnabled = false,
-            )
-        )
 
         override fun crashConsent() = read("crash", CrashConsent.DENIED)
 

@@ -8,8 +8,6 @@ import com.slukhayka.audiobooks.data.collections.CollectionAssets
 import com.slukhayka.audiobooks.data.collections.CollectionList
 import com.slukhayka.audiobooks.data.diagnostics.CrashConsent
 import com.slukhayka.audiobooks.data.diagnostics.SharedPreferencesCrashConsentStore
-import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
-import com.slukhayka.audiobooks.data.privacy.SharedPreferencesPrivacySettingsStore
 import com.slukhayka.audiobooks.data.universe.UniverseAssets
 import com.slukhayka.audiobooks.data.universe.UniverseList
 import kotlinx.coroutines.CoroutineDispatcher
@@ -41,7 +39,6 @@ class StartupReads(
 
     /** Reads the batch and returns what the composition root must publish. */
     suspend fun load(): StartupValues = withContext(io) {
-        val privacyPrefs = source.privacyPrefs()
         val crashConsent = source.crashConsent()
         val showcasePublished = source.showcasePublished()
         val collectionLists = source.collectionLists()
@@ -51,7 +48,6 @@ class StartupReads(
         // boolean instead of a JSON parse (#532's once-per-install promise).
         val seedDone = source.coldStartSeedDone()
         StartupValues(
-            privacyPrefs = privacyPrefs,
             crashConsent = crashConsent,
             showcasePublished = showcasePublished,
             collectionLists = collectionLists,
@@ -69,7 +65,6 @@ class StartupReads(
  * treats as "not seeded yet".
  */
 data class StartupValues(
-    val privacyPrefs: PrivacyPrefs,
     val crashConsent: CrashConsent,
     val showcasePublished: Boolean,
     val collectionLists: List<CollectionList>,
@@ -84,7 +79,6 @@ data class StartupValues(
  * implementation is one obvious list of what startup still reads.
  */
 interface StartupSource {
-    fun privacyPrefs(): PrivacyPrefs
     fun crashConsent(): CrashConsent
     fun showcasePublished(): Boolean
     fun collectionLists(): List<CollectionList>
@@ -100,9 +94,6 @@ interface StartupSource {
 internal class AndroidStartupSource(context: Context) : StartupSource {
 
     private val appContext = context.applicationContext
-
-    override fun privacyPrefs(): PrivacyPrefs =
-        SharedPreferencesPrivacySettingsStore(appContext).load()
 
     override fun crashConsent(): CrashConsent =
         SharedPreferencesCrashConsentStore(appContext).load()

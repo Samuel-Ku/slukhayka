@@ -1826,20 +1826,23 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        // #1723 — the one startup batch: privacy route, crash consent, showcase
-        // consent, curated JSON and the cold-start seed. It starts HERE on IO
-        // and every consumer below awaits it; the main thread never reads a
-        // preference or opens an asset for these. The batch also publishes the
-        // values whose owners live elsewhere (App.privacyPrefs, the showcase
-        // store, the catalog's curated lists) before completing
-        // privacyInstalled, which is the gate every network starter awaits.
+        // #1723 privacy exception: the route MUST be installed before the
+        // first frame can start any network call (HomeScreen's LaunchedEffect
+        // is not the only door), so this one preference read stays on main.
+        // It is a single small prefs read; the expensive batch below is on IO.
+        val persistedPrivacy = privacySettings.load()
+        TransportPrivacy.install(persistedPrivacy)
+        _privacyPrefs.value = persistedPrivacy
+        privacyInstalled.complete(Unit)
+        // #1723 — the one startup batch: crash consent, showcase consent,
+        // curated JSON and the cold-start seed. It starts HERE on IO and every
+        // consumer below awaits it; the main thread never reads a preference
+        // or opens an asset for these.
         val startup = startupValues
         startupScope.launch {
             try {
                 val values = startup.await()
                 _completedStartupValues.value = values
-                _privacyPrefs.value = values.privacyPrefs
-                TransportPrivacy.install(values.privacyPrefs)
                 showcaseConsent.seed(values.showcasePublished)
             } catch (failure: Exception) {
                 // Degrade to the defaults the app had before startup saved

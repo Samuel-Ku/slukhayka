@@ -26,3 +26,10 @@
 -keep class org.schabi.newpipe.extractor.** { *; }
 -dontwarn org.mozilla.javascript.**
 -dontwarn org.schabi.newpipe.extractor.**
+
+# #829 — TDLib is a prebuilt AAR without consumer rules. libtdjni binds
+# org.drinkless.tdlib.Client through RegisterNatives, calls back into
+# ResponseReceiver, and reads TdApi fields by name while serialising JSON;
+# R8 renaming any of those breaks Telegram ingest at runtime, not at build
+# time. Keep the generated API surface whole.
+-keep class org.drinkless.tdlib.** { *; }

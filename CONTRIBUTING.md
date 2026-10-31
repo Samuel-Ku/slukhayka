@@ -324,6 +324,9 @@ HEAD не відтворить. Тому одиниці й секунди поз
   `NewPipeExtractor` він тягне з GitHub-релізів і кладе у версійний каталог
 - Перед тегом релізу проганяй `scripts/pre-release.sh`; той самий гейт
   біжить у CI на кожен push у `release/**`
+- R8 увімкнений для `release` (#1702): перед тегом — дим мініфікованої збірки
+  на пристрої за `docs/runbooks/release-r8-smoke.md`; CI перевіряє лише те, що
+  `minifiedDebug` збирається
 - Деталі, зокрема живий YouTube-канарок — `docs/runbooks/component-updates.md`
 
 ## Куди і що пітчити

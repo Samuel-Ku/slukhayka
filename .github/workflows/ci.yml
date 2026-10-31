@@ -375,6 +375,71 @@ jobs:
         if: needs.classify.outputs.android == 'true'
         run: ./gradlew :app:lintDebug
 
+  # #1702 — the build-time half of the R8 guard. `assembleMinifiedDebug` runs
+  # the same R8 + resource shrinking as `release` on the debug package, needs
+  # no signing or Firebase secrets, and therefore can gate every Android PR.
+  # A dead/contradictory keep rule or a build type that silently stops
+  # minifying fails here. Runtime keep-rule smoke is the release step in
+  # docs/runbooks/release-r8-smoke.md (a device is not available in CI).
+  r8-minified-apk:
+    name: R8 minified APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [classify]
+
+    steps:
+      - name: Пропущено — android-змін немає
+        if: needs.classify.outputs.android != 'true'
+        run: echo "R8-нога не потрібна для цієї зміни"
+
+      - name: Checkout
+        if: needs.classify.outputs.android == 'true'
+        uses: actions/checkout@v5
+
+      - name: Setup JDK 21 (Temurin)
+        if: needs.classify.outputs.android == 'true'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Gradle
+        if: needs.classify.outputs.android == 'true'
+        uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: wrapper
+          cache-read-only: ${{ github.event_name == 'pull_request' }}
+
+      - name: Setup Android SDK
+        if: needs.classify.outputs.android == 'true'
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
+
+      - name: Make gradlew executable
+        if: needs.classify.outputs.android == 'true'
+        run: chmod +x ./gradlew
+
+      - name: Build the R8 canary (minifiedDebug)
+        if: needs.classify.outputs.android == 'true'
+        run: ./gradlew :app:assembleMinifiedDebug --no-daemon
+
+      # R8 writes mapping.txt only for a variant that actually ran through
+      # minification. Its absence is exactly the #1702 regression (dead
+      # proguardFiles because isMinifyEnabled=false), so assert it, then put
+      # the measured size in the run summary for release-size tracking.
+      - name: Verify R8 ran and report the APK size
+        if: needs.classify.outputs.android == 'true'
+        run: |
+          set -euo pipefail
+          apk=$(find app/build/outputs/apk/minifiedDebug -name '*.apk' | head -n 1)
+          test -n "$apk"
+          mapping=app/build/outputs/mapping/minifiedDebug/mapping.txt
+          test -s "$mapping"
+          bytes=$(stat -c%s "$apk")
+          echo "minifiedDebug APK: $apk ($bytes bytes)"
+          echo "### R8 canary APK: $bytes bytes" >> "$GITHUB_STEP_SUMMARY"
+
   timing-start:
     name: Start workflow timer
     runs-on: ubuntu-latest

@@ -63,6 +63,7 @@
     <string name="a11y_submission_close">Zamknij</string>
     <string name="a11y_submission_pane">Wyślij link</string>
     <string name="a11y_widget_forward_work">Przewiń «%1$s» o 15 sekund do przodu</string>
+    <string name="a11y_widget_open_app">Otwórz Słuchajkę</string>
     <string name="a11y_widget_pause_work">Wstrzymaj «%1$s»</string>
     <string name="a11y_widget_play_work">Odtwórz «%1$s»</string>
     <string name="a11y_widget_rewind_work">Przewiń «%1$s» o 15 sekund do tyłu</string>

@@ -2,9 +2,11 @@ package com.slukhayka.audiobooks.widget
 
 import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.datastore.preferences.core.Preferences
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
@@ -12,6 +14,7 @@ import androidx.glance.Image
 import androidx.glance.ImageProvider
 import androidx.glance.LocalContext
 import androidx.glance.LocalSize
+import androidx.glance.action.Action
 import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
@@ -21,6 +24,7 @@ import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
+import androidx.glance.currentState
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
 import androidx.glance.layout.Column
@@ -33,9 +37,12 @@ import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.size
 import androidx.glance.layout.width
+import androidx.glance.semantics.contentDescription
+import androidx.glance.semantics.semantics
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
+import androidx.glance.unit.ColorProvider
 import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.MainActivity
 import com.slukhayka.audiobooks.R
@@ -58,7 +65,21 @@ class AudiobookGlanceWidget : GlanceAppWidget() {
     override val sizeMode: SizeMode = SizeMode.Responsive(setOf(SMALL_SIZE, MEDIUM_SIZE))
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val state = withContext(Dispatchers.IO) {
+        // Cold start / system refresh: compute the frame from live data once.
+        // A live session reads the sampler's snapshot below instead — Glance
+        // 1.1.1 does not re-run provideGlance for `updateAll` while active.
+        val coldStartState = computeColdStartState(context)
+
+        provideContent {
+            val storedState = WidgetSnapshotCodec.read(currentState<Preferences>())
+            GlanceTheme {
+                WidgetContent(storedState ?: coldStartState)
+            }
+        }
+    }
+
+    private suspend fun computeColdStartState(context: Context): GlanceWidgetState =
+        withContext(Dispatchers.IO) {
             try {
                 val playerManager = App.instance.playerManager
                 val playerState = playerManager.playerState.value
@@ -87,16 +108,10 @@ class AudiobookGlanceWidget : GlanceAppWidget() {
             }
         }
 
-        provideContent {
-            GlanceTheme {
-                WidgetContent(state)
-            }
-        }
-    }
-
     @Composable
     private fun WidgetContent(state: GlanceWidgetState) {
         val size = LocalSize.current
+        val labels = widgetAccessibilityLabels(LocalContext.current, state)
 
         Box(
             modifier = GlanceModifier
@@ -104,20 +119,23 @@ class AudiobookGlanceWidget : GlanceAppWidget() {
                 .background(GlanceTheme.colors.surfaceVariant)
                 .cornerRadius(16.dp)
                 .padding(12.dp)
+                .semantics { contentDescription = labels.openApp }
                 .clickable(actionStartActivity<MainActivity>()),
             contentAlignment = Alignment.Center
         ) {
             if (size.width < 220.dp) {
-                CompactWidgetLayout(state)
+                CompactWidgetLayout(state, labels)
             } else {
-                ExpandedWidgetLayout(state)
+                ExpandedWidgetLayout(state, labels)
             }
         }
     }
 
     @Composable
-    private fun CompactWidgetLayout(state: GlanceWidgetState) {
-        val labels = widgetAccessibilityLabels(LocalContext.current, state)
+    private fun CompactWidgetLayout(
+        state: GlanceWidgetState,
+        labels: WidgetAccessibilityLabels
+    ) {
         Column(
             modifier = GlanceModifier.fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically,
@@ -141,40 +159,26 @@ class AudiobookGlanceWidget : GlanceAppWidget() {
                     fontSize = 11.sp
                 )
             )
-            Spacer(modifier = GlanceModifier.height(8.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Box(
-                    modifier = GlanceModifier
-                        .size(48.dp)
-                        .background(GlanceTheme.colors.surface)
-                        .cornerRadius(24.dp)
-                        .clickable(actionRunCallback<Rewind15ActionCallback>()),
-                    contentAlignment = Alignment.Center
+            if (state.showsTransportControls()) {
+                Spacer(modifier = GlanceModifier.height(8.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Image(
-                        provider = ImageProvider(R.drawable.ic_replay_10),
-                        contentDescription = labels.rewind,
-                        modifier = GlanceModifier.size(20.dp)
+                    TransportButton(
+                        iconRes = R.drawable.ic_replay_10,
+                        description = labels.rewind,
+                        background = GlanceTheme.colors.surface,
+                        iconSize = 20.dp,
+                        action = actionRunCallback<Rewind15ActionCallback>()
                     )
-                }
-                Spacer(modifier = GlanceModifier.width(12.dp))
-                Box(
-                    modifier = GlanceModifier
-                        .size(48.dp)
-                        .background(GlanceTheme.colors.primary)
-                        .cornerRadius(24.dp)
-                        .clickable(actionRunCallback<TogglePlayActionCallback>()),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Image(
-                        provider = ImageProvider(
-                            if (state.isPlaying) R.drawable.ic_pause else R.drawable.ic_play_arrow
-                        ),
-                        contentDescription = labels.playPause,
-                        modifier = GlanceModifier.size(24.dp)
+                    Spacer(modifier = GlanceModifier.width(12.dp))
+                    TransportButton(
+                        iconRes = if (state.isPlaying) R.drawable.ic_pause else R.drawable.ic_play_arrow,
+                        description = labels.playPause,
+                        background = GlanceTheme.colors.primary,
+                        iconSize = 24.dp,
+                        action = actionRunCallback<TogglePlayActionCallback>()
                     )
                 }
             }
@@ -182,8 +186,10 @@ class AudiobookGlanceWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun ExpandedWidgetLayout(state: GlanceWidgetState) {
-        val labels = widgetAccessibilityLabels(LocalContext.current, state)
+    private fun ExpandedWidgetLayout(
+        state: GlanceWidgetState,
+        labels: WidgetAccessibilityLabels
+    ) {
         Row(
             modifier = GlanceModifier.fillMaxSize(),
             verticalAlignment = Alignment.CenterVertically
@@ -260,68 +266,85 @@ class AudiobookGlanceWidget : GlanceAppWidget() {
                 }
             }
 
-            Spacer(modifier = GlanceModifier.width(8.dp))
-
-            // Transport Control Buttons
-            Row(
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = GlanceModifier
-                        .size(48.dp)
-                        .background(GlanceTheme.colors.surface)
-                        .cornerRadius(24.dp)
-                        .clickable(actionRunCallback<Rewind15ActionCallback>()),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Image(
-                        provider = ImageProvider(R.drawable.ic_replay_10),
-                        contentDescription = labels.rewind,
-                        modifier = GlanceModifier.size(20.dp)
-                    )
-                }
-
+            if (state.showsTransportControls()) {
                 Spacer(modifier = GlanceModifier.width(8.dp))
 
-                Box(
-                    modifier = GlanceModifier
-                        .size(48.dp)
-                        .background(GlanceTheme.colors.primary)
-                        .cornerRadius(24.dp)
-                        .clickable(actionRunCallback<TogglePlayActionCallback>()),
-                    contentAlignment = Alignment.Center
+                // Transport Control Buttons
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Image(
-                        provider = ImageProvider(
-                            if (state.isPlaying) R.drawable.ic_pause else R.drawable.ic_play_arrow
-                        ),
-                        contentDescription = labels.playPause,
-                        modifier = GlanceModifier.size(24.dp)
+                    TransportButton(
+                        iconRes = R.drawable.ic_replay_10,
+                        description = labels.rewind,
+                        background = GlanceTheme.colors.surface,
+                        iconSize = 20.dp,
+                        action = actionRunCallback<Rewind15ActionCallback>()
                     )
-                }
 
-                Spacer(modifier = GlanceModifier.width(8.dp))
+                    Spacer(modifier = GlanceModifier.width(8.dp))
 
-                Box(
-                    modifier = GlanceModifier
-                        .size(48.dp)
-                        .background(GlanceTheme.colors.surface)
-                        .cornerRadius(24.dp)
-                        .clickable(actionRunCallback<FastForward15ActionCallback>()),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Image(
-                        provider = ImageProvider(R.drawable.ic_forward_10),
-                        contentDescription = labels.forward,
-                        modifier = GlanceModifier.size(20.dp)
+                    TransportButton(
+                        iconRes = if (state.isPlaying) R.drawable.ic_pause else R.drawable.ic_play_arrow,
+                        description = labels.playPause,
+                        background = GlanceTheme.colors.primary,
+                        iconSize = 24.dp,
+                        action = actionRunCallback<TogglePlayActionCallback>()
+                    )
+
+                    Spacer(modifier = GlanceModifier.width(8.dp))
+
+                    TransportButton(
+                        iconRes = R.drawable.ic_forward_10,
+                        description = labels.forward,
+                        background = GlanceTheme.colors.surface,
+                        iconSize = 20.dp,
+                        action = actionRunCallback<FastForward15ActionCallback>()
                     )
                 }
             }
         }
     }
+
+    /**
+     * #1749 — the accessible name belongs on the 48 dp click target, not on the
+     * inner glyph: the container is what TalkBack focuses and what receives the
+     * tap. The image is decorative.
+     */
+    @Composable
+    private fun TransportButton(
+        iconRes: Int,
+        description: String,
+        background: ColorProvider,
+        iconSize: Dp,
+        action: Action
+    ) {
+        Box(
+            modifier = GlanceModifier
+                .size(48.dp)
+                .background(background)
+                .cornerRadius(24.dp)
+                .semantics { contentDescription = description }
+                .clickable(action),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                provider = ImageProvider(iconRes),
+                contentDescription = null,
+                modifier = GlanceModifier.size(iconSize)
+            )
+        }
+    }
 }
 
+/**
+ * An empty widget has nothing to play, so it must not offer transport buttons
+ * that do nothing. The cold-start path shows the last listened book instead,
+ * so this is the genuinely-empty case.
+ */
+internal fun GlanceWidgetState.showsTransportControls(): Boolean = hasActiveBook
+
 internal data class WidgetAccessibilityLabels(
+    val openApp: String,
     val rewind: String,
     val playPause: String,
     val forward: String
@@ -331,6 +354,7 @@ internal fun widgetAccessibilityLabels(
     context: Context,
     state: GlanceWidgetState
 ): WidgetAccessibilityLabels = WidgetAccessibilityLabels(
+    openApp = context.getString(R.string.a11y_widget_open_app),
     rewind = context.getString(R.string.a11y_widget_rewind_work, state.title),
     playPause = context.getString(
         if (state.isPlaying) R.string.a11y_widget_pause_work else R.string.a11y_widget_play_work,

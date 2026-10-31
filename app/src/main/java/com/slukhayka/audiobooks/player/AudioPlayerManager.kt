@@ -45,6 +45,10 @@ import com.slukhayka.audiobooks.data.listening.startsAtBookEnd
 import com.slukhayka.audiobooks.data.source.YouTubeTracks
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
+import com.slukhayka.audiobooks.widget.WidgetStateMapper
+import com.slukhayka.audiobooks.widget.WidgetUpdateCadence
+import com.slukhayka.audiobooks.widget.WidgetUpdateKind
+import com.slukhayka.audiobooks.widget.publishWidgetSnapshot
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -53,7 +57,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.sample
 
 /** One-shot user feedback emitted only at sleep-timer transitions. */
 sealed interface SleepTimerNotice {
@@ -811,16 +814,33 @@ class AudioPlayerManager(
     private fun reportListeningStopped() = reportListeningObservation(ListeningObservation.Stopped)
 
 
-    // Spec-22 T4: keep the home-screen widget's progress/transport in sync
-    // with playback. Sampled to ~one update per 2 s while playing (widget
-    // updates are expensive); a pause still refreshes within the current
-    // window. Fire-and-forget — a failing widget must never break playback.
+    // Spec-22 T4 / #1749: keep the home-screen widget live. The content reads
+    // its frame from Glance's DataStore snapshot (WidgetSnapshotCodec), so the
+    // sampler must publish a new snapshot — updateAll alone only extends an
+    // active session and never re-runs provideGlance. Discrete transitions
+    // repaint at once; position-only progress is throttled to one repaint per
+    // 15 s instead of the old 2 s poll. Fire-and-forget — a failing widget
+    // must never break playback.
     init {
         if (widgetSyncEnabled) {
             scope.launch {
-                playerState
-                    .sample(2_000)
-                    .collect { com.slukhayka.audiobooks.widget.AudiobookGlanceWidgetReceiver.update(context) }
+                val cadence = WidgetUpdateCadence()
+                playerState.collect { state ->
+                    if (state.currentBook == null) return@collect
+                    val widgetState = WidgetStateMapper.mapFromPlayerState(state)
+                    if (cadence.decide(widgetState, monotonicNow()) == WidgetUpdateKind.NONE) {
+                        return@collect
+                    }
+                    withContext(Dispatchers.IO) {
+                        try {
+                            publishWidgetSnapshot(context, widgetState)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (e: Exception) {
+                            Log.w("AudioPlayer", "widget snapshot update failed", e)
+                        }
+                    }
+                }
             }
         }
     }

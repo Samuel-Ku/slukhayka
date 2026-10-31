@@ -1,5 +1,8 @@
 package com.slukhayka.audiobooks.data.collective
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -84,6 +87,28 @@ class ColdStartSeedTest {
             "#1723: the flag and asset parse must not touch the caller (main) thread",
             threads.all { it !== caller }
         )
+    }
+
+    @Test
+    fun `two concurrent callers still import once`() = runBlocking {
+        val flag = InMemoryColdStartSeedFlag()
+        var applies = 0
+        val seed = ColdStartSeed(
+            CatalogSeedImporter {
+                delay(50)
+                applies++
+                true
+            },
+            listOf(entry),
+            flag
+        )
+
+        val first = async(Dispatchers.Default) { seed.runOnce() }
+        val second = async(Dispatchers.Default) { seed.runOnce() }
+        val results = listOf(first.await(), second.await())
+
+        assertEquals("the mutex serialises the whole run", 1, applies)
+        assertEquals("exactly one caller reports the seed", 1, results.count { it })
     }
 
     @Test

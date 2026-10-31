@@ -3,6 +3,8 @@ package com.slukhayka.audiobooks.data.collective
 import android.content.Context
 import android.content.SharedPreferences
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
@@ -35,6 +37,13 @@ class ColdStartSeed(
     private val flag: ColdStartSeedFlag
 ) {
 
+    /**
+     * #1723 — MainActivity and HomeScreen may both call [runOnce] now that the
+     * body dispatches to IO; serialise them so the flag check, import and
+     * markDone cannot interleave into a duplicate import.
+     */
+    private val runLock = Mutex()
+
     /** Kept for tests and callers that already hold the parsed seed. */
     constructor(
         importer: CatalogSeedImporter,
@@ -51,23 +60,25 @@ class ColdStartSeed(
      * first frame.
      */
     suspend fun runOnce(): Boolean = withContext(Dispatchers.IO) {
-        if (flag.isDone()) return@withContext false
-        val seed = seedLoader()
-        // An EMPTY seed is never a legitimate state: the asset is bundled, so
-        // emptiness means the read failed. Marking the flag here would disable
-        // the cold start FOREVER and silently — leave it unset and retry.
-        if (seed.isEmpty()) return@withContext false
-        val imported = try {
-            importer.importOnce(seed)
-        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            throw cancelled
-        } catch (e: Exception) {
-            // The catalogue was not seeded: leave the flag UNSET so the next
-            // launch retries instead of pretending the cold start finished.
-            return@withContext false
+        runLock.withLock {
+            if (flag.isDone()) return@withLock false
+            val seed = seedLoader()
+            // An EMPTY seed is never a legitimate state: the asset is bundled, so
+            // emptiness means the read failed. Marking the flag here would disable
+            // the cold start FOREVER and silently — leave it unset and retry.
+            if (seed.isEmpty()) return@withLock false
+            val imported = try {
+                importer.importOnce(seed)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                // The catalogue was not seeded: leave the flag UNSET so the next
+                // launch retries instead of pretending the cold start finished.
+                return@withLock false
+            }
+            flag.markDone()
+            imported > 0
         }
-        flag.markDone()
-        imported > 0
     }
 }
 

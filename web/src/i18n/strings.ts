@@ -175,7 +175,7 @@ const uk = {
     "Частина джерел не відповіла. Показано доступні результати.",
   loadingCatalog: "Завантажуємо об’єднаний каталог…",
   cachedCatalogNotice:
-    "Показуємо останній збережений каталог{date}. Оновлення тимчасово недоступне.",
+    "Показуємо останній збережений каталог від {date}. Оновлення тимчасово недоступне.",
   appendFailed:
     "Не вдалося оновити каталог. Уже завантажені книги залишилися тут.",
   loading: "Завантажуємо…",
@@ -273,6 +273,9 @@ const uk = {
   reviewsCombinedSummary: "{value} із 5, {count} оцінок, джерела і слухачі",
   reviewsCombinedAria: "{value} із 5, {count} оцінок, джерела і слухачі",
   reviewRatingSummary: "{rating} із 5",
+  reviewNarrationChip: "Начитка: {tag}",
+  reviewEdit: "Змінити",
+  listenerFallback: "Слухач",
   reviewEditAria: "Змінити ваш відгук про «{title}», оцінка {rating} із 5",
   reviewDeleteAria: "Видалити ваш відгук про «{title}», оцінка {rating} із 5",
   reviewAuthorActions: "Дії з відгуком автора {name}",
@@ -571,7 +574,7 @@ const en: Strings = {
     "Some sources did not answer. Showing the results that are available.",
   loadingCatalog: "Loading the combined catalog…",
   cachedCatalogNotice:
-    "Showing the last saved catalog{date}. Updating is temporarily unavailable.",
+    "Showing the last saved catalog from {date}. Updating is temporarily unavailable.",
   appendFailed: "Could not update the catalog. Already loaded books stay here.",
   loading: "Loading…",
   retry: "Try again",
@@ -667,6 +670,9 @@ const en: Strings = {
   reviewsCombinedAria:
     "{value} out of 5, {count} ratings, sources and listeners",
   reviewRatingSummary: "{rating} out of 5",
+  reviewNarrationChip: "Narration: {tag}",
+  reviewEdit: "Edit",
+  listenerFallback: "Listener",
   reviewEditAria: "Edit your review of “{title}”, rating {rating} out of 5",
   reviewDeleteAria: "Delete your review of “{title}”, rating {rating} out of 5",
   reviewAuthorActions: "Actions for author {name}'s reviews",

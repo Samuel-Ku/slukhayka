@@ -1,5 +1,6 @@
-import type { Credentials } from './credentials'
-import { decodeRecoveryCode } from './recoveryCodec'
+import type { Credentials } from "./credentials";
+import { decodeRecoveryCode } from "./recoveryCodec";
+import { getUiLocale } from "../i18n/locale";
 
 /**
  * spec-43/T2 — the auth seam of the silent web profile. The pure identity
@@ -8,44 +9,55 @@ import { decodeRecoveryCode } from './recoveryCodec'
  * like Android's `ListenerIdentity` seam (ADR-0021).
  */
 export interface GatewayUser {
-  readonly uid: string
+  readonly uid: string;
 }
 
 export interface AuthGateway {
   /** Sign in with the given `.local` pair; rejects when no account exists yet. */
-  signInWithPassword(email: string, password: string): Promise<GatewayUser>
+  signInWithPassword(email: string, password: string): Promise<GatewayUser>;
   /** Create the anonymous session and immediately elevate it to the given pair. */
-  createElevatedAccount(email: string, password: string): Promise<GatewayUser>
+  createElevatedAccount(email: string, password: string): Promise<GatewayUser>;
   /** The signed-in user of this browsing context, if any. No side effects. */
-  currentUser(): GatewayUser | null
+  currentUser(): GatewayUser | null;
 }
 
 export interface ListenerProfile {
-  readonly uid: string
-  readonly nickname: string
+  readonly uid: string;
+  readonly nickname: string;
 }
 
 export interface IdentityDeps {
   /** null => this deployment carries no Firebase config. */
-  gateway: AuthGateway | null
-  readPair: () => Credentials | null
-  persistPair: (pair: Credentials) => void
-  generatePair: () => Credentials
-  randomToken: () => string
+  gateway: AuthGateway | null;
+  readPair: () => Credentials | null;
+  persistPair: (pair: Credentials) => void;
+  generatePair: () => Credentials;
+  randomToken: () => string;
+}
+
+/**
+ * #1687 — the browser-local default name is born in the UI locale: an English
+ * listener must not get a Ukrainian «Слухач» saved into their shared identity
+ * (and then into every review). The stored nickname is DATA once created —
+ * switching the locale later never renames an existing listener.
+ */
+function defaultListenerName(): string {
+  return getUiLocale() === "en" ? "Listener" : "Слухач";
 }
 
 function localProfile(randomToken: () => string): ListenerProfile {
   const token = randomToken()
-    .replace(/[^a-z0-9]/gi, '')
+    .replace(/[^a-z0-9]/gi, "")
     .slice(0, 12)
-    .toLowerCase()
-  return { uid: `local-${token || 'anon'}`, nickname: 'Слухач' }
+    .toLowerCase();
+  return { uid: `local-${token || "anon"}`, nickname: defaultListenerName() };
 }
 
 function nicknameFor(uid: string): string {
-  let hash = 0
-  for (let i = 0; i < uid.length; i++) hash = (hash * 31 + uid.charCodeAt(i)) >>> 0
-  return `Слухач-${String(hash % 10000).padStart(4, '0')}`
+  let hash = 0;
+  for (let i = 0; i < uid.length; i++)
+    hash = (hash * 31 + uid.charCodeAt(i)) >>> 0;
+  return `${defaultListenerName()}-${String(hash % 10000).padStart(4, "0")}`;
 }
 
 /**
@@ -55,30 +67,39 @@ function nicknameFor(uid: string): string {
  * back into the SAME uid. Without a Firebase config — or when every auth
  * path fails — it degrades to a `local-…` profile instead of crashing.
  */
-export async function ensureProfile(deps: IdentityDeps): Promise<ListenerProfile> {
-  if (deps.gateway === null) return localProfile(deps.randomToken)
+export async function ensureProfile(
+  deps: IdentityDeps
+): Promise<ListenerProfile> {
+  if (deps.gateway === null) return localProfile(deps.randomToken);
   try {
-    let pair = deps.readPair()
+    let pair = deps.readPair();
     if (pair === null) {
-      pair = deps.generatePair()
-      deps.persistPair(pair)
+      pair = deps.generatePair();
+      deps.persistPair(pair);
     }
-    let user: GatewayUser
+    let user: GatewayUser;
     try {
-      user = await deps.gateway.signInWithPassword(pair.email, pair.password)
+      user = await deps.gateway.signInWithPassword(pair.email, pair.password);
     } catch {
-      user = await deps.gateway.createElevatedAccount(pair.email, pair.password)
+      user = await deps.gateway.createElevatedAccount(
+        pair.email,
+        pair.password
+      );
     }
-    return { uid: user.uid, nickname: nicknameFor(user.uid) }
+    return { uid: user.uid, nickname: nicknameFor(user.uid) };
   } catch {
-    return localProfile(deps.randomToken)
+    return localProfile(deps.randomToken);
   }
 }
 
 /** Read-only view of who is signed in right now; never signs in or creates anything. */
-export function currentProfile(gateway: AuthGateway | null): ListenerProfile | null {
-  const user = gateway?.currentUser() ?? null
-  return user === null ? null : { uid: user.uid, nickname: nicknameFor(user.uid) }
+export function currentProfile(
+  gateway: AuthGateway | null
+): ListenerProfile | null {
+  const user = gateway?.currentUser() ?? null;
+  return user === null
+    ? null
+    : { uid: user.uid, nickname: nicknameFor(user.uid) };
 }
 
 /**
@@ -90,16 +111,19 @@ export function currentProfile(gateway: AuthGateway | null): ListenerProfile | n
 export async function restoreFromCode(
   gateway: AuthGateway | null,
   code: string,
-  persistPair: (pair: Credentials) => void,
+  persistPair: (pair: Credentials) => void
 ): Promise<ListenerProfile | null> {
-  if (gateway === null) return null
-  const decoded = decodeRecoveryCode(code.trim())
-  if (!decoded) return null
+  if (gateway === null) return null;
+  const decoded = decodeRecoveryCode(code.trim());
+  if (!decoded) return null;
   try {
-    const user = await gateway.signInWithPassword(decoded.email, decoded.password)
-    persistPair(decoded)
-    return { uid: user.uid, nickname: nicknameFor(user.uid) }
+    const user = await gateway.signInWithPassword(
+      decoded.email,
+      decoded.password
+    );
+    persistPair(decoded);
+    return { uid: user.uid, nickname: nicknameFor(user.uid) };
   } catch {
-    return null
+    return null;
   }
 }

@@ -307,7 +307,7 @@ fun ListenShelvesManageEntry(
             .fillMaxWidth()
             // Рівні проміжки зверху і знизу: кнопка сама дає обидва, тож
             // відступ над нею (до полиці) дорівнює відступу під нею (до панелі).
-            .padding(horizontal = 16.dp, vertical = 16.dp)
+            .padding(horizontal = ListenPageInset, vertical = 16.dp)
             .testTag("listen_manage_shelves")
     ) {
         Icon(PaperInkIcons.Filter, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -595,7 +595,7 @@ fun ListenBlockShelf(
 ) {
     PaperInkThemedContent {
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
+            contentPadding = PaddingValues(horizontal = ListenPageInset),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.testTag("listen_block_shelf")
         ) {
@@ -723,7 +723,7 @@ fun ListenHeroCard(
             progress = progressFraction.takeIf { hasDuration },
             onPlayClick = onResumeClick,
             modifier = Modifier
-                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .padding(horizontal = ListenPageInset, vertical = 10.dp)
                 .testTag("listen_hero_panel"),
             // #885 — the percent leads the progress row, exactly as before;
             // the fact is unchanged, only its shape follows the new card.
@@ -791,11 +791,12 @@ fun RecentlyListenedRow(
  * here") plus two CTAs — browse the catalogue or import your own files.
  */
 /**
- * The tab's page inset. The hero panel, the shelf `contentPadding` and the
- * «Керувати полицями» door all sit on it; a block heading that starts at x=0
- * is the device regression this seam pins (issue #1615).
+ * The tab's page inset — the SAME [PaperInkDimens.SpacePage] the tab header and
+ * the other roots use (#1724). The hero panel, the shelf `contentPadding` and
+ * the «Керувати полицями» door all sit on it; a block heading that starts at
+ * x=0 or on another inset is the device regression this seam pins (#1615).
  */
-private val ListenPageInset = 16.dp
+internal val ListenPageInset = PaperInkDimens.SpacePage
 
 /**
  * One shelf heading: the canonical [PaperInkSectionHeader] with [ListenPageInset]

@@ -10,15 +10,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkSectionHeader
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.library.ListenComposer
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
@@ -27,9 +28,12 @@ import com.slukhayka.audiobooks.ui.screens.ListenBlockShelf
 import com.slukhayka.audiobooks.ui.screens.ListenShelvesSheetContent
 import com.slukhayka.audiobooks.ui.screens.ListenEmptyState
 import com.slukhayka.audiobooks.ui.screens.ListenHeroCard
+import com.slukhayka.audiobooks.ui.screens.ListenPageInset
+import com.slukhayka.audiobooks.ui.screens.ListenShelvesManageEntry
 import com.slukhayka.audiobooks.ui.components.OpenWebSourceRow
 import com.slukhayka.audiobooks.ui.screens.RecentlyListenedRow
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
 import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -424,9 +428,11 @@ class ListenScreenBlocksSnapshotTest {
         )
     }
     // Issue #1615: on the device the shelf heading rendered at x=0 while the
-    // hero panel and the shelf contentPadding sat on 16 dp. The heading is the
-    // production composable, not a copy: the assertion fails if the inset
-    // disappears, and the golden pins what 16 dp looks like on paper.
+    // hero panel and the shelf contentPadding sat on 16 dp. #1724: that 16 dp
+    // was the last surface still on the old inset — the heading, the hero, the
+    // shelf and the manage door now all sit on the tab header's page token.
+    // The heading is the production composable, not a copy: the assertion
+    // fails if the inset disappears, and the golden pins what it looks like.
     @Test
     fun listen_block_heading_has_page_inset() {
         composeTestRule.setContent {
@@ -442,7 +448,7 @@ class ListenScreenBlocksSnapshotTest {
                 }
             }
         }
-        val expectedLeft = with(composeTestRule.density) { 16.dp.toPx() }
+        val expectedLeft = with(composeTestRule.density) { PaperInkDimens.SpacePage.toPx() }
         val bounds = composeTestRule
             .onNodeWithTag("listen_block_heading_RECENTLY_ADDED")
             .fetchSemanticsNode()
@@ -451,6 +457,89 @@ class ListenScreenBlocksSnapshotTest {
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/listen_block_heading.png"
         )
+    }
+
+    // #1724: the tab's content inset must be the SAME page token as its own
+    // tab header (and every other root), not a look-alike 16 dp. The old code
+    // failed this: the header was 20, while the heading, the shelf, the hero
+    // panel and the «Керувати полицями» door were 16. Rendering the real
+    // composables means a future call site that stops using `ListenPageInset`
+    // goes red here instead of drifting on a phone.
+    @Test
+    fun listen_content_inset_equals_the_tab_header_inset() {
+        val books = TestDataFactory.dataBooks()
+        val shelfBooks = buildLibraryBooks(
+            books = books,
+            progressList = emptyList(),
+            chaptersByBook = emptyMap()
+        )
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                ListenSurface {
+                    PaperInkTheme(darkTheme = true) {
+                        PaperInkTabHeader(
+                            title = "Слухати",
+                            headingTestTag = "listen_inset_header_title",
+                            onSettingsClick = {},
+                        )
+                        ListenBlockHeading(
+                            title = "Нещодавно додані",
+                            subtitle = null,
+                            testTag = "listen_inset_block_heading",
+                        )
+                        ListenBlockShelf(
+                            books = shelfBooks,
+                            onBookClick = {},
+                            onNotInterested = {},
+                        )
+                        ListenHeroCard(
+                            book = book,
+                            progress = progress,
+                            cumulativePositionSeconds = cumulativePositionSeconds,
+                            onResumeClick = {},
+                            onBookClick = {},
+                        )
+                        ListenShelvesManageEntry(onClick = {})
+                    }
+                }
+            }
+        }
+
+        // The source-level contract: one token, not a copy of the number.
+        assertEquals(
+            "ListenPageInset must BE the page token the header uses",
+            PaperInkDimens.SpacePage.value,
+            ListenPageInset.value,
+            0f,
+        )
+        val pageInsetDp = PaperInkDimens.SpacePage.value
+        val headerLeft = composeTestRule
+            .onNodeWithTag("listen_inset_header_title", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot()
+            .left
+            .value
+        assertEquals("the tab header sits on the page inset", pageInsetDp, headerLeft, 0.5f)
+
+        val contentInsets = listOf(
+            "block heading" to composeTestRule
+                .onNodeWithTag("listen_inset_block_heading", useUnmergedTree = true),
+            "shelf first card" to composeTestRule
+                .onNodeWithTag("compact_book_${books.first().id}", useUnmergedTree = true),
+            "hero panel" to composeTestRule
+                .onNodeWithTag("listen_hero_panel", useUnmergedTree = true),
+            "manage shelves door" to composeTestRule
+                .onNodeWithTag("listen_manage_shelves", useUnmergedTree = true),
+        )
+        contentInsets.forEach { (name, node) ->
+            val left = node.getUnclippedBoundsInRoot().left.value
+            assertEquals(
+                "$name must share the tab header inset: expected $pageInsetDp dp, was $left dp",
+                pageInsetDp,
+                left,
+                0.5f,
+            )
+            assertEquals("$name must align with the tab header", headerLeft, left, 0.5f)
+        }
     }
 }
 

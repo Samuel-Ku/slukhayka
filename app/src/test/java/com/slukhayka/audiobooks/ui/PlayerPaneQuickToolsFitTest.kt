@@ -273,6 +273,9 @@ class PlayerPaneQuickToolsFitTest {
         assertChipsInsidePane()
     }
 
+    // #1708 — renamed from «narrow 460 dp pane wraps the quick tools instead of
+    // truncating»: one column no longer squeezes the row into a 2×2, so the
+    // tools keep their labels in one row and the scroll brings them into reach.
     @Test
     fun `narrow 460 dp pane keeps the quick tools whole and scrolls them into reach`() {
         showPane(paneWidthDp = 460.dp, fontScale = 1.15f)

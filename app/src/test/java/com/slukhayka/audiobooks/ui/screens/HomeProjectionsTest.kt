@@ -21,7 +21,8 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -137,14 +138,14 @@ class HomeProjectionsTest {
         val peopleCalls = AtomicInteger(0)
         val durationCalls = AtomicInteger(0)
         val cycleCalls = AtomicInteger(0)
-        val seenThread = AtomicReference<String>()
+        val seenThread = AtomicReference<Thread>()
 
         try {
             val projections = HomeProjections(
                 dispatcher = executor.asCoroutineDispatcher(),
                 projectPersonNewArrivals = { b, w, e, c, l ->
                     peopleCalls.incrementAndGet()
-                    seenThread.set(Thread.currentThread().name)
+                    seenThread.set(Thread.currentThread())
                     PersonNewArrivals.projectCatalog(b, w, e, c, l)
                 },
                 projectDurationBooks = { books ->
@@ -184,8 +185,10 @@ class HomeProjectionsTest {
             assertEquals(1, peopleCalls.get())
             assertEquals(1, durationCalls.get())
             assertEquals(1, cycleCalls.get())
-            assertEquals("home-projection-test", seenThread.get())
-            assertNotEquals(caller.name, seenThread.get())
+            // Identity, not name: with coroutine debug enabled the runtime
+            // decorates the worker name with " @coroutine#N".
+            assertNotSame(caller, seenThread.get())
+            assertTrue(seenThread.get().name.startsWith("home-projection-test"))
         } finally {
             executor.shutdownNow()
         }

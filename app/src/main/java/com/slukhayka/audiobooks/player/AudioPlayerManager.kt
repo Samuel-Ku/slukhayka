@@ -1682,10 +1682,6 @@ class AudioPlayerManager(
     ) {
         val chapters = _playerState.value.chapters
         if (chapters.isEmpty() || chapterIndex !in chapters.indices) return
-        // #1722 — keep the cache warm for the NEXT prepare. The read itself is
-        // a Binder call, so it runs on IO; this prepare only consumes the
-        // already-resolved value below.
-        refreshCookieInBackground()
         actualCastTerminal = null
         stopActualListening()
         val requestId = ++prepareRequestId
@@ -1711,6 +1707,13 @@ class AudioPlayerManager(
         val chapter = chapters[chapterIndex]
         val durationMs = chapter.durationSeconds * 1000L
         val track = playableChapters.getOrNull(chapterIndex)?.track
+        val chapterSourceId = playableChapters.getOrNull(chapterIndex)?.sourceId
+            ?: sourceIdForUrl(_playerState.value.currentBook?.sourceUrl.orEmpty())
+
+        // #1722 — only 4read's audio hosts receive the session cookie; keep
+        // the cache warm for the NEXT prepare. The read is a Binder call, so it
+        // runs on IO; this prepare only consumes the already-resolved value.
+        if (chapterSourceId == "4read") refreshCookieInBackground()
 
         currentChapter = chapter
         currentTrack = track
@@ -1722,8 +1725,7 @@ class AudioPlayerManager(
             durationMs = durationMs,
             isBuffering = true,
             currentStreamUrl = track?.url.orEmpty(),
-            currentSourceId = playableChapters.getOrNull(chapterIndex)?.sourceId
-                ?: sourceIdForUrl(_playerState.value.currentBook?.sourceUrl.orEmpty()),
+            currentSourceId = chapterSourceId,
             lastErrorMsg = "",
             errorKind = PlaybackErrorKind.NONE,
             // A chapter switch is deliberate — the seek history is cleared.
@@ -1812,8 +1814,7 @@ class AudioPlayerManager(
             val headers = _playerState.value.currentBook
                 ?.let {
                     headersFor(
-                        playableChapters.getOrNull(chapterIndex)?.sourceId
-                            ?: sourceIdForUrl(it.sourceUrl),
+                        chapterSourceId,
                         track?.url.orEmpty(),
                         cookieHeader ?: cookieProvider()
                     )

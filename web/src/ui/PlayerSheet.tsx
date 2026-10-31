@@ -21,6 +21,7 @@ import {
   SleepTimerPane,
 } from "./playerExtras";
 import { useOnline } from "../offline/status";
+import { trapFocus } from "./focusTrap";
 
 const SPEED_MIN = 0.5;
 const SPEED_MAX = 3;
@@ -41,31 +42,6 @@ export function isNestedDialogTarget(
   if (root === null || !(target instanceof Element)) return false;
   const dialog = target.closest('[role="dialog"]');
   return dialog !== null && dialog !== root;
-}
-
-/** Keep Tab / Shift+Tab inside the modal surface (the background is not inert). */
-function trapFocus(container: HTMLElement | null, event: KeyboardEvent): void {
-  if (container === null) return;
-  const focusable = Array.from(
-    container.querySelectorAll<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    )
-  ).filter((element) => !element.hasAttribute("disabled"));
-  if (focusable.length === 0) {
-    event.preventDefault();
-    return;
-  }
-  const first = focusable[0];
-  const last = focusable[focusable.length - 1];
-  const active = document.activeElement;
-  const outside = active === null || !container.contains(active);
-  if (event.shiftKey && (active === first || outside)) {
-    event.preventDefault();
-    last.focus();
-  } else if (!event.shiftKey && (active === last || outside)) {
-    event.preventDefault();
-    first.focus();
-  }
 }
 
 export function PlayerSheet({

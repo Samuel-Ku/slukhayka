@@ -27,6 +27,10 @@ import type { Chapter } from "../worker/types";
 import { setUiLocale } from "../i18n/locale";
 import type { ListenerProfile } from "../identity/listenerIdentity";
 import type { BookDetail, UnifiedWorkPage } from "../worker/types";
+import {
+  PLAYER_OVERLAY_MARKER,
+  isPlayerOverlayState,
+} from "./playerOverlayHistory";
 
 // jsdom cannot really probe media: the stream check and the range preflight are
 // the only stubbed availability seams (the rest of the race stays real).
@@ -108,6 +112,27 @@ async function openPlayerFromCatalogue(): Promise<HTMLElement> {
   return screen.findByRole("dialog", { name: /Розділ 1/ }, { timeout: 3_000 });
 }
 
+/** Open a real book page first, then start a chapter: the page stays beneath. */
+async function openBookPageThenOverlay(): Promise<void> {
+  const user = userEvent.setup();
+  await waitFor(() =>
+    expect(
+      screen.getAllByRole("button", {
+        name: /Відкрити книгу: Старий і море/,
+      }).length
+    ).toBeGreaterThan(0)
+  );
+  await user.click(
+    screen.getAllByRole("button", {
+      name: /Відкрити книгу: Старий і море/,
+    })[0]
+  );
+  await user.click(
+    await screen.findByRole("button", { name: /Слухати розділ 1/ })
+  );
+  await screen.findByRole("dialog", { name: /Розділ 1/ }, { timeout: 3_000 });
+}
+
 beforeEach(() => {
   globalThis.indexedDB = new IDBFactory();
   setUiLocale("uk");
@@ -145,12 +170,44 @@ afterEach(() => {
   setViewportWidth(1024);
 });
 
+describe("pane close history (#1697)", () => {
+  it("closing the pane returns to the book page, and the next Back is ONE step", async () => {
+    const user = userEvent.setup();
+    render(<App profile={profile} />);
+    await openBookPageThenOverlay();
+
+    setViewportWidth(1200, true);
+    await waitFor(() =>
+      expect(document.querySelector(".player-sheet-pane")).not.toBeNull()
+    );
+    await user.click(screen.getByRole("button", { name: /Закрити/ }));
+    await waitFor(() =>
+      expect(document.querySelector(".player-sheet")).toBeNull()
+    );
+    // The book page under the pane is still there (history did not roll back).
+    expect(
+      screen.getByRole("button", { name: /Слухати розділ 1/ })
+    ).toBeTruthy();
+
+    act(() => {
+      window.history.back();
+    });
+    // One Back closes the book page — no dead player step in between.
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: /Слухати розділ 1/ })
+      ).toBeNull()
+    );
+    expect(isPlayerOverlayState(history.state)).toBe(false);
+  });
+});
+
 describe("full-screen player modal on the real app (#1688)", () => {
   it("Escape closes it, drops the marker and returns focus to the mini-player", async () => {
     render(<App profile={profile} />);
     const dialog = await openPlayerFromCatalogue();
     expect(dialog.getAttribute("aria-modal")).toBe("true");
-    expect(history.state).toMatchObject({ dshPlayerOverlay: true });
+    expect(isPlayerOverlayState(history.state)).toBe(true);
 
     fireEvent.keyDown(document, { key: "Escape" });
 
@@ -162,7 +219,7 @@ describe("full-screen player modal on the real app (#1688)", () => {
     );
     // The user close removed its own history entry: Back afterwards is not an
     // extra dead step. (A stale forward marker is handled by the next test.)
-    expect(history.state).not.toMatchObject({ dshPlayerOverlay: true });
+    expect(isPlayerOverlayState(history.state)).toBe(false);
   });
 
   it("one system Back closes the overlay and keeps the view beneath it", async () => {
@@ -185,7 +242,7 @@ describe("crossing the pane line with the player open (#1688)", () => {
     const user = userEvent.setup();
     render(<App profile={profile} />);
     await openPlayerFromCatalogue();
-    expect(history.state).toMatchObject({ dshPlayerOverlay: true });
+    expect(isPlayerOverlayState(history.state)).toBe(true);
 
     // Rotate / enlarge: the SAME player becomes the non-modal pane.
     setViewportWidth(1200, true);
@@ -195,7 +252,7 @@ describe("crossing the pane line with the player open (#1688)", () => {
     );
     // The modal marker must not outlive the modal: it is popped silently.
     await waitFor(() =>
-      expect(history.state).not.toMatchObject({ dshPlayerOverlay: true })
+      expect(history.state).not.toSatisfy(isPlayerOverlayState)
     );
     expect(screen.queryByRole("dialog")).toBeNull();
 
@@ -206,26 +263,11 @@ describe("crossing the pane line with the player open (#1688)", () => {
   });
 
   it("a Forward into the spent marker never closes the book page beneath", async () => {
-    const user = userEvent.setup();
     render(<App profile={profile} />);
 
     // Open a real book page under the player, so a wrong popstate handler is
     // visible as the page disappearing.
-    await waitFor(() =>
-      expect(
-        screen.getAllByRole("button", {
-          name: /Відкрити книгу: Старий і море/,
-        }).length
-      ).toBeGreaterThan(0)
-    );
-    await user.click(
-      screen.getAllByRole("button", {
-        name: /Відкрити книгу: Старий і море/,
-      })[0]
-    );
-    await user.click(
-      await screen.findByRole("button", { name: /Слухати розділ 1/ })
-    );
+    await openBookPageThenOverlay();
     expect(screen.queryByRole("dialog")).not.toBeNull();
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -235,7 +277,7 @@ describe("crossing the pane line with the player open (#1688)", () => {
     // book page (the old #1688 bug) — it must be ignored.
     act(() => {
       window.dispatchEvent(
-        new PopStateEvent("popstate", { state: { dshPlayerOverlay: true } })
+        new PopStateEvent("popstate", { state: PLAYER_OVERLAY_MARKER })
       );
     });
 
@@ -257,7 +299,52 @@ describe("crossing the pane line with the player open (#1688)", () => {
     await waitFor(() =>
       expect(document.querySelector(".player-sheet-pane")).not.toBeNull()
     );
-    expect(history.state).not.toMatchObject({ dshPlayerOverlay: true });
+    expect(isPlayerOverlayState(history.state)).toBe(false);
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+describe("player history witnesses (#1697)", () => {
+  it("reopening the player over a spent forward marker closes with ONE ✕", async () => {
+    const user = userEvent.setup();
+    render(<App profile={profile} />);
+    await openBookPageThenOverlay();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    // A real traversal into the spent marker: the App ignores it as a view and
+    // the book page stays.
+    await act(async () => {
+      window.history.forward();
+    });
+    await waitFor(() => expect(history.state).toSatisfy(isPlayerOverlayState));
+    expect(
+      screen.getByRole("button", { name: /Слухати розділ 1/ })
+    ).toBeTruthy();
+
+    // Reopening must NOT fork a second marker (push guard): one ✕ closes.
+    await user.click(screen.getByRole("button", { name: /Слухати розділ 1/ }));
+    await screen.findByRole("dialog", { name: /Розділ 1/ });
+    await user.click(screen.getByRole("button", { name: /Закрити/ }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(
+      screen.getByRole("button", { name: /Слухати розділ 1/ })
+    ).toBeTruthy();
+  });
+
+  it("a deferred pane pop never closes an overlay shrunk back in the same task", async () => {
+    render(<App profile={profile} />);
+    await openPlayerFromCatalogue();
+    expect(isPlayerOverlayState(history.state)).toBe(true);
+
+    // Cross to pane and IMMEDIATELY back before the effect's history.back()
+    // is delivered: the stale marker must be consumed, not read as a real Back.
+    setViewportWidth(1200, true);
+    setViewportWidth(600, true);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    });
+    expect(screen.getByRole("dialog", { name: /Розділ 1/ })).toBeTruthy();
   });
 });

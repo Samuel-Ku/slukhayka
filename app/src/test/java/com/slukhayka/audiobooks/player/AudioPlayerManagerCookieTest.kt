@@ -122,20 +122,32 @@ class AudioPlayerManagerCookieTest {
     }
 
     @Test
-    fun `an explicitly resolved header wins over the cached one`() = runTest(dispatcher) {
-        val (manager, _) = newManager(cachedCookie = { "cf_cached=1" })
+    fun `an explicitly resolved header wins and bypasses the cookie provider`() = runTest(dispatcher) {
+        // The "old wiring" shape: the cached-value lambda would hit the jar if
+        // it were consulted. A ready header must make that consultation
+        // unnecessary.
+        val provider = RecordingCookieProvider("cf_cached=1")
+        val (manager, _) = newManager(
+            cachedCookie = { provider.cookieFor("https://4read.org/") }
+        )
         try {
             manager.loadAndPlayBook(
                 book,
                 chapters,
                 playable = playable,
                 initialChapterIndex = 0,
-                autoPlay = false
+                autoPlay = false,
+                cookieHeader = "cf_explicit=2"
             )
 
             manager.prepareChapter(1, autoPlay = false, cookieHeader = "cf_explicit=2")
 
             assertEquals("cf_explicit=2", manager.lastAppliedStreamHeaders["Cookie"])
+            assertEquals(
+                "a ready header must bypass the provider entirely",
+                0,
+                provider.calls.size
+            )
         } finally {
             manager.release()
         }

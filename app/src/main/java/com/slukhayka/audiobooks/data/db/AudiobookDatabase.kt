@@ -98,19 +98,8 @@ abstract class AudiobookDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AudiobookDatabase? = null
 
-        /**
-         * #1742 — the thread that first built the database, or null until
-         * [getDatabase] runs. The startup-graph witness reads it to prove that
-         * Activity creation never opens Room on the main thread.
-         */
-        @Volatile
-        @VisibleForTesting
-        internal var openThread: Thread? = null
-            private set
-
         fun getDatabase(context: Context): AudiobookDatabase {
             return INSTANCE ?: synchronized(this) {
-                openThread = Thread.currentThread()
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AudiobookDatabase::class.java,

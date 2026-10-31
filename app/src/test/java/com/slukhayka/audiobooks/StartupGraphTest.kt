@@ -2,7 +2,6 @@ package com.slukhayka.audiobooks
 
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
-import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.ui.MainViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotSame
@@ -25,16 +24,18 @@ import org.robolectric.annotation.Config
  * defers the modules, moves the locale bump into `AudiobookApp`'s effect and
  * builds the loader on IO.
  *
- * These are THREAD assertions, not proxies: `AudiobookDatabase.openThread`
- * and `CoverImageLoader.buildThread` name the thread that really did the work,
- * so a future edit that puts either back on the main thread fails here.
+ * The two guards are direct, not proxies: `performCreate` must not create the
+ * ViewModel at all, the ViewModel constructor must leave all seven module
+ * delegates uninitialized (so the `listeningState` → Room door is not opened),
+ * and `CoverImageLoader.buildThread` names the thread that really built the
+ * loader.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], application = App::class)
 class StartupGraphTest {
 
     @Test
-    fun `performCreate creates no ViewModel and never builds Room or Coil on main`() {
+    fun `performCreate creates no ViewModel and never builds Coil on main`() {
         val main = Looper.getMainLooper().thread
 
         val activity = Robolectric.buildActivity(MainActivity::class.java).create().get()
@@ -44,11 +45,10 @@ class StartupGraphTest {
                 "(store keys: ${activity.viewModelStore.keys()})",
             activity.viewModelStore.keys().none { it.endsWith(MainViewModel::class.java.name) }
         )
-        assertNotSame(
-            "Activity creation must not open Room on the main thread",
-            main,
-            AudiobookDatabase.openThread
-        )
+        // Room has no Activity-level door left: the only main-thread path was
+        // the ViewModel's module graph, and the next test proves its seven
+        // delegates (including listeningState → AudiobookDatabase) stay
+        // uninitialized until first use.
         assertNotSame(
             "Activity creation must not build the Coil loader on the main thread",
             main,

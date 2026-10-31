@@ -62,7 +62,6 @@ import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.library.ListenComposer
 import com.slukhayka.audiobooks.ui.library.LibraryBook
-import com.slukhayka.audiobooks.ui.library.ListenDismissUndo
 import com.slukhayka.audiobooks.ui.library.RemainingTimeUnits
 import com.slukhayka.audiobooks.ui.library.deduplicateListenShelves
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
@@ -93,11 +92,11 @@ fun ListenScreen(
     onBrowseClick: () -> Unit,
     onImportClick: () -> Unit,
     /**
-     * #1703 — the ROOT snackbar host (owned by `AudiobookApp`): the «Повернути»
-     * offer must outlive a tab switch, so the tab does not own a host of its
-     * own. It also carries the achievement notices; both are one short message.
+     * #1703 — «Не цікаво» is only an INTENT here: the root `AudiobookApp`
+     * pairs it with the «Повернути» snackbar (and scopes it past a tab
+     * switch), so this screen stays a pure renderer of the shelf action.
      */
-    rootSnackbar: SnackbarHostState,
+    onDismissBook: (String) -> Unit,
     /** ADR-0049 / #860 — the gear opens Settings from THIS root. */
     onOpenSettings: () -> Unit = {}
 ) {
@@ -116,23 +115,6 @@ fun ListenScreen(
     // shelf was hidden) before the first real read. The same #1066 contract
     // the Медіатека uses.
     val libraryLoaded by viewModel.isLibraryLoaded.collectAsState()
-
-    // #1703 — a dismissal removes the book from every shelf, so the repair has
-    // to travel with the action: one quiet snackbar, one «Повернути». It rides
-    // the root host so the offer survives a tab switch.
-    val scope = rememberCoroutineScope()
-    val dismissedMessage = stringResource(R.string.listen_dismissed_message)
-    val undoDismissLabel = stringResource(R.string.listen_dismiss_undo)
-    val dismissUndo = remember(rootSnackbar, scope, dismissedMessage, undoDismissLabel) {
-        ListenDismissUndo(
-            snackbarHostState = rootSnackbar,
-            scope = scope,
-            message = dismissedMessage,
-            actionLabel = undoDismissLabel,
-            onDismiss = viewModel::dismissListenBook,
-            onUndo = viewModel::undismissListenBook,
-        )
-    }
 
     // Refresh the "continue the series" suggestion whenever the hero book
     // changes (keyed on its id so position updates don't refetch).
@@ -243,9 +225,10 @@ fun ListenScreen(
                         ListenBlockShelf(
                             books = block.books,
                             onBookClick = onBookClick,
-                            // #1703 — every dismissal is paired with the
-                            // «Повернути» snackbar owned by this tab.
-                            onNotInterested = { bookId -> dismissUndo.dismiss(bookId) },
+                            // #1703 — every dismissal is answered by the
+                            // root «Повернути» snackbar; the tab only reports
+                            // the intent.
+                            onNotInterested = onDismissBook,
                             // spec-28 (#201): the «Далі у серії» shelf restores
                             // the series context — each card names which part
                             // is next. No one-tap play triangle (ADR-0018).

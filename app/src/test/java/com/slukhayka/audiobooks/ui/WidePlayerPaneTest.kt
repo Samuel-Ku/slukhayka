@@ -1,15 +1,15 @@
 package com.slukhayka.audiobooks.ui
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.graphics.Insets
 import android.view.WindowInsets
-import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedDispatcher
 import androidx.activity.OnBackPressedDispatcherOwner
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -72,7 +72,7 @@ class WidePlayerPaneTest {
      * draws no real bars, so without this the edge-to-edge contract would only
      * be asserted at zero and pass vacuously.
      */
-    private lateinit var hostActivity: ComponentActivity
+    private lateinit var hostActivity: Activity
 
     private val book = AudiobookEntity(
         id = "wide-pane-book",
@@ -131,9 +131,9 @@ class WidePlayerPaneTest {
         audio.writeBytes(silentWav(seconds = 2))
 
         compose.setContent {
-            hostActivity = requireNotNull(LocalContext.current as? ComponentActivity) {
-                "the compose test host must be a ComponentActivity, was " +
-                    LocalContext.current
+            val host = LocalActivity.current
+            hostActivity = requireNotNull(host) {
+                "the compose test host must be an Activity, was $host"
             }
             val lifecycleOwner = LocalLifecycleOwner.current
             CompositionLocalProvider(

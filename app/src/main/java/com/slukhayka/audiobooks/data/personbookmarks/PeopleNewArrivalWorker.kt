@@ -4,7 +4,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -14,7 +13,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.slukhayka.audiobooks.App
-import com.slukhayka.audiobooks.MainActivity
+import com.slukhayka.audiobooks.NotificationIntents
 import kotlinx.coroutines.flow.first
 import java.util.concurrent.TimeUnit
 
@@ -94,15 +93,7 @@ class PeopleNewArrivalWorker(
             // the same person (role from the key, name from `people`).
             val firstPersonName = decision.people.firstOrNull()?.takeIf { it.isNotBlank() }
             val firstPersonRole = decision.notifiedCounts.keys.firstOrNull()?.role
-            val intent = Intent(context, MainActivity::class.java)
-                .putExtra(MainActivity.EXTRA_OPEN_PEOPLE_NEW, true)
-                .apply {
-                    if (firstPersonName != null && firstPersonRole != null) {
-                        putExtra(MainActivity.EXTRA_PEOPLE_NEW_NAME, firstPersonName)
-                        putExtra(MainActivity.EXTRA_PEOPLE_NEW_ROLE, firstPersonRole.name)
-                    }
-                }
-                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            val intent = NotificationIntents.peopleNew(context, firstPersonName, firstPersonRole)
             val pending = PendingIntent.getActivity(
                 context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )

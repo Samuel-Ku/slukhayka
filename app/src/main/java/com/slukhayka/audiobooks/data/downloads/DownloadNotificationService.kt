@@ -10,7 +10,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import com.slukhayka.audiobooks.MainActivity
+import com.slukhayka.audiobooks.NotificationIntents
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.App
 
@@ -160,11 +160,7 @@ class DownloadNotificationService : Service() {
         totalBytes: Long?, isApproximate: Boolean
     ): Notification {
         ensureChannel()
-        val tapIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("bookId", bookId)
-            putExtra("openBookDetail", true)
-        }
+        val tapIntent = NotificationIntents.bookDetail(this, bookId)
         val tapPending = PendingIntent.getActivity(
             this, bookId.hashCode(), tapIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -200,11 +196,7 @@ class DownloadNotificationService : Service() {
 
     private fun buildPausedNotification(bookId: String, textRes: Int): Notification {
         ensureChannel()
-        val tapIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra("bookId", bookId)
-            putExtra("openBookDetail", true)
-        }
+        val tapIntent = NotificationIntents.bookDetail(this, bookId)
         val tapPending = PendingIntent.getActivity(
             this, bookId.hashCode(), tapIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE

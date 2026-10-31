@@ -237,40 +237,21 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun handleDownloadIntent(intent: android.content.Intent) {
-        if (intent.getBooleanExtra(EXTRA_OPEN_PEOPLE_NEW, false)) {
+        // ADR-0052 §6/§7 — the extras contract lives in routeNotificationIntent,
+        // next to the builders the notification producers use. The tests exercise
+        // the same reader, so a one-sided key rename cannot ship silently.
+        val route = routeNotificationIntent(intent)
+        if (route.openPeopleNew) {
             pendingPeopleNew = true
             // ADR-0052 §6 — the notification names a person; carry that identity
             // so the tap opens their page instead of the general feed. An absent
             // or malformed role degrades to the EXPLORE fallback, never a crash.
-            pendingPeopleNewName = intent.getStringExtra(EXTRA_PEOPLE_NEW_NAME)
-                ?.takeIf { it.isNotBlank() }
-            pendingPeopleNewRole = intent.getStringExtra(EXTRA_PEOPLE_NEW_ROLE)
-                ?.let { raw -> runCatching { PersonRole.valueOf(raw) }.getOrNull() }
+            pendingPeopleNewName = route.peopleNewName
+            pendingPeopleNewRole = route.peopleNewRole
         }
-        if (intent.getBooleanExtra(EXTRA_OPEN_PLAYER, false)) pendingOpenPlayer = true
-        if (intent.getBooleanExtra("openBookDetail", false)) {
-            intent.getStringExtra("bookId")?.let { pendingBookId = it }
-        }
-        if (intent.getBooleanExtra(EXTRA_OPEN_SOURCE_WORK, false)) {
-            // ADR-0052 §7 — a watched Work with no Library Entry imports through
-            // the ordinary door. A target missing its URL is dropped silently.
-            val sourceId = intent.getStringExtra(EXTRA_SOURCE_ID).orEmpty()
-            val sourceUrl = intent.getStringExtra(EXTRA_SOURCE_URL).orEmpty()
-            if (sourceId.isNotBlank() && sourceUrl.isNotBlank()) {
-                val title = intent.getStringExtra(EXTRA_SOURCE_WORK_TITLE).orEmpty()
-                pendingSourceImport = PendingSourceImport(
-                    sourceId = sourceId,
-                    sourceUrl = sourceUrl,
-                    identity = title.takeIf { it.isNotBlank() }?.let {
-                        KnownBookIdentity(
-                            title = it,
-                            author = intent.getStringExtra(EXTRA_SOURCE_WORK_AUTHOR).orEmpty(),
-                            narrator = intent.getStringExtra(EXTRA_SOURCE_WORK_NARRATOR).orEmpty()
-                        )
-                    }
-                )
-            }
-        }
+        if (route.openPlayer) pendingOpenPlayer = true
+        route.bookId?.let { pendingBookId = it }
+        route.sourceImport?.let { pendingSourceImport = it }
         // Spec-53 T4 — a system share ("Поділитися → Слухайка") or a VIEW of
         // a supported link opens the submission door with the link prefilled.
         val shared = when (intent.action) {

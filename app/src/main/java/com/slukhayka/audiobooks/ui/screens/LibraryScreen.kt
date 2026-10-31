@@ -179,10 +179,10 @@ fun LibraryScreen(
     val listeningStats by remember { listeningState.getAllListeningStats() }
         .collectAsState(initial = emptyList())
     // #401: bookmarked people Flows collected directly (ADR-0008).
-    val bookmarkedAuthors by personBookmarks.bookmarkedAuthors()
-        .collectAsState(initial = emptyList())
-    val bookmarkedNarrators by personBookmarks.bookmarkedNarrators()
-        .collectAsState(initial = emptyList())
+    // #1706: remembered so a recomposition does not rebuild the cold DAO Flow
+    // and restart both Room observers while playback writes progress.
+    val bookmarkedAuthors = rememberBookmarkedAuthors(personBookmarks)
+    val bookmarkedNarrators = rememberBookmarkedNarrators(personBookmarks)
     val bookmarkedPeople = remember(bookmarkedAuthors, bookmarkedNarrators) {
         (bookmarkedAuthors.map { it to PersonRole.AUTHOR } +
             bookmarkedNarrators.map { it to PersonRole.NARRATOR })

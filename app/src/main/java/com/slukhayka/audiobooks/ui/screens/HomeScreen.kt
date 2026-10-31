@@ -184,7 +184,9 @@ fun HomeScreen(
     val discoverableWorks by sourceCatalog.discoverableWorks.collectAsState(initial = emptyList())
     val allLibraryEntries by sourceCatalog.allLibraryEntries.collectAsState(initial = emptyList())
     val allEditions by sourceCatalog.allEditions.collectAsState(initial = emptyList())
-    val allPersonBookmarks by personBookmarks.allBookmarks().collectAsState(initial = emptyList())
+    // #1706: remembered so a search keystroke does not rebuild the cold DAO
+    // Flow and restart the Room observer on every recomposition.
+    val allPersonBookmarks = rememberAllPersonBookmarks(personBookmarks)
     val unifiedCatalog by sourceCatalog.unifiedCatalog.collectAsState()
     val peopleNewArrivals = remember(allPersonBookmarks, discoverableWorks, allEditions, allLibraryEntries, unifiedCatalog) {
         PersonNewArrivals.projectCatalog(

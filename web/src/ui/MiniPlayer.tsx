@@ -32,7 +32,6 @@ export function MiniPlayer({
           display: "flex",
           alignItems: "center",
           gap: 8,
-          cursor: "pointer",
         }
       : placement === "bottom"
         ? {
@@ -45,7 +44,6 @@ export function MiniPlayer({
             display: "flex",
             alignItems: "center",
             gap: 12,
-            cursor: "pointer",
           }
         : {
             position: "fixed",
@@ -59,50 +57,70 @@ export function MiniPlayer({
             display: "flex",
             alignItems: "center",
             gap: 12,
-            cursor: "pointer",
             zIndex: 40,
           };
   return (
     <div
-      onClick={onExpand}
       className={`mini-player mini-player-${placement}`}
       style={placementStyle}
     >
-      <span
+      {/* #1689 — the ONLY door to the full player is a real button: Tab reaches
+          it, Enter/Space open it, and a screen reader announces the ACTION
+          instead of a bare chapter string. The strip used to be a click-only
+          <div>, so keyboard and screen-reader listeners were locked out. */}
+      <button
+        type="button"
+        className="mini-player-expand"
+        onClick={onExpand}
+        aria-label={t("miniOpenPlayer")}
         style={{
           flex: 1,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          background: "none",
+          border: "none",
+          color: "inherit",
+          padding: 0,
+          textAlign: "left",
           fontSize: 14,
           whiteSpace: "nowrap",
           overflow: "hidden",
           textOverflow: "ellipsis",
         }}
       >
-        {t("miniChapter", {
-          n: state.chapterIndex + 1,
-          time: `${Math.floor(state.positionSeconds / 60)}:${String(Math.floor(state.positionSeconds % 60)).padStart(2, "0")}`,
-        })}
-        {!online && <span className="offline-chip">{t("offline")}</span>}
-      </span>
+        <span
+          style={{
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {t("miniChapter", {
+            n: state.chapterIndex + 1,
+            time: `${Math.floor(state.positionSeconds / 60)}:${String(Math.floor(state.positionSeconds % 60)).padStart(2, "0")}`,
+          })}
+          {!online && <span className="offline-chip">{t("offline")}</span>}
+        </span>
+      </button>
       <button
-        onClick={(e) => {
-          e.stopPropagation();
-          isPlaying ? engine.pause() : engine.play();
-        }}
+        type="button"
+        className="mini-transport"
+        aria-label={isPlaying ? t("miniPause") : t("miniPlay")}
+        onClick={() => (isPlaying ? engine.pause() : engine.play())}
         style={{
           background: "var(--accent)",
           color: "#000",
           border: "none",
           borderRadius: 999,
-          padding: "6px 12px",
         }}
       >
         {isPlaying ? "⏸" : "▶"}
       </button>
       <button
-        onClick={(e) => {
-          e.stopPropagation();
-          engine.skip(15);
-        }}
+        type="button"
+        className="mini-transport"
+        aria-label={t("miniSeekForward")}
+        onClick={() => engine.skip(15)}
         style={{ background: "none", border: "none", color: "var(--fg-dim)" }}
       >
         +15s

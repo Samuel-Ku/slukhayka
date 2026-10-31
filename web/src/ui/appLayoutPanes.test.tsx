@@ -22,6 +22,8 @@ import { App } from "../App";
 import { api } from "../api/client";
 import { DomainStore } from "../local/domain";
 import { setUiLocale } from "../i18n/locale";
+import { readFileSync } from "node:fs";
+import { MiniPlayer } from "./MiniPlayer";
 import type { ListenerProfile } from "../identity/listenerIdentity";
 import type { BookDetail, UnifiedWorkPage } from "../worker/types";
 
@@ -307,6 +309,94 @@ describe("#1236 the list-detail split", () => {
     // No fabricated Source URL: the pane says what the Library row really owns.
     expect(document.querySelector(".detail-pane")?.textContent).toContain(
       "Джерело цієї книги не збережене на вебі"
+    );
+  });
+});
+
+describe("mini-player a11y (#1689)", () => {
+  /** A tiny engine seam: the strip only reads state and commands transport. */
+  function fakeEngine(status: "playing" | "paused") {
+    return {
+      getState: () => ({
+        status,
+        chapterIndex: 0,
+        positionSeconds: 42,
+        speed: 1,
+        isCompleted: false,
+      }),
+      subscribe: () => () => undefined,
+      skip: vi.fn(),
+      play: vi.fn(),
+      pause: vi.fn(),
+    } as unknown as import("../player/audioEngine").AudioEngine;
+  }
+
+  it("opens the full player from the keyboard with Enter and Space", async () => {
+    const user = userEvent.setup();
+    const onExpand = vi.fn();
+    render(<MiniPlayer engine={fakeEngine("paused")} onExpand={onExpand} />);
+
+    const open = screen.getByRole("button", { name: "Відкрити плеєр" });
+    open.focus();
+    await user.keyboard("{Enter}");
+    expect(onExpand).toHaveBeenCalledTimes(1);
+    await user.keyboard(" ");
+    expect(onExpand).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives play/pause and +15s localized names", async () => {
+    const user = userEvent.setup();
+    const paused = fakeEngine("paused");
+    const { unmount } = render(
+      <MiniPlayer engine={paused} onExpand={vi.fn()} />
+    );
+    await user.click(screen.getByRole("button", { name: "Грати" }));
+    expect(paused.play).toHaveBeenCalledTimes(1);
+    unmount();
+
+    const playing = fakeEngine("playing");
+    render(<MiniPlayer engine={playing} onExpand={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "Пауза" }));
+    expect(playing.pause).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("button", {
+        name: "Перемотати вперед на 15 секунд",
+      })
+    ).toBeTruthy();
+  });
+
+  it("keeps the 48 px floor through one class, not per-button inline magic", () => {
+    render(<MiniPlayer engine={fakeEngine("paused")} onExpand={vi.fn()} />);
+    const transport = Array.from(
+      document.querySelectorAll<HTMLButtonElement>(
+        ".mini-player .mini-transport"
+      )
+    );
+    expect(transport).toHaveLength(2);
+    expect(
+      document.querySelector<HTMLButtonElement>(
+        ".mini-player .mini-player-expand"
+      )
+    ).toBeTruthy();
+    // The floor itself is a stylesheet rule (jsdom has no layout engine).
+    // CI runs `cd web` (documented in package scripts and the workflow), so the
+    // stylesheet is read from the module's documented working directory.
+    const themeCss = readFileSync("src/theme.css", "utf8");
+    const rule = themeCss.match(
+      /\.mini-player \.mini-transport,\s*\.mini-player \.mini-player-expand \{([\s\S]*?)\}/
+    );
+    expect(rule).not.toBeNull();
+    // BOTH dimensions and BOTH selectors: dropping only min-width must be red.
+    expect(rule![1]).toMatch(/min-width:\s*48px/);
+    expect(rule![1]).toMatch(/min-height:\s*48px/);
+    expect(rule![1]).toMatch(/font:\s*inherit/);
+    // The expand row keeps its text at the start; only the transport glyphs are
+    // centred (a shared `justify-content: center` drifted the chapter text).
+    expect(themeCss).toMatch(
+      /\.mini-player \.mini-player-expand \{[^}]*justify-content:\s*flex-start/
+    );
+    expect(themeCss).toMatch(
+      /\.mini-player \.mini-transport \{[^}]*justify-content:\s*center/
     );
   });
 });

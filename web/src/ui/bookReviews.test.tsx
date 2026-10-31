@@ -9,6 +9,7 @@
  */
 import {
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -464,6 +465,74 @@ describe("pure helpers", () => {
     expect(combinedAverage([], [])).toBeNull();
     expect(combinedAverage([null], [])).toBeNull();
     expect(combinedAverage([4.5], [5, 4])).toEqual({ value: 4.5, count: 3 });
+  });
+});
+
+describe("the review sheet is its own modal (#1697)", () => {
+  it("Escape dismisses the form", () => {
+    const onDismiss = vi.fn();
+    render(
+      <ListenerReviewFormSheet
+        bookTitle="Неостанній бій"
+        editing={null}
+        editionOptions={["Олександр Волох"]}
+        defaultEditionTag="Олександр Волох"
+        isSaving={false}
+        errorMessage={null}
+        onSave={vi.fn()}
+        onDismiss={onDismiss}
+      />
+    );
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores Escape while the save is in flight", () => {
+    const onDismiss = vi.fn();
+    render(
+      <ListenerReviewFormSheet
+        bookTitle="Неостанній бій"
+        editing={null}
+        editionOptions={["Олександр Волох"]}
+        defaultEditionTag="Олександр Волох"
+        isSaving
+        errorMessage={null}
+        onSave={vi.fn()}
+        onDismiss={onDismiss}
+      />
+    );
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onDismiss).not.toHaveBeenCalled();
+  });
+
+  it("keeps Tab inside the sheet while the draft is open", () => {
+    render(
+      <ListenerReviewFormSheet
+        bookTitle="Неостанній бій"
+        editing={null}
+        editionOptions={["Олександр Волох"]}
+        defaultEditionTag="Олександр Волох"
+        isSaving={false}
+        errorMessage={null}
+        onSave={vi.fn()}
+        onDismiss={vi.fn()}
+      />
+    );
+    const sheet = screen.getByRole("dialog");
+    // Focus that escaped to the page/player behind is pulled back INSIDE the
+    // sheet by the trap (jsdom itself never moves focus on Tab, so the outside
+    // focus is the honest starting point of the leak this pins).
+    const outside = document.createElement("button");
+    outside.textContent = "behind";
+    document.body.appendChild(outside);
+    try {
+      outside.focus();
+      expect(sheet.contains(document.activeElement)).toBe(false);
+      fireEvent.keyDown(document, { key: "Tab" });
+      expect(sheet.contains(document.activeElement)).toBe(true);
+    } finally {
+      outside.remove();
+    }
   });
 });
 

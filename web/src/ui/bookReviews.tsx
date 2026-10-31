@@ -13,6 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslate, useUiLocale } from "../i18n/locale";
+import { trapFocus } from "./focusTrap";
 import type { ListenerProfile } from "../identity/listenerIdentity";
 import {
   combinedAverage,
@@ -193,6 +194,7 @@ export function ListenerReviewFormSheet({
 }) {
   const t = useTranslate();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
   const [selectedRating, setSelectedRating] = useState(editing?.rating ?? 0);
   const [bodyText, setBodyText] = useState(editing?.body ?? "");
   const [selectedTag, setSelectedTag] = useState<string | null>(
@@ -203,6 +205,20 @@ export function ListenerReviewFormSheet({
   useEffect(() => {
     headingRef.current?.focus();
   }, []);
+
+  // #1697 — the form is a modal sheet of its own: Escape dismisses it (not the
+  // player behind it) and Tab stays inside while the draft is open.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        if (!isSaving) onDismiss();
+      } else if (event.key === "Tab") {
+        trapFocus(sheetRef.current, event);
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [isSaving, onDismiss]);
 
   const editionChoices = useMemo(
     () => [
@@ -219,6 +235,7 @@ export function ListenerReviewFormSheet({
       }}
     >
       <div
+        ref={sheetRef}
         className="lib-sheet"
         role="dialog"
         aria-modal="true"

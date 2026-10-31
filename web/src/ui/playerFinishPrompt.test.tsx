@@ -7,6 +7,7 @@
  */
 import {
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -121,6 +122,43 @@ describe("the player finish prompt (W4.1)", () => {
         body: "Дочитав — сподобалось!",
       });
     });
+  });
+
+  it("Escape inside the review form closes only the form, not the player (#1697)", async () => {
+    const { engine } = engineWithCompletedBook();
+    const reviewsStore = new InMemoryReviewsStore();
+    const onClose = vi.fn();
+    render(
+      <PlayerSheet
+        engine={engine}
+        onClose={onClose}
+        lastPlayed={{
+          title: "Неостанній бій",
+          author: "Костянтин Шелест",
+          narrator: "Олександр Волох",
+          language: "uk",
+          url: "https://4read.org/7611-neostannij-bij.html",
+        }}
+        profile={{ uid: "uid-1", nickname: "Слухач-0001" }}
+        reviewsStore={reviewsStore}
+        bookmarksStore={null}
+      />
+    );
+    // The form closes; the player dialog stays.
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Написати відгук" })
+    );
+    expect(screen.getAllByRole("dialog")).toHaveLength(2);
+    // A real browser dispatches keydown with the FOCUSED element as target (the
+    // form's heading): the player's nested-dialog guard must then stay silent.
+    const target = document.activeElement;
+    expect(target).not.toBe(document.body);
+    fireEvent.keyDown(target ?? document.body, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: /Відгук про/ })).toBeNull()
+    );
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("shows no prompt without the reviews store (honest no-Firebase state)", () => {

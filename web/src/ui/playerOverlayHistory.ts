@@ -1,9 +1,9 @@
 /**
- * #1688 — the history entry the full-screen player overlay owns, so ONE system
- * Back closes the player instead of leaving the app. The marker lives in its
- * own module because two owners read it: `App` (pushes/pops it around
- * `playerOpen`) and the overlay (declares the marker type). A foreign entry is
- * never interpreted as ours.
+ * #1688 — the ONE history entry that makes a system Back close the full-screen
+ * player instead of leaving the app. The App is the only owner: it pushes and
+ * pops this marker around `playerOpen`. The marker and guard live in their own
+ * module so the App and the overlay's tests share the SAME definition instead
+ * of re-spelling the literal. A foreign entry is never interpreted as ours.
  */
 export type PlayerOverlayHistoryState = { readonly dshPlayerOverlay: true };
 

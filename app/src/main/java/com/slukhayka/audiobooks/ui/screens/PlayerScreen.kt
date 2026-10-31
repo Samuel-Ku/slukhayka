@@ -1849,18 +1849,14 @@ private fun DualProgress(
     val hasChapterDuration = chapterDurationSeconds > 0L
     // One seek (chapter) 6 dp with a 44 dp interaction zone; the book is a
     // 2 dp read-only line whose parts carry the chapter/bookmark marks.
-    // #1707 — DualProgress recomposes on every position tick; the slider
-    // colors are a theme fact, so remember them instead of allocating a new
-    // SliderColors per second.
-    val sliderAccent = MaterialTheme.colorScheme.tertiary
-    val sliderInactiveTrack = MaterialTheme.colorScheme.outlineVariant
-    val chapterSliderColors = remember(sliderAccent, sliderInactiveTrack) {
-        SliderDefaults.colors(
-            thumbColor = sliderAccent,
-            activeTrackColor = sliderAccent,
-            inactiveTrackColor = sliderInactiveTrack
-        )
-    }
+    // #1707 — `SliderDefaults.colors` is @Composable in M3 1.3, so it cannot
+    // live inside `remember`; the allocation is small next to the marker and
+    // duration work this change removes.
+    val chapterSliderColors = SliderDefaults.colors(
+        thumbColor = MaterialTheme.colorScheme.tertiary,
+        activeTrackColor = MaterialTheme.colorScheme.tertiary,
+        inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
+    )
     Column(modifier = Modifier.fillMaxWidth()) {
         // F7 (аудит 2026-10-28) — the book's read-only time+percent row went
         // away: it duplicated the chapter time below, ate ~40 dp of the ONLY

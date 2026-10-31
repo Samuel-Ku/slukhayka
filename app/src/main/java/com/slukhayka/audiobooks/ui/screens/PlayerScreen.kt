@@ -184,6 +184,89 @@ fun calculateBookSeekTarget(
 }
 
 /**
+ * #1707 — the two marker lists of the book ruler.
+ *
+ * They are a property of the chapter layout and the bookmarks, NOT of the
+ * ticking playback position: the chapter starts and bookmark fractions stay
+ * put while the listener moves inside the book. The player therefore remembers
+ * this result (see [rememberPlayerMarkers]) instead of rebuilding both lists
+ * every second.
+ */
+data class PlayerMarkers(
+    val chapterMarkers: List<Float>,
+    val bookmarkMarkers: List<Float>
+)
+
+/**
+ * #1707 — computes the marker lists from the same inputs
+ * [calculatePlayerProgress] uses.
+ *
+ * Position is deliberately absent: the caller may cache the result for as long
+ * as (chapters, current chapter, its measured duration, bookmarks, book total)
+ * do not change. Bookmarks are placed with ONE prefix-sum walk over the
+ * chapters, so the computation is O(chapters + bookmarks) instead of the old
+ * `take(i).sum()` per bookmark (O(bookmarks × chapters)).
+ */
+fun calculatePlayerMarkers(
+    chapters: List<ChapterEntity>,
+    currentChapterIndex: Int,
+    currentChapterDurationMs: Long,
+    bookmarks: List<BookmarkEntity>,
+    bookTotalDurationSeconds: Long = 0L
+): PlayerMarkers {
+    if (chapters.isEmpty()) return PlayerMarkers(emptyList(), emptyList())
+    val selectedIndex = currentChapterIndex.coerceIn(chapters.indices)
+    val effectiveDurations = effectiveChapterDurations(
+        chapters = chapters,
+        currentChapterIndex = selectedIndex,
+        currentChapterDurationMs = currentChapterDurationMs,
+        bookTotalDurationSeconds = bookTotalDurationSeconds
+    )
+    val totalSeconds = knownBookTotalSeconds(chapters, bookTotalDurationSeconds)
+    return markersFor(effectiveDurations, bookmarks, totalSeconds)
+}
+
+/**
+ * Shared marker math: [calculatePlayerProgress] calls it when the caller has
+ * no remembered [PlayerMarkers], and [calculatePlayerMarkers] is the cached
+ * door. [effectiveDurations] has one entry per chapter.
+ */
+private fun markersFor(
+    effectiveDurations: List<Long>,
+    bookmarks: List<BookmarkEntity>,
+    totalSeconds: Long
+): PlayerMarkers {
+    // Markers are BOOK-level, so they divide by the book's own length: an
+    // unknown total falls to the evenly-spaced shell (an honest "no scale").
+    val chapterMarkers = if (totalSeconds > 0L) {
+        var elapsed = 0L
+        effectiveDurations.dropLast(1).map { duration ->
+            elapsed += duration
+            elapsed.toFloat() / totalSeconds
+        }
+    } else {
+        (1 until effectiveDurations.size).map { it.toFloat() / effectiveDurations.size }
+    }
+
+    // Bookmark fractions need the same honest scale; without one they have no
+    // place on the ruler (dropped, as before).
+    if (totalSeconds <= 0L || bookmarks.isEmpty()) {
+        return PlayerMarkers(chapterMarkers, emptyList())
+    }
+    val prefixSeconds = LongArray(effectiveDurations.size + 1)
+    effectiveDurations.forEachIndexed { index, duration ->
+        prefixSeconds[index + 1] = prefixSeconds[index] + duration
+    }
+    val bookmarkMarkers = bookmarks.mapNotNull { bookmark ->
+        if (bookmark.chapterIndex !in effectiveDurations.indices) return@mapNotNull null
+        val before = prefixSeconds[bookmark.chapterIndex]
+        val within = bookmark.timestampSeconds.coerceIn(0L, effectiveDurations[bookmark.chapterIndex])
+        ((before + within).toFloat() / totalSeconds).coerceIn(0f, 1f)
+    }
+    return PlayerMarkers(chapterMarkers, bookmarkMarkers)
+}
+
+/**
  * Converts chapter-relative playback and bookmarks into one book timeline.
  * Zero-duration imports degrade to evenly-spaced chapter markers rather than
  * producing NaN values (the same class of crash guarded against by the old UI).
@@ -219,7 +302,11 @@ fun calculatePlayerProgress(
     currentPositionMs: Long,
     currentChapterDurationMs: Long,
     bookmarks: List<BookmarkEntity>,
-    bookTotalDurationSeconds: Long = 0L
+    bookTotalDurationSeconds: Long = 0L,
+    // #1707 — the player passes the marker lists it already remembered for
+    // these same inputs. Null keeps the one-shot contract for every other
+    // caller; the marker math itself is [markersFor].
+    markers: PlayerMarkers? = null
 ): PlayerProgressUi {
     if (chapters.isEmpty()) {
         return PlayerProgressUi(0f, 0f, 0L, 0L, emptyList(), emptyList())
@@ -244,37 +331,94 @@ fun calculatePlayerProgress(
     // Markers are BOOK-level, so they divide by the book's own length: an
     // unknown total falls to the evenly-spaced shell (an honest "no scale"),
     // and bookmarks have no fraction to sit at (null, dropped) — the same
-    // refusal as the fraction above.
-    val chapterMarkers = if (totalSeconds > 0L) {
-        var elapsed = 0L
-        effectiveDurations.dropLast(1).map { duration ->
-            elapsed += duration
-            elapsed.toFloat() / totalSeconds
-        }
-    } else {
-        (1 until chapters.size).map { it.toFloat() / chapters.size }
-    }
-
-    val bookmarkMarkers = bookmarks.mapNotNull { bookmark ->
-        if (bookmark.chapterIndex !in chapters.indices || totalSeconds <= 0L) return@mapNotNull null
-        val before = effectiveDurations.take(bookmark.chapterIndex).sum()
-        val within = bookmark.timestampSeconds.coerceIn(0L, effectiveDurations[bookmark.chapterIndex])
-        ((before + within).toFloat() / totalSeconds).coerceIn(0f, 1f)
-    }
+    // refusal as the fraction above. The player hands its remembered lists in
+    // (#1707); this call is the fallback for callers without that cache.
+    val markerFractions = markers ?: markersFor(effectiveDurations, bookmarks, totalSeconds)
 
     return PlayerProgressUi(
         chapterFraction = chapterFraction.coerceIn(0f, 1f),
         bookFraction = bookFraction.coerceIn(0f, 1f),
         bookPositionSeconds = bookPosition,
         bookDurationSeconds = totalSeconds,
-        chapterMarkers = chapterMarkers,
-        bookmarkMarkers = bookmarkMarkers
+        chapterMarkers = markerFractions.chapterMarkers,
+        bookmarkMarkers = markerFractions.bookmarkMarkers
     )
 }
 
 /** The one predictable target for returning to the most recently created bookmark. */
 fun lastCreatedBookmark(bookmarks: List<BookmarkEntity>): BookmarkEntity? =
     bookmarks.maxWithOrNull(compareBy({ it.createdAt }, { it.id }))
+
+/**
+ * #1707 — duration facts are merged from the player's chapter snapshot and the
+ * live Room rows only when those inputs change.
+ *
+ * The old body remembered `withLiveDurationFacts` under `rawPlayerState` too,
+ * so every 1 Hz position tick re-ran `associateBy` over every chapter and
+ * rebuilt the mapped list, then usually threw both away (`changed == false`).
+ * The merge itself does not depend on the position: this remembers it under
+ * the snapshot book/chapters and the two live lists, then takes the ticking
+ * playback facts from [rawPlayerState] — a copy only when the merge really
+ * produced different facts.
+ */
+@Composable
+internal fun rememberLiveDurationPlayerState(
+    rawPlayerState: PlayerState,
+    liveBook: AudiobookEntity?,
+    liveChapters: List<ChapterEntity>
+): PlayerState {
+    val facts = remember(
+        rawPlayerState.currentBook,
+        rawPlayerState.chapters,
+        liveBook,
+        liveChapters
+    ) {
+        rawPlayerState.withLiveDurationFacts(liveBook, liveChapters)
+    }
+    return if (
+        facts.currentBook === rawPlayerState.currentBook &&
+        facts.chapters === rawPlayerState.chapters
+    ) {
+        rawPlayerState
+    } else {
+        // The live playback facts (position, duration, buffering…) ride the
+        // raw state; only the merged display facts are taken from the cache.
+        rawPlayerState.copy(currentBook = facts.currentBook, chapters = facts.chapters)
+    }
+}
+
+/**
+ * #1707 — the book-ruler markers are position-independent, so the player
+ * remembers them instead of rebuilding them on every position tick.
+ *
+ * The current chapter and its measured duration are part of the key: the
+ * chapter ruler overrides the playing chapter's length and spreads unknown
+ * chapters around it, so switching a chapter may move the boundaries — that is
+ * a chapter change, not a tick, and it must keep rendering the same markers as
+ * before.
+ */
+@Composable
+internal fun rememberPlayerMarkers(
+    chapters: List<ChapterEntity>,
+    currentChapterIndex: Int,
+    currentChapterDurationMs: Long,
+    bookmarks: List<BookmarkEntity>,
+    bookTotalDurationSeconds: Long
+): PlayerMarkers = remember(
+    chapters,
+    currentChapterIndex,
+    currentChapterDurationMs,
+    bookmarks,
+    bookTotalDurationSeconds
+) {
+    calculatePlayerMarkers(
+        chapters = chapters,
+        currentChapterIndex = currentChapterIndex,
+        currentChapterDurationMs = currentChapterDurationMs,
+        bookmarks = bookmarks,
+        bookTotalDurationSeconds = bookTotalDurationSeconds
+    )
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -310,9 +454,7 @@ fun PlayerScreen(
     val liveChapters by remember(openedBook.id) {
         libraryEntries.observeChapters(openedBook.id)
     }.collectAsState(initial = emptyList())
-    val playerState = remember(rawPlayerState, liveBook, liveChapters) {
-        rawPlayerState.withLiveDurationFacts(liveBook, liveChapters)
-    }
+    val playerState = rememberLiveDurationPlayerState(rawPlayerState, liveBook, liveChapters)
     val book = playerState.currentBook ?: return
     // #1647 — opening the player is the listener's own «measure these
     // chapters» door: fire the targeted, single-flight probe so a book whose
@@ -445,13 +587,25 @@ fun PlayerScreen(
     // v1.4 E5: the untitled-chapter fallback rides the EN/UK resource pair.
     val currentChapterTitle = currentChapter?.title
         ?: stringResource(R.string.player_chapter_fallback, playerState.currentChapterIndex + 1)
+    // #1707 — chapter/bookmark markers are a property of the book ruler, not of
+    // the ticking position: remember them once per chapter layout + bookmark
+    // set, and let the per-tick recomposition only recompute the fractions that
+    // actually move.
+    val markers = rememberPlayerMarkers(
+        chapters = playerState.chapters,
+        currentChapterIndex = playerState.currentChapterIndex,
+        currentChapterDurationMs = playerState.durationMs,
+        bookmarks = bookmarks,
+        bookTotalDurationSeconds = book.totalDurationSeconds
+    )
     val progress = remember(
         playerState.chapters,
         playerState.currentChapterIndex,
         playerState.currentPositionMs,
         playerState.durationMs,
         bookmarks,
-        book.totalDurationSeconds
+        book.totalDurationSeconds,
+        markers
     ) {
         calculatePlayerProgress(
             chapters = playerState.chapters,
@@ -459,7 +613,8 @@ fun PlayerScreen(
             currentPositionMs = playerState.currentPositionMs,
             currentChapterDurationMs = playerState.durationMs,
             bookmarks = bookmarks,
-            bookTotalDurationSeconds = book.totalDurationSeconds
+            bookTotalDurationSeconds = book.totalDurationSeconds,
+            markers = markers
         )
     }
 
@@ -1694,11 +1849,18 @@ private fun DualProgress(
     val hasChapterDuration = chapterDurationSeconds > 0L
     // One seek (chapter) 6 dp with a 44 dp interaction zone; the book is a
     // 2 dp read-only line whose parts carry the chapter/bookmark marks.
-    val chapterSliderColors = SliderDefaults.colors(
-        thumbColor = MaterialTheme.colorScheme.tertiary,
-        activeTrackColor = MaterialTheme.colorScheme.tertiary,
-        inactiveTrackColor = MaterialTheme.colorScheme.outlineVariant
-    )
+    // #1707 — DualProgress recomposes on every position tick; the slider
+    // colors are a theme fact, so remember them instead of allocating a new
+    // SliderColors per second.
+    val sliderAccent = MaterialTheme.colorScheme.tertiary
+    val sliderInactiveTrack = MaterialTheme.colorScheme.outlineVariant
+    val chapterSliderColors = remember(sliderAccent, sliderInactiveTrack) {
+        SliderDefaults.colors(
+            thumbColor = sliderAccent,
+            activeTrackColor = sliderAccent,
+            inactiveTrackColor = sliderInactiveTrack
+        )
+    }
     Column(modifier = Modifier.fillMaxWidth()) {
         // F7 (аудит 2026-10-28) — the book's read-only time+percent row went
         // away: it duplicated the chapter time below, ate ~40 dp of the ONLY

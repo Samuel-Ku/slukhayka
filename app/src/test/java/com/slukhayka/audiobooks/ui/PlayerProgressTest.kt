@@ -5,6 +5,7 @@ import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.listening.bookProgress
 import com.slukhayka.audiobooks.ui.screens.calculatePlayerProgress
+import com.slukhayka.audiobooks.ui.screens.calculatePlayerMarkers
 import com.slukhayka.audiobooks.ui.screens.calculateBookSeekTarget
 import com.slukhayka.audiobooks.ui.screens.lastCreatedBookmark
 import org.junit.Assert.assertEquals
@@ -49,6 +50,78 @@ class PlayerProgressTest {
             0.0001f
         )
         assertEquals(chapters[0].durationSeconds + 300, result.bookPositionSeconds)
+    }
+
+    // ---------------------------------------------------------------------
+    // #1707 — markers are position-independent, so the player remembers them
+    // and hands them back to calculatePlayerProgress. The remembered path must
+    // be byte-identical to the one-shot computation, otherwise the cache would
+    // be a behaviour change rather than an allocation fix.
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `remembered markers produce the same progress as the one-shot calculation`() {
+        val markerBookmarks = listOf(
+            BookmarkEntity(
+                id = 1,
+                bookId = bookId,
+                chapterIndex = 0,
+                chapterTitle = chapters[0].title,
+                timestampSeconds = 90,
+                note = "",
+                createdAt = 1_700_000_000_000L
+            ),
+            BookmarkEntity(
+                id = 2,
+                bookId = bookId,
+                chapterIndex = 2,
+                chapterTitle = chapters[2].title,
+                timestampSeconds = 120,
+                note = "",
+                createdAt = 1_700_000_001_000L
+            ),
+            // Out of range: the old contract dropped it, the prefix-sum path
+            // must not place it at the end of the book.
+            BookmarkEntity(
+                id = 3,
+                bookId = bookId,
+                chapterIndex = 9,
+                chapterTitle = "Зайвий розділ",
+                timestampSeconds = 10,
+                note = "",
+                createdAt = 1_700_000_002_000L
+            )
+        )
+        val bookTotal = chapters.sumOf { it.durationSeconds }
+
+        val markers = calculatePlayerMarkers(
+            chapters = chapters,
+            currentChapterIndex = 1,
+            currentChapterDurationMs = chapters[1].durationSeconds * 1_000L,
+            bookmarks = markerBookmarks,
+            bookTotalDurationSeconds = bookTotal
+        )
+        val oneShot = calculatePlayerProgress(
+            chapters = chapters,
+            currentChapterIndex = 1,
+            currentPositionMs = 300_000L,
+            currentChapterDurationMs = chapters[1].durationSeconds * 1_000L,
+            bookmarks = markerBookmarks,
+            bookTotalDurationSeconds = bookTotal
+        )
+        val reused = calculatePlayerProgress(
+            chapters = chapters,
+            currentChapterIndex = 1,
+            currentPositionMs = 300_000L,
+            currentChapterDurationMs = chapters[1].durationSeconds * 1_000L,
+            bookmarks = markerBookmarks,
+            bookTotalDurationSeconds = bookTotal,
+            markers = markers
+        )
+
+        assertEquals(oneShot, reused)
+        assertEquals(oneShot.chapterMarkers, markers.chapterMarkers)
+        assertEquals(oneShot.bookmarkMarkers, markers.bookmarkMarkers)
     }
 
     // ---------------------------------------------------------------------

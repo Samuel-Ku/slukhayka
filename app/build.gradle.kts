@@ -123,10 +123,30 @@ android {
     }
     release {
       buildConfigField("boolean", "CRASH_REPORTING_ENABLED", "true")
+      // PNG crunching has been off since the project skeleton; it is a
+      // packaging preference, not part of the R8 decision. Keep it off so the
+      // release APK's image bytes match what the app was smoke-tested with.
       isCrunchPngs = false
-      isMinifyEnabled = false
+      // #1702: the proguardFiles below used to be dead because minification
+      // was off. R8 now runs with the rules exercised by minifiedDebug.
+      isMinifyEnabled = true
+      isShrinkResources = true
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
+    }
+
+    // #1702: the installable R8 canary. It is the debug app (same package
+    // suffix, same debug key), but it runs the exact release minification and
+    // resource shrinking, so a keep-rule regression shows up on a phone
+    // without the release key and without touching the signed release app.
+    create("minifiedDebug") {
+      initWith(getByName("debug"))
+      applicationIdSuffix = ".debug"
+      isMinifyEnabled = true
+      isShrinkResources = true
+      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+      signingConfig = signingConfigs.getByName("debug")
+      matchingFallbacks += listOf("debug")
     }
     // Debug uses AGP's default debug signing (auto-generated ~/.android/debug.keystore).
     // A custom signingConfig pointing at a gitignored ${rootDir}/debug.keystore was

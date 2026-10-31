@@ -103,6 +103,46 @@ class PlayerTickRememberTest {
     }
 
     @Test
+    fun `a position tick does not rebuild the effective chapter durations`() {
+        val chapters = state(positionMs = 0L).chapters
+        val position = mutableLongStateOf(0L)
+        val observed = mutableListOf<List<Long>>()
+
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                // #1733 — the chapter ruler PlayerScreen remembers for both the
+                // markers and the per-tick progress.
+                val durations = rememberEffectiveChapterDurations(
+                    chapters = chapters,
+                    currentChapterIndex = 1,
+                    currentChapterDurationMs = 600_000L,
+                    bookTotalDurationSeconds = 1_800L
+                )
+                SideEffect { observed += durations }
+                Text("${position.longValue}")
+            }
+        }
+        compose.waitForIdle()
+        val beforeTick = observed.last()
+
+        compose.runOnIdle { position.longValue = 1_000L }
+        compose.waitForIdle()
+        compose.runOnIdle { position.longValue = 2_000L }
+        compose.waitForIdle()
+        val afterTick = observed.last()
+
+        compose.runOnIdle {
+            assertTrue("the harness must actually recompose", observed.size >= 3)
+            assertSame(
+                "a position tick must reuse the remembered chapter ruler, not rebuild it",
+                beforeTick,
+                afterTick
+            )
+            assertEquals(listOf(600L, 600L, 600L), afterTick)
+        }
+    }
+
+    @Test
     fun `a position tick does not rebuild the book ruler markers`() {
         val chapters = state(positionMs = 0L).chapters
         val position = mutableLongStateOf(0L)

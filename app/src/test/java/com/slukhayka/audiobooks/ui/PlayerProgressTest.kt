@@ -4,12 +4,14 @@ import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.listening.bookProgress
+import com.slukhayka.audiobooks.data.listening.effectiveChapterDurations
 import com.slukhayka.audiobooks.ui.screens.calculatePlayerProgress
 import com.slukhayka.audiobooks.ui.screens.calculatePlayerMarkers
 import com.slukhayka.audiobooks.ui.screens.calculateBookSeekTarget
 import com.slukhayka.audiobooks.ui.screens.lastCreatedBookmark
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlayerProgressTest {
@@ -122,6 +124,107 @@ class PlayerProgressTest {
         assertEquals(oneShot, reused)
         assertEquals(oneShot.chapterMarkers, markers.chapterMarkers)
         assertEquals(oneShot.bookmarkMarkers, markers.bookmarkMarkers)
+    }
+
+    // ---------------------------------------------------------------------
+    // #1733 — the chapter ruler, too, is remembered (once per chapter layout
+    // and book total) and shared by the markers and the per-tick progress.
+    // The cached path must render exactly the one-shot path, bookmark markers
+    // included; otherwise the cache would be a behaviour change.
+    // ---------------------------------------------------------------------
+
+    @Test
+    fun `remembered chapter ruler and markers produce the same progress as the one-shot path`() {
+        val cachedBookmarks = listOf(
+            BookmarkEntity(
+                id = 1,
+                bookId = bookId,
+                chapterIndex = 0,
+                chapterTitle = chapters[0].title,
+                timestampSeconds = 90,
+                note = "",
+                createdAt = 1_700_000_000_000L
+            ),
+            BookmarkEntity(
+                id = 2,
+                bookId = bookId,
+                chapterIndex = 2,
+                chapterTitle = chapters[2].title,
+                timestampSeconds = 120,
+                note = "",
+                createdAt = 1_700_000_001_000L
+            )
+        )
+        val bookTotal = chapters.sumOf { it.durationSeconds }
+        val chapterDurationMs = chapters[1].durationSeconds * 1_000L
+
+        val oneShot = calculatePlayerProgress(
+            chapters = chapters,
+            currentChapterIndex = 1,
+            currentPositionMs = 300_000L,
+            currentChapterDurationMs = chapterDurationMs,
+            bookmarks = cachedBookmarks,
+            bookTotalDurationSeconds = bookTotal
+        )
+        val durations = effectiveChapterDurations(
+            chapters = chapters,
+            currentChapterIndex = 1,
+            currentChapterDurationMs = chapterDurationMs,
+            bookTotalDurationSeconds = bookTotal
+        )
+        val markers = calculatePlayerMarkers(
+            chapters = chapters,
+            currentChapterIndex = 1,
+            currentChapterDurationMs = chapterDurationMs,
+            bookmarks = cachedBookmarks,
+            bookTotalDurationSeconds = bookTotal,
+            effectiveDurations = durations
+        )
+        val reused = calculatePlayerProgress(
+            chapters = chapters,
+            currentChapterIndex = 1,
+            currentPositionMs = 300_000L,
+            currentChapterDurationMs = chapterDurationMs,
+            bookmarks = cachedBookmarks,
+            bookTotalDurationSeconds = bookTotal,
+            markers = markers,
+            effectiveDurations = durations
+        )
+
+        assertEquals(
+            "the remembered chapter ruler must not change the rendered progress",
+            oneShot,
+            reused
+        )
+        assertEquals(oneShot.chapterMarkers, markers.chapterMarkers)
+        assertEquals(
+            "bookmark markers must survive the cached path unchanged",
+            oneShot.bookmarkMarkers,
+            reused.bookmarkMarkers
+        )
+        assertTrue("the fixture must produce bookmark markers", reused.bookmarkMarkers.isNotEmpty())
+    }
+
+    @Test
+    fun `progress uses the supplied chapter ruler for the playing chapter`() {
+        // Deliberately different from the row's 600 s: progress must read the
+        // ruler it was handed, not rebuild effectiveChapterDurations.
+        val supplied = listOf(1_000L, 660L, 720L)
+
+        val result = calculatePlayerProgress(
+            chapters = chapters,
+            currentChapterIndex = 0,
+            currentPositionMs = 300_000,
+            currentChapterDurationMs = 600_000,
+            bookmarks = emptyList(),
+            effectiveDurations = supplied
+        )
+
+        assertEquals(0.3f, result.chapterFraction, 0.0001f)
+        assertEquals(300L, result.bookPositionSeconds)
+        // The BOOK ruler is still the chapters' own known sum (#1187); the
+        // supplied list only places positions on the chapter ruler.
+        assertEquals(1_980L, result.bookDurationSeconds)
     }
 
     // ---------------------------------------------------------------------

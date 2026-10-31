@@ -414,6 +414,15 @@ class SourceCatalog(
     }
 
     /**
+     * #1723 — re-match the already-drawn shelves after the startup batch has
+     * published the curated lists. Without this trigger a refresh that raced
+     * the batch would keep empty collections until the next catalogue refresh.
+     */
+    fun refreshCuratedCollections() {
+        recomputeCollections()
+    }
+
+    /**
      * #735 — the match corpus of the last collections recompute: the
      * Медіатека rows projected to one card per Work. Cached because the
      * content-language reprojection recomputes the collections without

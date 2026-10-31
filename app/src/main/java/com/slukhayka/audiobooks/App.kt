@@ -1843,6 +1843,9 @@ class App : Application() {
             try {
                 val values = startup.await()
                 _completedStartupValues.value = values
+                // The catalogue may already have refreshed with the empty
+                // provider value; re-match now that the curated lists exist.
+                sourceCatalog.refreshCuratedCollections()
                 showcaseConsent.seed(values.showcasePublished)
             } catch (failure: Exception) {
                 // Degrade to the defaults the app had before startup saved

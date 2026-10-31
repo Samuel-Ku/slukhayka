@@ -16,15 +16,18 @@ import kotlinx.coroutines.withContext
 
 /**
  * #1723 — the cold-start values that used to be read on the main thread while
- * the first frame was being prepared: consent, privacy route, showcase
- * consent, the curated collection/universe JSON, and the bundled seed.
+ * the first frame was being prepared: crash consent, showcase consent, the
+ * curated collection/universe JSON, and the bundled seed.
  *
  * They are DATA, not layout: nothing decides what the first frame looks like.
  * [StartupReads.load] therefore runs the whole batch on [io] ONCE, and the
- * composition root publishes each value to its owner. The two values that do
- * decide the first frame — the app locale and the theme — deliberately stay
- * outside this batch (see `MainActivity.attachBaseContext` and
- * `AppearancePreferencesStore`).
+ * composition root publishes each value to its owner.
+ *
+ * Three reads deliberately stay outside this batch. The privacy route is
+ * installed synchronously in `App.onCreate` because it must be in place
+ * before the first network call; the app locale and the theme decide the
+ * first frame's language, colors and rhythm (see
+ * `MainActivity.attachBaseContext` and `AppearancePreferencesStore`).
  *
  * [source] is a seam, not ceremony: the regression witness
  * (`StartupReadsTest`) records the thread and the order of every read through

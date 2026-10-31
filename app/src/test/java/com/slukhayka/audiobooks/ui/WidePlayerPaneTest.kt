@@ -540,6 +540,38 @@ class WidePlayerPaneTest {
     }
 
     /**
+     * #1711 — the SAME window class, the other mini-player slot: at 600–839 dp
+     * the rail is already there but is not widened, so the bar keeps the
+     * Scaffold's `bottomBar`. With `AppBottomBar` gone that strip is the last
+     * line and must carry the navigation-bar inset itself.
+     */
+    @Test
+    @Config(qualifiers = "uk-rUA-w700dp-h1000dp-420dpi", sdk = [36])
+    fun `in the 600-839 band the bottom mini-player ends above the navigation bar`() {
+        composeRootWithAPausedBook(statusBarDp = 28, navigationBarDp = 48)
+
+        awaitTag("mini_player_bar")
+
+        val window = compose.onRoot().getUnclippedBoundsInRoot()
+        val navigationBarTop = window.bottom.value - 48f
+        val bar = compose.onNodeWithTag("mini_player_bar", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot()
+
+        compose.onNodeWithTag("bottom_navigation_bar", useUnmergedTree = true)
+            .assertDoesNotExist()
+        assertTrue(
+            "the bottom-strip mini-player must end above the navigation bar " +
+                "(bar bottom=${bar.bottom}, nav top=$navigationBarTop)",
+            bar.bottom.value <= navigationBarTop + 1f
+        )
+        assertTrue(
+            "the bottom-strip mini-player must not float away from the bar " +
+                "(bar bottom=${bar.bottom}, nav top=$navigationBarTop)",
+            bar.bottom.value >= navigationBarTop - 12f
+        )
+    }
+
+    /**
      * #1712 — the IME inset reaches the window content: the host's single
      * `imePadding` lifts the whole content above the keyboard instead of
      * letting the focused field sit under it.

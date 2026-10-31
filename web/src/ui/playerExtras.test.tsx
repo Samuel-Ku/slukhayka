@@ -757,3 +757,132 @@ describe("PlayerSheet panes (W5.1)", () => {
     expect(screen.getByText("Для цієї книги ще немає закладок.")).toBeTruthy();
   });
 });
+
+describe("player overlay is a modal dialog (#1688)", () => {
+  async function loadPlayer(engine: AudioEngine): Promise<void> {
+    await engine.loadBook(
+      {
+        title: "Книга",
+        chapters: CHAPTERS,
+        editionId: "ed-1",
+        workId: "Книга|Автор",
+      },
+      0,
+      { forceChapter: true }
+    );
+    engine.pause();
+  }
+
+  it("is a labelled modal, moves focus inside and traps Tab", async () => {
+    const engine = freshEngine();
+    await loadPlayer(engine);
+    render(
+      <PlayerSheet
+        engine={engine}
+        onClose={vi.fn()}
+        lastPlayed={null}
+        profile={null}
+        reviewsStore={null}
+        bookmarksStore={null}
+      />
+    );
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(dialog.getAttribute("aria-labelledby")).toBe("player-sheet-heading");
+    // Focus starts INSIDE the player, not on the page underneath.
+    expect(dialog.contains(document.activeElement)).toBe(true);
+
+    const focusable = Array.from(
+      dialog.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )
+    );
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    last.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    // Tab from the last control wraps to the first — it never escapes.
+    expect(document.activeElement).toBe(first);
+  });
+
+  it("Escape closes and returns focus to the opener", async () => {
+    const engine = freshEngine();
+    await loadPlayer(engine);
+    const trigger = document.createElement("button");
+    trigger.textContent = "opener";
+    document.body.appendChild(trigger);
+    trigger.focus();
+    const onClose = vi.fn();
+    const { unmount } = render(
+      <PlayerSheet
+        engine={engine}
+        onClose={onClose}
+        lastPlayed={null}
+        profile={null}
+        reviewsStore={null}
+        bookmarksStore={null}
+      />
+    );
+    expect(screen.getByRole("dialog").contains(document.activeElement)).toBe(
+      true
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    unmount();
+    expect(document.activeElement).toBe(trigger);
+    trigger.remove();
+  });
+
+  it("an Escape inside a NESTED dialog does not close the player", async () => {
+    const engine = freshEngine();
+    await loadPlayer(engine);
+    const onClose = vi.fn();
+    render(
+      <PlayerSheet
+        engine={engine}
+        onClose={onClose}
+        lastPlayed={null}
+        profile={null}
+        reviewsStore={null}
+        bookmarksStore={null}
+      />
+    );
+    // The review form (and future sheets) render their own role="dialog"
+    // inside the player; their Escape must not discard the player + draft.
+    const nested = document.createElement("div");
+    nested.setAttribute("role", "dialog");
+    nested.setAttribute("aria-label", "review");
+    const nestedButton = document.createElement("button");
+    nestedButton.textContent = "nested";
+    nested.appendChild(nestedButton);
+    document.body.appendChild(nested);
+    nestedButton.focus();
+    try {
+      fireEvent.keyDown(nestedButton, { key: "Escape" });
+      expect(onClose).not.toHaveBeenCalled();
+    } finally {
+      // A failing expectation must not leak the role="dialog" node into the
+      // next test (it made the pane/no-dialog assertion flaky).
+      nested.remove();
+    }
+  });
+
+  it("the wide pane stays a plain non-modal column", async () => {
+    const engine = freshEngine();
+    await loadPlayer(engine);
+    render(
+      <PlayerSheet
+        engine={engine}
+        onClose={vi.fn()}
+        lastPlayed={null}
+        profile={null}
+        reviewsStore={null}
+        bookmarksStore={null}
+        placement="pane"
+      />
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});

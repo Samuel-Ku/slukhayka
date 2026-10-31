@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 import type { AudioEngine } from "../player/audioEngine";
 import type { EngineState } from "../player/engine";
 import { useTranslate } from "../i18n/locale";
@@ -26,6 +32,41 @@ function formatSpeed(speed: number): string {
 }
 
 export type PlayerTab = "chapters" | "timer" | "bookmarks";
+
+/** Is the event target inside a DIFFERENT dialog than the player overlay? */
+export function isNestedDialogTarget(
+  target: EventTarget | null,
+  root: HTMLElement | null
+): boolean {
+  if (root === null || !(target instanceof Element)) return false;
+  const dialog = target.closest('[role="dialog"]');
+  return dialog !== null && dialog !== root;
+}
+
+/** Keep Tab / Shift+Tab inside the modal surface (the background is not inert). */
+function trapFocus(container: HTMLElement | null, event: KeyboardEvent): void {
+  if (container === null) return;
+  const focusable = Array.from(
+    container.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )
+  ).filter((element) => !element.hasAttribute("disabled"));
+  if (focusable.length === 0) {
+    event.preventDefault();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  const outside = active === null || !container.contains(active);
+  if (event.shiftKey && (active === first || outside)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && (active === last || outside)) {
+    event.preventDefault();
+    first.focus();
+  }
+}
 
 export function PlayerSheet({
   engine,
@@ -166,6 +207,50 @@ export function PlayerSheet({
     null
   );
 
+  // #1688 — the full-screen overlay is a MODAL dialog: focus moves inside, Tab
+  // cannot escape, Escape closes (unless a nested dialog owns it) and focus
+  // returns to a still-mounted opener. The ONE history entry that makes system
+  // Back close the player is owned by App (`playerOverlayHistory.ts`), not by
+  // this component: StrictMode re-runs effects in dev, and a component-owned
+  // history.back() in cleanup forked a stale marker that closed the player by
+  // itself. The right-hand `pane` (≥840 px) stays a plain non-modal column.
+  const isOverlay = placement !== "pane";
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (!isOverlay) return;
+    openerRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    closeButtonRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        // A dialog INSIDE the player (e.g. the review form) owns its Escape;
+        // escaping it must not discard the player (and its draft) on top.
+        if (isNestedDialogTarget(event.target, dialogRef.current)) return;
+        event.preventDefault();
+        onCloseRef.current();
+      } else if (event.key === "Tab") {
+        trapFocus(dialogRef.current, event);
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      // A still-mounted opener (e.g. a detail-pane door) gets focus back here;
+      // the App-level effect covers the mini-player, which unmounts while the
+      // overlay is open. History is App-owned (see playerOverlayHistory.ts) so
+      // StrictMode's double effect cannot fork a stale entry.
+      const opener = openerRef.current;
+      if (opener !== null && opener.isConnected) opener.focus();
+    };
+  }, [isOverlay]);
+
   const rootStyle: CSSProperties =
     placement === "pane"
       ? {
@@ -186,13 +271,25 @@ export function PlayerSheet({
           padding: "16px",
           overflowY: "auto",
         };
+  const headingId = "player-sheet-heading";
+  const dialogProps = isOverlay
+    ? ({
+        role: "dialog",
+        "aria-modal": true,
+        "aria-labelledby": headingId,
+        tabIndex: -1,
+      } as const)
+    : {};
   return (
     <div
+      ref={dialogRef}
       className={`player-sheet player-sheet-${placement}`}
       style={rootStyle}
       data-placement={placement}
+      {...dialogProps}
     >
       <button
+        ref={closeButtonRef}
         onClick={onClose}
         style={{
           alignSelf: "flex-start",
@@ -204,7 +301,7 @@ export function PlayerSheet({
       >
         {t("close")}
       </button>
-      <h2 style={{ marginTop: 16 }}>
+      <h2 id={headingId} style={{ marginTop: 16 }}>
         {state.isCompleted
           ? t("completed")
           : t("chapter", { n: state.chapterIndex + 1 })}

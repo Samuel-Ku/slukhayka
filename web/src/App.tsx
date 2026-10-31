@@ -8,6 +8,10 @@ import { BookPage } from "./ui/BookPage";
 import { AudioEngine, type PlayIntent } from "./player/audioEngine";
 import { MiniPlayer } from "./ui/MiniPlayer";
 import { PlayerSheet } from "./ui/PlayerSheet";
+import {
+  PLAYER_OVERLAY_MARKER,
+  isPlayerOverlayState,
+} from "./ui/playerOverlayHistory";
 import type {
   BookDetail,
   SourceId,
@@ -178,6 +182,15 @@ export function App({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const engineRef = useRef<AudioEngine | null>(null);
   const [playerOpen, setPlayerOpen] = useState(false);
+  // #1688 — closing the full-screen player must return focus to the mini-player
+  // (it is unmounted while the overlay is open, so the overlay cannot restore
+  // focus to a detached node on its own).
+  const playerReturnFocusRef = useRef(false);
+  const playerOpenRef = useRef(playerOpen);
+  playerOpenRef.current = playerOpen;
+  const playerPaneRef = useRef(false);
+  // #1688 — a marker popped on the overlay→pane transition is NOT a close.
+  const playerMarkerStaleRef = useRef(false);
   const [, forceUpdate] = useState(0);
   // #1236 — each of these is read by an event listener that must see the
   // CURRENT value: a popstate handler registered once at mount, and the
@@ -400,6 +413,7 @@ export function App({
   const layout = useAppLayout();
   const windowWidth = useWindowWidth();
   const playerPane = showsPlayerPane(windowWidth, playerOpen);
+  playerPaneRef.current = playerPane;
   const split = layout === "expanded" && (book !== null || playerPane);
   const leadingMiniPlayer =
     layout === "expanded" &&
@@ -511,6 +525,22 @@ export function App({
   useEffect(() => {
     const onPopState = (event: PopStateEvent): void => {
       const state = event.state;
+      // #1688 — the overlay→pane transition popped our marker itself; that
+      // traversal is not a navigation and must not touch the view.
+      if (playerMarkerStaleRef.current) {
+        playerMarkerStaleRef.current = false;
+        return;
+      }
+      // A stale FORWARD entry carrying our player marker must never be read as
+      // a view (it used to close the open book underneath). Ignore it.
+      if (isPlayerOverlayState(state)) return;
+      // The overlay is open and a REAL Back happened: close the player and
+      // keep the view beneath untouched.
+      if (playerOpenRef.current && !playerPaneRef.current) {
+        playerReturnFocusRef.current = true;
+        setPlayerOpen(false);
+        return;
+      }
       if (!isAppHistoryState(state)) {
         setBook(null);
         return;
@@ -796,10 +826,55 @@ export function App({
     );
   };
 
+  // #1688 — a user close (button/Escape/Back) hands focus back to the row that
+  // opened the player. The mini-player remounts on this same state change, so
+  // the restore runs in an effect AFTER that commit, not in the overlay cleanup.
+  const closePlayer = (): void => {
+    playerReturnFocusRef.current = true;
+    if (!playerPaneRef.current && isPlayerOverlayState(history.state)) {
+      // Our entry is on top: popping it is what closes the overlay (and keeps
+      // the browser history free of a dead step after the user closes it).
+      history.back();
+      return;
+    }
+    setPlayerOpen(false);
+  };
+
+  useEffect(() => {
+    if (playerOpen || !playerReturnFocusRef.current) return;
+    playerReturnFocusRef.current = false;
+    document
+      .querySelector<HTMLElement>(".mini-player .mini-player-expand")
+      ?.focus();
+  }, [playerOpen]);
+
+  // #1688 — the overlay OWNS one history entry so ONE system Back closes the
+  // player instead of leaving the app. The entry is App-owned on purpose:
+  // StrictMode double-invokes effects in dev, and a component-owned history.back
+  // in cleanup forked a stale marker that closed the player by itself. Pushing
+  // only when the marker is absent keeps the effect idempotent, and no cleanup
+  // ever calls back(); user-close goes through closePlayer below.
+  useEffect(() => {
+    if (!playerOpen || playerPane) return;
+    if (!isPlayerOverlayState(history.state)) {
+      history.pushState(PLAYER_OVERLAY_MARKER, "");
+    }
+  }, [playerOpen, playerPane]);
+
+  // #1688 — when the window grows past the pane line, the SAME player stops
+  // being a modal. The overlay marker must not outlive it: pop it silently so
+  // ✕ closes the pane normally and no dead history step is left behind.
+  useEffect(() => {
+    if (!playerPane) return;
+    if (!isPlayerOverlayState(history.state)) return;
+    playerMarkerStaleRef.current = true;
+    history.back();
+  }, [playerPane]);
+
   const playerSheet = playerOpen ? (
     <PlayerSheet
       engine={engine}
-      onClose={() => setPlayerOpen(false)}
+      onClose={closePlayer}
       lastPlayed={lastPlayedRef.current}
       profile={profile}
       reviewsStore={reviewsStore}

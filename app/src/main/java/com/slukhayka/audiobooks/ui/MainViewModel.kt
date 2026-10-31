@@ -1809,6 +1809,10 @@ class MainViewModel @JvmOverloads constructor(
         // catalogue union — a fresh challenge must surface the source's books
         // in «Увесь каталог» on the next Огляд visit.
         viewModelScope.launch(Dispatchers.IO) {
+            // #1722 — the browser just wrote and flushed its first-party jar;
+            // re-read the 4read session cookie on IO so the next play reuses
+            // it instead of paying a Binder call on the main thread.
+            runCatching { App.instance.streamCookieCache.refresh() }
             sourceCatalog.refreshSourceFeeds()
             sourceCatalog.refreshUnifiedCatalog()
             // ADR-0037 §6 (spec-49 T4) — the Source Watch scans the union
@@ -2238,6 +2242,11 @@ class MainViewModel @JvmOverloads constructor(
         if (!selected.automaticRecovery) return
         _selectedWebSource.value = null
         _showFullPlayer.value = true
+        // #1722 — same refresh point as closeWebSource: the browser may have
+        // written a session even though the recovery verdict failed.
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { App.instance.streamCookieCache.refresh() }
+        }
         playerManager.reportRetryUnavailable()
     }
 
@@ -4018,6 +4027,11 @@ class MainViewModel @JvmOverloads constructor(
             android.net.Uri.fromFile(java.io.File(localPath!!)).toString()
         } else trackUrl
 
+        // #1722 — the browser recovery just refreshed the WebView session;
+        // resolve the stream cookie on IO and hand the ready header to the
+        // install below. prepareChapter never touches CookieManager on main.
+        val streamCookieHeader = App.instance.streamCookieCache.refresh()
+
         return withContext(Dispatchers.Main) {
             coroutineScope {
                 val verdict = async(start = CoroutineStart.UNDISPATCHED) {
@@ -4036,7 +4050,8 @@ class MainViewModel @JvmOverloads constructor(
                     initialChapterIndex = chapterIndex,
                     initialPositionSeconds = positionMs / 1000L,
                     autoPlay = true,
-                    expectedChapterStructureVersion = chapterStructureVersion
+                    expectedChapterStructureVersion = chapterStructureVersion,
+                    cookieHeader = streamCookieHeader
                 )
                 verdict.await().also { started ->
                     if (!started && playerState.value.currentBook?.id == bookId) {
@@ -5558,6 +5573,11 @@ class MainViewModel @JvmOverloads constructor(
             // a newer gesture can complete first; production has no hook.
             playbackPreparationHook?.invoke(attempt?.id ?: -1L, playbackBook.id)
 
+            // #1722 — resolve the 4read session cookie on IO and hand the
+            // ready header to the install below. prepareChapter/play must never
+            // call CookieManager on the main thread.
+            val streamCookieHeader = App.instance.streamCookieCache.refresh()
+
             withContext(Dispatchers.Main) {
                 // #1241 — re-check on the install thread: a newer gesture may
                 // have won while the preparation finished.
@@ -5597,7 +5617,8 @@ class MainViewModel @JvmOverloads constructor(
                     autoPlay = autoPlay,
                     forceRelisten = forceRelisten,
                     initialChapterId = installRequest.chapterId,
-                    expectedChapterStructureVersion = chapterStructureVersion
+                    expectedChapterStructureVersion = chapterStructureVersion,
+                    cookieHeader = streamCookieHeader
                 )
                 if (pausedAt != null) listeningState.updatePausedAt(playbackBook.id, null)
             }

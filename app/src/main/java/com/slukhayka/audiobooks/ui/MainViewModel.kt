@@ -48,7 +48,6 @@ import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.privacy.NetworkPrivacy
 import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
 import com.slukhayka.audiobooks.data.privacy.RouteResolution
-import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
 import com.slukhayka.audiobooks.data.reviews.ReviewDeleteEvent
 import com.slukhayka.audiobooks.data.reviews.ReviewDeleteResult
 import com.slukhayka.audiobooks.data.reviews.ReviewSaveEvent
@@ -2579,8 +2578,9 @@ class MainViewModel @JvmOverloads constructor(
     private val _privacySettingsOpen = MutableStateFlow(false)
     val privacySettingsOpen: StateFlow<Boolean> = _privacySettingsOpen.asStateFlow()
 
-    private val _privacyPrefs = MutableStateFlow(App.instance.privacySettings.load())
-    val privacyPrefs: StateFlow<PrivacyPrefs> = _privacyPrefs.asStateFlow()
+    // #1723 — the startup batch owns the read; this screen renders the default
+    // (Direct/DoH-on) until it lands and then follows the published value.
+    val privacyPrefs: StateFlow<PrivacyPrefs> = App.instance.privacyPrefs
 
     /** The rejection reason of the last save attempt; null when clean. */
     private val _privacyError = MutableStateFlow<String?>(null)
@@ -2923,8 +2923,7 @@ class MainViewModel @JvmOverloads constructor(
             is RouteResolution.Invalid -> _privacyError.value = resolution.reason
             is RouteResolution.Ok -> {
                 App.instance.privacySettings.save(prefs)
-                TransportPrivacy.install(prefs)
-                _privacyPrefs.value = prefs
+                App.instance.applyPrivacyPrefs(prefs)
                 _privacyError.value = null
             }
         }
@@ -4253,11 +4252,14 @@ class MainViewModel @JvmOverloads constructor(
 
     fun refreshEmbeddingVectors() {
         if (!_embeddingPassInFlight.compareAndSet(false, true)) return
-        // #483 — a listener interaction with recommendations starts the one-time model install.
-        if (!modelInstaller.isInstalled()) ensureEmbeddingModel()
-        _recommendationsReady.value = false
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                // #1723 — the two File.length() stats are disk reads; this
+                // function is called from the UI, so the probe runs here on IO
+                // rather than before the launch. #483 — a listener interaction
+                // with recommendations starts the one-time model install.
+                if (!modelInstaller.isInstalled()) ensureEmbeddingModel()
+                _recommendationsReady.value = false
                 // #484 — the pool is the PERSISTENT Room catalogue, not the
                 // ephemeral union: suggestions are stable across sessions and
                 // cover the whole library. Priority: library works first,
@@ -4408,8 +4410,15 @@ class MainViewModel @JvmOverloads constructor(
     }
 
     init {
-        if (modelInstaller.isInstalled()) {
-            _embeddingModelState.value = com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed
+        // #1723 — two File.length() calls are disk stats; the constructor runs
+        // on main, so the probe moved to IO. The state flow starts NotInstalled
+        // (the honest answer until the stat answers) and the settings row
+        // updates as soon as it does.
+        viewModelScope.launch(Dispatchers.IO) {
+            if (modelInstaller.isInstalled()) {
+                _embeddingModelState.value =
+                    com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed
+            }
         }
     }
 

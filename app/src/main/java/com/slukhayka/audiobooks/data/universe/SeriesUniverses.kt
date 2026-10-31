@@ -54,7 +54,15 @@ class SeriesUniverses(
     // persisting forever. Injectable for tests; the flat TTL is gone.
     private val tierTtlMillis: (Boolean, Int?, Int) -> Long = UniverseRefreshTier::tierTtlMillis,
     // Injectable clock so the tier gate is testable.
-    private val now: () -> Long = System::currentTimeMillis
+    private val now: () -> Long = System::currentTimeMillis,
+    /**
+     * #1723 — read at resolve time, not at construction. Production builds
+     * this module while the ViewModel is being constructed on main; the
+     * curated universe JSON is loaded by the startup batch on IO, so this
+     * provider is what keeps `UniverseAssets.load` off main. Defaults to the
+     * captured [curated] list for tests and for callers that already have it.
+     */
+    private val curatedProvider: suspend () -> List<UniverseList> = { curated },
 ) {
 
     /** Resolves one library book's series → universe and caches the result. */
@@ -98,7 +106,7 @@ class SeriesUniverses(
     ) {
         val series = seriesTitle?.takeIf { it.isNotBlank() } ?: return
         // Curated first (local, offline, alias-aware).
-        val curatedMatch = UniverseMatcher.resolve(curated, series, seriesUrl)
+        val curatedMatch = UniverseMatcher.resolve(curatedProvider(), series, seriesUrl)
         if (curatedMatch != null) {
             persist(curatedMatch.toResolution(), workId, seriesIndex)
             return
@@ -238,7 +246,7 @@ class SeriesUniverses(
     suspend fun resolveForSeries(title: String, url: String?) = withContext(Dispatchers.IO) {
         if (title.isBlank()) return@withContext
         // The series page has no book to search Wikidata by — curated only.
-        val match = UniverseMatcher.resolve(curated, title, url) ?: return@withContext
+        val match = UniverseMatcher.resolve(curatedProvider(), title, url) ?: return@withContext
         persist(match.toResolution(), workId = null, volumeIndex = null)
     }
 
@@ -303,7 +311,7 @@ class SeriesUniverses(
 
     /** The cached series row of a curated match (alias-aware, via the asset). */
     private suspend fun curatedSeriesRow(title: String, url: String?): SeriesEntity? {
-        val match = UniverseMatcher.resolve(curated, title, url) ?: return null
+        val match = UniverseMatcher.resolve(curatedProvider(), title, url) ?: return null
         return dao.getSeriesInUniverse(match.universe.id)
             .firstOrNull { it.id == seriesId(match.universe.id, match.position) }
     }

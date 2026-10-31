@@ -15,6 +15,9 @@ class UnexpectedExitReporterTest {
         val cursorStore = FakeExitCursorStore()
         val sink = FakeCrashReportSink()
         val reporting = CrashReporting(FakeConsentStore(CrashConsent.ALLOWED), sink, true)
+        // #1723 — the constructor no longer reads consent; the running app
+        // starts the module before the exit reporter inspects.
+        reporting.start()
         val reporter = UnexpectedExitReporter(source, cursorStore, reporting, enabledForBuild = true)
 
         reporter.inspectLatest()
@@ -35,6 +38,7 @@ class UnexpectedExitReporterTest {
             undecidedSink,
             true
         )
+        undecidedReporting.start()
         UnexpectedExitReporter(
             FakeHistoricalExitSource(true, actionableExit()),
             FakeExitCursorStore(),
@@ -50,6 +54,7 @@ class UnexpectedExitReporterTest {
 
         val deniedSink = FakeCrashReportSink()
         val deniedReporting = CrashReporting(FakeConsentStore(CrashConsent.DENIED), deniedSink, true)
+        deniedReporting.start()
         UnexpectedExitReporter(
             FakeHistoricalExitSource(true, actionableExit()),
             FakeExitCursorStore(),
@@ -69,6 +74,7 @@ class UnexpectedExitReporterTest {
             FakeCrashReportSink { order += "report" },
             true
         )
+        reporting.start()
         UnexpectedExitReporter(
             FakeHistoricalExitSource(true, actionableExit()),
             FakeExitCursorStore { order += "cursor" },
@@ -86,6 +92,7 @@ class UnexpectedExitReporterTest {
     fun `unsupported platform does not inspect or report exits`() {
         val sink = FakeCrashReportSink()
         val reporting = CrashReporting(FakeConsentStore(CrashConsent.ALLOWED), sink, true)
+        reporting.start()
         val unsupported = FakeHistoricalExitSource(supported = false, latest = actionableExit())
 
         UnexpectedExitReporter(
@@ -103,6 +110,7 @@ class UnexpectedExitReporterTest {
     fun `debug build does not inspect supported platform`() {
         val sink = FakeCrashReportSink()
         val reporting = CrashReporting(FakeConsentStore(CrashConsent.ALLOWED), sink, false)
+        reporting.start()
         val source = FakeHistoricalExitSource(supported = true, latest = actionableExit())
 
         UnexpectedExitReporter(

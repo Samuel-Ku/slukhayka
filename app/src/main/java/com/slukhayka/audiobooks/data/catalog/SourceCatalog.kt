@@ -120,11 +120,12 @@ class SourceCatalog(
     // constructor default (like fourReadFetcher's) must never leak onto
     // foreign hosts (SEC-004).
     private val probeFetcher: HttpFetcher = HttpFetcher(),
-    // Spec-16: the curated smart-collection lists, loaded at the composition
-    // root through the context seam (CollectionAssets). Empty in tests that
-    // don't exercise collections; a list asset is pure data — adding one is
-    // a JSON file, never a code change.
-    private val collectionLists: List<com.slukhayka.audiobooks.data.collections.CollectionList> = emptyList(),
+    // Spec-16: the curated smart-collection lists. Production starts empty and
+    // reads them from [collectionListsProvider] at match time (the startup
+    // batch loads them on IO); tests may pass a fixed list. Empty is honest
+    // when no list is loaded; a list asset is pure data — adding one is a JSON
+    // file, never a code change.
+    collectionLists: List<com.slukhayka.audiobooks.data.collections.CollectionList> = emptyList(),
     // Spec-16 follow-up: LIVE collection sources (bestsellers/trending)
     // fetched over the shared HTTP transport on the union refresh. Best-effort
     // per source — a failing source contributes no collection, never breaks
@@ -199,7 +200,13 @@ class SourceCatalog(
      * Wired in App to the cookie-backed session check; false in tests and
      * wherever no session can exist.
      */
-    private val sessionAlive: (sourceId: String) -> Boolean = { false }
+    private val sessionAlive: (sourceId: String) -> Boolean = { false },
+    /**
+     * #1723 — where the curated lists come from when they are loaded after
+     * this module was built (the startup batch on IO). Null keeps the
+     * constructor/static-list behaviour tests and older callers rely on.
+     */
+    private val collectionListsProvider: (() -> List<com.slukhayka.audiobooks.data.collections.CollectionList>)? = null,
 ) {
     /** Frozen local-write seam consumed by the later shared delta lane. */
     val facetWriter: LocalFacetWriter = RoomLocalFacetWriter(dao)
@@ -391,6 +398,31 @@ class SourceCatalog(
         _smartCollections.asStateFlow()
 
     /**
+     * #1723 — the curated lists are loaded by the startup batch on IO, after
+     * this module may already have been constructed on main. [collectionLists]
+     * is the test/legacy input; [collectionListsProvider] (production) is read
+     * at match time, so no asset is opened while main is building the module.
+     */
+    @Volatile
+    private var curatedCollectionLists: List<com.slukhayka.audiobooks.data.collections.CollectionList> =
+        collectionLists
+
+    private fun currentCollectionLists(): List<com.slukhayka.audiobooks.data.collections.CollectionList> {
+        val provided = collectionListsProvider?.invoke() ?: return curatedCollectionLists
+        if (provided != curatedCollectionLists) curatedCollectionLists = provided
+        return curatedCollectionLists
+    }
+
+    /**
+     * #1723 — re-match the already-drawn shelves after the startup batch has
+     * published the curated lists. Without this trigger a refresh that raced
+     * the batch would keep empty collections until the next catalogue refresh.
+     */
+    fun refreshCuratedCollections() {
+        recomputeCollections()
+    }
+
+    /**
      * #735 — the match corpus of the last collections recompute: the
      * Медіатека rows projected to one card per Work. Cached because the
      * content-language reprojection recomputes the collections without
@@ -504,7 +536,7 @@ class SourceCatalog(
                     )
                 _smartCollections.value =
                     com.slukhayka.audiobooks.data.collections.CollectionMatcher.matchAll(
-                        collectionLists + _liveCollections.value,
+                        currentCollectionLists() + _liveCollections.value,
                         collectionsMatchCorpus
                     )
                 visible
@@ -626,7 +658,7 @@ class SourceCatalog(
         // own can never appear. Empty collections are absent from the flow.
         _smartCollections.value =
             com.slukhayka.audiobooks.data.collections.CollectionMatcher.matchAll(
-                collectionLists + _liveCollections.value,
+                currentCollectionLists() + _liveCollections.value,
                 collectionsMatchCorpus
             )
     }

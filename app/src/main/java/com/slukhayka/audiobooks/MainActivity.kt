@@ -292,6 +292,13 @@ class MainActivity : FragmentActivity() {
         // Spec-45 (#405) — the UI language is a stored preference (system | uk | en);
         // SYSTEM leaves the context unpinned, a concrete locale localizes the app
         // AND Material/embedded library resources together.
+        //
+        // #1723 — this is the ONE startup read that stays synchronous, on
+        // purpose: the locale must be known before the Activity context exists,
+        // and a value applied after the first frame would re-create the
+        // Activity (a visible language flash). The file is tiny and read once
+        // per process here; every other startup preference moved to
+        // StartupReads on IO.
         super.attachBaseContext(newBase.withAppLocale(AppLocalePrefs(newBase).locale))
     }
 
@@ -332,6 +339,12 @@ class MainActivity : FragmentActivity() {
             // Plan 2026-2027 — the visible theme follows the listener's choice;
             // migrated screens resolve it to paper/ink, the rest to the legacy
             // light/dark pair, so one switch moves the whole app.
+            //
+            // #1723 — theme and density are the second deliberate synchronous
+            // read: they decide the FIRST frame's colors and rhythm, and a
+            // post-frame correction is exactly the visible flash the issue
+            // forbids. The store reads one small prefs file once; every other
+            // startup preference goes through StartupReads on IO.
             val appearance = remember { AppearancePreferencesStore(this) }
             val themeMode by appearance.themeMode.collectAsState()
             val density by appearance.density.collectAsState()

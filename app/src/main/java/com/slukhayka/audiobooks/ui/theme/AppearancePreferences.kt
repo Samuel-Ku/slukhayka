@@ -30,6 +30,14 @@ enum class ContentDensity { COMFORTABLE, COMPACT }
  * other lightweight stores; no new DataStore dependency for two booleans and an
  * enum).
  *
+ * #1723 — this is one of the two deliberate first-frame reads. The theme and
+ * density decide the colors and rhythm of the FIRST composition, so loading
+ * them asynchronously would show the default theme and then repaint (a visible
+ * flash); the store therefore reads one small prefs file synchronously in
+ * `setContent`. The app locale is the other documented exception
+ * (`MainActivity.attachBaseContext`); every other startup preference moved to
+ * `StartupReads` on IO.
+ *
  * `playerAlwaysInk` is the listener's answer to decision A: the player is ink
  * by default, and the switch exists so that a light-app listener can keep it
  * dark (or turn the exception off) without losing the direction.

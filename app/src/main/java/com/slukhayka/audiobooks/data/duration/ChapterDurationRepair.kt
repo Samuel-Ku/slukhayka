@@ -1,6 +1,5 @@
 package com.slukhayka.audiobooks.data.duration
 
-import android.content.SharedPreferences
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 
 /**
@@ -18,8 +17,6 @@ import com.slukhayka.audiobooks.data.db.AudiobookDao
  */
 class ChapterDurationRepair(
     private val dao: AudiobookDao,
-    private val prefs: SharedPreferences,
-    private val doneKey: String = KEY_DONE
 ) {
 
     /**
@@ -51,17 +48,4 @@ class ChapterDurationRepair(
         return reset
     }
 
-    companion object {
-        /**
-         * Own flag: the seed's «once per install» must not gate the repair.
-         *
-         * KNOWN GAP (#528, measured on device): resetting a chapter to 0 hands it
-         * to [com.slukhayka.audiobooks.player.ChapterDurationPolicy] in the one
-         * state that policy accepts unconditionally — so a short interstitial can
-         * re-poison it, and this one-shot flag means the repair will not run
-         * again. The pass should become repeatable (its own condition is already
-         * idempotent) once the guard can tell a reset chapter from an unknown one.
-         */
-        const val KEY_DONE = "chapter_duration_repair_v1_done"
-    }
 }

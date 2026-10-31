@@ -74,6 +74,18 @@ class AchievementSnapshotSource(
     private val curatedCollections: List<com.slukhayka.audiobooks.data.collections.CollectionList> = emptyList(),
     private val curatedUniverses: List<com.slukhayka.audiobooks.data.universe.UniverseList> = emptyList(),
     /**
+     * #1723 — the same curated lists, read at MATCH time rather than captured
+     * at construction. Production passes the startup batch's values, so the
+     * engine can be built on main while the JSON is still being parsed on IO;
+     * the first refresh runs after the batch and therefore sees the real lists.
+     * Tests that pass [curatedCollections]/[curatedUniverses] keep their
+     * behaviour because these default to the captured lists.
+     */
+    private val curatedCollectionsProvider: () -> List<com.slukhayka.audiobooks.data.collections.CollectionList> =
+        { curatedCollections },
+    private val curatedUniversesProvider: () -> List<com.slukhayka.audiobooks.data.universe.UniverseList> =
+        { curatedUniverses },
+    /**
      * #701 (US40) — whether a registered source is a scam door.
      *
      * A reader rather than a second set, so the registry stays the ONE carrier
@@ -95,7 +107,7 @@ class AchievementSnapshotSource(
      * which the helper-level test alone cannot see.
      */
     private val deriveLibraryFacts: (List<OwnLibraryBook>) -> OwnLibraryFacts = { own ->
-        deriveOwnLibraryFacts(own, curatedUniverses, curatedCollections)
+        deriveOwnLibraryFacts(own, curatedUniversesProvider(), curatedCollectionsProvider())
     }
 ) : AchievementProgressSource, AchievementSnapshot {
     /** #701 — the doors «Усі двері» asks about: every registered source but the scam ones. */

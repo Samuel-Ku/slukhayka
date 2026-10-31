@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.data.diagnostics
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -92,6 +93,9 @@ class CrashReportingTest {
             sink = sink,
             enabledForBuild = true
         )
+        // #1723 — the constructor no longer reads consent; the running app
+        // starts the module before publishing diagnostic context.
+        reporting.start()
         reporting.setAppVisibility(AppVisibility.BACKGROUND)
         reporting.setPlayback(DiagnosticPlaybackState.BUFFERING, DiagnosticAudioOrigin.REMOTE)
         reporting.setPlaybackService(DiagnosticPlaybackService.STARTED)
@@ -124,6 +128,71 @@ class CrashReportingTest {
 
         assertEquals(DiagnosticPlaybackState.PLAYING, summarySink.context?.playbackState)
         assertEquals(DiagnosticAudioOrigin.LOCAL, summarySink.context?.audioOrigin)
+    }
+
+    @Test
+    fun `context before start is not published to a listener who later denies`() {
+        val sink = FakeCrashReportSink(hasUnsentReports = false)
+        val reporting = CrashReporting(
+            FakeConsentStore(CrashConsent.DENIED),
+            sink,
+            enabledForBuild = true
+        )
+
+        // Activity.onStart can land before the IO batch has loaded consent.
+        reporting.setAppVisibility(AppVisibility.BACKGROUND)
+        assertNull("no sink write before consent is known", sink.reportedContext)
+
+        reporting.start()
+        assertNull("a denied listener's context is never published", sink.reportedContext)
+        assertFalse(sink.automaticCollectionEnabled)
+    }
+
+    @Test
+    fun `context accumulated before start is published once consent allows it`() {
+        val sink = FakeCrashReportSink(hasUnsentReports = false)
+        val reporting = CrashReporting(
+            FakeConsentStore(CrashConsent.ALLOWED),
+            sink,
+            enabledForBuild = true
+        )
+
+        reporting.setAppVisibility(AppVisibility.BACKGROUND)
+        assertNull(sink.reportedContext)
+
+        reporting.start(CrashConsent.ALLOWED)
+        assertEquals(AppVisibility.BACKGROUND, sink.reportedContext?.appVisibility)
+    }
+
+    @Test
+    fun `construction performs no consent read and start accepts the startup batch value`() {
+        val store = CountingConsentStore(CrashConsent.ALLOWED)
+        val sink = FakeCrashReportSink(hasUnsentReports = false)
+
+        val reporting = CrashReporting(store, sink, enabledForBuild = true)
+        assertEquals("#1723: the constructor can run on main", 0, store.loads)
+
+        // The composition root already loaded the value on IO; start() must use
+        // it rather than reading prefs again on whichever thread constructed it.
+        reporting.start(CrashConsent.ALLOWED)
+        assertEquals(0, store.loads)
+        assertEquals(CrashConsent.ALLOWED, reporting.state.value.consent)
+        assertTrue(sink.automaticCollectionEnabled)
+    }
+
+    private class CountingConsentStore(initial: CrashConsent) : CrashConsentStore {
+        var loads = 0
+            private set
+        private var consent = initial
+
+        override fun load(): CrashConsent {
+            loads++
+            return consent
+        }
+
+        override fun save(consent: CrashConsent) {
+            this.consent = consent
+        }
     }
 
     private class FakeConsentStore(initial: CrashConsent) : CrashConsentStore {

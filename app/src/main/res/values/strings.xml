@@ -254,6 +254,9 @@
     <!-- #885 (wave 3) — every shelf hidden is a STATE, not a blank screen. -->
     <string name="listen_all_shelves_hidden_title">Усі полиці приховано</string>
     <string name="listen_all_shelves_hidden_body">Ваші книги на місці — поверніть потрібну полицю, і вона знову з\'явиться тут.</string>
+    <!-- #1703 — «Не цікаво» is reversible from the shelf it was chosen on. -->
+    <string name="listen_dismissed_message">Книгу приховано з полиць «Слухати»</string>
+    <string name="listen_dismiss_undo">Повернути</string>
     <string name="collection_with_book_title">Добірки з цією книгою</string>
     <string name="collection_by_pseudonym">добірка слухача %1$s</string>
     <string name="collection_no_ratings">Ще без оцінок</string>

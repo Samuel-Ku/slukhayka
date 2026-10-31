@@ -461,7 +461,9 @@ fun AudiobookApp(
     val firstChoiceLanguages by firstLanguageChoice.languages.collectAsState()
     var appVisibility by remember { mutableStateOf(AppVisibility.FOREGROUND) }
     val lifecycleOwner = LocalLifecycleOwner.current
-    val achievementSnackbar = remember { SnackbarHostState() }
+    // The ONE root host: achievement notices and the Listen «Повернути» offer
+    // both ride it, so a dismissal's undo survives a tab switch (#1703).
+    val rootSnackbar = remember { SnackbarHostState() }
     val allowAchievementNotices = !crashReportingState.shouldShowPrompt && !firstChoiceVisible &&
         narrationSwitchPrompt == null && !fullPlayerModalActive && !fullPlayerContentPresent
     LaunchedEffect(lifecycleOwner, allowAchievementNotices) {
@@ -476,7 +478,7 @@ fun AudiobookApp(
                 if (!App.instance.achievements.backfilled) return@collect
                 while (true) {
                     val earned = App.instance.achievements.takeNotice() ?: break
-                    achievementSnackbar.showSnackbar(
+                    rootSnackbar.showSnackbar(
                         com.slukhayka.audiobooks.ui.achievements.achievementNotice(context, earned.id),
                         duration = SnackbarDuration.Short)
                 }
@@ -490,7 +492,7 @@ fun AudiobookApp(
     val showcasePublishMessage by viewModel.publishMessage.collectAsState()
     LaunchedEffect(showcasePublishMessage) {
         showcasePublishMessage?.let { message ->
-            achievementSnackbar.showSnackbar(message, duration = SnackbarDuration.Short)
+            rootSnackbar.showSnackbar(message, duration = SnackbarDuration.Short)
             viewModel.consumePublishMessage()
         }
     }
@@ -1150,7 +1152,7 @@ fun AudiobookApp(
             // bar cannot show legacy paper above a paper-ink body.
             containerColor = systemBarsGround,
             snackbarHost = {
-                SnackbarHost(achievementSnackbar,
+                SnackbarHost(rootSnackbar,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp))
             },
             bottomBar = {
@@ -1544,7 +1546,11 @@ fun AudiobookApp(
                                     viewModel.setShowFullPlayer(true)
                                 },
                                 onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
-                                onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) }
+                                onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) },
+                                // #1703 — the dismissal's «Повернути» rides the
+                                // root host, so changing tabs does not silently
+                                // consume the only way back.
+                                rootSnackbar = rootSnackbar
                             ) }
                             // Plan 2026-2027: «Огляд» is the next screen on the
                             // direction. The header/search/chips are migrated;

@@ -1651,6 +1651,16 @@ class MainViewModel @JvmOverloads constructor(
         _listenPrefsVersion.value++
     }
 
+    /**
+     * #1703 — the snackbar's «Повернути»: the same local preference, reversed.
+     * The composer re-runs on the version bump, so the Work is back on its
+     * shelf immediately; nothing else was touched by the dismissal.
+     */
+    fun undismissListenBook(bookId: String) {
+        listenPrefs.undismissBook(bookId)
+        _listenPrefsVersion.value++
+    }
+
     // Spec-10 T2: positions are stored per source, so the raw flow can hold
     // several rows per book; the UI wants one card per Work — the latest.
     val recentProgress: StateFlow<List<PlaybackProgressEntity>> = libraryEntries.recentProgress

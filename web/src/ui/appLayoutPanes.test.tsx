@@ -296,7 +296,7 @@ describe("#1236 the list-detail split", () => {
     fullApp();
 
     const row = await screen.findByRole("button", {
-      name: "Відкрити книгу: Кобзар",
+      name: /Відкрити книгу: Кобзар/,
     });
     expect(document.querySelector(".detail-pane")).toBeNull();
     await user.click(row);

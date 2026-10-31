@@ -317,6 +317,7 @@ export function Library({
                   selected={selectedMergeKey === view.mergeKey}
                   onOpen={onOpen === undefined ? undefined : () => onOpen(view)}
                   openAriaLabel={t("openBookAria", { title: view.title })}
+                  speakRowDetails
                   actions={
                     <button
                       type="button"

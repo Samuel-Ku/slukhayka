@@ -109,6 +109,7 @@ export function BookRow({
   innerRef,
   rank,
   selected,
+  speakRowDetails = false,
 }: {
   coverUrl?: string;
   title: string;
@@ -129,7 +130,36 @@ export function BookRow({
   rank?: number;
   /** #1236 — the row whose Work the wide detail pane currently shows. */
   selected?: boolean;
+  /**
+   * #1690 — speak the visible author/narration subtitle and the REAL progress
+   * in the body's accessible name. Opt-in: a bare aria-label masks visible
+   * text, but widening every BookRow name is a separate behaviour change for
+   * every other surface; the Медіатека row is the one this ticket fixes.
+   */
+  speakRowDetails?: boolean;
 }) {
+  const t = useTranslate();
+  // #1690 — a bare aria-label on the body button MASKS the visible row: the
+  // author/narration subtitle and the progress hairline never reached a screen
+  // reader (the hairline was even aria-hidden). The body now composes its
+  // accessible name from the action, the visible subtitle and the REAL
+  // progress, and the hairline exposes itself as a progressbar.
+  const progressPercent =
+    progress === undefined
+      ? null
+      : Math.round(Math.min(Math.max(progress, 0), 1) * 100);
+  const progressText =
+    progressPercent === null
+      ? null
+      : t("bookRowProgress", { percent: progressPercent });
+  const openLabel =
+    openAriaLabel === undefined
+      ? undefined
+      : speakRowDetails
+        ? [openAriaLabel, subtitle, progressText]
+            .filter((part): part is string => part !== undefined && part !== "")
+            .join(". ")
+        : openAriaLabel;
   const body = (
     <>
       {rank !== undefined && (
@@ -155,7 +185,11 @@ export function BookRow({
           <span
             className="bookrow-progress"
             data-progress={progress.toFixed(3)}
-            aria-hidden="true"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progressPercent ?? undefined}
+            aria-valuetext={progressText ?? undefined}
           >
             <span
               className="bookrow-progress-fill"
@@ -177,7 +211,7 @@ export function BookRow({
           type="button"
           className="bookrow-body"
           onClick={onOpen}
-          aria-label={openAriaLabel}
+          aria-label={openLabel}
         >
           {body}
         </button>

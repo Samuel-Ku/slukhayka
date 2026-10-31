@@ -324,6 +324,10 @@ const uk = {
   collectionReportError: "Не вдалося надіслати скаргу. Спробуйте ще раз.",
   // player
   miniChapter: "Розділ {n} · {time}",
+  miniOpenPlayer: "Відкрити плеєр",
+  miniPlay: "Грати",
+  miniPause: "Пауза",
+  miniSeekForward: "Перемотати вперед на 15 секунд",
   close: "✕ Закрити",
   completed: "Завершено",
   chapter: "Розділ {n}",
@@ -719,6 +723,10 @@ const en: Strings = {
   collectionReportError: "Couldn't send the report. Try again.",
   // player
   miniChapter: "Chapter {n} · {time}",
+  miniOpenPlayer: "Open player",
+  miniPlay: "Play",
+  miniPause: "Pause",
+  miniSeekForward: "Skip forward 15 seconds",
   close: "✕ Close",
   completed: "Completed",
   chapter: "Chapter {n}",

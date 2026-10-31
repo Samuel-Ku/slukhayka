@@ -1927,3 +1927,30 @@ span.bookrow-body {
   color: var(--fg-dim);
   font-size: 13px;
 }
+
+/* #1689 — the mini-player transport keeps the 48 px touch/pointer floor
+   (ADR-0044: player transport is a ≥48 dp surface) through ONE class, not
+   per-button inline magic. */
+.mini-player .mini-transport,
+.mini-player .mini-player-expand {
+  min-width: 48px;
+  min-height: 48px;
+  /* A <button> does not inherit the page font (UA stylesheet resets it);
+     the expand button holds the chapter text, so it must match the strip. */
+  font: inherit;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+/* The transport glyphs sit centred in their square target; the expand button
+   is a full-width reading row, so its text stays at the START. (A shared
+   `justify-content: center` would drift the chapter text to the middle — the
+   inline `textAlign` cannot move a flex item.) */
+.mini-player .mini-transport {
+  justify-content: center;
+}
+
+.mini-player .mini-player-expand {
+  justify-content: flex-start;
+}

@@ -165,6 +165,34 @@ class CrashReportingTest {
     }
 
     @Test
+    fun `a context update that lands while start publishes is not overwritten`() {
+        val sink = FakeCrashReportSink(hasUnsentReports = false)
+        val summaries = mutableListOf<CrashContext>()
+        var reporting: CrashReporting? = null
+        val summarySink = ProcessStateSummarySink { context ->
+            summaries += context
+            if (context.appVisibility == AppVisibility.UNKNOWN) {
+                // Activity.onStart can update visibility while start() is
+                // publishing the accumulated context. On the old code
+                // started was still false here, so this update never reached
+                // the sinks and start() then published the stale UNKNOWN.
+                reporting?.setAppVisibility(AppVisibility.FOREGROUND)
+            }
+        }
+        reporting = CrashReporting(
+            FakeConsentStore(CrashConsent.ALLOWED),
+            sink,
+            enabledForBuild = true,
+            processStateSummarySink = summarySink
+        )
+
+        reporting.start(CrashConsent.ALLOWED)
+
+        assertEquals(AppVisibility.FOREGROUND, summaries.last().appVisibility)
+        assertEquals(AppVisibility.FOREGROUND, sink.reportedContext?.appVisibility)
+    }
+
+    @Test
     fun `construction performs no consent read and start accepts the startup batch value`() {
         val store = CountingConsentStore(CrashConsent.ALLOWED)
         val sink = FakeCrashReportSink(hasUnsentReports = false)

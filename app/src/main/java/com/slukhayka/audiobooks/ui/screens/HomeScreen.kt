@@ -73,11 +73,9 @@ import com.slukhayka.audiobooks.data.entries.LibraryNewArrival
 import com.slukhayka.audiobooks.data.entries.LibraryNewArrivals
 import com.slukhayka.audiobooks.data.entries.matchingLibraryQuery
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
-import com.slukhayka.audiobooks.data.personbookmarks.PersonNewArrivals
 import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.update.UpdateChecker
-import com.slukhayka.audiobooks.ui.DurationBooks
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
@@ -92,7 +90,6 @@ import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.displayAuthor
-import com.slukhayka.audiobooks.ui.durationBooksFrom
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
 import com.slukhayka.audiobooks.ui.theme.*
 
@@ -174,29 +171,12 @@ fun HomeScreen(
         returnFocusRequester = workFeedFilterTriggerFocusRequester
     )
 
-    // Spec-39 T1 (#261): «Ваші цикли» — derived purely from the local base
-    // (library rows + Listening State + every known Work), no network and no
-    // loading states; recomputed only when an input actually changes.
-    val recentProgress by libraryEntries.recentProgress.collectAsState(initial = emptyList())
-    // ADR-0041 — the Home discovery rails read the Mirror's CLAIMED Works:
-    // a Work whose every Source was removed cannot be opened, so it is never
-    // offered as a card («Ваші цикли», «Схожі цикли», «Новинки авторів»).
-    val discoverableWorks by sourceCatalog.discoverableWorks.collectAsState(initial = emptyList())
-    val allLibraryEntries by sourceCatalog.allLibraryEntries.collectAsState(initial = emptyList())
-    val allEditions by sourceCatalog.allEditions.collectAsState(initial = emptyList())
-    // #1706: remembered so a search keystroke does not rebuild the cold DAO
-    // Flow and restart the Room observer on every recomposition.
-    val allPersonBookmarks = rememberAllPersonBookmarks(personBookmarks)
-    val unifiedCatalog by sourceCatalog.unifiedCatalog.collectAsState()
-    val peopleNewArrivals = remember(allPersonBookmarks, discoverableWorks, allEditions, allLibraryEntries, unifiedCatalog) {
-        PersonNewArrivals.projectCatalog(
-            bookmarks = allPersonBookmarks,
-            works = discoverableWorks,
-            editions = allEditions,
-            unifiedCatalog = unifiedCatalog,
-            libraryEntries = allLibraryEntries
-        )
-    }
+    // #1743 — the catalogue projections that do not depend on scroll now run
+    // in the ViewModel on Dispatchers.Default; the screen draws the already
+    // projected lists, so a catalogue refresh cannot recompute them on the
+    // composition thread during the first scroll. While a new projection is
+    // computed the previous one stays on screen (no blank shelf, no spinner).
+    val peopleNewArrivals by viewModel.peopleNewArrivals.collectAsState()
 
     // Spec-16 T2: the «Колекції» block — curated lists matched against the
     // union, recomputed on every union refresh (same trigger). The flow
@@ -292,34 +272,11 @@ fun HomeScreen(
         viewModel.onCatalogueSynced()
     }
 
-    // spec-18 T3: the «За тривалістю» rows, derived live from the library
-    // through the pure DurationBuckets module — only books with a known
-    // duration surface, never guesses.
-    val durationBooks: DurationBooks = remember(allBooks) { durationBooksFrom(allBooks) }
-
-    // Spec-39 T1/T2 (#261/#262): the pure builder turns the same shaped rows
-    // into the shelf; the T2 similar tier lifts the engine's ranked picks to
-    // cycle level (best-effort — empty picks yield no tier). An empty result
-    // leaves Огляд byte-for-byte as before.
-    val personalCycles = remember(allBooks, recentProgress, discoverableWorks, recommendedBooks) {
-        com.slukhayka.audiobooks.ui.library.PersonalCycles.build(
-            libraryBooks = allBooks,
-            progress = recentProgress,
-            works = discoverableWorks,
-            recommendations = recommendedBooks
-        )
-    }
-
-    // Spec-39 T2 (#262): the pure builder lifts the engine's top picks to
-    // cycles through the local Work rows (series identity); the listener's
-    // own cycle titles are excluded so nothing owned is recommended back.
-    val similarCycles = remember(recommendedBooks, discoverableWorks, personalCycles) {
-        com.slukhayka.audiobooks.ui.library.SimilarCycles.build(
-            picks = recommendedBooks,
-            works = discoverableWorks,
-            ownCycleTitles = personalCycles.map { it.title }
-        )
-    }
+    // spec-18 T3 + Spec-39 T1/T2 (#261/#262): the duration rows and both
+    // «Ваші цикли» tiers are projected in the ViewModel on Dispatchers.Default
+    // (#1743); the screen only draws the already-projected lists.
+    val durationBooks by viewModel.homeDurationBooks.collectAsState()
+    val cycleShelves by viewModel.homeCycleShelves.collectAsState()
 
     // IA §4 «Огляд» / expressive «Основні екрани»: the search is permanently
     // visible — finding new content belongs to this tab — so there is no
@@ -424,8 +381,8 @@ fun HomeScreen(
                 peopleNewArrivals = peopleNewArrivals,
                 recommendedBooks = recommendedBooks,
                 recommendationsReady = recommendationsReady,
-                personalCycles = personalCycles,
-                similarCycles = similarCycles,
+                personalCycles = cycleShelves.personal,
+                similarCycles = cycleShelves.similar,
                 shortBooks = durationBooks.short.map { it.asCatalogBook() },
                 longBooks = durationBooks.long.map { it.asCatalogBook() },
                 workFeedItems = workFeedItems,

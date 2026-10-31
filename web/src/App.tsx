@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { ListenerProfile } from "./identity/listenerIdentity";
+import {
+  localizedProfile,
+  type ListenerProfile,
+} from "./identity/listenerIdentity";
 import { Catalog } from "./ui/Catalog";
 import { Listen } from "./ui/Listen";
 import { Library } from "./ui/Library";
@@ -166,8 +169,16 @@ export function App({
 }) {
   const t = useTranslate();
   const locale = useUiLocale();
-  const [profile, setProfile] = useState(initialProfile);
-  useEffect(() => setProfile(initialProfile), [initialProfile]);
+  const [baseProfile, setBaseProfile] = useState(initialProfile);
+  useEffect(() => setBaseProfile(initialProfile), [initialProfile]);
+  // #1693 — the fallback pseudonym follows the UI locale through the ONE string
+  // table. Recomputing on a locale switch means a listener who changes language
+  // does not keep the previous language's «Слухач-NNNN» until reload.
+  const profile = useMemo(
+    () => (baseProfile === null ? null : localizedProfile(baseProfile, locale)),
+    [baseProfile, locale]
+  );
+  const setProfile = setBaseProfile;
 
   const [tab, setTab] = useState<SelectedTab>(() => loadSelectedTab());
   const [settingsReturnTab, setSettingsReturnTab] =

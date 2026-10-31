@@ -583,15 +583,18 @@ export function ReviewsBlock({
     body: string | null,
     editionTag: string | null
   ): void => {
-    if (uid === null) return;
+    // #1693 — the uid IS the identity; `profile` is non-null whenever uid is,
+    // so the old `?? t("listenerFallback")` branch was dead. The nickname is
+    // already localized by App (localizedProfile).
+    if (profile === null) return;
     setIsSaving(true);
     setSaveError(null);
     const now = Date.now();
     void store
       .putReview({
         workId,
-        uid,
-        authorName: profile?.nickname ?? t("listenerFallback"),
+        uid: profile.uid,
+        authorName: profile.nickname,
         rating,
         ...(body ? { body } : {}),
         ...(editionTag ? { editionTag } : {}),

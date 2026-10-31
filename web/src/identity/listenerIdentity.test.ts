@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   ensureProfile,
   currentProfile,
+  localizedProfile,
+  nicknameForUid,
   type AuthGateway,
   type IdentityDeps,
 } from "./listenerIdentity";
@@ -69,6 +71,34 @@ describe("silent web identity bootstrap", () => {
     const profile = await ensureProfile(deps);
     expect(profile.uid).toBe("local-deadbeef1234");
     expect(deps.readPair()).toBeNull(); // nothing persisted without Firebase
+  });
+
+  it("derives the display pseudonym from uid and locale, not from a second hardcoded phrase (#1693)", () => {
+    expect(nicknameForUid("local-abc", "uk")).toBe("Слухач");
+    expect(nicknameForUid("local-abc", "en")).toBe("Listener");
+    // LITERAL oracle: the hash must not drift silently (renames every listener).
+    expect(nicknameForUid("uid-42", "uk")).toBe("Слухач-4379");
+    expect(nicknameForUid("uid-42", "en")).toBe("Listener-4379");
+  });
+
+  it("re-renders a GENERATED profile in the current locale without changing its uid (#1693)", () => {
+    const base = { uid: "uid-42", nickname: "Слухач-4379" };
+    const en = localizedProfile(base, "en");
+    expect(en).toEqual({ uid: "uid-42", nickname: "Listener-4379" });
+    const back = localizedProfile(en, "uk");
+    expect(back.nickname).toBe("Слухач-4379");
+  });
+
+  it("never rewrites a nickname the listener chose (#1693)", () => {
+    const custom = { uid: "uid-42", nickname: "Книголюб" };
+    // The generated default is localized; a chosen name is data.
+    expect(localizedProfile(custom, "en")).toEqual(custom);
+    expect(
+      localizedProfile({ uid: "local-abc", nickname: "Мій нік" }, "en")
+    ).toEqual({
+      uid: "local-abc",
+      nickname: "Мій нік",
+    });
   });
 
   it("the browser-local default name is born in the UI locale (#1687)", async () => {

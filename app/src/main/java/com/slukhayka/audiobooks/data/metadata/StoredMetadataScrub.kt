@@ -13,8 +13,9 @@ import com.slukhayka.audiobooks.data.source.decodeEntities
  * editions.narrator) through the shared
  * [com.slukhayka.audiobooks.data.source.decodeEntities]. The pure rules live in
  * [MetadataAssertions]; this is only the thin runner over the DAO. Idempotent
- * by construction: each rule applied twice matches nothing, so a second run
- * reports zero changes.
+ * in ONE run: the name pass goes first (#1684), so the title pass already sees
+ * the decoded author; each rule applied twice matches nothing and a second
+ * startup reports zero changes.
  *
  * The name repair rewrites TEXT only. `works.mergeKey` and `editions.id` (and
  * the author/edition facet ids derived from a name) keep the value they were
@@ -31,34 +32,24 @@ class StoredMetadataScrub(private val dao: AudiobookDao) {
      */
     suspend fun scrubOnce(): Int {
         var changed = 0
-        for (row in dao.getAllBookTitleRows()) {
-            val scrubbed = MetadataAssertions.normalizeTitle(row.title, row.author)
-            if (scrubbed != row.title) {
-                dao.updateBookTitle(row.id, scrubbed)
-                changed++
-            }
-        }
-        for (row in dao.getAllWorkTitleRows()) {
-            val scrubbed = MetadataAssertions.normalizeTitle(row.title, row.author)
-            if (scrubbed != row.title) {
-                dao.updateWorkTitle(row.id, scrubbed)
-                changed++
-            }
-        }
-        for (row in dao.getAllBookDescriptionRows()) {
-            val scrubbed = MetadataAssertions.normalizeDescription(row.description)
-            if (scrubbed != row.description) {
-                dao.updateBookDescription(row.id, scrubbed)
-                changed++
-            }
-        }
-        // #964 follow-up: a person name stored before the write path decoded it
-        // («Наталія Дев&#x27;ятко») is repaired by the SAME shared decoder the
-        // write-path seam uses. Only the entity decode runs here — the seam's
-        // brand scrub is not re-applied to stored rows, so the repair never
-        // blanks a name it was not asked to touch. A clean name and an
-        // unknown/malformed entity are byte-identical (the decoder never
-        // fabricates a character), which is what makes the second pass a no-op.
+        // #1684 — the NAME pass runs FIRST, before the title pass. The
+        // Soundbooks wrapper rule strips a trailing « - <author>» suffix by
+        // comparing the stored author with the title; with the name still
+        // encoded («Дев&#x27;ятко») the comparison missed and the suffix survived
+        // the first run, so the same row needed a SECOND startup to settle.
+        // Decoding names first makes the whole pass idempotent in one run.
+        //
+        // A person name stored before the write path decoded it is repaired by
+        // the SAME shared decoder the write-path seam uses. Only the entity
+        // decode runs here — the seam's brand scrub is not re-applied to
+        // stored rows, so the repair never blanks a name it was not asked to
+        // touch. A clean name and an unknown/malformed entity are
+        // byte-identical (the decoder never fabricates a character).
+        //
+        // Named boundary: [decodeEntities] is SINGLE-pass, so a nested entity
+        // (&amp;#x27;) written before the write-path rules decodes one layer per
+        // startup run — the same accepted limit the title repair has had since
+        // #964, not a new guarantee.
         for (row in dao.getAllBookNameRows()) {
             val author = decodeEntities(row.author)
             val narrator = decodeEntities(row.narrator)
@@ -78,6 +69,27 @@ class StoredMetadataScrub(private val dao: AudiobookDao) {
             val narrator = decodeEntities(row.name)
             if (narrator != row.name) {
                 dao.updateEditionNarrator(row.id, narrator)
+                changed++
+            }
+        }
+        for (row in dao.getAllBookTitleRows()) {
+            val scrubbed = MetadataAssertions.normalizeTitle(row.title, row.author)
+            if (scrubbed != row.title) {
+                dao.updateBookTitle(row.id, scrubbed)
+                changed++
+            }
+        }
+        for (row in dao.getAllWorkTitleRows()) {
+            val scrubbed = MetadataAssertions.normalizeTitle(row.title, row.author)
+            if (scrubbed != row.title) {
+                dao.updateWorkTitle(row.id, scrubbed)
+                changed++
+            }
+        }
+        for (row in dao.getAllBookDescriptionRows()) {
+            val scrubbed = MetadataAssertions.normalizeDescription(row.description)
+            if (scrubbed != row.description) {
+                dao.updateBookDescription(row.id, scrubbed)
                 changed++
             }
         }

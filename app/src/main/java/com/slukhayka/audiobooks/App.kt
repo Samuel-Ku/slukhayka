@@ -11,7 +11,6 @@ import com.slukhayka.audiobooks.data.catalog.FeedSnapshotStore
 import com.slukhayka.audiobooks.data.catalog.PlaybackFallbackResolver
 import com.slukhayka.audiobooks.data.catalog.PopularityAssertionStore
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
-import com.slukhayka.audiobooks.data.collections.CollectionAssets
 import com.slukhayka.audiobooks.data.collections.OpenLibraryTrendingSource
 import com.slukhayka.audiobooks.data.collections.SluhayuaPopularSource
 import com.slukhayka.audiobooks.data.collections.SoundBooksTopSource
@@ -82,9 +81,13 @@ import com.slukhayka.audiobooks.data.recommend.RecommendationPreferences
 import com.slukhayka.audiobooks.data.search.FirestoreSearchCache
 import com.slukhayka.audiobooks.data.merge.DuplicateWorkMerger
 import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
+import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
 import com.slukhayka.audiobooks.data.privacy.PrivacySettingsStore
 import com.slukhayka.audiobooks.data.privacy.SharedPreferencesPrivacySettingsStore
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
+import com.slukhayka.audiobooks.startup.AndroidStartupSource
+import com.slukhayka.audiobooks.startup.StartupReads
+import com.slukhayka.audiobooks.startup.StartupValues
 import com.slukhayka.audiobooks.data.source.AudiobookCoUaAdapter
 import com.slukhayka.audiobooks.data.source.AudiobookMp3Adapter
 import com.slukhayka.audiobooks.data.source.ChytayloAdapter
@@ -123,10 +126,16 @@ import com.slukhayka.audiobooks.data.universe.WikidataSeriesProvider
 import com.slukhayka.audiobooks.player.AudioPlayerManager
 import com.slukhayka.audiobooks.player.CastPlaybackController
 import com.slukhayka.audiobooks.player.StreamCookieCache
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.Job
@@ -162,6 +171,56 @@ class App : Application() {
 
     private val database by lazy { AudiobookDatabase.getDatabase(this) }
     private val processExitHistory by lazy { AndroidHistoricalProcessExitSource(this) }
+
+    /**
+     * #1723 — the one IO scope and the one batch of startup reads. The batch is
+     * started on first access in [onCreate] and every consumer awaits it, so
+     * the reads (prefs + curated JSON) never run on main and are paid once.
+     */
+    private val startupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val startupReads by lazy { StartupReads(AndroidStartupSource(this)) }
+    private val startupValues: Deferred<StartupValues> by lazy {
+        startupScope.async { startupReads.load() }
+    }
+
+    /** The batch's result once it is safe for main-thread readers to consult. */
+    private val _completedStartupValues = MutableStateFlow<StartupValues?>(null)
+
+    /** Completed after [TransportPrivacy] has the persisted route installed. */
+    private val privacyInstalled = CompletableDeferred<Unit>()
+
+    /**
+     * The persisted privacy choice as soon as the startup batch has it. The
+     * default (direct, DoH on) is exactly what [PrivacyPrefs] means before a
+     * listener saves a route, so the screen can render immediately and update.
+     */
+    private val _privacyPrefs = MutableStateFlow(PrivacyPrefs())
+    val privacyPrefs: StateFlow<PrivacyPrefs> = _privacyPrefs.asStateFlow()
+
+    /** Publishes and installs an already-validated privacy choice. */
+    fun applyPrivacyPrefs(prefs: PrivacyPrefs) {
+        _privacyPrefs.value = prefs
+        TransportPrivacy.install(prefs)
+    }
+
+    /**
+     * The startup batch's values when it has already finished; null means the
+     * caller must not block (main) and should use the documented default.
+     */
+    private fun completedStartupValues(): StartupValues? = _completedStartupValues.value
+
+    /**
+     * #1723 — a network-touching startup block waits for [TransportPrivacy] to
+     * be installed. The previous code launched these on main and installed the
+     * route later on the same thread, so a fast IO worker could reach the
+     * network on the default DIRECT route; the order is now explicit.
+     */
+    private fun launchAfterPrivacy(block: suspend CoroutineScope.() -> Unit) {
+        startupScope.launch {
+            privacyInstalled.await()
+            block()
+        }
+    }
 
     /** #411 — the only process-wide door to anonymous crash reporting. */
     val crashReporting: CrashReporting by lazy {
@@ -878,14 +937,13 @@ class App : Application() {
                 sourceCatalog.applyCollectiveCard(entry)
                 landed
             },
-            seed = runCatching {
-                assets.open("catalog_seed.json").bufferedReader().use { reader ->
-                    com.slukhayka.audiobooks.data.collective.CatalogSeedCodec.parse(reader.readText())
-                }
-            }.getOrDefault(emptyList()),
-            flag = com.slukhayka.audiobooks.data.collective.PrefsColdStartSeedFlag(
-                getSharedPreferences("cold_start_seed", MODE_PRIVATE)
-            )
+            // #1723 — the asset is parsed by the startup batch on IO, not while
+            // this lazy is constructed on the main thread. runOnce() checks the
+            // flag first, so a seeded install never awaits or re-parses it.
+            seedLoader = {
+                runCatching { startupValues.await().coldStartSeed }.getOrDefault(emptyList())
+            },
+            flag = com.slukhayka.audiobooks.data.collective.PrefsColdStartSeedFlag(this)
         )
     }
 
@@ -1018,12 +1076,18 @@ class App : Application() {
                 // award for good.
                 abandonedBookIds = abandonedBooks.observeLiveAbandonedBookIds(),
                 // #701 (US37, US38) — the curated lists are assets, so the
-                // composition reads them here (the module owns no Context) and
-                // hands them over as data. «Усі двері» needs no extra wiring:
-                // the registry ids above already carry the doors, and the
-                // default scam reader is the registry's own answer.
-                curatedCollections = com.slukhayka.audiobooks.data.collections.CollectionAssets.load(this),
-                curatedUniverses = com.slukhayka.audiobooks.data.universe.UniverseAssets.load(this)), achievementStore,
+                // composition hands them over as data. «Усі двері» needs no
+                // extra wiring: the registry ids above already carry the doors,
+                // and the default scam reader is the registry's own answer.
+                // #1723 — the lists come from the startup batch on IO; the
+                // provider reads them at match time, so building the engine on
+                // main never opens an asset.
+                curatedCollectionsProvider = {
+                    completedStartupValues()?.collectionLists.orEmpty()
+                },
+                curatedUniversesProvider = {
+                    completedStartupValues()?.universeLists.orEmpty()
+                }), achievementStore,
             onFailure = { android.util.Log.w("Achievements", "local evaluation will retry", it) })
     }
     /** Enqueue a real acceptance without tying its persistence to the screen coroutine. */
@@ -1296,7 +1360,9 @@ class App : Application() {
     /** Source Catalog: browse/sync/search + chapter materialisation. */
     val sourceCatalog: SourceCatalog by lazy {
         // Spec-16: the curated smart-collection lists ride the context seam —
-        // one JSON file per collection, loaded once at the composition root.
+        // one JSON file per collection. #1723 — the startup batch loads them on
+        // IO and the provider below reads them at match time, so this
+        // constructor never opens an asset on main.
         // The live «Популярне зараз» list (OpenLibrary trending, keyless) and
         // the «Популярне у sluhay.com.ua» most-viewed list (spec-37) are
         // fetched over the shared HTTP transport on the union refresh.
@@ -1305,7 +1371,13 @@ class App : Application() {
             sourceAdapters,
             libraryImport,
             popularityAssertionStore = PopularityAssertionStore(database.audiobookDao()),
-            collectionLists = CollectionAssets.load(this),
+            // #1723 — the curated lists are loaded by the startup batch on IO;
+            // the provider is read at match time, so building this module on
+            // main opens no asset.
+            collectionLists = emptyList(),
+            collectionListsProvider = {
+                completedStartupValues()?.collectionLists.orEmpty()
+            },
             liveCollectionSources = listOf(
                 OpenLibraryTrendingSource(),
                 SluhayuaPopularSource(),
@@ -1502,8 +1574,13 @@ class App : Application() {
         val wikidataFetcher = HttpFetcher()
         SeriesUniverses(
             database.audiobookDao(),
-            UniverseAssets.load(this),
-            WikidataSeriesProvider(
+            // #1723 — empty here: the startup batch loads the JSON on IO and
+            // the provider below reads the actual lists at resolve time.
+            emptyList(),
+            curatedProvider = {
+                runCatching { startupValues.await().universeLists }.getOrDefault(emptyList())
+            },
+            wikidata = WikidataSeriesProvider(
                 // spec-26 T3 (#177): the status-aware transport feeds the
                 // 429 retry policy — a rate-limited response retries with
                 // exponential backoff instead of silently losing the
@@ -1742,13 +1819,41 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // #1723 — the one startup batch: privacy route, crash consent, showcase
+        // consent, curated JSON and the cold-start seed. It starts HERE on IO
+        // and every consumer below awaits it; the main thread never reads a
+        // preference or opens an asset for these. The batch also publishes the
+        // values whose owners live elsewhere (App.privacyPrefs, the showcase
+        // store, the catalog's curated lists) before completing
+        // privacyInstalled, which is the gate every network starter awaits.
+        val startup = startupValues
+        startupScope.launch {
+            try {
+                val values = startup.await()
+                _completedStartupValues.value = values
+                _privacyPrefs.value = values.privacyPrefs
+                TransportPrivacy.install(values.privacyPrefs)
+                showcaseConsent.seed(values.showcasePublished)
+            } catch (failure: Throwable) {
+                // Degrade to the defaults the app had before startup saved
+                // anything: Direct route, undecided consent, hidden showcase.
+                Log.w("Startup", "startup reads failed; using defaults", failure)
+            } finally {
+                privacyInstalled.complete(Unit)
+            }
+        }
         // #1722 — warm the player's 4read session cookie from the persisted
         // WebView jar. The read is a Binder call, so it runs on IO; play and
         // auto-advance then reuse the cached header without touching main.
         CoroutineScope(Dispatchers.IO).launch { streamCookieCache.refresh() }
         // #1574 — the start trigger: one explicit pull instead of a permanent
-        // watcher; the first successful refresh is the silent backfill.
-        achievementScope.launch { achievements.refresh() }
+        // watcher; the first successful refresh is the silent backfill. #1723 —
+        // wait for the curated lists (the awards read them) instead of building
+        // the engine's asset-backed inputs on main.
+        achievementScope.launch {
+            runCatching { startup.await() }
+            achievements.refresh()
+        }
         // ADR-0039 / spec #681 T3 (#684): the ONE politeness gate for every
         // HTML/API request to a Source host, with the persisted per-domain
         // budget. Installed before any module can touch the network.
@@ -1763,26 +1868,31 @@ class App : Application() {
         // produce a report, and the reporter is the only reader/writer of its
         // cursor, so the watermark cannot race itself. The cursor write itself
         // uses apply() instead of commit() (SharedPreferencesProcessExitCursorStore).
-        CoroutineScope(Dispatchers.IO).launch {
-            crashReporting.start()
+        // #1723 — the consent comes from the startup batch, so the lazy
+        // CrashReporting constructor never has to read prefs on main.
+        startupScope.launch {
+            val consent = runCatching { startup.await().crashConsent }.getOrNull()
+            crashReporting.start(consent ?: com.slukhayka.audiobooks.data.diagnostics.CrashConsent.UNDECIDED)
             unexpectedExitReporter.inspectLatest()
         }
-        PeopleNewArrivalWorker.schedule(this)
+        // #1723 — the periodic worker may start at any moment once scheduled,
+        // and its refresh touches Source hosts; schedule it only after the
+        // persisted route is installed.
+        launchAfterPrivacy { PeopleNewArrivalWorker.schedule(this@App) }
         // Install the attestation provider before any background module may
         // open Firestore; bookmark sync starts immediately below.
         installAppCheckIfConfigured()
-        CoroutineScope(Dispatchers.IO).launch { personBookmarksSync.sync() }
+        launchAfterPrivacy { personBookmarksSync.sync() }
         // ADR-0042 — warm the local Work index on start (BACKGROUND traffic
         // through the Source Request Gate); the per-Work checks are driven by
         // the availability queue (visible cards first, a daily delta scan).
-        CoroutineScope(Dispatchers.IO).launch {
+        launchAfterPrivacy {
             runCatching { workIndexRefresher.refreshIfStale() }
         }
-        // Spec-38 T1 (#253): install the persisted privacy route BEFORE any
-        // module can touch the network, and warm the real system WebView
-        // User-Agent off the main thread (it initialises the WebView engine;
-        // until it answers, requests carry the static fallback identity).
-        TransportPrivacy.install(privacySettings.load())
+        // Spec-38 T1 (#253): the batch installs the persisted privacy route
+        // before this point completes; warm the real system WebView User-Agent
+        // off the main thread (it initialises the WebView engine; until it
+        // answers, requests carry the static fallback identity).
         CoroutineScope(Dispatchers.IO).launch {
             runCatching {
                 android.webkit.WebSettings.getDefaultUserAgent(this@App)
@@ -1791,7 +1901,7 @@ class App : Application() {
         // ADR-0002 (#138): cold start performs no network I/O during module
         // construction — the catalogue sync is an explicit composition-root
         // call, kicked off here (best-effort, never blocks startup).
-        CoroutineScope(Dispatchers.IO).launch {
+        launchAfterPrivacy {
             runCatching { sourceCatalog.fetchCatalogSections() }
         }
         // Spec-24 T1: scrub SEO title suffixes from rows stored before the
@@ -1818,7 +1928,7 @@ class App : Application() {
         // later launch writes the same documents). A no-op without Firebase
         // keys (FirestoreUniverseStore.create returns null) and silent on any
         // failure — the local curated asset works either way.
-        CoroutineScope(Dispatchers.IO).launch {
+        launchAfterPrivacy {
             CuratedSeed.seed(
                 FirestoreUniverseStore.create(this@App),
                 UniverseAssets.load(this@App)
@@ -1830,7 +1940,7 @@ class App : Application() {
         // idempotent by contract), then fill the coverless library rows
         // from the shared base through the existing cover write path.
         // Both are best-effort and silent — a no-op without Firebase keys.
-        CoroutineScope(Dispatchers.IO).launch {
+        launchAfterPrivacy {
             CuratedCoverSeed.seed(
                 sharedMetaStore,
                 CuratedCoverAssets.load(this@App)
@@ -1843,7 +1953,7 @@ class App : Application() {
         // Wikidata's 429 window) so Wikidata changes reach every cache and the
         // shared base (T6 write-back) even for books no one opens. Best-effort
         // and silent; the loop itself never blocks startup.
-        CoroutineScope(Dispatchers.IO).launch {
+        launchAfterPrivacy {
             while (true) {
                 runCatching { universeRefreshPass.runOnce() }
                 delay(UNIVERSE_REFRESH_INTERVAL_MILLIS)
@@ -1857,13 +1967,13 @@ class App : Application() {
         // series listings — pagination included, under the module's own page
         // budget — so depth accumulates run over run via merge-on-write.
         // Best-effort and silent; never blocks startup.
-        CoroutineScope(Dispatchers.IO).launch {
+        launchAfterPrivacy {
             delay(CATALOG_HYDRATION_START_DELAY_MILLIS)
             val prefs = getSharedPreferences(PREFS_CATALOG_HYDRATION, MODE_PRIVATE)
             if (System.currentTimeMillis() - prefs.getLong(KEY_LAST_HYDRATED_AT, 0L) <
                 CATALOG_HYDRATION_INTERVAL_MILLIS
             ) {
-                return@launch
+                return@launchAfterPrivacy
             }
             runCatching { sourceCatalog.hydrateFourReadCatalog() }
             prefs.edit()
@@ -1873,7 +1983,7 @@ class App : Application() {
         // Spec-36 T1 (#244): the daily app-release check — lazy (seconds after
         // startup), throttled to once per day inside the module, best-effort
         // and silent. The Огляд screen reads the module's flow directly.
-        CoroutineScope(Dispatchers.IO).launch {
+        launchAfterPrivacy {
             delay(UPDATE_CHECK_START_DELAY_MILLIS)
             runCatching { updateChecker.checkNow() }
         }
@@ -1881,7 +1991,7 @@ class App : Application() {
         // launch creates the profile (anonymous auth + generated credentials),
         // every later launch is a no-op returning the same one. Best-effort
         // and silent by contract — ensure() never throws outward anyway.
-        CoroutineScope(Dispatchers.IO).launch {
+        launchAfterPrivacy {
             runCatching { listenerIdentity.ensure() }
         }
     }

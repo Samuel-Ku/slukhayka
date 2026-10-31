@@ -56,6 +56,37 @@ class ColdStartSeedTest {
     }
 
     @Test
+    fun `the flag and the seed loader run off the caller thread`() = runBlocking {
+        val caller = Thread.currentThread()
+        val threads = mutableListOf<Thread>()
+        val flag = object : ColdStartSeedFlag {
+            override fun isDone(): Boolean {
+                threads += Thread.currentThread()
+                return false
+            }
+
+            override fun markDone() {
+                threads += Thread.currentThread()
+            }
+        }
+        val seed = ColdStartSeed(
+            CatalogSeedImporter { true },
+            {
+                threads += Thread.currentThread()
+                listOf(entry)
+            },
+            flag
+        )
+
+        assertTrue(seed.runOnce())
+        assertEquals(3, threads.size)
+        assertTrue(
+            "#1723: the flag and asset parse must not touch the caller (main) thread",
+            threads.all { it !== caller }
+        )
+    }
+
+    @Test
     fun `cancellation is never swallowed by the seed`() = runBlocking {
         val flag = InMemoryColdStartSeedFlag()
         val seed = ColdStartSeed(

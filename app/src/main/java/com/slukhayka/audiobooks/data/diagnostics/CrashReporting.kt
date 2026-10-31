@@ -89,13 +89,22 @@ class CrashReporting(
 ) {
     private val contextLock = Any()
     private var currentContext = CrashContext()
+    // #1723 — the constructor runs wherever the lazy App.crashReporting is
+    // first touched, and that can be the main thread (Activity.onStart). It
+    // must not read prefs: the initial UNDECIDED state is the honest "not
+    // loaded yet" answer, and start() — which the composition root calls on
+    // IO — publishes the persisted choice.
     private val _state = MutableStateFlow(
-        CrashReportingState(consent = consentStore.load())
+        CrashReportingState(consent = CrashConsent.UNDECIDED)
     )
     val state: StateFlow<CrashReportingState> = _state.asStateFlow()
 
-    fun start() {
-        val consent = consentStore.load()
+    /**
+     * @param consent the value a caller already loaded off the main thread
+     *   (#1723); the default keeps the old self-contained contract for tests
+     *   and for any future caller that has no startup batch.
+     */
+    fun start(consent: CrashConsent = consentStore.load()) {
         _state.value = CrashReportingState(consent)
         sink.setCollectionEnabled(enabledForBuild && consent == CrashConsent.ALLOWED)
         if (enabledForBuild) processStateSummarySink.set(currentContext)

@@ -126,6 +126,37 @@ class CrashReportingTest {
         assertEquals(DiagnosticAudioOrigin.LOCAL, summarySink.context?.audioOrigin)
     }
 
+    @Test
+    fun `construction performs no consent read and start accepts the startup batch value`() {
+        val store = CountingConsentStore(CrashConsent.ALLOWED)
+        val sink = FakeCrashReportSink(hasUnsentReports = false)
+
+        val reporting = CrashReporting(store, sink, enabledForBuild = true)
+        assertEquals("#1723: the constructor can run on main", 0, store.loads)
+
+        // The composition root already loaded the value on IO; start() must use
+        // it rather than reading prefs again on whichever thread constructed it.
+        reporting.start(CrashConsent.ALLOWED)
+        assertEquals(0, store.loads)
+        assertEquals(CrashConsent.ALLOWED, reporting.state.value.consent)
+        assertTrue(sink.automaticCollectionEnabled)
+    }
+
+    private class CountingConsentStore(initial: CrashConsent) : CrashConsentStore {
+        var loads = 0
+            private set
+        private var consent = initial
+
+        override fun load(): CrashConsent {
+            loads++
+            return consent
+        }
+
+        override fun save(consent: CrashConsent) {
+            this.consent = consent
+        }
+    }
+
     private class FakeConsentStore(initial: CrashConsent) : CrashConsentStore {
         var consent = initial
             private set

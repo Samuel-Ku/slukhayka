@@ -99,6 +99,23 @@ class PlaybackAttemptOwnershipTest {
     }
 
     /**
+     * Waits until a slow attempt is actually suspended at the preparation
+     * seam. Starting the newer gesture earlier would let it supersede the slow
+     * one before it reached the hook — the test would then prove the early
+     * return, not the post-preparation ownership check.
+     */
+    private fun awaitPreparationHook(
+        reached: MutableMap<Long, CountDownLatch>,
+        attemptId: Long,
+        deadlineMs: Long = 5_000
+    ) {
+        val latch = reached.getOrPut(attemptId) { CountDownLatch(1) }
+        if (!latch.await(deadlineMs, TimeUnit.MILLISECONDS)) {
+            fail("attempt $attemptId did not reach the preparation hook within ${deadlineMs}ms")
+        }
+    }
+
+    /**
      * The attempt's terminal decision, delivered by the production seam. A
      * superseded attempt reports `false` only after it has actually reached the
      * ownership check, so the assertion cannot race a slow CI.
@@ -152,11 +169,13 @@ class PlaybackAttemptOwnershipTest {
         val installed = java.util.Collections.synchronizedList(mutableListOf<String>())
         val gates = ConcurrentHashMap<Long, CompletableDeferred<Unit>>()
         val settlements = Settlements()
+        val hooksReached = ConcurrentHashMap<Long, CountDownLatch>()
         val seam = ExplicitPlaybackAttempts(AutomaticPlaybackRecoveryGate()) {}
         val viewModel = MainViewModel(
             app,
             seam,
             playbackPreparationHook = { attemptId, _ ->
+                hooksReached.getOrPut(attemptId) { CountDownLatch(1) }.countDown()
                 gates.getOrPut(attemptId) { CompletableDeferred() }.await()
             },
             playbackInstallAdapter = { request -> installed += "${request.bookId}#${request.attemptId}" },
@@ -164,6 +183,7 @@ class PlaybackAttemptOwnershipTest {
         )
 
         viewModel.playAudiobook(book("book-a"))
+        awaitPreparationHook(hooksReached, 1L)
         viewModel.playAudiobook(book("book-a"))
 
         // A2 (attempt 2) is the listener's latest gesture.
@@ -192,11 +212,13 @@ class PlaybackAttemptOwnershipTest {
         val installed = java.util.Collections.synchronizedList(mutableListOf<String>())
         val gates = ConcurrentHashMap<Long, CompletableDeferred<Unit>>()
         val settlements = Settlements()
+        val hooksReached = ConcurrentHashMap<Long, CountDownLatch>()
         val seam = ExplicitPlaybackAttempts(AutomaticPlaybackRecoveryGate()) {}
         val viewModel = MainViewModel(
             app,
             seam,
             playbackPreparationHook = { attemptId, _ ->
+                hooksReached.getOrPut(attemptId) { CountDownLatch(1) }.countDown()
                 gates.getOrPut(attemptId) { CompletableDeferred() }.await()
             },
             playbackInstallAdapter = { request -> installed += request.bookId },
@@ -204,6 +226,7 @@ class PlaybackAttemptOwnershipTest {
         )
 
         viewModel.jumpToBookmark(bookmark("book-a"))
+        awaitPreparationHook(hooksReached, 1L)
         viewModel.playAudiobook(book("book-b"))
 
         gates.getOrPut(2L) { CompletableDeferred() }.complete(Unit)
@@ -228,11 +251,13 @@ class PlaybackAttemptOwnershipTest {
         val installed = java.util.Collections.synchronizedList(mutableListOf<String>())
         val gates = ConcurrentHashMap<Long, CompletableDeferred<Unit>>()
         val settlements = Settlements()
+        val hooksReached = ConcurrentHashMap<Long, CountDownLatch>()
         val seam = ExplicitPlaybackAttempts(AutomaticPlaybackRecoveryGate()) {}
         val viewModel = MainViewModel(
             app,
             seam,
             playbackPreparationHook = { attemptId, _ ->
+                hooksReached.getOrPut(attemptId) { CountDownLatch(1) }.countDown()
                 gates.getOrPut(attemptId) { CompletableDeferred() }.await()
             },
             playbackInstallAdapter = { request -> installed += request.bookId },
@@ -240,6 +265,7 @@ class PlaybackAttemptOwnershipTest {
         )
 
         viewModel.relistenBook(book("book-a"))
+        awaitPreparationHook(hooksReached, 1L)
         viewModel.playAudiobook(book("book-b"))
 
         gates.getOrPut(2L) { CompletableDeferred() }.complete(Unit)
@@ -264,11 +290,13 @@ class PlaybackAttemptOwnershipTest {
         val installed = java.util.Collections.synchronizedList(mutableListOf<String>())
         val gates = ConcurrentHashMap<Long, CompletableDeferred<Unit>>()
         val settlements = Settlements()
+        val hooksReached = ConcurrentHashMap<Long, CountDownLatch>()
         val seam = ExplicitPlaybackAttempts(AutomaticPlaybackRecoveryGate()) {}
         val viewModel = MainViewModel(
             app,
             seam,
             playbackPreparationHook = { attemptId, _ ->
+                hooksReached.getOrPut(attemptId) { CountDownLatch(1) }.countDown()
                 gates.getOrPut(attemptId) { CompletableDeferred() }.await()
             },
             playbackInstallAdapter = { request -> installed += request.bookId },
@@ -276,6 +304,7 @@ class PlaybackAttemptOwnershipTest {
         )
 
         viewModel.playAudiobook(book("book-a"))
+        awaitPreparationHook(hooksReached, 1L)
         viewModel.playAudiobook(book("book-b"))
 
         // B is the listener's latest gesture: finish it first.

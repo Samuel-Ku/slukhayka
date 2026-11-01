@@ -79,23 +79,32 @@ class IconSizeTokenGuardTest {
 
                 // Icon(Heart, null, Modifier.size(18.dp)) — a comment, not a call site
                 val documented = "Icon(x, size = 16.dp)"
+                val js = """
+                  function draw() { return "Icon(y, size = )" }
+                  // Icon(z, size = 17.dp)
+                """
 
-                fun ok() {
+                fun token() {
                     Icon(icon = Heart, contentDescription = null, modifier = Modifier.size(PaperInkIconSizes.Inline))
                 }
 
-                fun bad() {
+                fun literal() {
                     Icon(icon = Heart, contentDescription = null, modifier = Modifier.size(19.dp))
+                }
+
+                fun rawStringDidNotInvertTheMask() {
+                    PaperInkIcon(icon = Heart, contentDescription = null, size = 21.dp)
                 }
                 """.trimIndent()
             )
             val found = IconSizeGuard.offendersIn(file, file.parentFile)
             assertEquals(
-                "exactly the one real literal must be found, not comments or strings: $found",
-                1,
-                found.size
+                "only real call sites count — not comments, not normal strings, not raw strings, " +
+                    "and code after a raw string must still be seen: " +
+                    found.joinToString { "${it.call} ${it.literal}" },
+                listOf("19", "21"),
+                found.map { it.literal.filter(Char::isDigit) }.sorted()
             )
-            assertTrue("the flagged call is at 19 dp: ${found.first()}", found.first().literal.contains("19"))
         } finally {
             file.delete()
         }

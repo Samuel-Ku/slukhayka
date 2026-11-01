@@ -10,12 +10,10 @@ import java.io.File
  * Navigation 23 · Header 24 · Transport 28 · Play 30); a literal `18.dp` next to
  * it is how icon rhythm drifts, one call site at a time.
  *
- * This object answers exactly two questions about a UI source tree:
- *
- * 1. which `Icon(...)` / `PaperInkIcon(...)` call sites size their glyph with a
- *    literal `dp` value (named `size = …` or `Modifier.size(…)`), and
- * 2. where in the file each one sits, so an allowlist entry can name a call
- *    site rather than a file.
+ * This object answers two questions about a UI source tree: which
+ * `Icon(...)` / `PaperInkIcon(...)` calls size their glyph with a literal `dp`
+ * value (named `size = …` or `Modifier.size(…)`), and how many such call sites
+ * each file has. The guard spends those counts as a per-file budget.
  *
  * Deliberately NOT a Kotlin parser: it locates the call, walks its balanced
  * parentheses, and looks for a literal size inside the argument text. That is
@@ -25,10 +23,7 @@ import java.io.File
 internal object IconSizeGuard {
 
     /** One literal-sized icon call site. */
-    data class Offender(val file: String, val line: Int, val call: String, val literal: String) {
-        /** The allowlist key: a file plus the 1-based line of the call. */
-        val key: String get() = "$file:$line"
-    }
+    data class Offender(val file: String, val call: String, val literal: String)
 
     private val CALL = Regex("""\b(PaperInkIcon|Icon)\s*\(""")
     private val LITERAL = Regex("""(?:size\s*=\s*|size\()\s*\d+(?:\.\d+)?\.dp""")
@@ -50,17 +45,16 @@ internal object IconSizeGuard {
 
     /** The literal-sized icon call sites of one file. */
     fun offendersIn(file: File, sourceRoot: File): List<Offender> {
-        val code = stripComments(file.readText())
+        val code = maskNonCode(file.readText())
         val relative = file.relativeTo(sourceRoot).invariantSeparatorsPath
-        return calls(code).mapNotNull { (call, argumentText, callOffset) ->
+        return calls(code).mapNotNull { (call, argumentText) ->
             val literal = LITERAL.find(argumentText) ?: return@mapNotNull null
-            val line = code.take(callOffset + literal.range.first).count { it == '\n' } + 1
-            Offender(relative, line, call, literal.value.trim())
+            Offender(relative, call, literal.value.trim())
         }
     }
 
-    /** Pairs each icon call with its balanced argument text and the call's offset. */
-    private fun calls(code: String): List<Triple<String, String, Int>> = buildList {
+    /** Pairs each icon call with its balanced argument text. */
+    private fun calls(code: String): List<Pair<String, String>> = buildList {
         var from = 0
         while (true) {
             val match = CALL.find(code, from) ?: return@buildList
@@ -78,59 +72,72 @@ internal object IconSizeGuard {
                 index++
             }
             if (depth != 0) return@buildList
-            add(Triple(match.groupValues[1], code.substring(open + 1, index), match.range.first))
+            add(match.groupValues[1] to code.substring(open + 1, index))
             from = index + 1
         }
     }
 
     /**
-     * Blanks comments AND string/char literal contents, because neither is a
-     * call site: a commented-out `Icon(…, size = 18.dp)` and a string that
-     * quotes such a call must both be ignored. Lengths are preserved (spaces,
-     * not deletions), so offsets keep mapping to the same text and line numbers
-     * counted after this pass stay correct. Quote characters themselves stay, so
-     * the scanner can still tell where a literal began.
+     * Blanks comments and string/char literal CONTENTS — none of them is a call
+     * site: a commented-out `Icon(…, size = 18.dp)`, or a raw `"""…"""` JS
+     * snippet that happens to contain `Icon(`, must both be ignored.
+     *
+     * Three rules keep this honest:
+     * - every character of the source maps to exactly one output character, so
+     *   offsets stay valid;
+     * - NEWLINES are never blanked, so line numbers do not move;
+     * - raw strings (`"""…"""`) are handled explicitly. Without that the mask
+     *   inverts on a file whose raw string contains a `"`: the quote would be
+     *   read as the end of a normal string and the rest of the snippet would be
+     *   scanned as code, and vice versa. One of the app's own UI files
+     *   (`ui/screens/WebSourceBrowserScreen.kt`) carries JS in raw strings, so
+     *   this is not hypothetical.
      */
-    private fun stripComments(source: String): String {
+    private fun maskNonCode(source: String): String {
         val out = StringBuilder(source)
         var i = 0
-        var inString = false
-        var inChar = false
         while (i < source.length) {
-            val c = source[i]
             when {
-                inString -> {
-                    when {
-                        c == '\\' -> {
-                            out.setCharAt(i, ' ')
-                            if (i + 1 < source.length) out.setCharAt(i + 1, ' ')
-                            i++
+                source.startsWith("\"\"\"", i) -> {
+                    i += 3
+                    while (i < source.length) {
+                        if (source.startsWith("\"\"\"", i)) {
+                            i += 3
+                            break
                         }
-                        c == '"' -> inString = false
-                        else -> out.setCharAt(i, ' ')
+                        if (source[i] != '\n') out.setCharAt(i, ' ')
+                        i++
                     }
                 }
-                inChar -> {
-                    when {
-                        c == '\\' -> {
+                source[i] == '"' || source[i] == '\'' -> {
+                    val quote = source[i]
+                    i++
+                    while (i < source.length) {
+                        if (source[i] == '\\') {
                             out.setCharAt(i, ' ')
-                            if (i + 1 < source.length) out.setCharAt(i + 1, ' ')
-                            i++
+                            if (i + 1 < source.length) {
+                                if (source[i + 1] != '\n') out.setCharAt(i + 1, ' ')
+                                i += 2
+                            } else {
+                                i++
+                            }
+                            continue
                         }
-                        c == '\'' -> inChar = false
-                        else -> out.setCharAt(i, ' ')
+                        if (source[i] == quote) {
+                            i++
+                            break
+                        }
+                        if (source[i] != '\n') out.setCharAt(i, ' ')
+                        i++
                     }
                 }
-                c == '"' -> inString = true
-                c == '\'' -> inChar = true
-                c == '/' && i + 1 < source.length && source[i + 1] == '/' -> {
+                source[i] == '/' && i + 1 < source.length && source[i + 1] == '/' -> {
                     while (i < source.length && source[i] != '\n') {
                         out.setCharAt(i, ' ')
                         i++
                     }
-                    continue
                 }
-                c == '/' && i + 1 < source.length && source[i + 1] == '*' -> {
+                source[i] == '/' && i + 1 < source.length && source[i + 1] == '*' -> {
                     out.setCharAt(i, ' ')
                     out.setCharAt(i + 1, ' ')
                     i += 2
@@ -144,10 +151,9 @@ internal object IconSizeGuard {
                         if (source[i] != '\n') out.setCharAt(i, ' ')
                         i++
                     }
-                    continue
                 }
+                else -> i++
             }
-            i++
         }
         return out.toString()
     }

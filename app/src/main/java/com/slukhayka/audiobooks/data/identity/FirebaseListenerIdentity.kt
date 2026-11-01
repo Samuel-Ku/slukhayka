@@ -28,8 +28,9 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  *
  * The Firestore-backed [FirestoreDeviceBindings] (spec-40 #276) gives the
  * silent same-phone restore: after every successful bootstrap/sign-in the
- * device's binding is refreshed; a fresh install looks its ANDROID_ID up
- * before bootstrapping a new account.
+ * device's binding is refreshed; a fresh install looks its derived
+ * document id up (never the raw ANDROID_ID) before bootstrapping a new
+ * account.
  */
 class FirebaseListenerIdentity(
     private val auth: FirebaseAuth,

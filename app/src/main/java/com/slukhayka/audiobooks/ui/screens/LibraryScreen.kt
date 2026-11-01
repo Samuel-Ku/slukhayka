@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIconSizes
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
@@ -1588,7 +1589,7 @@ internal fun LibrarySearchField(
                         imageVector = PaperInkIcons.Search,
                         contentDescription = null,
                         tint = colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(PaperInkIconSizes.Inline)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Box(
@@ -1617,7 +1618,7 @@ internal fun LibrarySearchField(
                                 imageVector = PaperInkIcons.Close,
                                 contentDescription = stringResource(R.string.a11y_library_clear_search),
                                 tint = colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(PaperInkIconSizes.Chrome)
                             )
                         }
                     }
@@ -1791,7 +1792,7 @@ internal fun LibraryContinueCard(
                     imageVector = PaperInkIcons.Play,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onTertiary,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(PaperInkIconSizes.Chrome)
                 )
                 Spacer(modifier = Modifier.width(AppDimens.SpaceSm))
                 Text(
@@ -2077,7 +2078,7 @@ private fun LibraryCoverOfflineBadge(
                 imageVector = PaperInkIcons.Downloaded,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(15.dp)
+                modifier = Modifier.size(PaperInkIconSizes.Inline)
             )
         }
 
@@ -2677,7 +2678,7 @@ fun StatItemCard(
                 imageVector = icon,
                 contentDescription = null,
                 tint = color,
-                modifier = Modifier.size(28.dp)
+                modifier = Modifier.size(PaperInkIconSizes.Header)
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
@@ -2732,7 +2733,7 @@ fun GlobalBookmarkItem(
                 imageVector = PaperInkIcons.Bookmark,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(PaperInkIconSizes.Header)
             )
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -3451,7 +3452,7 @@ fun BookmarkedPersonRow(
                         imageVector = PaperInkIcons.Person,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(PaperInkIconSizes.Inline)
                     )
                 }
 
@@ -3481,7 +3482,7 @@ fun BookmarkedPersonRow(
                     imageVector = PaperInkIcons.Bookmark,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(PaperInkIconSizes.Inline)
                 )
             }
         }

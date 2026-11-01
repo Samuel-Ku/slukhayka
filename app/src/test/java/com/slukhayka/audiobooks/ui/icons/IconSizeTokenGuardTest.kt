@@ -120,6 +120,10 @@ class IconSizeTokenGuardTest {
          * Literal-sized icon call sites per file when the guard was introduced
          * (69 across 30 files). Both migration tickets delete entries from this
          * map; nothing raises a number.
+         *
+         * #1776 removed «Слухати» and «Медіатека» entirely (3 + 8 call sites now
+         * name a [PaperInkIconSizes] role), so neither screen appears here: a
+         * file absent from the map has a budget of 0.
          */
         val ALLOWANCE: Map<String, Int> = mapOf(
             "ui/components/AppTabHeader.kt" to 1,
@@ -141,8 +145,6 @@ class IconSizeTokenGuardTest {
             "ui/screens/HomeScreen.kt" to 4,
             "ui/screens/LibraryImportSheet.kt" to 1,
             "ui/screens/LibraryRatingScreen.kt" to 1,
-            "ui/screens/LibraryScreen.kt" to 8,
-            "ui/screens/ListenScreen.kt" to 3,
             "ui/screens/PeopleScreen.kt" to 2,
             "ui/screens/PersonBookmarkButton.kt" to 1,
             "ui/screens/PlayerScreen.kt" to 2,

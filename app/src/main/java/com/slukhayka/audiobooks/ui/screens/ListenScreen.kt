@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIconSizes
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
@@ -350,7 +351,7 @@ fun ListenShelvesManageEntry(
             .padding(horizontal = ListenPageInset, vertical = 16.dp)
             .testTag("listen_manage_shelves")
     ) {
-        Icon(PaperInkIcons.Filter, contentDescription = null, modifier = Modifier.size(18.dp))
+        Icon(PaperInkIcons.Filter, contentDescription = null, modifier = Modifier.size(PaperInkIconSizes.Inline))
         Spacer(modifier = Modifier.width(8.dp))
         Text(stringResource(R.string.listen_manage_shelves))
     }
@@ -528,7 +529,7 @@ fun ListenShelvesSheetContent(
                 Icon(
                     imageVector = Icons.Outlined.SettingsBackupRestore,
                     contentDescription = null,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(PaperInkIconSizes.Inline)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(stringResource(R.string.listen_shelves_restore_all))
@@ -911,7 +912,7 @@ fun ListenEmptyState(
                         imageVector = PaperInkIcons.Compass,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(PaperInkIconSizes.Inline),
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(

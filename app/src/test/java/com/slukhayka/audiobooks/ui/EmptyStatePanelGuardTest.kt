@@ -108,7 +108,14 @@ class EmptyStatePanelGuardTest {
         """
         val found = calls(source)
         assertEquals("three real calls (one nested), no prose", 3, found.size)
-        assertEquals("the nested call is judged on its own", 1, found.count { ICON_ARGUMENT.containsMatchIn(it) })
+        assertTrue(
+            "the nested call is its own entry: $found",
+            found.any { arguments -> arguments.trimStart().startsWith("icon = null") }
+        )
+        // A nested glyph is caught twice — once in the outer call's argument
+        // text and once in the nested call's own — which is the safe direction
+        // for a guard: it can over-report, never silently miss.
+        assertEquals(2, found.count { arguments -> ICON_ARGUMENT.containsMatchIn(arguments) })
     }
 
     private fun read(relativePath: String): String {

@@ -365,6 +365,10 @@ fun PaperInkHeroCard(
                                 color = colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
+                                // Unslop U11a: the normal-size branch carries the
+                                // same seam as the large-text one, so a bounds test
+                                // can assert the disc never covers this line.
+                                modifier = Modifier.testTag("hero_narrator"),
                             )
                         }
                         Spacer(modifier = Modifier.weight(1f))
@@ -392,6 +396,7 @@ fun PaperInkHeroCard(
                             color = colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.testTag("hero_chapter"),
                         )
                         if (remainingLabel.isNotBlank()) {
                             Text(text = remainingLabel, style = PaperInkType.Micro, color = colorScheme.onSurfaceVariant)

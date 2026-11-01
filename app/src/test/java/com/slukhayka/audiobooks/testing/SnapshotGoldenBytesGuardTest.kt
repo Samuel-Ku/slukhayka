@@ -98,7 +98,7 @@ import java.security.MessageDigest
  *    pixels (0.161 % of 1078×2399, max channel delta 222), spanning
  *    `(195,360)-(902,1919)`: the search row's PLACEHOLDER glyph 18→20, the
  *    offline cover badge 15→20 and the stat-card glyphs 28→24. The clear-search
- *    button also moved 16→22 in code, but it is NOT in any pinned frame: every
+ *    button was re-sized to Inline 20 (16→20) in code, but it is NOT in any pinned frame: every
  *    snapshot composes the search field with an empty query, so the button is
  *    not rendered — the reason above names only what the pixels show.
  *

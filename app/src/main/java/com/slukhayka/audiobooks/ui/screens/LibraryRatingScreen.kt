@@ -26,6 +26,7 @@ import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.EmptyStatePanel
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.theme.*
@@ -121,13 +122,14 @@ fun LibraryRatingScreen(
 
                 rows.isEmpty() -> {
                     item {
-                        EmptyState(
-                            icon = PaperInkIcons.Info,
+                        // #1766 (audit U9/U13) — a ranked board with nothing on
+                        // it is an ABSENCE, so it is stated in type, with no
+                        // placeholder glyph, and it owns the list viewport
+                        // instead of floating under the header.
+                        EmptyStatePanel(
                             title = stringResource(R.string.secondary_library_rating_empty),
                             body = "",
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(48.dp)
+                            modifier = Modifier.fillParentMaxSize()
                         )
                     }
                 }

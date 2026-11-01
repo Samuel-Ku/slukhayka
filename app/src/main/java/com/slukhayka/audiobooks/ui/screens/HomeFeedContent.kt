@@ -170,9 +170,12 @@ fun LazyListScope.homeFeedContent(
     // Empty catalogue (first run, no network): actionable state.
     if (!isCatalogLoading && sections.isEmpty() && !hasLibraryBooks) {
         item {
+            // #1766 — the state is handed a whole viewport, so it centres
+            // instead of leaving the bottom two thirds of the page dead.
             EmptyCatalogState(
                 onRefreshClick = onRefreshCatalog,
-                onImportClick = onGoToLibrary
+                onImportClick = onGoToLibrary,
+                modifier = Modifier.fillParentMaxSize(),
             )
         }
     }

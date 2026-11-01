@@ -51,6 +51,7 @@ import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.EmptyStatePanel
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.formatRowDuration
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkBookRow
@@ -182,9 +183,12 @@ fun ListenScreen(
         // Fresh install: placeholder hero + clear next actions.
         if (content == ListenContent.FreshInstall) {
             item {
+                // #1766 — the state owns a whole viewport, so its centre is the
+                // screen's centre instead of a 48 dp pad under the header.
                 ListenEmptyState(
                     onBrowseClick = onBrowseClick,
-                    onImportClick = onImportClick
+                    onImportClick = onImportClick,
+                    modifier = Modifier.fillParentMaxSize(),
                 )
             }
             return@LazyColumn
@@ -844,85 +848,55 @@ internal fun ListenBlockHeading(
 @Composable
 fun ListenEmptyState(
     onBrowseClick: () -> Unit,
-    onImportClick: () -> Unit
+    onImportClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    // The fresh install is not an error state: a quiet paper page with a lamp,
-    // one Literata line and the two honest next steps. No grey icon placeholder.
+    // The fresh install is not an error state: a quiet paper page, one Literata
+    // line and the two honest next steps — a circle-less, glyph-less statement
+    // of the absence (2026 direction §4, #1766) with ONE primary action and the
+    // import path demoted to a quiet text link.
     PaperInkThemedContent {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = PaperInkDimens.SpacePage, vertical = 48.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Icon(
-                imageVector = PaperInkIcons.Headphones,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.tertiary,
-                modifier = Modifier.size(28.dp),
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = stringResource(R.string.listen_empty_title),
-                style = PaperInkType.EmptyTitle,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = stringResource(R.string.listen_empty_body),
-                style = PaperInkType.Body,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(28.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(PaperInkDimens.PrimaryButtonHeight)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
-                    .clickable(onClick = onBrowseClick),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = PaperInkIcons.Compass,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = stringResource(R.string.profile_view_catalogue),
-                    style = PaperInkType.BodyStrong,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                )
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(PaperInkDimens.PrimaryButtonHeight)
-                    .clip(CircleShape)
-                    .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
-                    .clickable(onClick = onImportClick),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = PaperInkIcons.Upload,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
+        EmptyStatePanel(
+            title = stringResource(R.string.listen_empty_title),
+            body = stringResource(R.string.listen_empty_body),
+            modifier = modifier,
+            action = {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(PaperInkDimens.PrimaryButtonHeight)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary)
+                        .clickable(onClick = onBrowseClick),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = PaperInkIcons.Compass,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.profile_view_catalogue),
+                        style = PaperInkType.BodyStrong,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
+            },
+            quietAction = {
                 Text(
                     text = stringResource(R.string.profile_import_from_device),
                     style = PaperInkType.BodyStrong,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .heightIn(min = PaperInkDimens.TouchTarget)
+                        .clickable(onClick = onImportClick)
+                        .padding(horizontal = PaperInkDimens.SpaceMd, vertical = PaperInkDimens.SpaceSm),
                 )
-            }
-        }
+            },
+        )
     }
 }
 

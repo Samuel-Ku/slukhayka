@@ -104,9 +104,12 @@ class FriendsScreenTest {
 
         // The body copy is the honest "how" — it names the audience that makes
         // a post appear here rather than promising a feature that is not built.
+        // #1766: one sentence (the direction's anatomy is title + ONE short
+        // line), so the «Лише я» aside that used to make a second sentence is
+        // gone; the fact that a post appears is what the state has to say.
         composeTestRule.onNodeWithText(
             "Щойно хтось із друзів поділиться враженням про книгу з аудиторією «Друзі», " +
-                "допис з’явиться тут. Дописи з аудиторією «Лише я» не показуються нікому."
+                "допис з’явиться тут."
         ).assertExists()
     }
 

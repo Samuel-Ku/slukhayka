@@ -79,7 +79,7 @@ import com.slukhayka.audiobooks.data.update.UpdateChecker
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
-import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.EmptyStatePanel
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
 import com.slukhayka.audiobooks.ui.components.AppTabHeader
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
@@ -1205,23 +1205,24 @@ fun CatalogNavRow(
 /**
  * First-run empty catalogue: no mocks, just clear actions (spec #8 T1/T6).
  *
- * spec-46 T16 (#577): a thin facade over the canonical [EmptyState] (v1.4 C4,
- * ADR-0033) — one empty-state shape app-wide; the two next actions ride the
- * canonical actions slot instead of a hand-rolled icon/title/body column.
+ * spec-46 T16 (#577) made it a thin facade over the canonical empty state; #1766
+ * moved that state to [EmptyStatePanel] so «Огляд» matches the other five
+ * surfaces: Literata title, one short line, ONE primary action and a quiet link.
  */
 @Composable
 fun EmptyCatalogState(
     onRefreshClick: () -> Unit,
-    onImportClick: () -> Unit
+    onImportClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    EmptyState(
+    // #1766 (audit U9/U13): the canonical paper empty state — one Literata
+    // title, one short line, ONE primary action (refresh) and the import path
+    // as a quiet link. The caller (`homeFeedContent`) hands it the viewport.
+    EmptyStatePanel(
         title = stringResource(R.string.home_empty_catalog_title),
-        body = stringResource(R.string.home_empty_catalog_body)
-    ) {
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
+        body = stringResource(R.string.home_empty_catalog_body),
+        modifier = modifier,
+        action = {
             Button(
                 onClick = onRefreshClick,
                 modifier = Modifier.heightIn(min = 48.dp).testTag("catalog_empty_refresh"),
@@ -1232,18 +1233,16 @@ fun EmptyCatalogState(
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(stringResource(R.string.a11y_refresh_catalogue), fontWeight = FontWeight.Bold)
             }
-            OutlinedButton(
+        },
+        quietAction = {
+            TextButton(
                 onClick = onImportClick,
-                modifier = Modifier.heightIn(min = 48.dp).testTag("catalog_empty_import"),
-                shape = RoundedCornerShape(AppDimens.RadiusCardLg),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                modifier = Modifier.heightIn(min = 48.dp).testTag("catalog_empty_import")
             ) {
-                Icon(imageVector = PaperInkIcons.Upload, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(stringResource(R.string.home_import_file), color = MaterialTheme.colorScheme.onSurface)
+                Text(stringResource(R.string.home_import_file))
             }
-        }
-    }
+        },
+    )
 }
 
 /**

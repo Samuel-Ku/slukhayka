@@ -40,7 +40,7 @@ import com.slukhayka.audiobooks.data.social.FriendsFeedPolicy
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkCoverFlat
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
 import com.slukhayka.audiobooks.ui.components.AppTabHeader
-import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.EmptyStatePanel
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
@@ -166,21 +166,26 @@ fun FriendsScreen(
             // §6.4 — no friends is a different fact from no posts, and the two
             // states must not be merged into one vague "nothing here".
             feed.friendsNow.isEmpty() -> item {
-                // F17 — no placeholder glyph: the absence is stated in type,
-                // not illustrated with an icon that stands for «friends» on a
-                // screen that has none.
-                EmptyState(
+                // F17 / #1766 — no placeholder glyph: the absence is stated in
+                // type, not illustrated with an icon that stands for «friends»
+                // on a screen that has none. The item owns a viewport, so the
+                // panel's centre is the page's centre below the header.
+                EmptyStatePanel(
                     title = stringResource(R.string.friends_empty_no_friends_title),
                     body = stringResource(R.string.friends_empty_no_friends_body),
-                    modifier = Modifier.testTag("friends_empty_no_friends")
+                    modifier = Modifier
+                        .fillParentMaxSize()
+                        .testTag("friends_empty_no_friends")
                 )
             }
 
             else -> item {
-                EmptyState(
+                EmptyStatePanel(
                     title = stringResource(R.string.friends_empty_no_posts_title),
                     body = stringResource(R.string.friends_empty_no_posts_body),
-                    modifier = Modifier.testTag("friends_empty_no_posts")
+                    modifier = Modifier
+                        .fillParentMaxSize()
+                        .testTag("friends_empty_no_posts")
                 )
             }
         }

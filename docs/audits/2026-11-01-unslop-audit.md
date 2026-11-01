@@ -46,16 +46,16 @@
 
 | # | Ознака | Код (`origin/main`) | Пристрій |
 |---|---|---|---|
-| U1 | **Одна дія — чотири форми.** «Продовжити/почати» малюється піґулкою, 24, 16 і 12 dp залежно від екрана | `ListenScreen.kt:861` `CircleShape`; `BookDetailActions.kt:251` `RadiusLarge`; `HomeScreen.kt:1229` `RadiusCardLg`; `LibraryScreen.kt:1189` `RadiusCard` | Listen — повна піґулка; Library — прямокутник ~16 |
-| U2 | **Два поля пошуку з різною формою і висотою** | `LibraryScreen.kt:1524-1528` (піґулка, 44 dp) vs `HomeScreen.kt:779-786` (`RadiusMedium`, 52 dp) | Огляд — прямокутник; Медіатека — піґулка |
-| U3 | **Бурштин як декор, а не як звук** | `DesignSystem.kt:99` — іконка порожнього стану `tint = tertiary`; `LibraryScreen.kt:4081` — підкреслення вкладки `tertiary` | бурштинові іконки в порожніх Listen/Library; бурштинове підкреслення «Książki» поруч із зеленим чипом |
+| U1 | **Одна дія — чотири форми.** «Продовжити/почати» малюється піґулкою, 24, 16 і 12 dp залежно від екрана | `ListenScreen.kt:861` `CircleShape`; `BookDetailActions.kt:251` `RadiusLarge`; `HomeScreen.kt:1229` `RadiusCardLg`; `LibraryScreen.kt:1188` `RadiusCard` | Listen — повна піґулка; Library — прямокутник ~16 |
+| U2 | **Два поля пошуку з різною формою і висотою** | `LibraryScreen.kt:1524-1528` (форма-піґулка), `:1546` (44 dp) vs `HomeScreen.kt:779-786` (`RadiusMedium`, 52 dp) | Огляд — прямокутник; Медіатека — піґулка |
+| U3 | **Бурштин як декор, а не як звук** | `DesignSystem.kt:99` — іконка порожнього стану `tint = tertiary`; `LibraryScreen.kt:4089` — підкреслення вкладки `tertiary` | бурштинові іконки в порожніх Listen/Library; бурштинове підкреслення «Książki» поруч із зеленим чипом |
 | U4 | **Свічення поза обкладинкою** — *прийнято напрямом, не дефект*: прототип `.ach` дає плиті власне світло, і це єдиний декоративний акцент екрана | `AchievementsScreen.kt:243-256` — 220 dp, `LampNight` α .22 | світла пляма у верхньому лівому куті плити «Досягнень» |
-| U5 | **Два прогреси в плеєрі** | `PlayerScreen.kt:2074` `BookProgressLine` + `:2002` `Slider` | лінійка з поділками глав і окремий заокруглений трек під нею |
+| U5 | **Два прогреси в плеєрі** | `PlayerScreen.kt:2080` `BookProgressLine` (виклик `:1963`) + `:2047` `Slider` | лінійка з поділками глав і окремий заокруглений трек під нею |
 | U6 | **Чотири щаблі заголовків і 900-вага** | `PaperInk.kt:109-116` (34 sp, −1.1 трекінг) · `SectionTitle` 21 · `titleMedium+Bold` 16 · `titleSmall+Bold` 14; **65** `.copy(fontWeight=)` по застосунку | 34 sp `Odkrywaj` над 21 sp `Ranking biblioteki` на сусідньому екрані |
-| U7 | **Синтетична вага на Literata** | `PlayerScreen.kt:1719-1721`, `bookdetail/BookDetailSections.kt:255`, `BookCoverImage.kt:185` — `Bold` поверх родини, у якій є лише SemiBold | назва книги в плеєрі важча й «брудніша» за ту саму назву на сторінці книги |
+| U7 | **Зайвий override ваги на Literata** — *не підтверджено як видимий дефект*: родина має лише `literata_semibold.ttf`, тож `fontWeight = Bold` не міг вибрати важче нарізання; еталон плеєра після зняття override лишився байт-у-байт, тобто рендерер або не синтезував жирність, або стенд її не бачить. Це гігієна коду, не виправлення вигляду | `PlayerScreen.kt:1719-1721`, `bookdetail/BookDetailSections.kt:255`, `BookCoverImage.kt:185` | — |
 | U8 | **Капс повертається як eyebrow** | `PaperInk.kt:227-233` `TrackingLabel` (11 sp ExtraBold, +0.35) на вордмарку `PaperInkTabHeader.kt:110` і на «Продовжити» `LibraryScreen.kt:1670` | «Słuchajka» над заголовком і «ПРОДОВЖИТИ» над полицею |
 | U9 | **Порожні стани не заякорені й мають п'ять анатомій** | `ListenScreen.kt:824` (своя, 28 dp іконка, дві піґулки) · `LibraryScreen.kt:1180` (спільна, іконка) · `AchievementsScreen.kt:122` (спільна, без іконки) · `DesignSystem.kt:58` (без центрування) | 40–60 % екрана пусті; контент прибитий до верху |
-| U10 | **Три діалекти хедера** | корінь `PaperInkTabHeader.kt:79` 34/104 · пушнутий `SettingsDestinationScaffold.kt:139` 21/56 · legacy `IndexScreenScaffold.kt:120` M3 `TopAppBar` (9 екранів) | «Ranking biblioteki» має зовсім інший хедер, ніж «Odkrywaj» |
+| U10 | **Три діалекти хедера** | корінь `PaperInkTabHeader.kt:79` 34/104 · пушнутий `SettingsDestinationScaffold.kt:139` 21/56 · legacy `IndexScreenScaffold.kt:95` M3 `TopAppBar` (9 екранів) | «Ranking biblioteki» має зовсім інший хедер, ніж «Odkrywaj» |
 | U11 | **Перекриття контенту хромом** | `PaperInkCards.kt:348-386` — рядки під обкладинкою без `end`-відступу під FAB 52 dp; `SettingsScreen.kt:117` — нуль нижнього padding; `BookDetailScreen.kt:961-966` — верхній padding знято, скриму немає | наратор обрізаний бурштиновим FAB; рядок «Pobierania i pamięć» під міні-плеєром; назва книги при скролі під статусбаром |
 | U12 | **69 літералів розміру іконок проти 13 звертань до шкали** | `PaperInkIcons.kt:467-485` (Inline 20 · Chrome 22 · Navigation 23 · Header 24 · Transport 28 · Play 30) | розміри 12…48 dp; прапори 🇺🇦🇬🇧🌐 у чипі мови (`ContentLanguageChip.kt:32-34`), 24 dp.toSp() |
 | U13 | **Два регістри копі** | `strings.xml:50` «Онови стрічку — або заглянь…» (ти) vs `strings_ui_audit.xml:4` «Оновіть каталог…» (ви) — обидва в одному `EmptyState` | — |
@@ -108,8 +108,9 @@
   більше не друкуються під кнопкою.
 - U3 — іконка порожнього стану більше не бере роль лампи (`DesignSystem.kt`); підкреслення
   вибраної вкладки в «Медіатеці» — вердиґрис, не бурштин (`LibraryScreen.kt`).
-- U7 — знято синтетичний Bold з Literata в назві на плеєрі (`PlayerScreen.kt`); родина має
-  лише `literata_semibold.ttf`.
+- U7 — прибрано зайвий `fontWeight = Bold` з назви на плеєрі (`PlayerScreen.kt`). Родина має
+  лише `literata_semibold.ttf`, тож це гігієна коду: еталон плеєра після правки байт-у-байт,
+  видимого ефекту не доведено.
 
 **Не увійшло, і чому:**
 
@@ -131,8 +132,9 @@
 | Компіляція | локально, `.worktrees/gt`, `-Xmx2g --no-daemon` | `:app:compileDebugKotlin` — BUILD SUCCESSFUL |
 | APK | локально | `:app:assembleDebug` — BUILD SUCCESSFUL, 209 MB |
 | Інсталяція | OnePlus 8 Pro поверх попередньої debug-збірки | `Success`, дані застосунку збережені |
-| Hero-контракт | локально | `ListenHeroFontScaleLayoutTest` — BUILD SUCCESSFUL (наратор ≤ картка, диск нижче наратора на 200 %) |
-| Еталони | dragonborn, `goldens.sh record --all` | 8 файлів перезаписано, решта 135 — байт-у-байт |
+| Hero-контракт, 200 % | локально | `ListenHeroFontScaleLayoutTest` — BUILD SUCCESSFUL; але це **інший** шрифтовий шлях, ніж виправлений |
+| Hero-контракт, 100 % | dragonborn | новий `ListenHeroNormalTextOverlapTest` — наратор і глава не перетинаються з диском на звичайному кеглі з довгим наратором |
+| Еталони | dragonborn, `goldens.sh record --all` | 8 файлів із 157 перезаписано, решта 149 — байт-у-байт |
 | Еталони, повтор | dragonborn, `goldens.sh verify --all` | «еталони не змінилися», BUILD SUCCESSFUL — запис детермінований |
 | Піни | dragonborn, `SnapshotGoldenBytesGuardTest` | 2 тести зелені після перенесення трьох пінів |
 | Візуально на пристрої | «Медіатека» після інсталяції | підкреслення вкладки — вердиґрис (було бурштинове) |
@@ -149,6 +151,10 @@ Hero-картка до зміни: рядок наратора заходить 
 «Продовжити слухати» на пристрої не відтворився — контракт тримає `ListenHeroFontScaleLayoutTest`.
 
 ![Hero до зміни](assets/unslop-2026-11-01/hero-before.png)
+
+**U7 не має видимого доказу.** Після зняття `fontWeight = Bold` еталон `player_redesign_dark.png`
+лишився байт-у-байт, а перевірки на пристрої не було. Отже твердження «назва стала легшою» не
+доведене — у звіті U7 знижено до гігієни коду.
 
 **Не перевірено:** вага назви в плеєрі на пристрої (плеєр не вдалося відкрити в цій сесії — екран
 відкривав сторінку книги), іконка порожнього стану візуально (порожнього стану не було досяжно на

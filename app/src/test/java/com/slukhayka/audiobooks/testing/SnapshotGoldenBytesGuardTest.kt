@@ -78,6 +78,15 @@ import java.security.MessageDigest
  * the other eight, including `explore_header_*` and `library_redesign_*` whose
  * header icons #1534 changed, match the icon-system digests byte-for-byte.
  *
+ * **2026-11-01 — unslop pass (lamp role, hero reserve):** THREE pins moved,
+ * all `library_redesign_*`. The selected section tab's underline was the lamp
+ * (tertiary) while the filter chip right below it was verdigris, so the same
+ * screen reported "selected" in two colours; the underline is now primary in
+ * both vocabularies (`LibraryScreen.kt`). That is the only visible change on
+ * those three frames — same size, same layout, one 3 dp line changes hue.
+ * `listen_hero_card*` and `paperink_cards*` moved for the hero reserve (68 dp
+ * under the play disc) and are not in this pin set.
+ *
  * This guard does not bless those bytes — it pins them. They are exactly the
  * files a blind «оновили золота» commit touches, and nothing else in the
  * repository would notice: the compare step in `.github/workflows/ci.yml` runs
@@ -714,17 +723,17 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "b978b23267b27181d45bf07d469bbf8f" + "fc764972a549c4572f4d30646ed2046c"
+                "2c1815a26f00b7171cfa5196ac2c52c0" + "a68b6d18240455d58f41a64e23bd1c6d"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "482509dcb37a58038ec85b9d23161fa1" + "738c1c925a721846bed82722e7ff159c"
+                "2bb068c372c3c7308974c838bb7e9be4" + "ab5d45afc7a937864f94778c84f4b434"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "9f4c0c3c95622d069b1e60b486b0c530" + "e5e8ce3560ef7b7c76aadbce20e68d1f"
+                "0e41e306a3a5240a83721696412ac5ba" + "c7d68817e4cb8611a649ba712528885e"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

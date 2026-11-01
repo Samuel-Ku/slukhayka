@@ -96,7 +96,13 @@ fun EmptyState(
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
-                tint = if (paperInk) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                // Unslop audit 2026-11-01 (U3): the direction gives the lamp role
+                // to sound only — playback state and listening progress. An empty
+                // state is an absence, not a sound, so the glyph stays muted in the
+                // paper scheme too. Before this, `tertiary` opened every empty
+                // screen with a warm amber icon that competed with the one real
+                // moment on the screen.
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
                     .size(EmptyStateIconSize)
                     // A stable seam for the «no placeholder glyph» rule: a

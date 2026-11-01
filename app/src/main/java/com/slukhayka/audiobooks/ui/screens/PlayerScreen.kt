@@ -1717,7 +1717,12 @@ private fun ColumnScope.PlayerArtworkPane(
             // inventing a size — a one-off `29.sp` would be exactly the new
             // variation ADR-0033 calls a defect.
             style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
+            // Unslop audit 2026-11-01 (U7): no weight override here. In the paper
+            // scheme `headlineMedium` is `PaperInkType.BookTitlePlayer` — Literata
+            // at SemiBold — and the family ships exactly one face
+            // (`literata_semibold.ttf`), so `FontWeight.Bold` did not pick a
+            // heavier cut, it asked the renderer to fake one. Fake bold on a
+            // serif is the visual tell of a title pasted on rather than set.
             color = MaterialTheme.colorScheme.onBackground,
             maxLines = if (largeFont) 3 else 2,
             overflow = TextOverflow.Ellipsis,

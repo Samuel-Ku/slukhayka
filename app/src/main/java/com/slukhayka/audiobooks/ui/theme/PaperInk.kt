@@ -377,6 +377,13 @@ object PaperInkDimens {
     val MiniPlayerMargin = 16.dp
     val NavigationBarHeight = 86.dp
     val PrimaryButtonHeight = 52.dp
+    /**
+     * Unslop audit 2026-11-01 (U11): the horizontal space a floating 52 dp action
+     * disc takes at the end of a card (the disc plus its 16 dp corner inset).
+     * Text that shares the card's bottom-right corner reserves this, or it prints
+     * underneath the button.
+     */
+    val HeroPlayReserve = PrimaryButtonHeight + SpaceLg
     val PlayerTransportTarget = 52.dp
     val PlayerPlayButton = 72.dp
     // F8 (аудит 2026-10-28): прототип `.sl-play { width:80px; height:72px }` —

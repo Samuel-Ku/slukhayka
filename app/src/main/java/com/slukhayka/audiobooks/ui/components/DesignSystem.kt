@@ -31,6 +31,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.slukhayka.audiobooks.ui.theme.AppDimens
+import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
+import com.slukhayka.audiobooks.ui.theme.PaperInkType
 
 /**
  * Design-system primitives (wayfinder #23): one set of section headers and
@@ -144,6 +146,93 @@ fun EmptyState(
         if (actions != null) {
             Spacer(modifier = Modifier.height(AppDimens.SpaceXl))
             actions()
+        }
+    }
+}
+
+/**
+ * #1766 (audit U9/U13) — the 2026 direction's empty state: Literata title, ONE
+ * short line and ONE primary action, optionally followed by a quiet text link
+ * for the second path. There is NO placeholder glyph: an absence is stated in
+ * type, not illustrated with an icon that stands for something that is not
+ * there (spec §4 `EmptyState`, §2 rule 2).
+ *
+ * The component is PAPER-ONLY: it is rendered by the six paper surfaces this
+ * ticket migrated and nobody else. Its typography is [PaperInkType]
+ * unconditionally, so a host that has not yet switched its own theme still gets
+ * the paper empty state rather than a silent fallback to legacy M3 type. It does
+ * NOT replace [EmptyState] on the legacy call sites — those keep their component
+ * until their own migration.
+ *
+ * Anchoring is the caller's half of the contract and the point of the ticket —
+ * the panel fills the width it is given and centres its column inside the
+ * height it is given (the `Box` below). A host that can hand it a viewport does
+ * (`Modifier.fillParentMaxSize()` from a `LazyItemScope`, `Modifier.weight(1f)`
+ * in a `Column`, or a full-size `Box`); a host that cannot gives it none and
+ * the panel simply wraps — it never invents a fixed dp of dead space.
+ *
+ * [stateDescription] survives from [EmptyState] so a genuinely failed state can
+ * announce «Помилка» on the same polite live-region title. None of the six
+ * migrated surfaces passes it today (a plain absence stays silent about an
+ * error that did not happen); it is kept for the future error branches that
+ * will adopt this panel, and [com.slukhayka.audiobooks.ui.EmptyStatePanelTest]
+ * pins the behaviour.
+ */
+@Composable
+fun EmptyStatePanel(
+    title: String,
+    body: String,
+    modifier: Modifier = Modifier,
+    stateDescription: String? = null,
+    action: (@Composable () -> Unit)? = null,
+    quietAction: (@Composable () -> Unit)? = null
+) {
+    Box(
+        modifier = modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(
+                    horizontal = PaperInkDimens.SpaceXl,
+                    vertical = PaperInkDimens.SpaceSection,
+                )
+                // The seam a migrated surface asserts and the tests compare
+                // against its host: this node is the PANEL COLUMN, not the box
+                // around it, so a centring check measures the content.
+                .testTag("empty_state_panel"),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // An empty state is transient: the title is a polite live-region,
+            // exactly like [EmptyState] (v1.4 C4, ADR-0033).
+            Text(
+                text = title,
+                style = PaperInkType.EmptyTitle,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.semantics {
+                    liveRegion = LiveRegionMode.Polite
+                    if (stateDescription != null) this.stateDescription = stateDescription
+                }
+            )
+            if (body.isNotBlank()) {
+                Spacer(modifier = Modifier.height(PaperInkDimens.SpaceSm))
+                Text(
+                    text = body,
+                    style = PaperInkType.Meta,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+            if (action != null) {
+                Spacer(modifier = Modifier.height(PaperInkDimens.SpaceXl))
+                action()
+            }
+            if (quietAction != null) {
+                Spacer(modifier = Modifier.height(PaperInkDimens.SpaceSm))
+                quietAction()
+            }
         }
     }
 }

@@ -51,6 +51,7 @@ import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.EmptyStatePanel
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.formatRowDuration
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkBookRow
@@ -129,6 +130,58 @@ fun ListenScreen(
     // and actions on one line there, exactly as the other three roots do.
     val landscapePhone = rememberIsLandscapePhoneWindow()
 
+    // Wayfinder #62 — the rule-based block list. Every eligible block
+    // renders with its reason; hidden blocks are skipped (still computed).
+    val visibleBlocks = listenBlocks.filter { it.id !in hiddenBlocks }
+
+    // spec-28 (#191 + #200): full cross-shelf dedup — a book renders in
+    // at most ONE shelf, the highest on screen. deduplicateListenShelves
+    // owns the entire claimed set (hero book included): it claims the
+    // hero's book first (US-3), then each visible block claims in display
+    // order, so the user's reorder re-prioritises which shelf claims a
+    // book. A block emptied by dedup renders nothing (no empty header).
+    val dedupedBlocks = deduplicateListenShelves(visibleBlocks)
+
+    // #1704 — what the tab may claim right now. `Loading` is the cold
+    // start: the library flow still holds its `emptyList()` initial value
+    // and the block composer starts empty too, so NEITHER empty state is
+    // allowed to speak for the listener yet — only the header renders.
+    val content = listenContentFor(
+        libraryLoaded = libraryLoaded,
+        blocksReady = blocksReady,
+        allBooksEmpty = allBooks.isEmpty(),
+        composedBlocks = listenBlocks.size,
+        dedupedBlocks = dedupedBlocks.size,
+    )
+    // #1766 — the fresh install is a PAGE, not a one-item scroll. The header
+    // and the empty state share a Column, so the panel centres in the height
+    // BELOW the header (half a header under the window's geometric centre)
+    // instead of a viewport-sized lazy item that starts below the header and
+    // therefore ends one whole header past the bottom. The same shape Медіатека
+    // and «Досягнення» use for their empty states.
+    if (content == ListenContent.FreshInstall) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("listen_screen")
+        ) {
+            ListenTabHeader(landscapePhone = landscapePhone, onOpenSettings = onOpenSettings)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                // The state owns exactly the height left under the header.
+                ListenEmptyState(
+                    onBrowseClick = onBrowseClick,
+                    onImportClick = onImportClick
+                )
+            }
+        }
+        return
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -146,49 +199,9 @@ fun ListenScreen(
         //
         // The title comes from the SAME resource the bottom bar uses
         // (spec-54 T06 / #873), so a literal here cannot drift from the tab.
-        item {
-            PaperInkTabHeader(
-                title = stringResource(R.string.nav_listen),
-                headingTestTag = "listen_heading",
-                compact = landscapePhone,
-                onSettingsClick = onOpenSettings,
-            )
-        }
-        // Wayfinder #62 — the rule-based block list. Every eligible block
-        // renders with its reason; hidden blocks are skipped (still computed).
-        val visibleBlocks = listenBlocks.filter { it.id !in hiddenBlocks }
+        item { ListenTabHeader(landscapePhone = landscapePhone, onOpenSettings = onOpenSettings) }
 
-        // spec-28 (#191 + #200): full cross-shelf dedup — a book renders in
-        // at most ONE shelf, the highest on screen. deduplicateListenShelves
-        // owns the entire claimed set (hero book included): it claims the
-        // hero's book first (US-3), then each visible block claims in display
-        // order, so the user's reorder re-prioritises which shelf claims a
-        // book. A block emptied by dedup renders nothing (no empty header).
-        val dedupedBlocks = deduplicateListenShelves(visibleBlocks)
-
-        // #1704 — what the tab may claim right now. `Loading` is the cold
-        // start: the library flow still holds its `emptyList()` initial value
-        // and the block composer starts empty too, so NEITHER empty state is
-        // allowed to speak for the listener yet — only the header renders.
-        val content = listenContentFor(
-            libraryLoaded = libraryLoaded,
-            blocksReady = blocksReady,
-            allBooksEmpty = allBooks.isEmpty(),
-            composedBlocks = listenBlocks.size,
-            dedupedBlocks = dedupedBlocks.size,
-        )
         if (content == ListenContent.Loading) return@LazyColumn
-
-        // Fresh install: placeholder hero + clear next actions.
-        if (content == ListenContent.FreshInstall) {
-            item {
-                ListenEmptyState(
-                    onBrowseClick = onBrowseClick,
-                    onImportClick = onImportClick
-                )
-            }
-            return@LazyColumn
-        }
 
         for (block in dedupedBlocks) {
             when (block.id) {
@@ -288,6 +301,33 @@ fun ListenScreen(
         // «Новинки» rail and the «Більше книг на Sluhay» CTA now live on
         // Огляд, and the 4read sections render there only.
     }
+}
+
+/**
+ * #1766 — the tab's header, in ONE place.
+ *
+ * The fresh-install page and the ordinary LazyColumn render the very same
+ * composable with the same parameters, so the two branches cannot drift in
+ * title, compact rule or gear while their empty-state anchoring differs.
+ */
+@Composable
+private fun ListenTabHeader(
+    landscapePhone: Boolean,
+    onOpenSettings: () -> Unit
+) {
+    // v1.4 C5 (#568) — the LAST tab to get the one header model. It used to
+    // render a bare gear in a Row: no title, so «Слухати» was the only root
+    // that did not name itself, and its gear sat on a line of its own instead
+    // of beside the name as on Огляд, Мої книги and Друзі.
+    //
+    // The title comes from the SAME resource the bottom bar uses (spec-54 T06 /
+    // #873), so a literal here cannot drift from the tab.
+    PaperInkTabHeader(
+        title = stringResource(R.string.nav_listen),
+        headingTestTag = "listen_heading",
+        compact = landscapePhone,
+        onSettingsClick = onOpenSettings,
+    )
 }
 
 /**
@@ -844,85 +884,58 @@ internal fun ListenBlockHeading(
 @Composable
 fun ListenEmptyState(
     onBrowseClick: () -> Unit,
-    onImportClick: () -> Unit
+    onImportClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    // The fresh install is not an error state: a quiet paper page with a lamp,
-    // one Literata line and the two honest next steps. No grey icon placeholder.
+    // The fresh install is not an error state: a quiet paper page, one Literata
+    // line and the two honest next steps — a circle-less, glyph-less statement
+    // of the absence (2026 direction §4, #1766) with ONE primary action and the
+    // import path demoted to a quiet text link.
     PaperInkThemedContent {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = PaperInkDimens.SpacePage, vertical = 48.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Icon(
-                imageVector = PaperInkIcons.Headphones,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.tertiary,
-                modifier = Modifier.size(28.dp),
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-                text = stringResource(R.string.listen_empty_title),
-                style = PaperInkType.EmptyTitle,
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = stringResource(R.string.listen_empty_body),
-                style = PaperInkType.Body,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
-            Spacer(modifier = Modifier.height(28.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(PaperInkDimens.PrimaryButtonHeight)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary)
-                    .clickable(onClick = onBrowseClick),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = PaperInkIcons.Compass,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = stringResource(R.string.profile_view_catalogue),
-                    style = PaperInkType.BodyStrong,
-                    color = MaterialTheme.colorScheme.onPrimary,
-                )
-            }
-            Spacer(modifier = Modifier.height(10.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(PaperInkDimens.PrimaryButtonHeight)
-                    .clip(CircleShape)
-                    .border(1.dp, MaterialTheme.colorScheme.outline, CircleShape)
-                    .clickable(onClick = onImportClick),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = PaperInkIcons.Upload,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(18.dp),
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = stringResource(R.string.profile_import_from_device),
-                    style = PaperInkType.BodyStrong,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-        }
+        EmptyStatePanel(
+            title = stringResource(R.string.listen_empty_title),
+            body = stringResource(R.string.listen_empty_body),
+            modifier = modifier,
+            action = {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(PaperInkDimens.PrimaryButtonHeight)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary)
+                        .clickable(onClick = onBrowseClick),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = PaperInkIcons.Compass,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.profile_view_catalogue),
+                        style = PaperInkType.BodyStrong,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                }
+            },
+            quietAction = {
+                // #1766 review — the quiet path is the SAME control on all three
+                // surfaces: a TextButton (Role.Button, real 48 dp target), not a
+                // bare clickable Text that TalkBack cannot name as an action.
+                TextButton(
+                    onClick = onImportClick,
+                    modifier = Modifier.heightIn(min = PaperInkDimens.TouchTarget)
+                ) {
+                    Text(
+                        text = stringResource(R.string.profile_import_from_device),
+                        style = PaperInkType.BodyStrong,
+                    )
+                }
+            },
+        )
     }
 }
 

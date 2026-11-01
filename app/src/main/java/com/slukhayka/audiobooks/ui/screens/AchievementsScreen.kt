@@ -55,7 +55,7 @@ import com.slukhayka.audiobooks.data.achievements.AchievementProgress
 import com.slukhayka.audiobooks.data.achievements.ListenerTitle
 import com.slukhayka.audiobooks.ui.achievements.AchievementPresentation
 import com.slukhayka.audiobooks.ui.achievements.achievementName
-import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.EmptyStatePanel
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcon
 import com.slukhayka.audiobooks.ui.icons.PaperInkIconSizes
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
@@ -110,6 +110,27 @@ fun AchievementsScreen(
             destination = SettingsDestination.Achievements,
             onBackClick = onBackClick
         ) { padding ->
+            if (board.isEmpty) {
+                // #1766 (audit U9/U13) — an empty board is not a scrolling page.
+                // The statement leaves the scroll column entirely and is anchored
+                // in the middle of the height the scaffold leaves, instead of
+                // sitting at the top of 40–60 % dead screen.
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding),
+                    contentAlignment = Alignment.Center
+                ) {
+                    EmptyStatePanel(
+                        title = stringResource(R.string.achievements_empty_title),
+                        body = stringResource(R.string.achievements_empty_body),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("achievements_empty_state")
+                    )
+                }
+                return@SettingsDestinationScaffold
+            }
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -118,15 +139,6 @@ fun AchievementsScreen(
                     .padding(PaperInkDimens.SpacePage)
                     .testTag("achievements_screen")
             ) {
-                if (board.isEmpty) {
-                    EmptyState(
-                        title = stringResource(R.string.achievements_empty_title),
-                        body = stringResource(R.string.achievements_empty_body),
-                        modifier = Modifier.testTag("achievements_empty_state")
-                    )
-                    return@Column
-                }
-
                 AchievementHeroPanel(
                     hero = AchievementPresentation.hero(board.earned.size, totalAwards),
                     tier = stringResource(R.string.achievements_tier, title.label),

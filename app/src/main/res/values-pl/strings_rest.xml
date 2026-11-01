@@ -208,9 +208,9 @@
     <string name="first_language_choice_done">Gotowe</string>
     <string name="first_language_choice_title">W jakich językach pokazywać książki?</string>
     <string name="first_language_choice_ukrainian_only">Tylko ukraińskie</string>
-    <string name="friends_empty_no_friends_body">Tu pojawią się posty osób, z którymi się zaprzyjaźniłeś. Dodawanie znajomych po imieniu i własny profil czytelnika nie są jeszcze gotowe — ekran nie wymyśla znajomych, żeby nie był pusty.</string>
+    <string name="friends_empty_no_friends_body">Dodawanie znajomych po imieniu i własny profil czytelnika nie są jeszcze gotowe — tu pojawią się ich posty.</string>
     <string name="friends_empty_no_friends_title">Na razie brak znajomych</string>
-    <string name="friends_empty_no_posts_body">Gdy ktoś ze znajomych podzieli się wrażeniem o książce z odbiorcami «Znajomi», post pojawi się tutaj. Posty z odbiorcami «Tylko ja» nie są nikomu pokazywane.</string>
+    <string name="friends_empty_no_posts_body">Gdy ktoś ze znajomych podzieli się wrażeniem o książce z odbiorcami «Znajomi», post pojawi się tutaj.</string>
     <string name="friends_empty_no_posts_title">Znajomi są, ale nie ma postów</string>
     <plurals name="genre_book_count">
         <item quantity="one">%1$d książka w gatunku</item>
@@ -221,7 +221,7 @@
     <string name="home_all_sources">Znalezione książki (%1$d)</string>
     <string name="home_cycle_progress">Wysłuchano %1$d/%2$d</string>
     <string name="home_cycle_similar">Podobne do «%1$s»</string>
-    <string name="home_empty_catalog_body">Katalog nie ma jeszcze książek. Odśwież katalog lub dodaj własny plik audio.</string>
+    <string name="home_empty_catalog_body">Katalog nie ma jeszcze książek.</string>
     <string name="home_empty_catalog_title">Znajdź swoją pierwszą książkę</string>
     <string name="home_import_file">Importuj plik</string>
     <string name="home_library_no_matches">Brak w Twojej bibliotece</string>

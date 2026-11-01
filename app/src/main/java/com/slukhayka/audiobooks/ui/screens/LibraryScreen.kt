@@ -102,6 +102,7 @@ import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.SubmissionBadge
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.EmptyStatePanel
 import com.slukhayka.audiobooks.ui.components.EmptyStateRow
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.PosterWidth
@@ -652,13 +653,17 @@ fun LibraryScreen(
                             CircularProgressIndicator()
                         }
                         libraryBooks.isEmpty() -> {
+                            // #1766 — the state takes the height the chrome
+                            // leaves over, so it sits in the middle of the
+                            // page instead of hugging the filter strip.
                             LibraryEmptyState(
                                 onImportClick = {
                                     importLauncher.launch(
                                         arrayOf("audio/*", "application/ogg", "application/mpeg")
                                     )
                                 },
-                                onBrowseClick = onBrowseClick
+                                onBrowseClick = onBrowseClick,
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
                             )
                         }
 
@@ -1175,34 +1180,39 @@ internal fun LibraryModalUnderlay(
 @Composable
 fun LibraryEmptyState(
     onImportClick: () -> Unit,
-    onBrowseClick: () -> Unit
+    onBrowseClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    EmptyState(
-        icon = PaperInkIcons.Book,
+    // #1766 (audit U9/U13): the 2026 empty-state anatomy — Literata title, one
+    // line, ONE primary action, the catalogue path demoted to a quiet link. The
+    // legacy glyph is gone; the caller hands the panel the height it may own.
+    EmptyStatePanel(
         title = stringResource(R.string.library_empty_title),
-        body = stringResource(R.string.library_empty_body)
-    ) {
-        Button(
-            onClick = onImportClick,
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-            shape = RoundedCornerShape(AppDimens.RadiusCard),
-            modifier = Modifier
-                .heightIn(min = 48.dp)
-                .testTag("library_empty_import")
-        ) {
-            Text(stringResource(R.string.lib_add_own_files))
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedButton(
-            onClick = onBrowseClick,
-            shape = RoundedCornerShape(AppDimens.RadiusCard),
-            modifier = Modifier
-                .heightIn(min = 48.dp)
-                .testTag("library_empty_browse")
-        ) {
-            Text(stringResource(R.string.lib_find_book))
-        }
-    }
+        body = stringResource(R.string.library_empty_body),
+        modifier = modifier,
+        action = {
+            Button(
+                onClick = onImportClick,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                shape = RoundedCornerShape(AppDimens.RadiusCard),
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("library_empty_import")
+            ) {
+                Text(stringResource(R.string.lib_add_own_files))
+            }
+        },
+        quietAction = {
+            TextButton(
+                onClick = onBrowseClick,
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("library_empty_browse")
+            ) {
+                Text(stringResource(R.string.lib_find_book))
+            }
+        },
+    )
 }
 
 /**

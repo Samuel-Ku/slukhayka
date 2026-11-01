@@ -357,9 +357,14 @@ class ListenScreenBlocksSnapshotTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 ListenSurface {
+                    // #1766 — the real host hands the panel a viewport
+                    // (`fillParentMaxSize` in the Listen LazyColumn), so the
+                    // golden shows the anchored state, not a wrap-content
+                    // impostor pinned to the top.
                     ListenEmptyState(
                         onBrowseClick = {},
-                        onImportClick = {}
+                        onImportClick = {},
+                        modifier = Modifier.fillMaxSize()
                     )
                 }
             }

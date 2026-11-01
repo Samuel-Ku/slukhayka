@@ -122,3 +122,33 @@ internal suspend fun publishWidgetSnapshot(
         update = { id -> widget.update(context, id) }
     )
 }
+
+/**
+ * #1756 — turns a playback observation into the frame worth publishing.
+ *
+ * The old sampler returned before mapping when no book was loaded, so closing
+ * the book left the last playing snapshot (dead transport, stale progress) in
+ * an active session. A null book must therefore be published — but only after
+ * this process has seen a live one: the first empty observation of a cold
+ * start would otherwise replace the last-listened fallback `provideGlance`
+ * computes when no snapshot exists yet.
+ *
+ * The repaint timing stays in [WidgetUpdateCadence]; this class only adds the
+ * cold-start rule.
+ */
+internal class WidgetSnapshotSampler(
+    private val cadence: WidgetUpdateCadence = WidgetUpdateCadence()
+) {
+    private var hasSeenActiveBook = false
+
+    /**
+     * @return the snapshot to publish, or null when this observation keeps the
+     * frame the content already reads.
+     */
+    fun nextSnapshot(state: GlanceWidgetState, nowMs: Long): GlanceWidgetState? {
+        if (!state.hasActiveBook && !hasSeenActiveBook) return null
+        if (state.hasActiveBook) hasSeenActiveBook = true
+        if (cadence.decide(state, nowMs) == WidgetUpdateKind.NONE) return null
+        return state
+    }
+}

@@ -9,7 +9,10 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.testing.TestDataFactory
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkPosterCard
+import com.slukhayka.audiobooks.ui.library.LibraryBook
+import com.slukhayka.audiobooks.ui.screens.ListenBlockShelf
 import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -118,6 +121,51 @@ class ListenShelfCoverTest {
             "the letter slot must match the art slot, or the shelf jumps when art arrives",
             artSize,
             letterSize
+        )
+    }
+
+    @Test
+    fun `the real shelf shows art for a Work with a cover URL and the letter for one without`() {
+        // The defect was in the shelf, not in the card: this renders
+        // ListenBlockShelf itself, so passing cover through the call site is
+        // pinned, not just the card's branch.
+        val withArt = TestDataFactory.dataBooks()[0]
+            .copy(coverImageUrl = "https://example.invalid/cover.jpg")
+        val withoutArt = TestDataFactory.dataBooks()[1]
+
+        compose.setContent {
+            PaperInkThemedContent {
+                ListenBlockShelf(
+                    books = listOf(
+                        LibraryBook(
+                            book = withArt,
+                            progress = null,
+                            cumulativePositionSeconds = 0L,
+                            totalDurationSeconds = withArt.totalDurationSeconds,
+                        ),
+                        LibraryBook(
+                            book = withoutArt,
+                            progress = null,
+                            cumulativePositionSeconds = 0L,
+                            totalDurationSeconds = withoutArt.totalDurationSeconds,
+                        ),
+                    ),
+                    onBookClick = {},
+                    onNotInterested = {},
+                )
+            }
+        }
+        compose.waitForIdle()
+
+        assertEquals(
+            "exactly the Work with a cover URL draws art",
+            1,
+            compose.onAllNodesWithTag("shelf_cover_art", useUnmergedTree = true).fetchSemanticsNodes().size
+        )
+        assertEquals(
+            "the Work without a cover URL keeps the paper letter",
+            1,
+            compose.onAllNodesWithTag("shelf_cover_placeholder", useUnmergedTree = true).fetchSemanticsNodes().size
         )
     }
 }

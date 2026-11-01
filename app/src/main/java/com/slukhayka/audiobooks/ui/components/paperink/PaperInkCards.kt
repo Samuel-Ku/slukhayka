@@ -537,27 +537,21 @@ fun PaperInkPosterCard(
                 .width(PaperInkDimens.CoverShelfWidth)
                 .height(PaperInkDimens.CoverShelfHeight),
         ) {
-            if (cover != null) {
-                // The art keeps the slot's own size and radius, so the shelf
-                // rhythm cannot drift with the image source.
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(PaperInkDimens.RadiusMedium))
-                        .testTag("shelf_cover_art"),
-                ) {
-                    cover()
-                }
-            } else {
-                PaperInkCover(
-                    title = title,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .testTag("shelf_cover_placeholder")
-                        .clearAndSetSemantics { },
-                    radius = PaperInkDimens.RadiusMedium,
-                )
-            }
+            // Unslop U16: the art rides PaperInkCover's own `content` slot
+            // instead of replacing the frame — that slot exists precisely so a
+            // screen can swap in the Coil image without changing the layout. The
+            // art therefore inherits the frame's shadow, gradient ground, 1 dp
+            // border and 16 dp radius, so a mixed shelf cannot read as two
+            // different materials.
+            PaperInkCover(
+                title = title,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag(if (cover != null) "shelf_cover_art" else "shelf_cover_placeholder")
+                    .clearAndSetSemantics { },
+                radius = PaperInkDimens.RadiusMedium,
+                content = cover,
+            )
             if (nowPlaying) {
                 Row(
                     modifier = Modifier

@@ -337,52 +337,65 @@ fun PaperInkHeroCard(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = author,
-                        style = PaperInkType.Meta,
-                        color = colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (narrator.isNotBlank()) {
+                    // Unslop audit 2026-11-01 (U11): the play disc is 52 dp and sits
+                    // 16 dp off the card's bottom-right corner, so everything that can
+                    // share that corner — author, narrator, progress, chapter — reserves
+                    // 68 dp. Before, only the progress row reserved 64 dp and the three
+                    // text lines printed beneath the disc: on the device the narrator
+                    // line ran under the button. The title keeps the full width, because
+                    // it sits above the disc and a narrower column would ellipsize it.
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .padding(end = PaperInkDimens.HeroPlayReserve),
+                    ) {
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = narrator,
-                            style = PaperInkType.Micro,
+                            text = author,
+                            style = PaperInkType.Meta,
                             color = colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                    }
-                    Spacer(modifier = Modifier.weight(1f))
-                    if (progress != null) {
-                        Row(
-                            modifier = Modifier.padding(end = 64.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            PaperInkProgress(progress = progress, modifier = Modifier.weight(1f))
-                            if (progressLabel != null) {
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = progressLabel,
-                                    style = PaperInkType.Timer,
-                                    color = colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                )
+                        if (narrator.isNotBlank()) {
+                            Text(
+                                text = narrator,
+                                style = PaperInkType.Micro,
+                                color = colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
+                        if (progress != null) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                PaperInkProgress(progress = progress, modifier = Modifier.weight(1f))
+                                if (progressLabel != null) {
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = progressLabel,
+                                        style = PaperInkType.Timer,
+                                        color = colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        softWrap = false,
+                                    )
+                                }
                             }
                         }
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = chapterLabel,
-                        style = PaperInkType.Timer,
-                        color = colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (remainingLabel.isNotBlank()) {
-                        Text(text = remainingLabel, style = PaperInkType.Micro, color = colorScheme.onSurfaceVariant)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = chapterLabel,
+                            style = PaperInkType.Timer,
+                            color = colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (remainingLabel.isNotBlank()) {
+                            Text(text = remainingLabel, style = PaperInkType.Micro, color = colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }

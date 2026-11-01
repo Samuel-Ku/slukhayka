@@ -4084,12 +4084,12 @@ internal fun LibrarySectionTabs(
                             else Modifier.width(0.dp)
                         )
                         .background(
-                            when {
-                                selected && com.slukhayka.audiobooks.ui.theme
-                                    .LocalPaperInkDesign.current -> MaterialTheme.colorScheme.tertiary
-                                selected -> MaterialTheme.colorScheme.primary
-                                else -> Color.Transparent
-                            }
+                            // Unslop audit 2026-11-01 (U3): the lamp role belongs to
+                            // sound, not to navigation. A selected tab is a quiet
+                            // action state, so it uses verdigris in both vocabularies;
+                            // amber here made «Książki» look like playback next to the
+                            // verdigris filter chip right below it.
+                            if (selected) MaterialTheme.colorScheme.primary else Color.Transparent
                         )
                 )
             }

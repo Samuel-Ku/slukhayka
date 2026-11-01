@@ -617,10 +617,31 @@ fun ListenBlockShelf(
                         .takeIf { it > 0L }
                         ?.let { formatRowDuration(it) }
                         .orEmpty()
+                // Unslop audit 2026-11-01 (U16): the shelf now shows the Work's
+                // real artwork when it has one, the same shared Coil route the
+                // hero uses. A Work without art keeps the paper letter, so the
+                // fallback branch does not move.
+                val shelfCover: (@Composable () -> Unit)? =
+                    if (!book.coverImageUrl.isNullOrBlank()) {
+                        {
+                            BookCoverImage(
+                                book = book,
+                                semantics = BookCoverSemantics.Decorative,
+                                modifier = Modifier.fillMaxSize(),
+                                // A shelf tile states title/author UNDER the
+                                // cover, so a typographic fallback would print
+                                // the same words twice.
+                                typographicFallback = false,
+                            )
+                        }
+                    } else {
+                        null
+                    }
                 PaperInkPosterCard(
                     title = book.title,
                     author = book.displayAuthor,
                     meta = caption,
+                    cover = shelfCover,
                     progress = entry.percent,
                     onClick = { onBookClick(book.id) },
                     onNotInterested = { onNotInterested(book.id) },

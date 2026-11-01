@@ -500,6 +500,14 @@ fun PaperInkPosterCard(
     author: String,
     meta: String,
     modifier: Modifier = Modifier,
+    /**
+     * Real artwork for the 132×198 cover slot, or null for the paper letter
+     * placeholder. Unslop audit 2026-11-01 (U16): the shelf used to draw the
+     * letter while the same Work had art in the library, on the book page and in
+     * the mini player — the card simply had no cover parameter. The fallback
+     * branch stays byte-identical for Works that really have no art.
+     */
+    cover: (@Composable () -> Unit)? = null,
     progress: Float? = null,
     nowPlaying: Boolean = false,
     onClick: (() -> Unit)? = null,
@@ -529,10 +537,20 @@ fun PaperInkPosterCard(
                 .width(PaperInkDimens.CoverShelfWidth)
                 .height(PaperInkDimens.CoverShelfHeight),
         ) {
+            // Unslop U16: the art rides PaperInkCover's own `content` slot
+            // instead of replacing the frame — that slot exists precisely so a
+            // screen can swap in the Coil image without changing the layout. The
+            // art therefore inherits the frame's shadow, gradient ground, 1 dp
+            // border and 16 dp radius, so a mixed shelf cannot read as two
+            // different materials.
             PaperInkCover(
                 title = title,
-                modifier = Modifier.fillMaxSize().clearAndSetSemantics { },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag(if (cover != null) "shelf_cover_art" else "shelf_cover_placeholder")
+                    .clearAndSetSemantics { },
                 radius = PaperInkDimens.RadiusMedium,
+                content = cover,
             )
             if (nowPlaying) {
                 Row(

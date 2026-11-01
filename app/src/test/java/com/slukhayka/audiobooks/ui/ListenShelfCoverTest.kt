@@ -15,6 +15,7 @@ import com.slukhayka.audiobooks.ui.library.LibraryBook
 import com.slukhayka.audiobooks.ui.screens.ListenBlockShelf
 import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -41,6 +42,14 @@ class ListenShelfCoverTest {
     @get:Rule
     val compose = createComposeRule()
 
+    /**
+     * Whether the cover lambda was actually INVOKED. A tag alone cannot tell
+     * "art drawn" from "letter drawn" — the frame's `clearAndSetSemantics`
+     * hides the content from the semantics tree — and the first mutation
+     * (`content = null`, tag unchanged) survived exactly because of that.
+     */
+    private var coverDrawn = false
+
     private fun showShelf(withCover: Boolean) {
         compose.setContent {
             PaperInkThemedContent {
@@ -50,7 +59,10 @@ class ListenShelfCoverTest {
                         author = "Костянтин Бакаєвич",
                         meta = "01:44",
                         cover = if (withCover) {
-                            { Box(modifier = Modifier.fillMaxSize()) }
+                            {
+                                coverDrawn = true
+                                Box(modifier = Modifier.fillMaxSize())
+                            }
                         } else {
                             null
                         },
@@ -63,8 +75,13 @@ class ListenShelfCoverTest {
 
     @Test
     fun `a Work with art renders the artwork, not the letter`() {
+        coverDrawn = false
         showShelf(withCover = true)
 
+        assertTrue(
+            "the cover lambda must have been invoked — a frame tag alone proves nothing",
+            coverDrawn
+        )
         compose.onNodeWithTag("shelf_cover_art", useUnmergedTree = true).assertExists()
         assertEquals(
             "the letter placeholder must not be drawn when art exists",
@@ -75,8 +92,10 @@ class ListenShelfCoverTest {
 
     @Test
     fun `a Work without art keeps the paper letter`() {
+        coverDrawn = false
         showShelf(withCover = false)
 
+        assertFalse("no cover lambda may run when the Work has no art", coverDrawn)
         compose.onNodeWithTag("shelf_cover_placeholder", useUnmergedTree = true).assertExists()
         assertEquals(
             "nothing may claim art when there is none",

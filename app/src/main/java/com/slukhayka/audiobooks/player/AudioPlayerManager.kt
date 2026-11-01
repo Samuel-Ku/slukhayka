@@ -45,9 +45,8 @@ import com.slukhayka.audiobooks.data.listening.startsAtBookEnd
 import com.slukhayka.audiobooks.data.source.YouTubeTracks
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
+import com.slukhayka.audiobooks.widget.WidgetSnapshotSampler
 import com.slukhayka.audiobooks.widget.WidgetStateMapper
-import com.slukhayka.audiobooks.widget.WidgetUpdateCadence
-import com.slukhayka.audiobooks.widget.WidgetUpdateKind
 import com.slukhayka.audiobooks.widget.publishWidgetSnapshot
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -864,26 +863,27 @@ class AudioPlayerManager(
     private fun reportListeningStopped() = reportListeningObservation(ListeningObservation.Stopped)
 
 
-    // Spec-22 T4 / #1749: keep the home-screen widget live. The content reads
-    // its frame from Glance's DataStore snapshot (WidgetSnapshotCodec), so the
-    // sampler must publish a new snapshot — updateAll alone only extends an
-    // active session and never re-runs provideGlance. Discrete transitions
+    // Spec-22 T4 / #1749, #1756: keep the home-screen widget live. The content
+    // reads its frame from Glance's DataStore snapshot (WidgetSnapshotCodec),
+    // so the sampler must publish a new snapshot — updateAll alone only extends
+    // an active session and never re-runs provideGlance. Discrete transitions
     // repaint at once; position-only progress is throttled to one repaint per
-    // 15 s instead of the old 2 s poll. Fire-and-forget — a failing widget
-    // must never break playback.
+    // 15 s instead of the old 2 s poll. A null book is observed too: closing
+    // the book must replace the playing frame with the empty one, while the
+    // first cold-start observation still leaves the fallback frame alone.
+    // Fire-and-forget — a failing widget must never break playback.
     init {
         if (widgetSyncEnabled) {
             scope.launch {
-                val cadence = WidgetUpdateCadence()
+                val sampler = WidgetSnapshotSampler()
                 playerState.collect { state ->
-                    if (state.currentBook == null) return@collect
-                    val widgetState = WidgetStateMapper.mapFromPlayerState(state)
-                    if (cadence.decide(widgetState, monotonicNow()) == WidgetUpdateKind.NONE) {
-                        return@collect
-                    }
+                    val snapshot = sampler.nextSnapshot(
+                        WidgetStateMapper.mapFromPlayerState(state),
+                        monotonicNow()
+                    ) ?: return@collect
                     withContext(Dispatchers.IO) {
                         try {
-                            publishWidgetSnapshot(context, widgetState)
+                            publishWidgetSnapshot(context, snapshot)
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (e: Exception) {

@@ -396,7 +396,6 @@ fun PaperInkHeroCard(
                             color = colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.testTag("hero_chapter"),
                         )
                         if (remainingLabel.isNotBlank()) {
                             Text(text = remainingLabel, style = PaperInkType.Micro, color = colorScheme.onSurfaceVariant)

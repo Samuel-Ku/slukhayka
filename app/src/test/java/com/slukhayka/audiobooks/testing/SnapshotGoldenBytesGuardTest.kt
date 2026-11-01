@@ -87,6 +87,37 @@ import java.security.MessageDigest
  * `listen_hero_card*` and `paperink_cards*` moved for the hero reserve (68 dp
  * under the play disc) and are not in this pin set.
  *
+ * **2026-11-01 — #1776 icons batch A («Слухати» + «Медіатека»):** THREE pins
+ * moved, all `library_redesign_*`. The two migrated screens stopped sizing
+ * their icons with dp literals at 11 call sites (ListenScreen 3, LibraryScreen
+ * 8) and now name a `PaperInkIconSizes` role: 18→Inline, 15→Inline, 16→Chrome,
+ * 22→Chrome, 20→Inline, 24→Header and 28→Header (the stat-card glyph is not a
+ * transport control, so it did not become `Transport`). Measured against the
+ * previous record, frame by frame:
+ *  - `library_redesign_browsing` and `library_redesign_dense` — 4163 / 4162
+ *    pixels (0.161 % of 1078×2399, max channel delta 222), spanning
+ *    `(195,360)-(902,1919)`: the search row's PLACEHOLDER glyph 18→20, the
+ *    offline cover badge 15→20 and the stat-card glyphs 28→24. The clear-search
+ *    button was re-sized to Inline 20 (16→20) in code, but it is NOT in any pinned frame: every
+ *    snapshot composes the search field with an empty query, so the button is
+ *    not rendered — the reason above names only what the pixels show.
+ *
+ *    Roles were chosen by the icon's JOB, not by nearest number: the clear is
+ *    Inline 20 (a quiet clear, the same weight as the field's leading Search),
+ *    Play inside the labelled «Продовжити» row is Chrome 22 (a row/chrome
+ *    action), while Compass inside the empty-state CTA stays Inline 20 (a
+ *    content action). StatItemCard chose Header 24 rather than the
+ *    pixel-identical Transport 28, which is why its frame visibly moved;
+ *  - `library_redesign_grid` — 4161 pixels (0.161 %, max delta 186) on the
+ *    grid's rendering of the same surfaces.
+ * A full fresh record on `dragonborn` rewrote exactly 14 of the 157 goldens;
+ * the other 143, including all six non-library pins (`explore_header_*`,
+ * `home_feed_phone_fold`, the three player frames), came back byte-identical.
+ * The eleven non-pinned changed files are Library/Listen surfaces too
+ * (`library_book_card_*`, `library-grid-*`, `library_stats_card_*`,
+ * `large-leading-mini-player-library`, `listen_empty_state`,
+ * `listen_shelves_sheet`) and are recorded in the same commit.
+ *
  * This guard does not bless those bytes — it pins them. They are exactly the
  * files a blind «оновили золота» commit touches, and nothing else in the
  * repository would notice: the compare step in `.github/workflows/ci.yml` runs
@@ -703,6 +734,15 @@ class SnapshotGoldenBytesGuardTest {
          * do not render these glyphs), and a full fresh CI record reproduced the
          * committed set byte-for-byte.
          *
+         * ## Three re-pinned on 2026-11-01 (#1776 — icons batch A)
+         *
+         * The «Слухати» and «Медіатека» screens now take every icon size from
+         * `PaperInkIconSizes` instead of a dp literal (11 call sites). The three
+         * library frames that render the migrated chrome moved by 0.161 % of
+         * their 1078×2399 pixels (max channel delta 222 / 222 / 186), and the
+         * six other pins kept AE=0. Full record on `dragonborn`; the eleven
+         * other changed goldens are not pinned and are named in the header
+         * changelog.
          */
         val PINS = listOf(
             Pin(
@@ -723,17 +763,17 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "2c1815a26f00b7171cfa5196ac2c52c0" + "a68b6d18240455d58f41a64e23bd1c6d"
+                "5012c9d93f328a83e8ce1e5a7550f15e" + "372a5b5460fbdc888ade89dd04808df4"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "2bb068c372c3c7308974c838bb7e9be4" + "ab5d45afc7a937864f94778c84f4b434"
+                "e3252a0cc91e42c73f881256fe52bb40" + "dcce9ae422c818e244ff12f3c8c70da7"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "0e41e306a3a5240a83721696412ac5ba" + "c7d68817e4cb8611a649ba712528885e"
+                "acb05537ef1a8f94fcb470b0618fb49b" + "8f838374d4b229e7371171877fb80f97"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

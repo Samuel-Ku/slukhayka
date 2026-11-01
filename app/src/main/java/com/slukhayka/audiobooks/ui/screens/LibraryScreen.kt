@@ -104,6 +104,8 @@ import com.slukhayka.audiobooks.ui.SubmissionBadge
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.EmptyStatePanel
+import com.slukhayka.audiobooks.ui.components.EmptyStatePrimaryAction
+import com.slukhayka.audiobooks.ui.components.EmptyStateQuietAction
 import com.slukhayka.audiobooks.ui.components.EmptyStateRow
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.PosterWidth
@@ -1192,26 +1194,23 @@ fun LibraryEmptyState(
         body = stringResource(R.string.library_empty_body),
         modifier = modifier,
         action = {
-            Button(
+            // #1775 (unslop U1) — the shared primary CTA. This surface used to
+            // draw the same invitation at 12 dp while «Слухати» drew a full pill
+            // and the book page 24 dp; the radius now has one owner.
+            EmptyStatePrimaryAction(
+                text = stringResource(R.string.lib_add_own_files),
                 onClick = onImportClick,
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                shape = RoundedCornerShape(AppDimens.RadiusCard),
-                modifier = Modifier
-                    .heightIn(min = 48.dp)
-                    .testTag("library_empty_import")
-            ) {
-                Text(stringResource(R.string.lib_add_own_files))
-            }
+                testTag = "library_empty_import",
+            )
         },
         quietAction = {
-            TextButton(
+            // #1775 — the shared quiet action (16 dp radius, 48 dp target),
+            // so the second path is the same control as on «Слухати»/«Огляд».
+            EmptyStateQuietAction(
+                text = stringResource(R.string.lib_find_book),
                 onClick = onBrowseClick,
-                modifier = Modifier
-                    .heightIn(min = 48.dp)
-                    .testTag("library_empty_browse")
-            ) {
-                Text(stringResource(R.string.lib_find_book))
-            }
+                testTag = "library_empty_browse",
+            )
         },
     )
 }

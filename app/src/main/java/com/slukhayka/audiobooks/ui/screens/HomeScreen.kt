@@ -80,6 +80,8 @@ import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
 import com.slukhayka.audiobooks.ui.components.EmptyStatePanel
+import com.slukhayka.audiobooks.ui.components.EmptyStatePrimaryAction
+import com.slukhayka.audiobooks.ui.components.EmptyStateQuietAction
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
 import com.slukhayka.audiobooks.ui.components.AppTabHeader
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
@@ -1223,24 +1225,23 @@ fun EmptyCatalogState(
         body = stringResource(R.string.home_empty_catalog_body),
         modifier = modifier,
         action = {
-            Button(
+            // #1775 (unslop U1) — the shared primary CTA. This surface used to
+            // draw the same invitation at 14 dp while «Слухати» drew a full pill
+            // and «Медіатека» 12 dp; one role now has one form.
+            EmptyStatePrimaryAction(
+                text = stringResource(R.string.a11y_refresh_catalogue),
                 onClick = onRefreshClick,
-                modifier = Modifier.heightIn(min = 48.dp).testTag("catalog_empty_refresh"),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                shape = RoundedCornerShape(AppDimens.RadiusCardLg)
-            ) {
-                Icon(imageVector = PaperInkIcons.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(stringResource(R.string.a11y_refresh_catalogue), fontWeight = FontWeight.Bold)
-            }
+                icon = PaperInkIcons.Refresh,
+                testTag = "catalog_empty_refresh",
+            )
         },
         quietAction = {
-            TextButton(
+            // #1775 — the shared quiet action (16 dp radius, 48 dp target).
+            EmptyStateQuietAction(
+                text = stringResource(R.string.home_import_file),
                 onClick = onImportClick,
-                modifier = Modifier.heightIn(min = 48.dp).testTag("catalog_empty_import")
-            ) {
-                Text(stringResource(R.string.home_import_file))
-            }
+                testTag = "catalog_empty_import",
+            )
         },
     )
 }

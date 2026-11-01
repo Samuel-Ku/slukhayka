@@ -8,14 +8,19 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.slukhayka.audiobooks.ui.icons.PaperInkIconSizes
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
 import com.slukhayka.audiobooks.ui.theme.PaperInkType
@@ -234,6 +240,103 @@ fun EmptyStatePanel(
                 quietAction()
             }
         }
+    }
+}
+
+/**
+ * #1775 (unslop audit U1) — THE primary action of a paper surface.
+ *
+ * Before this primitive the same invitation («почати/переглянути») was drawn in
+ * four shapes: a full pill hand-rolled out of a clickable `Row` + `CircleShape`
+ * in the «Слухати» empty state, a 12 dp `Button` in «Медіатека», a 14 dp
+ * `Button` in «Огляд», and 24 dp on the book page and in the player. The audit's
+ * rule is one role, one form (§4 rule 1): a primary CTA is 24 dp, a chip is a
+ * pill, and a pill is never an action button.
+ *
+ * This composable is the ONE place that form is named. It renders a filled M3
+ * `Button` — [PaperInkDimens.PrimaryButtonHeight] tall, shaped by
+ * [PaperInkDimens.RadiusLarge], filled with the paper roles
+ * `colorScheme.primary` / `onPrimary` — so a surface that needs the CTA names
+ * no radius, no height and no colour of its own. Callers pass the label, the
+ * click and optionally one leading [PaperInkIconSizes.Inline] glyph (the
+ * catalogue compass, the refresh arrow); the width follows the label, and the
+ * panel centres it.
+ *
+ * [heightIn] rather than a fixed `height`: at a large font scale the label must
+ * grow the button instead of being clipped out of it. At the default scale the
+ * measured height is exactly 52 dp.
+ *
+ * [testTag] follows the house convention for optional seams — the node exists
+ * only when a caller asks for one, so a migrated surface keeps the tag its
+ * tests already know (`library_empty_import`, `catalog_empty_refresh`).
+ */
+@Composable
+fun EmptyStatePrimaryAction(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    testTag: String? = null,
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier
+            .heightIn(min = PaperInkDimens.PrimaryButtonHeight)
+            .then(if (testTag != null) Modifier.testTag(testTag) else Modifier),
+        shape = RoundedCornerShape(PaperInkDimens.RadiusLarge),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+        ),
+    ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                // Decorative: the label is the action's name.
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier.size(PaperInkIconSizes.Inline),
+            )
+            Spacer(modifier = Modifier.width(PaperInkDimens.SpaceSm))
+        }
+        Text(
+            text = text,
+            style = PaperInkType.BodyStrong,
+            color = MaterialTheme.colorScheme.onPrimary,
+        )
+    }
+}
+
+/**
+ * #1775 (unslop audit U1) — the quiet second path of a paper surface.
+ *
+ * The same role was a `TextButton` on three surfaces and a bare clickable
+ * `Text` before #1766; its shape came from whichever theme was ambient. It is
+ * defined here so the secondary role has ONE radius too —
+ * [PaperInkDimens.RadiusMedium] — and the project's 48 dp target floor
+ * ([PaperInkDimens.TouchTarget]), rather than each call site re-deciding what a
+ * "quiet link" is.
+ *
+ * The container stays transparent (that is what makes it quiet); the shape is
+ * still named, because the press ripple and any future state layer are bounded
+ * by it, and because a token at the call site would be a second place to
+ * change the form.
+ */
+@Composable
+fun EmptyStateQuietAction(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    testTag: String? = null,
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = modifier
+            .heightIn(min = PaperInkDimens.TouchTarget)
+            .then(if (testTag != null) Modifier.testTag(testTag) else Modifier),
+        shape = RoundedCornerShape(PaperInkDimens.RadiusMedium),
+    ) {
+        Text(text = text, style = PaperInkType.BodyStrong)
     }
 }
 

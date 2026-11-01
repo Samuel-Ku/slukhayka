@@ -142,7 +142,10 @@ class IconSizeTokenGuardTest {
             "ui/screens/BookDetailReviews.kt" to 5,
             "ui/screens/BookDetailScreen.kt" to 1,
             "ui/screens/HomeFeedContent.kt" to 1,
-            "ui/screens/HomeScreen.kt" to 4,
+            // #1775 moved the «Огляд» first-run CTA into the shared
+            // EmptyStatePrimaryAction, which sizes its glyph from
+            // PaperInkIconSizes.Inline; the 18 dp literal left HomeScreen.kt.
+            "ui/screens/HomeScreen.kt" to 3,
             "ui/screens/LibraryImportSheet.kt" to 1,
             "ui/screens/LibraryRatingScreen.kt" to 1,
             "ui/screens/PeopleScreen.kt" to 2,

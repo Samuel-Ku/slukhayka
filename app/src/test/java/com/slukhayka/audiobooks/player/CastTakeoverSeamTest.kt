@@ -218,6 +218,58 @@ class CastTakeoverSeamTest {
     }
 
     @Test
+    fun `cast receiver error is a distinct outcome and hands playback back to the phone`() =
+        runTest(dispatcher) {
+            val context = ApplicationProvider.getApplicationContext<Context>()
+            val book = TestDataFactory.dataBooks().first()
+            val chapters = TestDataFactory.dataChapters().filter { it.bookId == book.id }
+            val playable = playable(book, chapters)
+            val factory = RecordingPlayerFactory()
+            val manager = AudioPlayerManager(
+                context,
+                ListeningStateStore(
+                    FakeAudiobookDao(TestDataFactory.dataBooks(), TestDataFactory.dataChapters()),
+                    dispatcher
+                ),
+                { playable },
+                injectedPlayerFactory = factory,
+                ioDispatcher = dispatcher,
+                widgetSyncEnabled = false
+            )
+            try {
+                manager.loadAndPlayBook(book, chapters, playable, autoPlay = false)
+                runCurrent()
+                val receiver = FakeCastHook()
+                manager.attachCastHook(receiver)
+                manager.activateCastTakeover()
+                val engine = factory.current
+                val preparesBefore = engine.prepareCount
+
+                // endCasting clears the CastPlayer BEFORE finishCastHandback, so
+                // the hook is inactive by the time the local prepare runs.
+                receiver.isActive = false
+                manager.finishCastHandback(CastSessionOutcome.ERROR, 0, 12_000L, 1.0f)
+                runCurrent()
+
+                val state = manager.playerState.value
+                assertEquals(CastSessionOutcome.ERROR, state.castSessionOutcome)
+                assertNotEquals(
+                    "a receiver that cannot play is not a dropped connection",
+                    CastSessionOutcome.LOST,
+                    state.castSessionOutcome
+                )
+                assertFalse("the error must not claim playback", state.isPlaying)
+                assertEquals(12_000L, state.currentPositionMs)
+                assertTrue(
+                    "the phone engine must be prepared again for the hand-back",
+                    engine.prepareCount > preparesBefore
+                )
+            } finally {
+                manager.release()
+            }
+        }
+
+    @Test
     fun `cast session error code separates deliberate disconnect from loss`() {
         assertEquals(CastSessionOutcome.ENDED, castSessionOutcomeFor(0))
         assertEquals(CastSessionOutcome.LOST, castSessionOutcomeFor(13))
@@ -232,7 +284,7 @@ class CastTakeoverSeamTest {
     }
 
     private class FakeCastHook : CastEngineHook {
-        override val isActive: Boolean = true
+        override var isActive: Boolean = true
         var prepareCalls: Int = 0
             private set
 

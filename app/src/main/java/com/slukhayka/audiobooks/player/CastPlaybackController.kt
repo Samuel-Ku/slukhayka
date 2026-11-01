@@ -19,9 +19,6 @@ import com.google.android.gms.cast.framework.SessionManagerListener
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailabilityLight
 import com.slukhayka.audiobooks.data.source.HttpFetcher
-import com.slukhayka.audiobooks.data.source.headersFor
-import com.slukhayka.audiobooks.data.source.sourceIdForUrl
-import java.util.Locale
 import java.util.concurrent.Executor
 
 /**
@@ -39,13 +36,14 @@ import java.util.concurrent.Executor
  * cannot cast — the takeover aborts with an explanation, never a mystery;
  * a successful takeover stops the phone engine (#1750); a lost receiver ends
  * the session, the local engine re-prepares PAUSED at the mirrored position,
- * and the hand-back is a distinct ended/lost notice (#1752), never a silent
- * pause.
+ * and the hand-back is a distinct ended/lost/error notice (#1752, #1751),
+ * never a silent pause or a silent still-"active" cast.
  */
 class CastPlaybackController(
     private val context: Context,
     private val managerProvider: () -> AudioPlayerManager,
     private val streamUrlHealer: (suspend (String, Int, String) -> String?)? = null,
+    private val streamUrlResolver: (suspend (String) -> String?)? = null,
     private val mainExecutor: Executor = ContextCompat.getMainExecutor(context),
     private val onActiveChanged: (Boolean) -> Unit = {}
 ) : CastEngineHook, SessionManagerListener<CastSession> {
@@ -57,15 +55,15 @@ class CastPlaybackController(
     private var castPlayer: CastPlayer? = null
 
     private var proxy: PlaybackProxy? = null
+    private var upstream: CastUpstream? = null
     private var receiverClient: RemoteMediaClient? = null
     private var receiverCallback: RemoteMediaClient.Callback? = null
     private var receiverChapters: Map<String, Int> = emptyMap()
     private var lastFinishedReceiverItem: Pair<Int, String>? = null
+    private var receiverErrorHandled = false
 
     @Volatile
     private var chapterUrls: List<String?> = emptyList()
-
-    private val healBudgetByChapter = HashMap<Int, Int>()
 
     private var bookId: String? = null
 
@@ -146,9 +144,20 @@ class CastPlaybackController(
 
         bookId = book.id
         chapterUrls = playable.map { it.track?.url }
-        healBudgetByChapter.clear()
 
-        val proxy = PlaybackProxy(upstream = ::upstreamFor, bindAddress = wifiAddress)
+        // #1751 — the proxy's upstream resolves YouTube watch URLs through the
+        // same per-use resolver the local engine uses; fetching the identity
+        // itself would only hand the receiver HTML.
+        val upstream = CastUpstream(
+            chapterUrls = chapterUrls,
+            bookId = bookId,
+            fetcher = fetcher,
+            resolver = streamUrlResolver,
+            healer = streamUrlHealer
+        )
+        this.upstream = upstream
+
+        val proxy = PlaybackProxy(upstream = upstream::open, bindAddress = wifiAddress)
         val started = proxy.start()
         if (started == null) {
             abortTakeover(session, PROXY_START_FAILED)
@@ -167,7 +176,7 @@ class CastPlaybackController(
             MediaItem.Builder()
                 .setUri(castUri(started, host, index))
                 .setMediaId(index.toString())
-                .setMimeType(guessMimeType(url))
+                .setMimeType(castMimeType(url))
                 .setMediaMetadata(
                     MediaMetadata.Builder()
                         .setMediaType(MediaMetadata.MEDIA_TYPE_AUDIO_BOOK_CHAPTER)
@@ -203,6 +212,7 @@ class CastPlaybackController(
         manager.activateCastTakeover()
         receiverChapters = items.associate { it.localConfiguration!!.uri.toString() to it.mediaId.toInt() }
         lastFinishedReceiverItem = null
+        receiverErrorHandled = false
         observeReceiver(session.remoteMediaClient)
         player.setMediaItems(items, startIndex.coerceIn(0, items.lastIndex), state.currentPositionMs)
         player.prepare()
@@ -217,6 +227,7 @@ class CastPlaybackController(
 
     private fun abortTakeover(session: CastSession, explanation: String) {
         manager.mirrorCastState { it.copy(lastErrorMsg = explanation) }
+        stopTransport()
         runCatching { castContextOrNull()?.sessionManager?.endCurrentSession(true) }
     }
 
@@ -225,8 +236,9 @@ class CastPlaybackController(
      *
      * [outcome] is null when a takeover never became active (no listener-facing
      * message); otherwise it records whether the listener disconnected
-     * deliberately or the receiver was lost. The hand-back method writes it
-     * AFTER its `prepareChapter`, because that prepare clears `lastErrorMsg`.
+     * deliberately, the receiver was lost, or it could not play the bytes
+     * (#1751). The hand-back method writes it AFTER its `prepareChapter`,
+     * because that prepare clears `lastErrorMsg`.
      */
     private fun endCasting(outcome: CastSessionOutcome? = null) {
         val resume = castPlayer?.let { player ->
@@ -237,7 +249,14 @@ class CastPlaybackController(
         clearReceiverObservation()
         receiverChapters = emptyMap()
         lastFinishedReceiverItem = null
-        val player = castPlayer ?: return
+        receiverErrorHandled = false
+        val player = castPlayer
+        if (player == null) {
+            // A takeover may have failed after the proxy was raised; nothing
+            // may keep the listener, locks or session alive in that case.
+            stopTransport()
+            return
+        }
         castPlayer = null
         onActiveChanged(false)
 
@@ -247,9 +266,7 @@ class CastPlaybackController(
         )
         runCatching { player.release() }
 
-        proxy?.stop()
-        proxy = null
-        releaseLocks()
+        stopTransport()
 
         sessionPlayerSwapper?.invoke(null)
 
@@ -257,11 +274,19 @@ class CastPlaybackController(
         Log.i(TAG, "Cast ended (${outcome ?: "aborted"}) → local paused at ch$chapterIndex @$positionMs")
     }
 
+    private fun stopTransport() {
+        proxy?.stop()
+        proxy = null
+        upstream = null
+        releaseLocks()
+    }
+
     /** CastPlayer masks play requests optimistically. Only a received receiver status is evidence. */
     private fun observeReceiver(client: RemoteMediaClient?, preserveTerminalPosition: Boolean = false) {
         clearReceiverObservation(resumingActiveSession = preserveTerminalPosition)
         if (client == null) return
         receiverClient = client
+        receiverErrorHandled = false
         val callback = object : RemoteMediaClient.Callback() {
             override fun onStatusUpdated() {
                 if (receiverClient !== client || castPlayer == null) return
@@ -284,6 +309,18 @@ class CastPlaybackController(
                     receiverBookId = owner.takeIf { hasPosition },
                     receiverChapterIndex = chapterIndex.takeIf { hasPosition },
                     receiverPositionMs = status?.streamPosition?.takeIf { hasPosition })
+                // #1751 — IDLE_REASON_ERROR is the receiver saying the bytes
+                // were not playable. It used to be ignored: the session, the
+                // proxy and its locks stayed up while nothing played. Hand
+                // back to the phone with an explicit outcome instead.
+                if (status != null && !client.isPlayingAd &&
+                    isReceiverPlaybackError(ownMedia, status.playerState, status.idleReason)) {
+                    if (!receiverErrorHandled) {
+                        receiverErrorHandled = true
+                        failReceiver()
+                    }
+                    return
+                }
                 if (ownMedia && status != null && !client.isPlayingAd &&
                     status.playerState == MediaStatus.PLAYER_STATE_IDLE && status.idleReason == MediaStatus.IDLE_REASON_FINISHED) {
                     val finishedItem = status.currentItemId to contentUrl!!
@@ -313,50 +350,17 @@ class CastPlaybackController(
         else manager.resetActualCastReceiverEvidence(preserveTerminalPosition)
     }
 
-    private fun upstreamFor(subPath: String?, rangeHeader: String?): PlaybackProxy.UpstreamResponse? {
-        val index = subPath?.removePrefix("ch")?.toIntOrNull() ?: return null
-        val url = chapterUrls.getOrNull(index) ?: return null
-        val headers = baseHeaders(url)
-
-        fun fetch(target: String): HttpFetcher.RangeResponse? =
-            fetcher.getRangeStream(
-                target,
-                if (rangeHeader != null) headers + ("Range" to rangeHeader) else headers
-            )
-
-        val first = fetch(url)
-        if (first != null) return toUpstreamResponse(first, url)
-
-        val spent = healBudgetByChapter.getOrDefault(index, 0)
-        val healer = streamUrlHealer ?: return null
-        val id = bookId ?: return null
-        if (spent >= StreamHealPolicy.MAX_HEAL_ATTEMPTS) {
-            Log.w(TAG, "Upstream gone, heal exhausted ch$index $url")
-            return null
-        }
-        healBudgetByChapter[index] = spent + 1
-        val healedUrl = kotlinx.coroutines.runBlocking { healer(id, index, url) }
-            ?.takeIf { it != url }
-            ?: return null
-        chapterUrls = chapterUrls.toMutableList().also { it[index] = healedUrl }
-        Log.i(TAG, "Healed ch$index → $healedUrl")
-        return fetch(healedUrl)?.let { toUpstreamResponse(it, healedUrl) }
+    /**
+     * #1751 — the receiver reached IDLE with IDLE_REASON_ERROR: the bytes the
+     * proxy served were not playable. End the cast with its own explicit
+     * outcome (not a silent pause and not a dropped connection), tear down the
+     * proxy/locks/session and hand playback back to the phone.
+     */
+    private fun failReceiver() {
+        Log.w(TAG, "Receiver reported IDLE_REASON_ERROR — ending cast and handing back")
+        endCasting(CastSessionOutcome.ERROR)
+        runCatching { castContextOrNull()?.sessionManager?.endCurrentSession(true) }
     }
-
-    private fun baseHeaders(url: String): Map<String, String> =
-        headersFor(sourceIdForUrl(url), url)
-
-    private fun toUpstreamResponse(
-        response: HttpFetcher.RangeResponse,
-        url: String
-    ): PlaybackProxy.UpstreamResponse =
-        PlaybackProxy.UpstreamResponse(
-            status = response.status,
-            body = response.stream,
-            contentLength = response.contentLength,
-            contentRange = response.contentRange,
-            contentType = guessMimeType(url)
-        )
 
     private fun castUri(started: PlaybackProxy.Started, host: String, index: Int): String =
         "http://$host:${started.port}${started.pathPrefix}/ch$index"
@@ -449,16 +453,15 @@ class CastPlaybackController(
         const val PROXY_START_FAILED =
             "Не вдалося підняти проксі відтворення на телефоні."
 
-        fun guessMimeType(url: String): String {
-            val path = url.substringBefore('?').substringBefore('#').lowercase(Locale.ROOT)
-            return when {
-                path.endsWith(".m4b") || path.endsWith(".m4a") -> "audio/mp4"
-                path.endsWith(".aac") -> "audio/aac"
-                path.endsWith(".ogg") || path.endsWith(".opus") -> "audio/ogg"
-                path.endsWith(".wav") -> "audio/wav"
-                path.endsWith(".flac") -> "audio/flac"
-                else -> "audio/mpeg"
-            }
-        }
+        fun guessMimeType(url: String): String = CastMimeTypes.guess(url)
+
+        /**
+         * #1751 — [androidx.media3.cast.CastPlayer]'s default converter
+         * requires a MIME type, but a YouTube watch URL has none: it is an
+         * identity, not a file. The resolver prefers progressive M4A, so the
+         * playlist declares that family; the proxy still relays the origin's
+         * own Content-Type once bytes flow.
+         */
+        fun castMimeType(url: String): String = CastMimeTypes.forCast(url)
     }
 }

@@ -810,4 +810,6 @@
     <!-- #1752: cast hand-back is an info banner, not a playback failure. -->
     <string name="player_cast_ended">Przesyłanie zakończone. Możesz słuchać dalej na telefonie.</string>
     <string name="player_cast_lost">Utracono połączenie z urządzeniem. Możesz słuchać dalej na telefonie.</string>
+    <!-- #1751: the receiver stayed connected but could not play the chapter. -->
+    <string name="player_cast_failed">Urządzenie nie mogło odtworzyć tego rozdziału. Możesz słuchać dalej na telefonie.</string>
 </resources>

@@ -973,4 +973,6 @@
          Appended at the end so existing lint-baseline line numbers stay put. -->
     <string name="player_cast_ended">Трансляцію завершено. Можна слухати далі на телефоні.</string>
     <string name="player_cast_lost">Зв’язок із пристроєм втрачено. Можна слухати далі на телефоні.</string>
+    <!-- #1751: the receiver stayed connected but could not play the chapter. -->
+    <string name="player_cast_failed">Пристрій не зміг відтворити цю главу. Можна слухати далі на телефоні.</string>
 </resources>

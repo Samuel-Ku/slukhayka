@@ -8,6 +8,9 @@ import org.junit.Test
  * #1185 T6 / ADR-0043 §5 — the receiver only ever plays proxy URLs over HTTP,
  * so a book with any local address refuses the cast takeover with an
  * explanation instead of starting a session that cannot play.
+ *
+ * #1751 — a YouTube watch URL is HTTP and is not refused: the proxy resolves
+ * it to a playable audio URL instead.
  */
 class CastAvailabilityTest {
 
@@ -44,6 +47,15 @@ class CastAvailabilityTest {
                     "https://lihtar.in.ua/audio/0.mp3",
                     "content://tree/books/1.mp3"
                 )
+            )
+        )
+    }
+
+    @Test
+    fun `a youtube watch url is not refused - the proxy resolves it`() {
+        assertNull(
+            CastAvailability.refusal(
+                listOf("https://www.youtube.com/watch?v=ozaZXk5Qcwc")
             )
         )
     }

@@ -96,8 +96,18 @@ import java.security.MessageDigest
  * previous record, frame by frame:
  *  - `library_redesign_browsing` and `library_redesign_dense` — 4163 / 4162
  *    pixels (0.161 % of 1078×2399, max channel delta 222), spanning
- *    `(195,360)-(902,1919)`: the search row's glyph 18→20 and clear button
- *    16→22, the offline cover badge 15→20 and the stat-card glyphs 28→24;
+ *    `(195,360)-(902,1919)`: the search row's PLACEHOLDER glyph 18→20, the
+ *    offline cover badge 15→20 and the stat-card glyphs 28→24. The clear-search
+ *    button also moved 16→22 in code, but it is NOT in any pinned frame: every
+ *    snapshot composes the search field with an empty query, so the button is
+ *    not rendered — the reason above names only what the pixels show.
+ *
+ *    Roles were chosen by the icon's JOB, not by nearest number: the clear is
+ *    Inline 20 (a quiet clear, the same weight as the field's leading Search),
+ *    Play inside the labelled «Продовжити» row is Chrome 22 (a row/chrome
+ *    action), while Compass inside the empty-state CTA stays Inline 20 (a
+ *    content action). StatItemCard chose Header 24 rather than the
+ *    pixel-identical Transport 28, which is why its frame visibly moved;
  *  - `library_redesign_grid` — 4161 pixels (0.161 %, max delta 186) on the
  *    grid's rendering of the same surfaces.
  * A full fresh record on `dragonborn` rewrote exactly 14 of the 157 goldens;

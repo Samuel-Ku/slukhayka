@@ -1618,7 +1618,7 @@ internal fun LibrarySearchField(
                                 imageVector = PaperInkIcons.Close,
                                 contentDescription = stringResource(R.string.a11y_library_clear_search),
                                 tint = colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(PaperInkIconSizes.Chrome)
+                                modifier = Modifier.size(PaperInkIconSizes.Inline)
                             )
                         }
                     }

@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.glance.GlanceId
 import androidx.glance.action.ActionParameters
 import androidx.glance.appwidget.action.ActionCallback
-import androidx.glance.appwidget.updateAll
 import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.player.PlaybackResume
 import kotlinx.coroutines.Dispatchers
@@ -13,8 +12,10 @@ import kotlinx.coroutines.withContext
 /**
  * Interactive Glance Action Callbacks for the Home Screen Widget (spec-21
  * Track B, restored as spec-22 T4). Each action drives the shared
- * app-scoped [com.slukhayka.audiobooks.player.AudioPlayerManager] and refreshes the
- * widget afterwards.
+ * app-scoped [com.slukhayka.audiobooks.player.AudioPlayerManager]; the
+ * manager's widget sampler notices the resulting state change and publishes a
+ * fresh snapshot (#1749). Calling `updateAll` here would only extend the
+ * session without changing what `provideContent` reads.
  */
 class TogglePlayActionCallback : ActionCallback {
     override suspend fun onAction(
@@ -38,7 +39,6 @@ class TogglePlayActionCallback : ActionCallback {
                 )
             }
         } catch (_: Exception) {}
-        AudiobookGlanceWidget().updateAll(context)
     }
 }
 
@@ -53,7 +53,6 @@ class Rewind15ActionCallback : ActionCallback {
                 App.instance.playerManager.skipBackward(15)
             } catch (_: Exception) {}
         }
-        AudiobookGlanceWidget().updateAll(context)
     }
 }
 
@@ -68,6 +67,5 @@ class FastForward15ActionCallback : ActionCallback {
                 App.instance.playerManager.skipForward(15)
             } catch (_: Exception) {}
         }
-        AudiobookGlanceWidget().updateAll(context)
     }
 }

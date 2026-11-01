@@ -22,4 +22,5 @@
     <string name="a11y_widget_play_work">Play “%1$s”</string>
     <string name="a11y_widget_pause_work">Pause “%1$s”</string>
     <string name="a11y_widget_forward_work">Forward “%1$s” 15 seconds</string>
+    <string name="a11y_widget_open_app">Open Slukhayka</string>
 </resources>

@@ -22,4 +22,5 @@
     <string name="a11y_widget_play_work">Відтворити «%1$s»</string>
     <string name="a11y_widget_pause_work">Поставити «%1$s» на паузу</string>
     <string name="a11y_widget_forward_work">Перемотати «%1$s» на 15 секунд уперед</string>
+    <string name="a11y_widget_open_app">Відкрити Слухайку</string>
 </resources>

@@ -133,7 +133,7 @@
 | APK | локально | `:app:assembleDebug` — BUILD SUCCESSFUL, 209 MB |
 | Інсталяція | OnePlus 8 Pro поверх попередньої debug-збірки | `Success`, дані застосунку збережені |
 | Hero-контракт, 200 % | локально | `ListenHeroFontScaleLayoutTest` — BUILD SUCCESSFUL; але це **інший** шрифтовий шлях, ніж виправлений |
-| Hero-контракт, 100 % | dragonborn | новий `ListenHeroNormalTextOverlapTest` — наратор і глава не перетинаються з диском на звичайному кеглі з довгим наратором |
+| Hero-контракт, 100 % | dragonborn | новий `ListenHeroNormalTextOverlapTest`: дворядкова назва + довгий наратор; `narrator.right <= play.left` і відсутність перетину з диском. Мутація «прибрати резерв» → `outcome: killed`, 2 тести впали (run 20261101T152242Z-148782) |
 | Еталони | dragonborn, `goldens.sh record --all` | 8 файлів із 157 перезаписано, решта 149 — байт-у-байт |
 | Еталони, повтор | dragonborn, `goldens.sh verify --all` | «еталони не змінилися», BUILD SUCCESSFUL — запис детермінований |
 | Піни | dragonborn, `SnapshotGoldenBytesGuardTest` | 2 тести зелені після перенесення трьох пінів |

@@ -969,4 +969,8 @@
     <string name="settings_density_comfortable">Зручно</string>
     <string name="settings_density_compact">Компактно</string>
     <string name="settings_density_desc">Компактно зменшує рядки й плакати, не тач-цілі.</string>
+    <!-- #1752: cast hand-back is an info banner, not a playback failure.
+         Appended at the end so existing lint-baseline line numbers stay put. -->
+    <string name="player_cast_ended">Трансляцію завершено. Можна слухати далі на телефоні.</string>
+    <string name="player_cast_lost">Зв’язок із пристроєм втрачено. Можна слухати далі на телефоні.</string>
 </resources>

@@ -71,6 +71,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.db.ChapterEntity
+import com.slukhayka.audiobooks.player.CastSessionOutcome
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.player.withLiveDurationFacts
 import com.slukhayka.audiobooks.player.SeekSession
@@ -1357,6 +1358,34 @@ private fun PlayerScreenContentBody(
                                     text = loadingLabel,
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        // #1752 — the cast hand-back is information, not a
+                        // playback failure: it gets its own banner instead of
+                        // the retry/find-source recovery card.
+                        playerState.castSessionOutcome?.let { outcome ->
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                shape = RoundedCornerShape(AppDimens.RadiusCard),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("player_cast_notice")
+                                    .semantics(mergeDescendants = true) {
+                                        liveRegion = LiveRegionMode.Polite
+                                    }
+                            ) {
+                                Text(
+                                    text = stringResource(
+                                        when (outcome) {
+                                            CastSessionOutcome.LOST -> R.string.player_cast_lost
+                                            CastSessionOutcome.ENDED -> R.string.player_cast_ended
+                                        }
+                                    ),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                 )
                             }
                         }

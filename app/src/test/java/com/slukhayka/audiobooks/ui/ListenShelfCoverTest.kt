@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.ui
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
@@ -83,16 +84,17 @@ class ListenShelfCoverTest {
 
     @Test
     fun `art and letter occupy the same slot`() {
-        val bounds = mutableListOf<Pair<Float, Float>>()
-        showShelf(withCover = true)
-        val art = compose.onNodeWithTag("shelf_cover_art", useUnmergedTree = true)
-            .getUnclippedBoundsInRoot()
-        bounds += (art.right - art.left).value to (art.bottom - art.top).value
-        assertTrue("the art slot is the shelf cover: ${bounds.first()}", bounds.first() == 132f to 198f)
-
+        // One composition, both branches side by side: `setContent` may only be
+        // called once per test.
         compose.setContent {
             PaperInkThemedContent {
-                Box(modifier = Modifier.fillMaxSize()) {
+                Row {
+                    PaperInkPosterCard(
+                        title = "Левеня, яке навчилося ричати",
+                        author = "Костянтин Бакаєвич",
+                        meta = "01:44",
+                        cover = { Box(modifier = Modifier.fillMaxSize()) },
+                    )
                     PaperInkPosterCard(
                         title = "Левеня, яке навчилося ричати",
                         author = "Костянтин Бакаєвич",
@@ -103,13 +105,19 @@ class ListenShelfCoverTest {
             }
         }
         compose.waitForIdle()
+
+        val art = compose.onNodeWithTag("shelf_cover_art", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot()
         val letter = compose.onNodeWithTag("shelf_cover_placeholder", useUnmergedTree = true)
             .getUnclippedBoundsInRoot()
+        val artSize = (art.right - art.left).value to (art.bottom - art.top).value
+        val letterSize = (letter.right - letter.left).value to (letter.bottom - letter.top).value
+
+        assertEquals("the art slot is the shelf cover (132×198 dp)", 132f to 198f, artSize)
         assertEquals(
-            "the letter slot must match the art slot, or the shelf jumps",
-            bounds.first(),
-            (letter.right - letter.left).value to (letter.bottom - letter.top).value
+            "the letter slot must match the art slot, or the shelf jumps when art arrives",
+            artSize,
+            letterSize
         )
-        assertTrue("132×198 dp is the shelf cover size", bounds.first() == 132.dp.value to 198.dp.value)
     }
 }

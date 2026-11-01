@@ -71,36 +71,37 @@ class IconSizeTokenGuardTest {
 
     @Test
     fun `the scanner sees a literal call and ignores comments, strings and tokens`() {
+        // A raw string cannot be nested inside a raw string, so the fixture is
+        // built line by line: the point is the CONTENT the scanner reads.
+        val fixture = buildString {
+            appendLine("package fixture")
+            appendLine()
+            appendLine("// Icon(Heart, null, Modifier.size(18.dp)) — a comment, not a call site")
+            appendLine("val documented = " + '"' + "Icon(x, size = 16.dp)" + '"')
+            appendLine("val js = " + TRIPLE)
+            appendLine("  function draw() { return " + '"' + "Icon(y, size = 42.dp)" + '"' + " }")
+            appendLine("  // Icon(z, size = 17.dp)")
+            appendLine(TRIPLE)
+            appendLine()
+            appendLine("fun token() {")
+            appendLine("    Icon(icon = Heart, contentDescription = null, modifier = Modifier.size(PaperInkIconSizes.Inline))")
+            appendLine("}")
+            appendLine()
+            appendLine("fun literal() {")
+            appendLine("    Icon(icon = Heart, contentDescription = null, modifier = Modifier.size(19.dp))")
+            appendLine("}")
+            appendLine()
+            appendLine("fun afterRawString() {")
+            appendLine("    PaperInkIcon(icon = Heart, contentDescription = null, size = 21.dp)")
+            appendLine("}")
+        }
         val file = File.createTempFile("icon-size-guard", ".kt")
         try {
-            file.writeText(
-                """
-                package fixture
-
-                // Icon(Heart, null, Modifier.size(18.dp)) — a comment, not a call site
-                val documented = "Icon(x, size = 16.dp)"
-                val js = """
-                  function draw() { return "Icon(y, size = )" }
-                  // Icon(z, size = 17.dp)
-                """
-
-                fun token() {
-                    Icon(icon = Heart, contentDescription = null, modifier = Modifier.size(PaperInkIconSizes.Inline))
-                }
-
-                fun literal() {
-                    Icon(icon = Heart, contentDescription = null, modifier = Modifier.size(19.dp))
-                }
-
-                fun rawStringDidNotInvertTheMask() {
-                    PaperInkIcon(icon = Heart, contentDescription = null, size = 21.dp)
-                }
-                """.trimIndent()
-            )
+            file.writeText(fixture)
             val found = IconSizeGuard.offendersIn(file, file.parentFile)
             assertEquals(
                 "only real call sites count — not comments, not normal strings, not raw strings, " +
-                    "and code after a raw string must still be seen: " +
+                    "and code AFTER a raw string must still be seen: " +
                     found.joinToString { "${it.call} ${it.literal}" },
                 listOf("19", "21"),
                 found.map { it.literal.filter(Char::isDigit) }.sorted()
@@ -111,6 +112,10 @@ class IconSizeTokenGuardTest {
     }
 
     private companion object {
+
+        /** Kotlin's raw-string delimiter, kept out of the fixture literal. */
+        const val TRIPLE = "\"\"\""
+
         /**
          * Literal-sized icon call sites per file when the guard was introduced
          * (69 across 30 files). Both migration tickets delete entries from this

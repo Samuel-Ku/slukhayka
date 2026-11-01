@@ -37,12 +37,17 @@ import kotlin.math.abs
 /**
  * #1766 (audit U9/U13) — the ONE shared empty state.
  *
- * The six migrated surfaces all render through this component, so its four
- * promises are the whole anatomy: title + body in paper type, NO placeholder
- * glyph, ONE primary action with the second path demoted to a quiet link, and
- * a column that is vertically centred inside whatever height the host hands it
- * (the anchoring half of the ticket — a panel pinned to the top is the defect
- * wearing a component's clothes).
+ * The six migrated surfaces all render through this component, so its promises
+ * are the whole anatomy: title + body in paper type, ONE primary action with the
+ * second path demoted to a quiet link (or nothing to press when the state has
+ * no honest action), the polite live-region announcement preserved from
+ * `EmptyState`, and a column that is vertically centred inside whatever height
+ * the host hands it (the anchoring half of the ticket — a panel pinned to the
+ * top is the defect wearing a component's clothes).
+ *
+ * The "no placeholder glyph" rule is NOT asserted here: Compose semantics cannot
+ * see `Icon`, so the check would be vacuous. `EmptyStatePanelGuardTest` proves
+ * it at the source — no icon parameter, no `Icon(...)` in the panel body.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], qualifiers = "uk-rUA-w411dp-h891dp")
@@ -94,15 +99,36 @@ class EmptyStatePanelTest {
     }
 
     @Test
-    fun `the panel draws no placeholder glyph`() {
+    fun `a plain absence offers no control at all`() {
         show {
             EmptyStatePanel(title = "Тут поки порожньо", body = "Один короткий рядок.")
         }
 
         compose.onNodeWithTag("empty_state_panel").assertIsDisplayed()
-        // The seam EmptyState itself exposes for a placeholder glyph; the panel
-        // must never render it, and the component declares no icon slot at all.
-        compose.onNodeWithTag("empty_state_icon").assertDoesNotExist()
+        // No action slot passed -> no clickable node: the panel never invents a
+        // dead CTA, and there is no icon node it could draw (the glyph rule is
+        // pinned at the source by EmptyStatePanelGuardTest — semantics cannot
+        // see an Icon).
+        compose.onAllNodes(hasClickAction()).assertCountEquals(0)
+    }
+
+    @Test
+    fun `a failed state can announce itself through stateDescription`() {
+        show {
+            EmptyStatePanel(
+                title = "Не вдалося завантажити",
+                body = "Спробуйте ще раз пізніше.",
+                stateDescription = "Помилка"
+            )
+        }
+
+        compose.onNodeWithText("Не вдалося завантажити")
+            .assert(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.StateDescription,
+                    "Помилка"
+                )
+            )
     }
 
     @Test

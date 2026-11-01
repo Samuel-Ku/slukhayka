@@ -162,19 +162,22 @@ class PaperInkHeaderGlyphGuardTest {
 
     /** The Listen tab's own M3 leftovers: the «all shelves hidden» empty state,
      *  the shelf-management sheet (close, restore-all, show/hide toggles) and the
-     *  fresh-install door (headphones + browse/import actions). The family owns
-     *  `Close`, `Headphones`, `Compass` and `Upload`; `Visibility`,
-     *  `VisibilityOff` and `SettingsBackupRestore` have no family glyph, so they
-     *  move to the Outlined weight (§5.4.7). */
+     *  fresh-install door's browse action. The family owns `Close` and `Compass`;
+     *  `Visibility`, `VisibilityOff` and `SettingsBackupRestore` have no family
+     *  glyph, so they move to the Outlined weight (§5.4.7).
+     *
+     *  #1766 removed the fresh-install placeholder glyphs themselves — the amber
+     *  `Headphones` icon above the copy and the `Upload` glyph on the import
+     *  action. The direction states an absence in type, so those two are no
+     *  longer REQUIRED (and no longer drawn); `Compass` stays on the one primary
+     *  action. */
     private val listenBanned: Regex by lazy {
         Regex("""Icons\.(?:Default|Filled)\.(?:VisibilityOff|Visibility|Close|SettingsBackupRestore|Headphones|Explore|FileUpload)\b""")
     }
 
     private val listenRequired: List<String> = listOf(
         "PaperInkIcons.Close",
-        "PaperInkIcons.Headphones",
         "PaperInkIcons.Compass",
-        "PaperInkIcons.Upload",
         "Icons.Outlined.Visibility",
         "Icons.Outlined.VisibilityOff",
         "Icons.Outlined.SettingsBackupRestore",
@@ -275,8 +278,10 @@ class PaperInkHeaderGlyphGuardTest {
      *  Outlined weight owns the value (§5.4.7). */
     private val stragglerRules: Map<String, Pair<Regex, List<String>>> = mapOf(
         "app/src/main/java/com/slukhayka/audiobooks/ui/screens/HomeScreen.kt" to
+            // #1766: the catalogue empty state's import action is a quiet text
+            // link now, so `PaperInkIcons.Upload` is no longer drawn there.
             (Regex("""Icons\.(?:Default|Filled)\.(?:ArrowDropDown|Done|FileUpload|Refresh)\b""") to
-                listOf("PaperInkIcons.Refresh", "PaperInkIcons.Check", "PaperInkIcons.Upload", "PaperInkIcons.ChevronDown")),
+                listOf("PaperInkIcons.Refresh", "PaperInkIcons.Check", "PaperInkIcons.ChevronDown")),
         "app/src/main/java/com/slukhayka/audiobooks/ui/screens/LibraryImportSheet.kt" to
             (Regex("""Icons\.(?:Default|Filled)\.(?:Close|FileUpload|CreateNewFolder|Link)\b""") to
                 listOf("PaperInkIcons.Close", "PaperInkIcons.Upload", "PaperInkIcons.Link", "Icons.Outlined.CreateNewFolder")),

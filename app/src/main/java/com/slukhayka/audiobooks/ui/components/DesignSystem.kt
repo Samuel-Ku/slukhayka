@@ -157,9 +157,12 @@ fun EmptyState(
  * type, not illustrated with an icon that stands for something that is not
  * there (spec §4 `EmptyState`, §2 rule 2).
  *
- * The component is PAPER-ONLY and says so in its typography: [PaperInkType] is
- * used unconditionally, so it looks the same on the last legacy screens still
- * waiting for the paper migration instead of growing a second dialect.
+ * The component is PAPER-ONLY: it is rendered by the six paper surfaces this
+ * ticket migrated and nobody else. Its typography is [PaperInkType]
+ * unconditionally, so a host that has not yet switched its own theme still gets
+ * the paper empty state rather than a silent fallback to legacy M3 type. It does
+ * NOT replace [EmptyState] on the legacy call sites — those keep their component
+ * until their own migration.
  *
  * Anchoring is the caller's half of the contract and the point of the ticket —
  * the panel fills the width it is given and centres its column inside the
@@ -169,8 +172,11 @@ fun EmptyState(
  * the panel simply wraps — it never invents a fixed dp of dead space.
  *
  * [stateDescription] survives from [EmptyState] so a genuinely failed state can
- * announce «Помилка» on the same polite live-region title; a plain absence
- * passes nothing and stays silent about an error that did not happen.
+ * announce «Помилка» on the same polite live-region title. None of the six
+ * migrated surfaces passes it today (a plain absence stays silent about an
+ * error that did not happen); it is kept for the future error branches that
+ * will adopt this panel, and [com.slukhayka.audiobooks.ui.EmptyStatePanelTest]
+ * pins the behaviour.
  */
 @Composable
 fun EmptyStatePanel(

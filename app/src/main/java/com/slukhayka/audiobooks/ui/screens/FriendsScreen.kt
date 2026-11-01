@@ -134,63 +134,87 @@ fun FriendsScreen(
     )
 
     PaperInkThemedContent {
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .testTag("friends_screen")
-            .accessibilityPane(stringResource(R.string.a11y_friends_pane)),
-        contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
-    ) {
-        item {
-            PaperInkTabHeader(
-                // The root's name is the ONE resource the bottom bar also uses
-                // (spec-54 T06 / #873): a literal here could drift from the tab.
-                title = stringResource(R.string.nav_friends),
-                headingTestTag = "friends_heading",
-                onSettingsClick = onOpenSettings,
-            )
-        }
-
-        when {
-            // Visible content wins over any empty state: if the listener can
-            // actually see a post (their own, or a public one), the feed is not
-            // empty and must not claim to be.
-            visiblePosts.isNotEmpty() -> items(visiblePosts, key = { it.id }) { post ->
-                FriendsPostCard(
-                    post = post,
-                    bookTitle = post.sourceId?.let { feed.bookTitles[it] },
-                    onOpenBook = onOpenBook
-                )
-            }
-
-            // §6.4 — no friends is a different fact from no posts, and the two
-            // states must not be merged into one vague "nothing here".
-            feed.friendsNow.isEmpty() -> item {
-                // F17 / #1766 — no placeholder glyph: the absence is stated in
-                // type, not illustrated with an icon that stands for «friends»
-                // on a screen that has none. The item owns a viewport, so the
-                // panel's centre is the page's centre below the header.
-                EmptyStatePanel(
-                    title = stringResource(R.string.friends_empty_no_friends_title),
-                    body = stringResource(R.string.friends_empty_no_friends_body),
+        if (visiblePosts.isEmpty()) {
+            // #1766 — the empty feed is a PAGE, not a one-item scroll. The header
+            // and the empty state share a Column, so the panel centres in the
+            // height BELOW the header (half a header under the window's geometric
+            // centre) instead of a viewport-sized lazy item that starts under the
+            // header and therefore ends one whole header past the bottom. The
+            // same shape the Медіатека and «Досягнення» empty states use.
+            Column(
+                modifier = modifier
+                    .fillMaxSize()
+                    .testTag("friends_screen")
+                    .accessibilityPane(stringResource(R.string.a11y_friends_pane))
+            ) {
+                FriendsTabHeader(onOpenSettings = onOpenSettings)
+                Box(
                     modifier = Modifier
-                        .fillParentMaxSize()
-                        .testTag("friends_empty_no_friends")
-                )
+                        .weight(1f)
+                        .fillMaxWidth()
+                        // The non-empty feed reserves this space below its last
+                        // row; the empty page keeps the same reserve so the
+                        // panel does not move when a first post arrives.
+                        .padding(bottom = AppDimens.SpaceAboveMiniPlayer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    // §6.4 — no friends is a different fact from no posts, and
+                    // the two states must not be merged into one vague "nothing
+                    // here". F17 — no placeholder glyph either: the absence is
+                    // stated in type, on a screen that has no friends to show.
+                    if (feed.friendsNow.isEmpty()) {
+                        EmptyStatePanel(
+                            title = stringResource(R.string.friends_empty_no_friends_title),
+                            body = stringResource(R.string.friends_empty_no_friends_body),
+                            modifier = Modifier.testTag("friends_empty_no_friends")
+                        )
+                    } else {
+                        EmptyStatePanel(
+                            title = stringResource(R.string.friends_empty_no_posts_title),
+                            body = stringResource(R.string.friends_empty_no_posts_body),
+                            modifier = Modifier.testTag("friends_empty_no_posts")
+                        )
+                    }
+                }
             }
-
-            else -> item {
-                EmptyStatePanel(
-                    title = stringResource(R.string.friends_empty_no_posts_title),
-                    body = stringResource(R.string.friends_empty_no_posts_body),
-                    modifier = Modifier
-                        .fillParentMaxSize()
-                        .testTag("friends_empty_no_posts")
-                )
+        } else {
+            LazyColumn(
+                modifier = modifier
+                    .fillMaxSize()
+                    .testTag("friends_screen")
+                    .accessibilityPane(stringResource(R.string.a11y_friends_pane)),
+                contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
+            ) {
+                // Visible content wins over any empty state: if the listener can
+                // actually see a post (their own, or a public one), the feed is
+                // not empty and must not claim to be.
+                item { FriendsTabHeader(onOpenSettings = onOpenSettings) }
+                items(visiblePosts, key = { it.id }) { post ->
+                    FriendsPostCard(
+                        post = post,
+                        bookTitle = post.sourceId?.let { feed.bookTitles[it] },
+                        onOpenBook = onOpenBook
+                    )
+                }
             }
         }
     }
-    }
+}
+
+/**
+ * #1766 — the root header, in ONE place: the empty page and the ordinary feed
+ * render the same composable with the same parameters, so their titles, test
+ * tags and gear cannot drift while their anchoring differs.
+ */
+@Composable
+private fun FriendsTabHeader(onOpenSettings: () -> Unit) {
+    PaperInkTabHeader(
+        // The root's name is the ONE resource the bottom bar also uses
+        // (spec-54 T06 / #873): a literal here could drift from the tab.
+        title = stringResource(R.string.nav_friends),
+        headingTestTag = "friends_heading",
+        onSettingsClick = onOpenSettings,
+    )
 }
 
 /**

@@ -126,11 +126,7 @@ fun LibraryRatingScreen(
                         // it is an ABSENCE, so it is stated in type, with no
                         // placeholder glyph, and it owns the list viewport
                         // instead of floating under the header.
-                        EmptyStatePanel(
-                            title = stringResource(R.string.secondary_library_rating_empty),
-                            body = "",
-                            modifier = Modifier.fillParentMaxSize()
-                        )
+                        LibraryRatingEmptyState(modifier = Modifier.fillParentMaxSize())
                     }
                 }
 
@@ -195,6 +191,25 @@ fun LibraryRatingScreen(
             }
         }
     }
+}
+
+/**
+ * #1766 — the «Рейтинг» empty board, extracted so the surface can be rendered
+ * without a `MainViewModel`.
+ *
+ * The screen itself takes the ViewModel (its whole body is a flow read), so an
+ * inline branch inside it cannot be composed in a JVM test. This composable is
+ * the branch: the same `EmptyStatePanel`, no glyph, the honest one-line fact
+ * (a board with no votes is empty — there is no action to offer), and the
+ * caller hands it the list viewport.
+ */
+@Composable
+internal fun LibraryRatingEmptyState(modifier: Modifier = Modifier) {
+    EmptyStatePanel(
+        title = stringResource(R.string.secondary_library_rating_empty),
+        body = "",
+        modifier = modifier
+    )
 }
 
 /** ADR-0022: the rule never rounds; the surface does, for display only. */

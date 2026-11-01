@@ -208,7 +208,7 @@
     <string name="first_language_choice_done">Gotowe</string>
     <string name="first_language_choice_title">W jakich językach pokazywać książki?</string>
     <string name="first_language_choice_ukrainian_only">Tylko ukraińskie</string>
-    <string name="friends_empty_no_friends_body">Tu pojawią się posty osób, z którymi się zaprzyjaźniłeś.</string>
+    <string name="friends_empty_no_friends_body">Dodawanie znajomych po imieniu i własny profil czytelnika nie są jeszcze gotowe — tu pojawią się ich posty.</string>
     <string name="friends_empty_no_friends_title">Na razie brak znajomych</string>
     <string name="friends_empty_no_posts_body">Gdy ktoś ze znajomych podzieli się wrażeniem o książce z odbiorcami «Znajomi», post pojawi się tutaj.</string>
     <string name="friends_empty_no_posts_title">Znajomi są, ale nie ma postów</string>

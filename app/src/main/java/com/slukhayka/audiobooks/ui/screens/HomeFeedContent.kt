@@ -172,6 +172,13 @@ fun LazyListScope.homeFeedContent(
         item {
             // #1766 — the state is handed a whole viewport, so it centres
             // instead of leaving the bottom two thirds of the page dead.
+            //
+            // NAMED LIMIT: unlike the Listen/Friends pages, the feed keeps this
+            // as a LazyColumn item, so the item starts BELOW the PRECEDING
+            // HomeHeader and its centre therefore sits one header below the
+            // window's centre. It also is not the feed's last content — the
+            // catalogue nav row (and the feed's own terminal state) follow — so
+            // the empty page scrolls with them, it does not own the screen.
             EmptyCatalogState(
                 onRefreshClick = onRefreshCatalog,
                 onImportClick = onGoToLibrary,

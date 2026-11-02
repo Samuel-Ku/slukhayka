@@ -24,6 +24,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.slukhayka.audiobooks.ui.components.EmptyStatePanel
+import com.slukhayka.audiobooks.ui.components.EmptyStatePrimaryAction
+import com.slukhayka.audiobooks.ui.components.EmptyStateQuietAction
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -168,6 +171,61 @@ class EmptyStatePanelTest {
             "the quiet link must sit under the primary action " +
                 "(primary bottom=${primary.bottom}, quiet top=${quiet.top})",
             quiet.top.value >= primary.bottom.value
+        )
+    }
+
+    @Test
+    fun `the shared primary action is the canonical 52 dp button`() {
+        // #1775 — the height is one half of the CTA's form; the radius is the
+        // other, and a corner radius is not observable from Compose semantics,
+        // so the source guard pins the token and the goldens pin the pixels.
+        // The measured box is still worth a test: a stray `heightIn` at a call
+        // site would change it without changing the token.
+        show {
+            EmptyStatePanel(
+                title = "Тут поки порожньо",
+                body = "Один короткий рядок.",
+                action = {
+                    EmptyStatePrimaryAction(
+                        text = "Оновити каталог",
+                        onClick = {},
+                        icon = PaperInkIcons.Refresh,
+                        testTag = "panel_primary_action"
+                    )
+                }
+            )
+        }
+
+        val bounds = compose.onNodeWithTag("panel_primary_action").getUnclippedBoundsInRoot()
+        assertEquals(
+            "the shared primary CTA must stay the one 52 dp button",
+            52f,
+            bounds.bottom.value - bounds.top.value,
+            1f
+        )
+    }
+
+    @Test
+    fun `the shared quiet action keeps the 48 dp target`() {
+        show {
+            EmptyStatePanel(
+                title = "Тут поки порожньо",
+                body = "Один короткий рядок.",
+                quietAction = {
+                    EmptyStateQuietAction(
+                        text = "Імпортувати файл",
+                        onClick = {},
+                        testTag = "panel_quiet_action"
+                    )
+                }
+            )
+        }
+
+        val bounds = compose.onNodeWithTag("panel_quiet_action").getUnclippedBoundsInRoot()
+        assertTrue(
+            "the quiet action is a real 48 dp target, not a bare clickable word " +
+                "(height=${bounds.bottom.value - bounds.top.value})",
+            bounds.bottom.value - bounds.top.value >= 48f - 1f
         )
     }
 

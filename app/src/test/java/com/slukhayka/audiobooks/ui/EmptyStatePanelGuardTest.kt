@@ -76,7 +76,7 @@ class EmptyStatePanelGuardTest {
     fun `no panel call passes a placeholder glyph`() {
         val offenders = migratedSurfaces.flatMap { path ->
             calls(read(path))
-                .filter { arguments -> ICON_ARGUMENT.containsMatchIn(arguments) }
+                .filter { arguments -> passesGlyphArgument(arguments) }
                 .map { arguments -> "$path: EmptyStatePanel(${arguments.trim()})" }
         }
 
@@ -148,10 +148,12 @@ class EmptyStatePanelGuardTest {
             "the nested call is its own entry: $found",
             found.any { arguments -> arguments.trimStart().startsWith("icon = null") }
         )
-        // A nested glyph is caught twice — once in the outer call's argument
-        // text and once in the nested call's own — which is the safe direction
-        // for a guard: it can over-report, never silently miss.
-        assertEquals(2, found.count { arguments -> ICON_ARGUMENT.containsMatchIn(arguments) })
+        // The nested panel is judged by ITS OWN call: it declares `icon = null`
+        // at the top level of its argument list, so it is an offender. The
+        // outer call's arguments are `title` and `action`, and the glyph inside
+        // the nested call is not the OUTER panel passing one — #1775's action
+        // primitive legitimately carries its own leading icon there.
+        assertEquals(1, found.count { arguments -> passesGlyphArgument(arguments) })
     }
 
     private fun read(relativePath: String): String {
@@ -173,11 +175,16 @@ class EmptyStatePanelGuardTest {
         )
 
         /**
-         * A simple named argument `icon = …` (or a backticked `` `icon` =``).
-         * The panel has no such slot, and the compiler would reject it — this
-         * is the readable statement of the intent.
+         * True when the panel declares a glyph-bearing argument among its OWN
+         * top-level arguments. A nested composable call (e.g. the shared action
+         * primitive #1775 added) keeps its arguments to itself: its leading
+         * icon belongs to the action, not to the empty state's absence.
          */
-        val ICON_ARGUMENT = Regex("""`?icon`?\s*=""")
+        fun passesGlyphArgument(arguments: String): Boolean =
+            topLevelArguments(arguments).any { argument ->
+                val name = argument.substringBefore('=').trim().removeSurrounding("`")
+                listOf("icon", "glyph", "image", "painter", "drawable").any { name.contains(it) }
+            }
 
         /** A rendered glyph call inside a composable body. */
         val ICON_CALL = Regex("""\b(?:PaperInkIcon|Icon)\s*\(""")

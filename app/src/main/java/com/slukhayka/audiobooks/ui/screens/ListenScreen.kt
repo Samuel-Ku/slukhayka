@@ -1,8 +1,6 @@
 package com.slukhayka.audiobooks.ui.screens
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -10,7 +8,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -22,7 +19,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
@@ -53,6 +49,8 @@ import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.EmptyStatePanel
+import com.slukhayka.audiobooks.ui.components.EmptyStatePrimaryAction
+import com.slukhayka.audiobooks.ui.components.EmptyStateQuietAction
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.components.formatRowDuration
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkBookRow
@@ -898,43 +896,24 @@ fun ListenEmptyState(
             body = stringResource(R.string.listen_empty_body),
             modifier = modifier,
             action = {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(PaperInkDimens.PrimaryButtonHeight)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primary)
-                        .clickable(onClick = onBrowseClick),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = PaperInkIcons.Compass,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(PaperInkIconSizes.Inline),
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(R.string.profile_view_catalogue),
-                        style = PaperInkType.BodyStrong,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                    )
-                }
+                // #1775 (unslop U1) — the primary CTA is the shared primitive:
+                // one radius (24 dp), one height, the paper primary pair. This
+                // screen used to hand-roll a full pill, the fourth form of the
+                // same action.
+                EmptyStatePrimaryAction(
+                    text = stringResource(R.string.profile_view_catalogue),
+                    onClick = onBrowseClick,
+                    icon = PaperInkIcons.Compass,
+                )
             },
             quietAction = {
                 // #1766 review — the quiet path is the SAME control on all three
-                // surfaces: a TextButton (Role.Button, real 48 dp target), not a
-                // bare clickable Text that TalkBack cannot name as an action.
-                TextButton(
+                // surfaces. #1775 gave it its own primitive, so its 16 dp radius
+                // and 48 dp target no longer depend on the ambient M3 shape set.
+                EmptyStateQuietAction(
+                    text = stringResource(R.string.profile_import_from_device),
                     onClick = onImportClick,
-                    modifier = Modifier.heightIn(min = PaperInkDimens.TouchTarget)
-                ) {
-                    Text(
-                        text = stringResource(R.string.profile_import_from_device),
-                        style = PaperInkType.BodyStrong,
-                    )
-                }
+                )
             },
         )
     }

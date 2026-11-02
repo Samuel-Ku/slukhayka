@@ -46,7 +46,7 @@ import java.io.File
  * - This is a SOURCE scan. It cannot see a `TextStyle` assembled field by
  *   field from a token (that copy is out of reach), it cannot prove what the
  *   renderer does with a weight it cannot find a face for, and it cannot prove
- *   the four steps look right — the re-recorded Roborazzi goldens and the
+ *   the four steps look right — the re-recorded snapshot goldens and the
  *   review of the diff hold the pixels. Only a literal
  *   `fontWeight = FontWeight.X` argument is read; a weight passed through a
  *   variable (`if (current) Bold else Medium`) is invisible here.

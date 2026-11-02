@@ -29,7 +29,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
@@ -86,7 +85,7 @@ fun ChannelImportCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = state.title.ifBlank { stringResource(R.string.submission_channel_title_default) },
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                style = com.slukhayka.audiobooks.ui.theme.PaperInkType.Heading.Group,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,

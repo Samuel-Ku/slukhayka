@@ -2093,7 +2093,7 @@ private fun LibraryCoverOfflineBadge(
                     downloadCount?.downloaded ?: 0,
                     downloadCount?.total ?: 0
                 ),
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
             )
@@ -2331,7 +2331,7 @@ fun LibraryBookCard(
                                 Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
                                 Text(
                                     text = stringResource(com.slukhayka.audiobooks.R.string.submission_awaiting_badge),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    style = MaterialTheme.typography.labelSmall,
                                     maxLines = 1,
                                     softWrap = false,
                                     color = MaterialTheme.colorScheme.primary,
@@ -2347,7 +2347,7 @@ fun LibraryBookCard(
                                 Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
                                 Text(
                                     text = stringResource(R.string.submission_watching_source),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    style = MaterialTheme.typography.labelSmall,
                                     maxLines = 1,
                                     softWrap = false,
                                     // F4 — text, so the text role; `tertiary` is the graphic lamp.
@@ -2363,7 +2363,7 @@ fun LibraryBookCard(
                                 Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
                                 Text(
                                     text = stringResource(R.string.submission_deferred_publication_badge),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    style = MaterialTheme.typography.labelSmall,
                                     maxLines = 1,
                                     softWrap = false,
                                     color = MaterialTheme.colorScheme.secondary,
@@ -2378,7 +2378,7 @@ fun LibraryBookCard(
                                 Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
                                 Text(
                                     text = stringResource(submissionBadgeRes(submissionBadge)),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = when (submissionBadge) {
                                         SubmissionBadge.REJECTED -> MaterialTheme.colorScheme.error
                                         // F4 — the amber cue as TEXT: `tertiary` is the
@@ -2485,7 +2485,7 @@ private fun LibraryBookGridContent(
                 style = if (paperInk) {
                     PaperInkType.Meta.copy(fontWeight = FontWeight.SemiBold)
                 } else {
-                    MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                    MaterialTheme.typography.titleSmall
                 },
                 color = MaterialTheme.colorScheme.onSurface,
                 minLines = 2,
@@ -2605,7 +2605,7 @@ fun ListeningStatsCard(
     ) {
         Text(
             text = stringResource(R.string.lib_stats_heading),
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+            style = PaperInkType.Heading.Section,
             color = MaterialTheme.colorScheme.onSurface
         )
 
@@ -2682,7 +2682,7 @@ fun StatItemCard(
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = value,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Text(
@@ -2740,7 +2740,7 @@ fun GlobalBookmarkItem(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = bookTitle,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -3009,7 +3009,7 @@ fun ImportPreviewDialog(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = book.title.ifBlank { untitled },
-                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    style = MaterialTheme.typography.titleSmall,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.weight(1f)
                                 )
@@ -3460,7 +3460,7 @@ fun BookmarkedPersonRow(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = displayName,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurface

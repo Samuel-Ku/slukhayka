@@ -272,6 +272,43 @@ object PaperInkType {
     )
 
     /**
+     * The heading ladder — the ONLY four steps a heading may take.
+     *
+     * Unslop audit 2026-11-01 (§2 U6) found one hierarchy drawn four ways: a
+     * 34 sp ExtraBold root title, a 21 sp section title, and then 16 sp and
+     * 14 sp spelled at each call site as `titleMedium + Bold` /
+     * `titleSmall + Bold`. That second half is the defect this object
+     * collapses: a heading's weight is the token's own, never a
+     * `fontWeight = Bold` stacked on top of a role that already carries
+     * SemiBold or Bold. The four steps used to be reachable — and therefore
+     * changeable — in fifty call sites; now they are recorded here once.
+     *
+     * The steps, in descending order (ADR-0033: no fifth size may appear):
+     *
+     * - [Page] — a root tab's title («Слухати», «Медіатека»): 34/36
+     *   ExtraBold, −1.1 tracking. Same style as [ScreenTitle].
+     * - [Section] — a shelf/block heading or a pushed screen's own title:
+     *   21/26 Bold, −0.45 tracking. Same style as [SectionTitle].
+     * - [Sub] — a pushed screen's or a sheet's heading: 16/24 SemiBold.
+     *   Reuses [BodyStrong]'s measurements, so the step adds no size.
+     * - [Group] — a group heading inside a form, settings page or dialog:
+     *   14/18 SemiBold. Reuses [Tab]'s measurements.
+     *
+     * [Sub] and [Group] deliberately reuse the measured body/tab roles instead
+     * of declaring two more `TextStyle`s: the audit's third and fourth steps
+     * were those sizes, and what the ladder fixes is the WEIGHT — the call site
+     * stops asking for Bold on top of a SemiBold token. `HeadingLadderGuardTest`
+     * reads the live weights of these four steps, so a later
+     * `copy(fontWeight = …)` on a paper heading fails the build.
+     */
+    object Heading {
+        val Page = ScreenTitle
+        val Section = SectionTitle
+        val Sub = BodyStrong
+        val Group = Tab
+    }
+
+    /**
      * M3 slot mapping, used by framework components that read
      * `MaterialTheme.typography` directly (dialogs, sheets, menus). The custom
      * styles above stay the API for our own components.
@@ -281,13 +318,10 @@ object PaperInkType {
         headlineLarge = ScreenTitle,
         headlineMedium = BookTitlePlayer,
         headlineSmall = BookTitlePage,
-        titleLarge = TextStyle(
-            fontFamily = Ui,
-            fontWeight = FontWeight.Bold,
-            fontSize = 21.sp,
-            lineHeight = 26.sp,
-            letterSpacing = (-0.45).sp,
-        ),
+        // The pushed-screen/section slot is exactly [Heading.Section]; naming
+        // the token instead of re-spelling 21/26/−0.45 keeps the ladder the
+        // one place the step is recorded (it was a byte-identical copy before).
+        titleLarge = SectionTitle,
         titleMedium = BodyStrong,
         titleSmall = Tab,
         bodyLarge = Body,

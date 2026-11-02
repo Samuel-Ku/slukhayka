@@ -40,7 +40,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
@@ -263,7 +262,7 @@ fun StorageDestinationContent(
             Spacer(modifier = Modifier.height(24.dp))
             Text(
                 text = stringResource(R.string.storage_danger_heading),
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                style = PaperInkType.Heading.Group,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.semantics { heading() }
             )
@@ -311,8 +310,10 @@ private fun StorageStat(value: String, label: String, modifier: Modifier = Modif
     Column(modifier = modifier) {
         Text(
             text = value,
+            // U7: the direction puts big numbers in Literata, whose family
+            // ships ONE face — the weight stays the token's SemiBold. Tracking
+            // is an optical correction and stays local to this pair.
             style = MaterialTheme.typography.headlineMedium.copy(
-                fontWeight = FontWeight.Bold,
                 letterSpacing = (-1).sp
             ),
             color = MaterialTheme.colorScheme.onSurface,

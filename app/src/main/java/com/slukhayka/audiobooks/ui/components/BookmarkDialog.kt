@@ -60,7 +60,7 @@ fun BookmarkDialog(
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
                         text = stringResource(R.string.book_detail_bookmark_pane),
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                        style = PaperInkType.Heading.Section,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.semantics { heading() }
                     )

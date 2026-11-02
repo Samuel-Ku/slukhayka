@@ -743,6 +743,56 @@ class SnapshotGoldenBytesGuardTest {
          * six other pins kept AE=0. Full record on `dragonborn`; the eleven
          * other changed goldens are not pinned and are named in the header
          * changelog.
+         *
+         * ## Seven re-pinned on 2026-11-02 (#1771 — one heading ladder, no
+         * synthetic weight)
+         *
+         * The four heading steps moved into `PaperInkType.Heading` and the
+         * call sites stopped stacking `fontWeight = Bold` on tokens that
+         * already carry SemiBold/Bold; the Literata overrides are gone. Every
+         * changed frame kept its exact dimensions, and every diff is glyph ink
+         * inside a text box — no layout moved.
+         *
+         * Seven of the nine pins show text the change touched, and what is
+         * VISIBLE in them is one thing per class:
+         *
+         *  - `player_no_narrator`, `player_redesign_dark`,
+         *    `player_tight_viewport` — 1715 px (0.066 / 0.066 / 0.084 % of
+         *    1078×2399 / 1078×2399 / 1078×1890, max channel delta 134) inside
+         *    the TYPOGRAPHIC COVER's book-title line (bbox `454,853–627,884`
+         *    on the first two, `454,578–627,609` on the tight viewport). The
+         *    serif `Н` above it and the rest of the player are byte-identical:
+         *    the cover's title line stopped asking for the Onest Bold FACE and
+         *    now takes the SemiBold its label token carries. The player's own
+         *    title did not move — `headlineMedium` is the single-face Literata
+         *    and was already on its token weight.
+         *  - `home_feed_phone_fold` — 6527 px (0.252 %, max channel delta 204)
+         *    inside the four cover-placeholder titles in the feed: «Хроніки
+         *    Нарнії», «451° за Фаренгейтом», «Вкради мене… Зараз!» and «Темна
+         *    матерія» are a step lighter for the same reason (the cover
+         *    placeholder title now takes its `labelSmall` token instead of
+         *    Bold).
+         *  - `library_redesign_browsing`, `library_redesign_dense`,
+         *    `library_redesign_grid` — 3713 / 2904 / 4004 px (0.144 / 0.112 /
+         *    0.155 %, max channel delta 231) inside the list and grid book
+         *    titles; the tile title is a step lighter because its `titleSmall`
+         *    call site stopped adding Bold, which in paper was the real Onest
+         *    Bold face on a SemiBold token.
+         *
+         * The two `explore_header_*` pins did NOT move: their frame is the
+         * wordmark and the search field, which paint no changed glyph.
+         *
+         * The remaining 45 changed goldens are not pinned; measured the same
+         * way, they are the same four visible classes — cover-placeholder
+         * titles (`CatalogCoverImage` / `BookCoverImage`), sheet headings now
+         * on the ladder (the work-feed filter sheet's «Фільтри» is visibly
+         * SMALLER because it left the Literata `headlineSmall` slot for the
+         * 16 sp step; the import/listen/library sheets' headings are a step
+         * lighter from the same 16 sp step), library badges, and the book
+         * detail title (Literata's fake Bold gone). `library_import_sheet`,
+         * `listen_shelves_sheet`, `storage_destination` and
+         * `work_feed_filter_sheet` are the four with the largest share
+         * (2.866 / 1.544 / 1.683 / 1.108 %).
          */
         val PINS = listOf(
             Pin(
@@ -758,37 +808,37 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",
                 "home_feed_" + "phone_fold.png",
-                "6fd40e13e20bb5285c8e7fbde828e698" + "f4855930c151f2ab881a9a9981ce1e1f"
+                "6f988a63f6673c71eae465e7f79f3fbb" + "52130292528b6e78508e60fd9a8ef758"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "5012c9d93f328a83e8ce1e5a7550f15e" + "372a5b5460fbdc888ade89dd04808df4"
+                "dbbc17b27bf5d1c6b0513dff1cc833ce" + "5c776d76d03862366ce6e791ac2c6b9c"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "e3252a0cc91e42c73f881256fe52bb40" + "dcce9ae422c818e244ff12f3c8c70da7"
+                "ec05d4862c9a79520b12ca1a27dc1b6f" + "78b91af7c87446c41f01a946a3404366"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "acb05537ef1a8f94fcb470b0618fb49b" + "8f838374d4b229e7371171877fb80f97"
+                "da1a5b0ac987e6c071bfc4214b0dd9e3" + "fa1b36084ef92e61cf405eaeb70b7514"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_" + "no_narrator.png",
-                "e335268c7187bc8c71d06f207233a61b" + "c967f6caca808e92a30855d3d65a1c67"
+                "6a1ff3be6c372daafbc7b82e6dc8ca6e" + "8a415fd4dc3ba0989b1759e9d3b6e8d8"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_redesign_" + "dark.png",
-                "95a3e0dba918d8cef7ae61fa41a4a27c" + "020a710fc5623d5ac444892f53c89da8"
+                "1f1f03fb984f6509043297009398aa0b" + "7b841d0b2ceb34214004d4320f4c4397"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_tight_" + "viewport.png",
-                "88699c42d7ab1b8e514c6766b9260850" + "51cace6a6254223edf638cbd88c191a6"
+                "c717ab176166ec57b61d20b39c5a59eb" + "10b5eba369b7e0bbff4698db56fade7b"
             )
         )
     }

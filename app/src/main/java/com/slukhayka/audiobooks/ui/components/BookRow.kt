@@ -276,7 +276,7 @@ fun BookRow(
                             style = if (paperInk) {
                                 com.slukhayka.audiobooks.ui.theme.PaperInkType.TrackingLabel
                             } else {
-                                MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold)
+                                MaterialTheme.typography.labelSmall
                             },
                             color = MaterialTheme.colorScheme.primary
                         )

@@ -1567,7 +1567,7 @@ fun BookDetailScreen(
                             Spacer(modifier = Modifier.size(6.dp))
                             Text(
                                 text = "%.1f".format(java.util.Locale.US, average.value),
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.size(8.dp))

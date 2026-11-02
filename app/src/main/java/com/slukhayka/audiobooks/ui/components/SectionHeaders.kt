@@ -77,8 +77,9 @@ fun AppSectionHeader(
     // phrase, not as letters standing apart.
     val newDesign = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
     val titleStyle = if (newDesign) {
-        // The direction's one section role: 21/26 Onest Bold, sentence case.
-        com.slukhayka.audiobooks.ui.theme.PaperInkType.SectionTitle
+        // The direction's one section role: the ladder's second step, 21/26
+        // Onest Bold, sentence case.
+        com.slukhayka.audiobooks.ui.theme.PaperInkType.Heading.Section
     } else {
         when (level) {
             SectionHeaderLevel.GROUP -> com.slukhayka.audiobooks.ui.theme.SectionGroupTitleStyle

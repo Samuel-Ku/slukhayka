@@ -1458,7 +1458,12 @@ fun WorkFeedFilterSheet(
             ) {
                 Text(
                     text = stringResource(R.string.feed_filters),
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                    // Unslop audit 2026-11-01 (U6): a sheet heading is UI, so
+                    // it takes the ladder's third step. Before this it borrowed
+                    // `headlineSmall`, which in paper is the Literata book
+                    // title — a book face on chrome, i.e. exactly the blurred
+                    // serif/UI boundary the direction forbids.
+                    style = PaperInkType.Heading.Sub,
                     modifier = Modifier
                         .focusRequester(headingFocusRequester)
                         .focusable()

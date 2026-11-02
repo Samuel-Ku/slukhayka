@@ -37,7 +37,6 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
@@ -79,7 +78,7 @@ fun SettingsSwitchRow(
         Column(Modifier.weight(1f)) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+                style = MaterialTheme.typography.titleSmall
             )
             Text(
                 text = description,
@@ -134,7 +133,7 @@ fun SettingsRadioOption(
         Column(Modifier.weight(1f)) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                style = MaterialTheme.typography.titleSmall
             )
             Text(
                 text = description,

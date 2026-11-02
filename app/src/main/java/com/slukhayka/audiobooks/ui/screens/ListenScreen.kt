@@ -486,7 +486,7 @@ fun ListenShelvesSheetContent(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = stringResource(R.string.listen_manage_shelves),
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                style = PaperInkType.Heading.Sub,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .weight(1f)
@@ -557,7 +557,7 @@ private fun ListenShelfRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = block.title,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis

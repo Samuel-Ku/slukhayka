@@ -2329,9 +2329,7 @@ private fun TransportControls(
         if (seekSumLabel != null) {
             Text(
                 text = seekSumLabel,
-                style = MaterialTheme.typography.labelLarge.copy(
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold
-                ),
+                style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.tertiary,
                 modifier = Modifier
                     .align(Alignment.TopCenter)

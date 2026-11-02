@@ -287,7 +287,7 @@ fun ReviewCard(
                         style = if (paperInk) {
                             com.slukhayka.audiobooks.ui.theme.PaperInkType.Label
                         } else {
-                            MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                            MaterialTheme.typography.labelLarge
                         },
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
@@ -602,7 +602,7 @@ fun ListenerReviewFormSheet(
                     if (editing == null) R.string.book_detail_review_new_title
                     else R.string.book_detail_review_edit_title
                 ),
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                style = com.slukhayka.audiobooks.ui.theme.PaperInkType.Heading.Section,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.semantics { heading() }
             )

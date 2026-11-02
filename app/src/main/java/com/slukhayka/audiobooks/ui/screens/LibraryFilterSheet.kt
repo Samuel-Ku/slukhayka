@@ -342,7 +342,7 @@ fun LibraryFilterSheetContent(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = stringResource(R.string.lib_filter_sheet_title),
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                style = com.slukhayka.audiobooks.ui.theme.PaperInkType.Heading.Sub,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .weight(1f)

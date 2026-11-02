@@ -32,7 +32,6 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
@@ -235,7 +234,7 @@ fun SubmissionSheetContent(
         Row {
             Text(
                 text = stringResource(R.string.submission_sheet_title),
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                style = com.slukhayka.audiobooks.ui.theme.PaperInkType.Heading.Sub,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .weight(1f)
@@ -345,7 +344,7 @@ fun SubmissionSheetContent(
             Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = stringResource(R.string.submission_deferred_title),
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                style = com.slukhayka.audiobooks.ui.theme.PaperInkType.Heading.Group,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.testTag("submission_deferred_title")
             )
@@ -454,7 +453,7 @@ fun SubmissionSheetContent(
                     )
                     Text(
                         text = shownTitle,
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,

@@ -143,4 +143,48 @@ class ListenPrefsStoreTest {
         store.undismissBook(bookId)
         assertTrue("undo restores the work to the shelf", onShelf())
     }
+
+    @Test
+    fun `the first visible shelf claims a shared book while both shelves stay in management`() {
+        val store = store()
+        val book = TestDataFactory.dataBooks().first().copy(isDownloaded = true, totalDurationSeconds = 3600L)
+        book.isFavorite = false
+        book.createdAt = TestDataFactory.FIXED_CLOCK_MS
+        val now = book.createdAt + 30L * 24 * 3600 * 1000
+        val library = buildLibraryBooks(listOf(book), progressList = emptyList(), chaptersByBook = emptyMap())
+        val copy = ResourceListenCopy(context.resources)
+        val travel = ListenComposer.BlockId.TRAVEL
+        val short = ListenComposer.BlockId.SHORT
+        val travelFirst = listOf(travel, short)
+        val shortFirst = listOf(short, travel)
+
+        fun assertShelves(managed: List<ListenComposer.BlockId>, vararg displayed: ListenComposer.BlockId) {
+            val blocks = ListenComposer.compose(library, nextInSeries = null, prefs = store, now = now, copy = copy)
+            val visible = blocks.filter { it.id !in store.hiddenBlockIds }
+            val rows = deduplicateListenShelves(visible).filter { it.books.isNotEmpty() }
+            fun contents(blocks: List<ListenComposer.Block>) =
+                blocks.map { block -> block.id to block.books.map { it.book.id } }
+
+            assertEquals(managed.map { it to listOf(book.id) }, contents(blocks))
+            assertEquals(displayed.map { it to listOf(book.id) }, contents(rows))
+        }
+
+        assertShelves(travelFirst, travel)
+        store.hideBlock(travel)
+        assertShelves(travelFirst, short)
+        store.unhideBlock(travel)
+        assertShelves(travelFirst, travel)
+
+        store.moveBlockUp(short)
+        assertShelves(shortFirst, short)
+        store.hideBlock(short)
+        assertShelves(shortFirst, travel)
+        store.hideBlock(travel)
+        assertShelves(shortFirst)
+        assertEquals(setOf(short, travel), store.hiddenBlockIds)
+
+        store.restoreHiddenBlocks()
+        assertShelves(shortFirst, short)
+        assertTrue(store.hiddenBlockIds.isEmpty())
+    }
 }

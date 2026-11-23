@@ -47,6 +47,17 @@ class ListenPrefsStoreTest {
         val writer = store()
         val travel = ListenComposer.BlockId.TRAVEL
         val short = ListenComposer.BlockId.SHORT
+        val movedOrder = listOf(
+            ListenComposer.BlockId.HERO,
+            ListenComposer.BlockId.ALMOST_DONE,
+            ListenComposer.BlockId.RETURN,
+            ListenComposer.BlockId.NEXT_IN_SERIES,
+            short,
+            travel,
+            ListenComposer.BlockId.FAVORITE_AUTHORS,
+            ListenComposer.BlockId.RECENTLY_ADDED,
+            ListenComposer.BlockId.FINISHED,
+        )
         writer.moveBlockUp(short)
         writer.hideBlock(travel)
         writer.dismissBook("a")
@@ -55,7 +66,7 @@ class ListenPrefsStoreTest {
         val subscription = backgroundScope.launch { reader.snapshots.toList(received) }
         runCurrent()
         val first = received.last()
-        assertTrue(first.order.indexOf(short) < first.order.indexOf(travel))
+        assertEquals(movedOrder, first.order)
         assertEquals(setOf(travel), first.hiddenBlockIds)
         assertEquals(setOf("a"), first.dismissedBookIds)
 
@@ -70,7 +81,7 @@ class ListenPrefsStoreTest {
         assertEquals(ListenComposer.DEFAULT_ORDER, latest.order)
         assertEquals(setOf(short), latest.hiddenBlockIds)
         assertEquals(setOf("a", "b", "c"), latest.dismissedBookIds)
-        assertTrue(first.order.indexOf(short) < first.order.indexOf(travel))
+        assertEquals(movedOrder, first.order)
         assertEquals(setOf(travel), first.hiddenBlockIds)
         assertEquals(setOf("a"), first.dismissedBookIds)
 

@@ -5,16 +5,6 @@ import com.slukhayka.audiobooks.ui.library.listenContentFor
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
-/**
- * #1704 — the cold-start regression, asserted at the branch that caused it.
- *
- * `ListenScreen` collects the library with `initial = emptyList()` and the
- * block composer starts empty too, so the FIRST composition sees an empty
- * library and no blocks. The old code read that as «свіжа інсталяція» /
- * «усі полиці приховано». `isLibraryLoaded` is the fact that separates "not
- * read yet" from either claim; these cases pin the separation, including the
- * window after the flag flips but before the composer publishes.
- */
 class ListenColdStartEmptyStateTest {
 
     @Test

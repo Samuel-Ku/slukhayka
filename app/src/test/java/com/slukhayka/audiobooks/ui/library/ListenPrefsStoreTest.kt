@@ -1,14 +1,22 @@
 package com.slukhayka.audiobooks.ui.library
 
 import android.content.Context
+import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.testing.TestDataFactory
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 /**
@@ -30,6 +38,50 @@ class ListenPrefsStoreTest {
         assertTrue(store.order.isEmpty())
         assertTrue(store.hiddenBlockIds.isEmpty())
         assertTrue(store.dismissedBookIds.isEmpty())
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `snapshots follow another store and reread persisted choices on resubscription`() = runTest {
+        val reader = store()
+        val writer = store()
+        val travel = ListenComposer.BlockId.TRAVEL
+        val short = ListenComposer.BlockId.SHORT
+        writer.moveBlockUp(short)
+        writer.hideBlock(travel)
+        writer.dismissBook("a")
+
+        val received = mutableListOf<ListenPrefsSnapshot>()
+        val subscription = backgroundScope.launch { reader.snapshots.toList(received) }
+        runCurrent()
+        val first = received.last()
+        assertTrue(first.order.indexOf(short) < first.order.indexOf(travel))
+        assertEquals(setOf(travel), first.hiddenBlockIds)
+        assertEquals(setOf("a"), first.dismissedBookIds)
+
+        writer.moveBlockDown(short)
+        writer.hideBlock(short)
+        writer.unhideBlock(travel)
+        writer.dismissBook("b")
+        writer.dismissBook("c")
+        shadowOf(Looper.getMainLooper()).idle()
+        runCurrent()
+        val latest = received.last()
+        assertEquals(ListenComposer.DEFAULT_ORDER, latest.order)
+        assertEquals(setOf(short), latest.hiddenBlockIds)
+        assertEquals(setOf("a", "b", "c"), latest.dismissedBookIds)
+        assertTrue(first.order.indexOf(short) < first.order.indexOf(travel))
+        assertEquals(setOf(travel), first.hiddenBlockIds)
+        assertEquals(setOf("a"), first.dismissedBookIds)
+
+        subscription.cancelAndJoin()
+        writer.restoreHiddenBlocks()
+        writer.undismissBook("a")
+        val resumed = mutableListOf<ListenPrefsSnapshot>()
+        backgroundScope.launch { reader.snapshots.toList(resumed) }
+        runCurrent()
+        assertTrue(resumed.last().hiddenBlockIds.isEmpty())
+        assertEquals(setOf("b", "c"), resumed.last().dismissedBookIds)
     }
 
     @Test

@@ -39,7 +39,6 @@ import com.slukhayka.audiobooks.ui.icons.PaperInkIconSizes
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
-import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.adaptive.rememberIsLandscapePhoneWindow
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
@@ -60,33 +59,18 @@ import com.slukhayka.audiobooks.ui.components.paperink.PaperInkSectionHeader
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.displayAuthor
-import com.slukhayka.audiobooks.ui.library.ListenComposer
 import com.slukhayka.audiobooks.ui.library.LibraryBook
+import com.slukhayka.audiobooks.ui.library.ListenComposer
+import com.slukhayka.audiobooks.ui.library.ListenContent
+import com.slukhayka.audiobooks.ui.library.ListenShelvesModule
 import com.slukhayka.audiobooks.ui.library.RemainingTimeUnits
-import com.slukhayka.audiobooks.ui.library.deduplicateListenShelves
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
 import com.slukhayka.audiobooks.ui.theme.*
 
-/**
- * Слухати tab (spec-9): the listening panel — the app's first screen. Built
- * only from data that already exists or comes straight from 4read: the hero
- * resume card, recently-listened, downloaded books and one or two "new on
- * 4read" rows. On a fresh install the tab shows a placeholder hero and two
- * CTAs instead of raw emptiness.
- *
- * The blocks are pure composables ([ListenHeroCard], [ListenBlockShelf],
- * [ListenEmptyState]) so snapshot tests can render them without a
- * `MainViewModel`.
- */
 @Composable
-fun ListenScreen(
-    viewModel: MainViewModel,
-    // ADR-0008 batch 3 (#158): the screen receives the modules it reads from
-    // as parameters, wired from the composition root — the injection idiom
-    // settled by #154. Listen composition (blocks, prefs, hidden) and the
-    // next-in-series orchestration stay on the ViewModel. spec-28 (#192):
-    // discovery left the tab — only personal content (hero + 8 shelves).
-    libraryEntries: LibraryEntries,
+internal fun ListenScreen(
+    shelves: ListenShelvesModule,
+    onHeroChanged: (AudiobookEntity?) -> Unit,
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit,
     onBrowseClick: () -> Unit,
@@ -100,65 +84,22 @@ fun ListenScreen(
     /** ADR-0049 / #860 — the gear opens Settings from THIS root. */
     onOpenSettings: () -> Unit = {}
 ) {
-    // ADR-0008: module flows are read directly — no forwarding StateFlow on
-    // the ViewModel. Cold flows need an initial value; the catalogue StateFlows
-    // carry their own.
-    val allBooks by libraryEntries.allBooks.collectAsState(initial = emptyList())
-    // Wayfinder #62: the rule-based block list — every block carries its
-    // eligibility and a reason line; hidden blocks stay computed but are
-    // unrendered here.
-    val listenBlocks by viewModel.listenBlocks.collectAsState()
-    val hiddenBlocks by viewModel.hiddenListenBlocks.collectAsState()
-    // #1704 review — composer published vs not; see ListenContentState.
-    val blocksReady by viewModel.listenBlocksReady.collectAsState()
-    // #1704 — "empty" and "not read yet" are different states. The list above
-    // starts as `emptyList()` on every cold start; without this flag the tab
-    // claimed the fresh-install empty state (and, once blocks lag, that every
-    // shelf was hidden) before the first real read. The same #1066 contract
-    // the Медіатека uses.
-    val libraryLoaded by viewModel.isLibraryLoaded.collectAsState()
-
-    // Refresh the "continue the series" suggestion whenever the hero book
-    // changes (keyed on its id so position updates don't refetch).
-    val heroBook = listenBlocks.firstOrNull { it.id == ListenComposer.BlockId.HERO }?.books?.firstOrNull()?.book
-    LaunchedEffect(heroBook?.id) {
-        viewModel.loadNextInSeries(heroBook)
+    val state = shelves.state.collectAsState().value
+    LaunchedEffect(state.heroBook?.id) {
+        onHeroChanged(state.heroBook)
     }
 
     // #962 — a landscape phone is wide but short; the header drops to its name
     // and actions on one line there, exactly as the other three roots do.
     val landscapePhone = rememberIsLandscapePhoneWindow()
 
-    // Wayfinder #62 — the rule-based block list. Every eligible block
-    // renders with its reason; hidden blocks are skipped (still computed).
-    val visibleBlocks = listenBlocks.filter { it.id !in hiddenBlocks }
-
-    // spec-28 (#191 + #200): full cross-shelf dedup — a book renders in
-    // at most ONE shelf, the highest on screen. deduplicateListenShelves
-    // owns the entire claimed set (hero book included): it claims the
-    // hero's book first (US-3), then each visible block claims in display
-    // order, so the user's reorder re-prioritises which shelf claims a
-    // book. A block emptied by dedup renders nothing (no empty header).
-    val dedupedBlocks = deduplicateListenShelves(visibleBlocks)
-
-    // #1704 — what the tab may claim right now. `Loading` is the cold
-    // start: the library flow still holds its `emptyList()` initial value
-    // and the block composer starts empty too, so NEITHER empty state is
-    // allowed to speak for the listener yet — only the header renders.
-    val content = listenContentFor(
-        libraryLoaded = libraryLoaded,
-        blocksReady = blocksReady,
-        allBooksEmpty = allBooks.isEmpty(),
-        composedBlocks = listenBlocks.size,
-        dedupedBlocks = dedupedBlocks.size,
-    )
     // #1766 — the fresh install is a PAGE, not a one-item scroll. The header
     // and the empty state share a Column, so the panel centres in the height
     // BELOW the header (half a header under the window's geometric centre)
     // instead of a viewport-sized lazy item that starts below the header and
     // therefore ends one whole header past the bottom. The same shape Медіатека
     // and «Досягнення» use for their empty states.
-    if (content == ListenContent.FreshInstall) {
+    if (state.content == ListenContent.FreshInstall) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -200,9 +141,9 @@ fun ListenScreen(
         // (spec-54 T06 / #873), so a literal here cannot drift from the tab.
         item { ListenTabHeader(landscapePhone = landscapePhone, onOpenSettings = onOpenSettings) }
 
-        if (content == ListenContent.Loading) return@LazyColumn
+        if (state.content == ListenContent.Loading) return@LazyColumn
 
-        for (block in dedupedBlocks) {
+        for (block in state.displayBlocks) {
             when (block.id) {
                 ListenComposer.BlockId.HERO -> {
                     val hero = block.books.first()
@@ -222,13 +163,7 @@ fun ListenScreen(
                         )
                     }
                 }
-                // The seven remaining blocks — one horizontal shelf of
-                // compact posters each (spec-28 #191). v1.4 E1: the header IS
-                // the canonical section header (no ⋮ menu — reorder and hide
-                // live in the shelf sheet); a block with no books left after
-                // dedup renders nothing.
                 else -> {
-                    if (block.books.isEmpty()) continue
                     item(key = "block-${block.id.name}") {
                         ListenBlockHeading(
                             title = block.title,
@@ -247,11 +182,7 @@ fun ListenScreen(
                             // spec-28 (#201): the «Далі у серії» shelf restores
                             // the series context — each card names which part
                             // is next. No one-tap play triangle (ADR-0018).
-                            captionFor = if (block.id == ListenComposer.BlockId.NEXT_IN_SERIES) {
-                                { entry -> viewModel.listenPartCaption(entry) }
-                            } else {
-                                null
-                            }
+                            captionFor = { block.partCaption }
                         )
                     }
                 }
@@ -263,11 +194,7 @@ fun ListenScreen(
         // header and the manage door, so a listener who hid all shelves saw
         // what looked like a broken screen rather than a choice they had made.
         // The door below stays visible either way — it is the way back.
-        //
-        // #1704 — only AFTER composition can this state be claimed:
-        // `composedBlocks == 0` is the composer's initial value, not a choice,
-        // and `listenContentFor` keeps it in `Loading` above.
-        if (content == ListenContent.AllShelvesHidden) {
+        if (state.content == ListenContent.AllShelvesHidden) {
             item(key = "all-shelves-hidden") {
                 EmptyState(
                     icon = Icons.Outlined.VisibilityOff,
@@ -286,13 +213,13 @@ fun ListenScreen(
             // the trigger and the sheet's focus-return target are the same
             // requester by construction.
             ListenShelvesManageDoor(
-                blocks = listenBlocks,
-                hiddenIds = hiddenBlocks,
-                onMoveUp = viewModel::moveListenBlockUp,
-                onMoveDown = viewModel::moveListenBlockDown,
-                onHide = viewModel::hideListenBlock,
-                onUnhide = viewModel::unhideListenBlock,
-                onRestoreAll = viewModel::restoreHiddenListenBlocks
+                blocks = state.managementBlocks,
+                hiddenIds = state.hiddenBlockIds,
+                onMoveUp = shelves::moveBlockUp,
+                onMoveDown = shelves::moveBlockDown,
+                onHide = shelves::hideBlock,
+                onUnhide = shelves::unhideBlock,
+                onRestoreAll = shelves::restoreHiddenBlocks
             )
         }
 
@@ -403,9 +330,7 @@ fun ListenShelvesManageDoor(
 
 /**
  * v1.4 E1 — the shelf-management sheet: every block listed in display order
- * with ↑↓ reorder, hide and per-row restore, plus a restore-all footer. All
- * mutations reuse the existing [ListenPrefsStore] mechanics through the
- * ViewModel — the same SharedPreferences file the ⋮ menus wrote to.
+ * with ↑↓ reorder, hide and per-row restore, plus a restore-all footer.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

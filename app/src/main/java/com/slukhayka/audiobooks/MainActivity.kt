@@ -290,7 +290,7 @@ class MainActivity : FragmentActivity() {
         // on API < 33 that choice is pinned on the Activity's context: rebuild
         // it after every (re)create so a language switch is reflected.
         androidx.lifecycle.ViewModelProvider(this)[com.slukhayka.audiobooks.ui.MainViewModel::class.java]
-            .onUiLocaleApplied()
+            .listenShelves.onUiLocaleApplied()
         // #532 — the cold-start seed MUST run at APP startup, not from a
         // screen's composition: a clean install opens on Слухати, so a
         // HomeScreen-only trigger left the bundled seed unimported (measured
@@ -475,8 +475,8 @@ fun AudiobookApp(
             scope = rootScope,
             message = listenDismissedMessage,
             actionLabel = listenUndoLabel,
-            onDismiss = viewModel::dismissListenBook,
-            onUndo = viewModel::undismissListenBook,
+            onDismiss = viewModel.listenShelves::dismissBook,
+            onUndo = viewModel.listenShelves::undismissBook,
         )
     }
     val allowAchievementNotices = !crashReportingState.shouldShowPrompt && !firstChoiceVisible &&
@@ -1589,12 +1589,8 @@ fun AudiobookApp(
                                     settingsReturnTab = SelectedTab.LISTEN
                                     viewModel.selectTab(SelectedTab.SETTINGS)
                                 },
-                                viewModel = viewModel,
-                                // ADR-0008 batch 3 (#158): the modules come in as
-                                // parameters from the composition root. spec-28
-                                // (#192): discovery left the tab, so only the
-                                // library module is read here.
-                                libraryEntries = viewModel.libraryEntries,
+                                shelves = viewModel.listenShelves,
+                                onHeroChanged = viewModel::loadNextInSeries,
                                 onBookClick = { id -> viewModel.selectBook(id) },
                                 onPlayClick = { book ->
                                     viewModel.playAudiobook(book)

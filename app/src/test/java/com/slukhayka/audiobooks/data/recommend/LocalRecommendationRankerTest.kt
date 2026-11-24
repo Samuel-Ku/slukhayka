@@ -34,6 +34,30 @@ class LocalRecommendationRankerTest {
         assertEquals(listOf("history"), result.map { it.candidate.id })
     }
 
+    @Test fun `reduce similar overrides favorite and completion signals for the same work`() {
+        val positive = RecommendationPersonalization.signalsFor(listOf(
+            RecommendationPersonalization.WorkBehavior("seed", "seed", genre = "жахи",
+                isFavorite = true, completed = true)
+        ), 0).single()
+        val negative = positive.copy(weight = -1.0)
+        for (signals in listOf(listOf(positive, negative), listOf(negative, positive))) {
+            val result = LocalRecommendationRanker().rank(
+                listOf(book("horror", "жахи"), book("history", "історія")), signals,
+                popularityByWorkId = mapOf("horror" to 1.0))
+            assertEquals(listOf("history"), result.map { it.candidate.id })
+        }
+    }
+
+    @Test fun `explicit dislike on one edition overrides positive behavior on another`() {
+        val liked = RecommendationPersonalization.WorkBehavior("seed", "seed",
+            isFavorite = true, completed = true)
+        val disliked = liked.copy(isFavorite = false, completed = false, rating = 2)
+        for (editions in listOf(listOf(liked, disliked), listOf(disliked, liked))) {
+            val signal = RecommendationPersonalization.signalsFor(editions, 0).single()
+            assertEquals(-.8, signal.weight, 0.0)
+        }
+    }
+
     @Test fun `known hidden author and duplicates never return`() {
         val candidate = book("ok")
         val result = LocalRecommendationRanker().rank(

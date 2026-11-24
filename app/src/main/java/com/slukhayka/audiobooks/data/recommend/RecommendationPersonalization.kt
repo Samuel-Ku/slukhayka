@@ -58,12 +58,14 @@ object RecommendationPersonalization {
     }
 
     fun signalsFor(behaviors: List<WorkBehavior>, nowEpochMs: Long): List<RecommendationEngine.Signal> =
-        behaviors.groupBy { it.workId }
-            .values
-            .mapNotNull { editions ->
-                editions.mapNotNull { signalFor(it, nowEpochMs) }
-                    .maxByOrNull { abs(it.weight) }
-            }
+        resolveSignals(behaviors.mapNotNull { signalFor(it, nowEpochMs) })
+
+    /** Explicit negative feedback wins across Editions and separately stored Work preferences. */
+    fun resolveSignals(signals: List<RecommendationEngine.Signal>): List<RecommendationEngine.Signal> =
+        signals.groupBy { it.id }.values.map { alternatives ->
+            alternatives.filter { it.weight < 0 }.minByOrNull { it.weight }
+                ?: alternatives.maxBy { it.weight }
+        }
 
     private fun signalFor(
         behavior: WorkBehavior,

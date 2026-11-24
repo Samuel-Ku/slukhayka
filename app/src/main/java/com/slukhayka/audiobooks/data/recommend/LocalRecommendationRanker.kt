@@ -29,7 +29,8 @@ class LocalRecommendationRanker {
         val graph = contentGraph?.takeIf { it.isFresh(nowEpochMs) }
         if (graph == null) index(candidates)
         val hidden = excludedAuthors.map(::key).toSet()
-        val ordered = signals.sortedWith(compareByDescending<RecommendationEngine.Signal> { kotlin.math.abs(it.weight) }
+        val ordered = RecommendationPersonalization.resolveSignals(signals)
+            .sortedWith(compareByDescending<RecommendationEngine.Signal> { kotlin.math.abs(it.weight) }
             .thenBy { it.id })
         val positive = ordered.filter { it.weight > 0 }.take(64)
         val negative = ordered.filter { it.weight < 0 }.take(64)

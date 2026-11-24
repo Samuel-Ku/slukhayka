@@ -29,16 +29,17 @@ internal class ManualWorkMergeJournal(
         require(supportsVersion(formatFloor))
         context.ensureActive()
         sql.query("PRAGMA user_version").use { cursor ->
-            check(cursor.moveToFirst() && cursor.getLong(0) == 55L && !cursor.moveToNext()) { "Journal requires Room55" }
+            check(cursor.moveToFirst() && cursor.getLong(0) == 58L && !cursor.moveToNext()) { "Journal requires Room58" }
         }
         val encoding = encoding()
         var totalRows = 0
         var retainedBytes = 0
         val result = linkedMapOf<String, List<Row>>()
-        for (table in TABLES) {
+        val captureTables = if (formatFloor == 4) TABLES else HISTORICAL_TABLES
+        for (table in captureTables) {
             val keys = (when (table.name) {
                 "library_entries" -> bookIds
-                "edition_facets" -> editionIds
+                "edition_facets", "editions" -> editionIds
                 else -> workIds
             }).distinct()
             val rows = mutableListOf<Row>()
@@ -46,8 +47,12 @@ internal class ManualWorkMergeJournal(
                 val name = quoted(column)
                 listOf("typeof($name)", "CASE WHEN typeof($name) = 'text' THEN CAST($name AS BLOB) ELSE $name END")
             }.joinToString(", ")
-            val queries = listOf(table.scopeColumn to keys) +
-                (if (table.name == "edition_facets") listOf("workId" to workIds.distinct()) else emptyList())
+            val additionalScopes = when (table.name) {
+                "edition_facets" -> listOf("workId" to workIds.distinct())
+                "editions" -> listOf("workId" to (workIds + bookIds).distinct())
+                else -> emptyList()
+            }
+            val queries = listOf(table.scopeColumn to keys) + additionalScopes
             for ((scopeColumn, scopeKeys) in queries) for (batch in scopeKeys.chunked(128)) {
                 context.ensureActive()
                 val placeholders = batch.joinToString(", ") { "?" }
@@ -62,13 +67,16 @@ internal class ManualWorkMergeJournal(
                         val row = Row(table.name, table.columns.indices.map { index -> cell(cursor, index * 2) })
                         retainedBytes += rowBytes(row).size
                         check(retainedBytes <= MAX_PAYLOAD_BYTES) { "Manual merge journal payload bound" }
-                        if (table.name != "edition_facets" || rows.none { existing -> sameKey(existing, row) }) rows += row
+                        if ((table.name != "edition_facets" && table.name != "editions") ||
+                            rows.none { existing -> sameKey(existing, row) }) rows += row
                     }
                 }
             }
             result[table.name] = rows.sortedWith { first, second -> compareBytes(rowBytes(first), rowBytes(second)) }
         }
+        for (table in TABLES) if (table.name !in result) result[table.name] = emptyList()
         val version = when {
+            formatFloor == 4 -> 4
             CATALOG_TABLES.any { result.getValue(it.name).isNotEmpty() } || formatFloor == 3 -> 3
             result.getValue("readthroughs").isNotEmpty() || formatFloor == 2 -> 2
             else -> 1
@@ -80,8 +88,9 @@ internal class ManualWorkMergeJournal(
         context.ensureActive()
         check(image.rows.values.sumOf { it.size } <= MAX_ROWS) { "Journal row bound" }
         val tables = tablesForVersion(image.formatVersion)
-        check(image.formatVersion == 3 || CATALOG_TABLES.all { image.rows.getValue(it.name).isEmpty() }) { "Legacy journal cannot omit catalog rows" }
+        check(image.formatVersion >= 3 || CATALOG_TABLES.all { image.rows.getValue(it.name).isEmpty() }) { "Legacy journal cannot omit catalog rows" }
         check(image.formatVersion != 1 || image.rows.getValue("readthroughs").isEmpty()) { "Legacy journal cannot omit Readthroughs" }
+        check(image.formatVersion == 4 || image.rows["editions"].orEmpty().isEmpty()) { "Legacy journal cannot omit Editions" }
         val buffer = ByteArrayOutputStream()
         DataOutputStream(buffer).use { stream ->
             stream.writeUTF("ManualWorkMergeRows")
@@ -303,12 +312,13 @@ internal class ManualWorkMergeJournal(
     }
 
     companion object {
-        fun supportsVersion(version: Int): Boolean = version in 1..3
+        fun supportsVersion(version: Int): Boolean = version in 1..4
 
         private fun tablesForVersion(version: Int): List<Table> = when (version) {
             1 -> LEGACY_TABLES
             2 -> LIBRARY_TABLES
-            3 -> TABLES
+            3 -> HISTORICAL_TABLES
+            4 -> TABLES
             else -> error("Unknown journal format")
         }
         // Bound each payload; larger operations need a paged journal before UI exposure.
@@ -336,7 +346,12 @@ internal class ManualWorkMergeJournal(
             Table("edition_facets", listOf("editionId", "workId", "narratorId", "language", "durationSeconds", "durationBucketId", "chapterCount", "isAbridged", "availabilityAvailable", "availabilityObservedAtMillis", "availabilityTtlSeconds", "updatedAt"), "editionId", listOf("editionId")),
             Table("embedding_vectors", listOf("workId", "textHash", "vector", "updatedAt"), "workId", listOf("workId")),
         )
-        private val TABLES = LIBRARY_TABLES + CATALOG_TABLES
+        private val HISTORICAL_TABLES = LIBRARY_TABLES + CATALOG_TABLES
+        private val TABLES = HISTORICAL_TABLES + Table(
+            "editions",
+            listOf("id", "workId", "language", "narrator", "totalChapters", "totalDurationSeconds", "addedAt"),
+            "id",
+        )
 
     }
 }

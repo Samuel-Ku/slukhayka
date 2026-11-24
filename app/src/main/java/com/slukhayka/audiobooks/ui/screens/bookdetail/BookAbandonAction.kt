@@ -2,8 +2,7 @@ package com.slukhayka.audiobooks.ui.screens.bookdetail
 
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Undo
-import androidx.compose.material.icons.filled.BookmarkRemove
+import androidx.compose.material.icons.automirrored.outlined.Undo
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -15,6 +14,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.entries.AbandonOffer
 import com.slukhayka.audiobooks.ui.theme.AppDimens
 
@@ -43,7 +43,7 @@ internal fun BookAbandonMenuItem(
         AbandonOffer.NONE -> Unit
         AbandonOffer.ABANDON -> DropdownMenuItem(
             text = { Text(stringResource(R.string.book_detail_abandon)) },
-            leadingIcon = { Icon(Icons.Default.BookmarkRemove, contentDescription = null) },
+            leadingIcon = { Icon(PaperInkIcons.BookmarkRemove, contentDescription = null) },
             modifier = Modifier
                 .heightIn(min = AppDimens.TouchTarget)
                 .testTag("book_detail_abandon"),
@@ -55,7 +55,7 @@ internal fun BookAbandonMenuItem(
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.book_detail_abandon_cancel)) },
                 leadingIcon = {
-                    Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = null)
+                    Icon(Icons.AutoMirrored.Outlined.Undo, contentDescription = null)
                 },
                 modifier = Modifier
                     .heightIn(min = AppDimens.TouchTarget)

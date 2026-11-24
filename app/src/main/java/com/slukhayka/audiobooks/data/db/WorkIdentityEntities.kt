@@ -39,3 +39,12 @@ data class PreservedWorkMergeParticipant(
     val editionId: String,
     val autoMergeExcluded: Boolean,
 )
+
+/** Explicit local Book identity policy, retained beyond Undo and operation/Book history cleanup. */
+@Entity(tableName = "work_merge_preserved_books", primaryKeys = ["operationId", "bookId"],
+    indices = [Index("bookId")])
+data class PreservedWorkMergeBook(
+    val operationId: String,
+    val bookId: String,
+    val autoMergeExcluded: Boolean,
+)

@@ -22,6 +22,7 @@ import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
 import com.slukhayka.audiobooks.data.duration.DurationEnrichment
 import com.slukhayka.audiobooks.data.imports.ImportGrantStore
 import com.slukhayka.audiobooks.data.imports.ImportPlan
+import com.slukhayka.audiobooks.data.imports.ImportPlanLifecycle
 import com.slukhayka.audiobooks.data.universe.SeriesUniverseContext
 import com.slukhayka.audiobooks.data.universe.SeriesUniverses
 import com.slukhayka.audiobooks.data.update.UpdateChecker
@@ -36,6 +37,7 @@ import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.imports.KnownBookIdentity
 import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.imports.LocalAccessRecovery
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.imports.ImportPlanner
 import com.slukhayka.audiobooks.data.identity.ListenerIdentity
@@ -43,10 +45,10 @@ import com.slukhayka.audiobooks.data.facets.ContentLanguagePrefs
 import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
 import com.slukhayka.audiobooks.data.facets.orderContentLanguages
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
+import com.slukhayka.audiobooks.data.personbookmarks.PersonNewArrivals
 import com.slukhayka.audiobooks.data.privacy.NetworkPrivacy
 import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
 import com.slukhayka.audiobooks.data.privacy.RouteResolution
-import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
 import com.slukhayka.audiobooks.data.reviews.ReviewDeleteEvent
 import com.slukhayka.audiobooks.data.reviews.ReviewDeleteResult
 import com.slukhayka.audiobooks.data.reviews.ReviewSaveEvent
@@ -104,6 +106,8 @@ import com.slukhayka.audiobooks.data.ingest.SubmissionState
 import com.slukhayka.audiobooks.data.ingest.sharedSubmissionUrlOf
 import com.slukhayka.audiobooks.data.privacy.PacingPolicy
 import com.slukhayka.audiobooks.data.source.NewPipeChannelListFetcher
+import com.slukhayka.audiobooks.ui.screens.HomeCycleShelves
+import com.slukhayka.audiobooks.ui.screens.HomeProjections
 import com.slukhayka.audiobooks.ui.screens.SubmissionUiState
 import com.slukhayka.audiobooks.ui.catalog.catalogSessionCandidates
 import com.slukhayka.audiobooks.ui.catalog.hasUsableSourceSession
@@ -223,7 +227,22 @@ internal fun reviewWorkIdFor(editionId: String, workId: String?): String =
 
 // Phase 2.5 hotfix: flatMapLatest is @ExperimentalCoroutinesApi.
 @OptIn(ExperimentalCoroutinesApi::class)
-class MainViewModel(application: Application) : AndroidViewModel(application) {
+class MainViewModel @JvmOverloads constructor(
+    application: Application,
+    // #1240 — tests inject a recording seam; production uses the real player/gate.
+    private val explicitPlaybackAttempts: ExplicitPlaybackAttempts? = null,
+    // #1241 — a controlled delayed-adapter hook for the ownership tests. It
+    // suspends at the preparation/install boundary so a test can finish a newer
+    // gesture first; production passes null and pays nothing.
+    private val playbackPreparationHook: (suspend (attemptId: Long, bookId: String) -> Unit)? = null,
+    // #1241 — engine adapter: production passes null (real player); tests
+    // record installs without constructing ExoPlayer.
+    private val playbackInstallAdapter: (suspend (PlaybackInstallRequest) -> Unit)? = null,
+    // #1732 — terminal seam: called once per explicit attempt after it installs
+    // (true) or is superseded (false). Production passes null; the ownership
+    // test awaits it instead of sleeping a fixed "negative proof" window.
+    private val playbackAttemptSettled: ((attemptId: Long, installed: Boolean) -> Unit)? = null
+) : AndroidViewModel(application) {
 
     // Playback stack is application-scoped (see App.kt) so background playback
     // survives the Activity/ViewModel being destroyed by the system.
@@ -239,13 +258,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val libraryEntries: LibraryEntries = App.instance.libraryEntries
 
     /**
+     * ADR-0046 / #1286 — the reading-progress module. The screen reads its
+     * [com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.state]
+     * directly (ADR-0008): the active list and the yearly goal are computed
+     * inside the module from one snapshot, so the ViewModel no longer maps rows
+     * or refreshes two separate flows after every action.
+     */
+    val readingProgress: com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder =
+        App.instance.readingProgressRecorder
+
+    /**
      * ADR-0047 / #867 — the «Імпортоване» queue: rows whose origin the data does
      * not recover. It is a TEMPORARY home, not a second library: the listener
      * either confirms a row as personal or removes the link.
      */
     private val _importedEntries =
-        MutableStateFlow<List<com.slukhayka.audiobooks.data.db.LibraryEntryEntity>>(emptyList())
-    val importedEntries: StateFlow<List<com.slukhayka.audiobooks.data.db.LibraryEntryEntity>> =
+        MutableStateFlow<List<com.slukhayka.audiobooks.data.db.TriageRow>>(emptyList())
+    val importedEntries: StateFlow<List<com.slukhayka.audiobooks.data.db.TriageRow>> =
         _importedEntries.asStateFlow()
 
     /**
@@ -281,79 +310,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     com.slukhayka.audiobooks.data.entries.TrackedWorkPolicy.REASON_NO_IDENTITY
                 )
             }
-
-    /**
-     * #876 — «Мій рік»: the yearly reading goal, computed by the pure policy
-     * from every pass. Formats are reported separately: their units cannot be
-     * summed, and the goal counts PASSES, not pages or minutes.
-     */
-    private val _readingYear = MutableStateFlow<com.slukhayka.audiobooks.data.entries.YearlyReadingGoal?>(null)
-    val readingYear: StateFlow<com.slukhayka.audiobooks.data.entries.YearlyReadingGoal?> =
-        _readingYear.asStateFlow()
-
-    /**
-     * #876 — the passes the listener can still move: the progress-entry surface
-     * shows exactly these, and every action goes through the policy.
-     */
-    private val _activeReadings =
-        MutableStateFlow<List<com.slukhayka.audiobooks.data.entries.Readthrough>>(emptyList())
-    val activeReadings: StateFlow<List<com.slukhayka.audiobooks.data.entries.Readthrough>> =
-        _activeReadings.asStateFlow()
-
-    fun refreshActiveReadings() {
-        viewModelScope.launch(Dispatchers.IO) {
-            _activeReadings.value = runCatching {
-                with(com.slukhayka.audiobooks.data.db.ReadthroughMapping) {
-                    App.instance.audiobookDao.allReadthroughs()
-                        .mapNotNull { it.toModelOrNull() }
-                        .filter {
-                            it.state == com.slukhayka.audiobooks.data.entries.ReadingState.IN_PROGRESS ||
-                                it.state == com.slukhayka.audiobooks.data.entries.ReadingState.PLANNED
-                        }
-                        .sortedByDescending { it.startedAt }
-                }
-            }.getOrDefault(emptyList())
-        }
-    }
-
-    /** One journal record; the queue is re-read so the surface shows the truth. */
-    fun recordReadingProgress(readthroughId: String, value: Int) {
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                App.instance.readingProgressRecorder.record(
-                    readthroughId,
-                    at = System.currentTimeMillis(),
-                    value = value
-                )
-            }
-            refreshActiveReadings()
-            refreshReadingYear()
-        }
-    }
-
-    fun finishReading(readthroughId: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                App.instance.readingProgressRecorder.finish(
-                    readthroughId,
-                    at = System.currentTimeMillis()
-                )
-            }
-            refreshActiveReadings()
-            refreshReadingYear()
-        }
-    }
-
-    fun refreshReadingYear(year: Int = java.time.LocalDate.now().year) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _readingYear.value = runCatching {
-                val passes = with(com.slukhayka.audiobooks.data.db.ReadthroughMapping) {
-                    App.instance.audiobookDao.allReadthroughs().mapNotNull { it.toModelOrNull() }
-                }
-                com.slukhayka.audiobooks.data.entries.ReadingProgressPolicy.yearlyGoal(passes, year)
-            }.getOrNull()
-        }
-    }
 
     /**
      * spec-52 US28 / #1174 — the books the listener abandoned. One flow feeds
@@ -416,6 +372,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /**
+     * ADR-0063 §3 — the explicit «Зберегти в бібліотеку» action from the book
+     * page. A technical materialization becomes a personal link; a personal
+     * one is a no-op (favourite/createdAt/download state survive).
+     */
+    fun saveToLibrary(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { libraryEntries.saveToLibrary(bookId) }
+                .onFailure { android.util.Log.w("MainViewModel", "saveToLibrary failed for $bookId", it) }
+        }
+    }
+
+    /**
      * One explicit triage action; the queue is re-read afterwards, so the
      * subsection reflects what the listener actually decided.
      */
@@ -435,23 +403,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Spec-25 (#171): the lazy series-universe resolution over the curated assets.
     val seriesUniverses: SeriesUniverses = App.instance.seriesUniverses
 
-    // Авто-сід медіатеки (spec `2026-09-10-remove-4read-source`): the bounded
-    // verified catalogue pass, same module field idiom as the probes above.
-    val librarySeeder: com.slukhayka.audiobooks.data.catalog.LibrarySeeder = App.instance.librarySeeder
-
-    /**
-     * Один обмежений прохід на добу: каталог → перевірка стріму → імпорт.
-     * Від'єднаний, ніколи не блокує Огляд; throttle по SharedPreferences.
-     */
-    fun seedLibraryIfDue() {
-        val prefs = App.instance.getSharedPreferences("library_seeder", android.content.Context.MODE_PRIVATE)
-        val now = System.currentTimeMillis()
-        if (now - prefs.getLong("last_run_at", 0L) < 24 * 60 * 60 * 1000L) return
-        prefs.edit().putLong("last_run_at", now).apply()
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching { librarySeeder.seedOnce() }
-        }
-    }
     // Spec-42 #431: shared metadata store for verified profile publish
     val sharedMetaStore: FirestoreBookMetaStore? = App.instance.sharedMetaStore
     val playerManager: AudioPlayerManager = App.instance.playerManager
@@ -467,7 +418,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val updateChecker: UpdateChecker = App.instance.updateChecker
 
     val playerState: StateFlow<PlayerState> = playerManager.playerState
+
+    /**
+     * #1705 — the composition root's only question about playback: is there a
+     * book the mini player can draw?
+     *
+     * The root used to collect [playerState] itself, and that state gets a new
+     * value every second while audio plays. Every tick invalidated the whole
+     * `AudiobookApp` composition, so the Scaffold's `bottomBar` slot (the bar
+     * plus the navigation bar) could not skip. This derived flow changes only
+     * when the book's presence changes, not when its position does.
+     */
+    val hasPlayerBook: StateFlow<Boolean> = playerState
+        .map { it.currentBook != null }
+        .distinctUntilChanged()
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            playerState.value.currentBook != null
+        )
+
     private val automaticPlaybackRecoveryGate = AutomaticPlaybackRecoveryGate()
+
+    /**
+     * #1240 — the shared start seam of an explicit playback gesture: it clears
+     * the previous failure and sets the automatic-recovery allowance for the
+     * intent, so a new door cannot skip one of them.
+     */
+    private val playbackStartSeam: ExplicitPlaybackAttempts =
+        explicitPlaybackAttempts ?: ExplicitPlaybackAttempts(
+            recoveryGate = automaticPlaybackRecoveryGate,
+            clearPreviousFailure = { playerManager.clearPlaybackFailureForNewAttempt() }
+        )
+
+    /**
+     * #1732 — the terminal half of the ownership seam: an explicit attempt is
+     * settled exactly once, on the thread that made its install decision. Tests
+     * await this instead of proving absence with [Thread.sleep]; production has
+     * no observer and pays one null check.
+     */
+    private fun settlePlaybackAttempt(
+        attempt: ExplicitPlaybackAttempts.Attempt?,
+        installed: Boolean
+    ) {
+        if (attempt != null) playbackAttemptSettled?.invoke(attempt.id, installed)
+    }
 
     // Closing the mini player hides the bar WITHOUT forgetting the book: the
     // listening position stays, playback merely pauses. Audio starting again
@@ -890,6 +885,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** Spec-53 T10 — pure check the sheet uses to offer the channel card's door. */
     fun isChannelLink(url: String): Boolean = listenerSubmissionFlow.isChannelLink(url)
 
+    /** #1487 — a known-source book page has no engine preview; the sheet hides its button. */
+    fun isKnownSourceLink(url: String): Boolean = listenerSubmissionFlow.isKnownSourceLink(url)
+
     /** Spec-53 T8 — the visible offline queue of pasted links. */
     private val _deferredSubmissions = MutableStateFlow<List<SubmissionState>>(emptyList())
     val deferredSubmissions: StateFlow<List<SubmissionState>> = _deferredSubmissions.asStateFlow()
@@ -979,13 +977,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // Spec-53 T3 — no autoplay: the sheet offers one
                     // explicit «Слухати зараз» action; the awaiting badge
                     // keeps the promise visible until then.
-                    _submissionState.value = SubmissionUiState.Imported(start.publishable)
+                    _submissionState.value = SubmissionUiState.Imported(
+                        start.publishable,
+                        start.knownSource,
+                        start.probedPage
+                    )
                 }
             }
             is ListenerSubmissionFlow.Start.MetadataPublished ->
                 _submissionState.value = SubmissionUiState.MetadataPublished
             is ListenerSubmissionFlow.Start.Refused ->
-                _submissionState.value = SubmissionUiState.Refused(start.reason)
+                _submissionState.value =
+                    SubmissionUiState.Refused(start.reason, start.browserUrl)
             is ListenerSubmissionFlow.Start.Deferred ->
                 _submissionState.value = SubmissionUiState.Deferred
             is ListenerSubmissionFlow.Start.ChannelLink ->
@@ -1367,6 +1370,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _cacheSizeFormatted = MutableStateFlow("0 МБ")
     val cacheSizeFormatted: StateFlow<String> = _cacheSizeFormatted.asStateFlow()
 
+    // #1163 — the private copies of local imports (`filesDir/local_imports`) are
+    // app data too, but they are NOT downloads: the storage screen shows them as
+    // their own figure instead of letting a downloads-only number answer «куди
+    // поділися 3,23 ГБ» with «0 МБ».
+    private val _localCopyBytes = MutableStateFlow(0L)
+    val localCopyBytes: StateFlow<Long> = _localCopyBytes.asStateFlow()
+
+    /**
+     * #1163 — the books whose audio is readable on disk right now, re-read from
+     * the filesystem (not from the historical `isDownloaded` flag) so the
+     * library's «На пристрої» filter and the storage screen agree on one fact.
+     * Initial value is empty: the filter shows nothing until the first read
+     * lands, never a book whose copy may be gone.
+     */
+    private val _onDeviceBookIds = MutableStateFlow<Set<String>>(emptySet())
+
     // Spec-40: these fields must be initialized before the init block starts
     // identity resolution on Dispatchers.IO. Keeping them below init made a
     // fast local-only ensure() race the constructor and write into a field
@@ -1390,6 +1409,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         refreshCacheSize()
+        // ADR-0061 §2 / #1185 T4 — once per device: free the private copies an
+        // older version wrote where the tree grant is alive and the bytes still
+        // match. Quiet on every later launch (and when nothing was freed).
+        viewModelScope.launch(Dispatchers.IO) {
+            val report = try {
+                libraryImport.migrateLocalCopiesOnce()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "local copy migration failed", e)
+                null
+            }
+            if (report != null && report.changed) {
+                _importMessage.value = OutcomeMessages.localCopyMigration(report)
+            }
+        }
         // #916 — the local social facts feed the «Друзі» screen directly. The
         // collector starts here, before any screen exists, so the feed is
         // populated on the first show instead of flashing an empty state.
@@ -1511,11 +1546,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * #1163 — the three facts only the filesystem can answer, read together so
+     * the storage card, the destructive confirmation and the library's «На
+     * пристрої» filter can never quote three different moments:
+     *
+     * - the SOURCE downloads' bytes;
+     * - the private local copies' bytes (their own figure, never added to the
+     *   downloads' — the owner decision of 2026-10-11 names them separately);
+     * - the books that really have a readable copy on disk.
+     */
     fun refreshCacheSize() {
         viewModelScope.launch(Dispatchers.IO) {
-            val bytes = offlineDownloads.getAudioCacheSizeBytes()
-            _cacheSizeBytes.value = bytes
-            _cacheSizeFormatted.value = formatBytes(bytes)
+            val usage = offlineDownloads.getAppStorageUsage()
+            _cacheSizeBytes.value = usage.downloadedBytes
+            _cacheSizeFormatted.value = formatBytes(usage.downloadedBytes)
+            _localCopyBytes.value = usage.localCopyBytes
+            _onDeviceBookIds.value = offlineDownloads.bookIdsOnDevice()
         }
     }
 
@@ -1526,65 +1573,36 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Wayfinder #39: the unified Медіатека list — every book with its playback
-    // state and chapter-derived metrics. Filtering and sorting happen in the
-    // screen via the pure filterAndSortLibrary; this flow only combines.
-    val libraryBooks: StateFlow<List<com.slukhayka.audiobooks.ui.library.LibraryBook>> = combine(
-        libraryEntries.allBooks,
-        libraryEntries.recentProgress,
-        libraryEntries.allChapters
-    ) { books, progress, chapters ->
-        com.slukhayka.audiobooks.ui.library.buildLibraryBooks(books, progress, chapters.groupBy { it.bookId })
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    /**
-     * #1066 — whether [libraryBooks] has delivered its FIRST real value yet.
-     *
-     * The list starts as `emptyList()` and fills in asynchronously, so the
-     * screen cannot tell "the library is empty" from "it has not been read
-     * yet" — it showed the empty state, then the books appeared. That flash is
-     * the same transition that makes a lazy list change size while Compose is
-     * measuring it, which is the crash this ticket is about
-     * (`IndexOutOfBoundsException` inside `LazyListMeasure`).
-     *
-     * The flag follows the existing [isSeriesLoading] / [isGenreLoading] shape:
-     * a plain boolean companion to the list, consumed by the screen.
-     */
-    private val _isLibraryLoaded = MutableStateFlow(false)
-    val isLibraryLoaded: StateFlow<Boolean> = _isLibraryLoaded.asStateFlow()
-
-    init {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            // One read just to learn that the data EXISTS — the flow itself
-            // still drives the list. Flips once, and stays true.
-            libraryEntries.allBooks.first()
-            _isLibraryLoaded.value = true
-        }
+    // Wayfinder #39: the unified Медіатека list, moved behind the #1575
+    // composition seam (ADR-0008): the module owns the combine, the #1066
+    // "loaded" flag and the ADR-0042 availability projection, so the ViewModel
+    // no longer inlines them and screens keep receiving flows as parameters.
+    private val libraryComposition by lazy {
+        com.slukhayka.audiobooks.ui.library.LibraryCompositionModule(
+            scope = viewModelScope,
+            allBooks = libraryEntries.allBooks,
+            recentProgress = libraryEntries.recentProgress,
+            allChapters = libraryEntries.allChapters,
+            onDeviceBookIds = _onDeviceBookIds,
+            availabilityVerdicts = App.instance.libraryAvailabilityStore.verdicts,
+            refusedSources = App.instance.sourceAudioRefusal.refusedSources
+        )
     }
 
-    // ADR-0042 §1 (spec-56 T1) — the availability state per Work, a pure
-    // projection of the book's own source, the persisted verdicts and the
-    // refusal set. Clean books (available audio) are absent from the map, so
-    // the card never gets noise.
-    val libraryAvailability: StateFlow<Map<String, AvailabilityView>> = combine(
-        libraryBooks,
-        App.instance.libraryAvailabilityStore.verdicts,
-        App.instance.sourceAudioRefusal.refusedSources
-    ) { books, verdicts, refused ->
-        buildMap {
-            for (entry in books) {
-                val book = entry.book
-                // A local copy or an offline download always plays.
-                if (entry.isLocal || book.isDownloaded) continue
-                val mergeKey = book.mergeKey
-                if (mergeKey.isBlank()) continue
-                val available = LibraryAvailabilityPolicy.hasAvailableAudio(book.sourceUrl, refused)
-                val refusedId = LibraryAvailabilityPolicy.refusedSourceId(book.sourceUrl, refused)
-                LibraryAvailabilityPolicy.viewFor(available, refusedId, verdicts[mergeKey])
-                    ?.let { view -> put(mergeKey, view) }
-            }
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+    /** The unified list; filtering and sorting stay pure in the screen. */
+    val libraryBooks: StateFlow<List<com.slukhayka.audiobooks.ui.library.LibraryBook>>
+        get() = libraryComposition.books
+
+    /** #1066 — whether the list has delivered its FIRST real value yet. */
+    val isLibraryLoaded: StateFlow<Boolean> get() = libraryComposition.isLoaded
+
+    /**
+     * ADR-0042 §1 (spec-56 T1) — the availability state per Work, a pure
+     * projection of the book's own source, the persisted verdicts and the
+     * refusal set. Clean books (available audio) are absent from the map.
+     */
+    val libraryAvailability: StateFlow<Map<String, AvailabilityView>>
+        get() = libraryComposition.availability
 
     // Wayfinder #62 — the rule-based personalized Listen: local-only prefs
     // (order / hidden / dismissed) feed the pure ListenComposer, whose output
@@ -1596,20 +1614,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // (it would read the JVM default null).
     private val listenPrefs = com.slukhayka.audiobooks.ui.library.ListenPrefsStore(getApplication())
     private val _listenPrefsVersion = MutableStateFlow(0)
+    // #1478 — the shelf copy is locale-dependent; MainActivity re-creates on a
+    // language change and bumps this so the composer rebuilds its copy.
+    private val _localeVersion = MutableStateFlow(0)
     private val _nextInSeries = MutableStateFlow<AudiobookEntity?>(null)
     val nextInSeries: StateFlow<AudiobookEntity?> = _nextInSeries.asStateFlow()
+
+    // #1704 review: a block composer that has published once can legitimately
+    // produce zero blocks (every book dismissed / no rule matches). The UI must
+    // distinguish that from the pre-first-emission `emptyList()` initial value.
+    private val _listenBlocksReady = MutableStateFlow(false)
+    val listenBlocksReady: StateFlow<Boolean> = _listenBlocksReady.asStateFlow()
 
     val listenBlocks: StateFlow<List<com.slukhayka.audiobooks.ui.library.ListenComposer.Block>> = combine(
         libraryBooks,
         nextInSeries,
-        _listenPrefsVersion
-    ) { books, seriesBook, _ ->
+        libraryEntries.finishedWorkIds,
+        _listenPrefsVersion,
+        _localeVersion
+    ) { books, seriesBook, finishedWorkIds, _, _ ->
+        _listenBlocksReady.value = true
         com.slukhayka.audiobooks.ui.library.ListenComposer.compose(
             library = books,
             nextInSeries = seriesBook,
-            prefs = listenPrefs
+            prefs = listenPrefs,
+            finishedWorkIds = finishedWorkIds,
+            // #1478 — every shelf word comes from the STORED UI language
+            // (explicit choice wins over the device one), never from the
+            // composer itself.
+            copy = com.slukhayka.audiobooks.ui.library.ResourceListenCopy.forApp(getApplication())
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** #1478 — the «Наступна частина» caption of the next-in-series shelf card. */
+    fun listenPartCaption(book: com.slukhayka.audiobooks.ui.library.LibraryBook): String =
+        com.slukhayka.audiobooks.ui.library.ResourceListenCopy.forApp(getApplication())
+            .nextSeriesPartCaption(book)
+
+    /**
+     * #1478 — called by the Activity after every (re)create: an explicit UI
+     * language is pinned on the Activity on API < 33, so the composer's copy
+     * must be rebuilt when the language changes.
+     */
+    fun onUiLocaleApplied() {
+        _localeVersion.value++
+    }
 
     /** The blocks the user hid — the UI shows a restore row when all are hidden. */
     val hiddenListenBlocks: StateFlow<Set<com.slukhayka.audiobooks.ui.library.ListenComposer.BlockId>> =
@@ -1645,6 +1694,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** «Не цікаво» on a Listen card — local taste preference, reversible. */
     fun dismissListenBook(bookId: String) {
         listenPrefs.dismissBook(bookId)
+        _listenPrefsVersion.value++
+    }
+
+    /**
+     * #1703 — the snackbar's «Повернути»: the same local preference, reversed.
+     * The composer re-runs on the version bump, so the Work is back on its
+     * shelf immediately; nothing else was touched by the dismissal.
+     */
+    fun undismissListenBook(bookId: String) {
+        listenPrefs.undismissBook(bookId)
         _listenPrefsVersion.value++
     }
 
@@ -1789,6 +1848,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // catalogue union — a fresh challenge must surface the source's books
         // in «Увесь каталог» on the next Огляд visit.
         viewModelScope.launch(Dispatchers.IO) {
+            // #1722 — the browser just wrote and flushed its first-party jar;
+            // re-read the 4read session cookie on IO so the next play reuses
+            // it instead of paying a Binder call on the main thread.
+            runCatching { App.instance.streamCookieCache.refresh() }
             sourceCatalog.refreshSourceFeeds()
             sourceCatalog.refreshUnifiedCatalog()
             // ADR-0037 §6 (spec-49 T4) — the Source Watch scans the union
@@ -1945,7 +2008,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val track = playable.getOrNull(freshIndex)?.track
             when (
                 SmartRetryPolicy.decide(
-                    localFileReady = SmartRetryPolicy.localFileReady(track?.localFilePath),
+                    localAddressReady = SmartRetryPolicy.localAddressReady(track?.localFilePath, track?.url),
                     canReResolve = smartRetryMemo.canAttempt(bookId)
                 )
             ) {
@@ -2218,6 +2281,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (!selected.automaticRecovery) return
         _selectedWebSource.value = null
         _showFullPlayer.value = true
+        // #1722 — same refresh point as closeWebSource: the browser may have
+        // written a session even though the recovery verdict failed.
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { App.instance.streamCookieCache.refresh() }
+        }
         playerManager.reportRetryUnavailable()
     }
 
@@ -2483,28 +2551,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // spec-28 (#190): the «Колекції» index — every matched smart collection
-    // with its books. Same seam as the series/top-100/people index: one
-    // read-only StateFlow plus an open/close pair. The list is a snapshot of
-    // the matched collections at open time; the module flow
-    // ([SourceCatalog.smartCollections]) recomputes them on every union
-    // refresh, so reopening after a refresh shows the fresh list. Tapping a
-    // book resolves-and-plays exactly like the inline Огляд cards.
-    private val _collectionsIndexOpen = MutableStateFlow(false)
-    val collectionsIndexOpen: StateFlow<Boolean> = _collectionsIndexOpen.asStateFlow()
-
-    private val _collectionsIndex =
-        MutableStateFlow<List<com.slukhayka.audiobooks.data.collections.CollectionMatcher.MatchedCollection>>(emptyList())
-    val collectionsIndex: StateFlow<List<com.slukhayka.audiobooks.data.collections.CollectionMatcher.MatchedCollection>> =
-        _collectionsIndex.asStateFlow()
+    // with its books. Same open/close seam as the series/top-100/people index;
+    // since #1606 the list is LIVE while the screen is open (the Огляд already
+    // collects the same flow), instead of a snapshot frozen at open time.
+    // Tapping a book resolves-and-plays exactly like the inline Огляд cards.
+    private val collectionsIndexModule by lazy {
+        com.slukhayka.audiobooks.ui.collections.CollectionsIndexModule(
+            matchedCollections = sourceCatalog.smartCollections,
+            scope = viewModelScope
+        )
+    }
+    val collectionsIndexOpen: StateFlow<Boolean> get() = collectionsIndexModule.isOpen
+    val collectionsIndex:
+        StateFlow<List<com.slukhayka.audiobooks.data.collections.CollectionMatcher.MatchedCollection>>
+        get() = collectionsIndexModule.collections
 
     fun openCollectionsIndex() {
-        _collectionsIndex.value = sourceCatalog.smartCollections.value
-        _collectionsIndexOpen.value = true
+        collectionsIndexModule.open()
     }
 
     fun closeCollectionsIndex() {
-        _collectionsIndexOpen.value = false
-        _collectionsIndex.value = emptyList()
+        collectionsIndexModule.close()
     }
 
     // spec-28 (#194): the «Завантаження та пам'ять» destination — the
@@ -2531,8 +2598,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _privacySettingsOpen = MutableStateFlow(false)
     val privacySettingsOpen: StateFlow<Boolean> = _privacySettingsOpen.asStateFlow()
 
-    private val _privacyPrefs = MutableStateFlow(App.instance.privacySettings.load())
-    val privacyPrefs: StateFlow<PrivacyPrefs> = _privacyPrefs.asStateFlow()
+    // #1723 — the startup batch owns the read; this screen renders the default
+    // (Direct/DoH-on) until it lands and then follows the published value.
+    val privacyPrefs: StateFlow<PrivacyPrefs> = App.instance.privacyPrefs
 
     /** The rejection reason of the last save attempt; null when clean. */
     private val _privacyError = MutableStateFlow<String?>(null)
@@ -2616,6 +2684,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun openAchievements() {
         _achievementsOpen.value = true
+        // #1574 — opening the screen is an explicit pull: changes outside the
+        // playback checkpoints (bookmarks, files, curated lists) must not wait
+        // for the next listening write. IO: the refresh is a whole-database
+        // pass, never a main-thread one.
+        viewModelScope.launch(Dispatchers.IO) { App.instance.achievements.refresh() }
         // #705 (T7) — the screen offers the showcase's publish action only when
         // there is a curator profile for it to appear on, and that is read from
         // the store. Asking on open is what makes the answer current instead of
@@ -2637,6 +2710,42 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .stateIn(
                 viewModelScope, SharingStarted.WhileSubscribed(5000),
                 com.slukhayka.audiobooks.data.achievements.AchievementBoard.of(emptyList(), emptySet())
+            )
+
+    /**
+     * F18 — the snapshot the «Досягнення» registry reads its status lines from.
+     *
+     * The same flow the evaluator and the title use, so a row can only show the
+     * number the award itself is judged by (ADR-0014). Kept off the main thread
+     * for the reason #1583 moved the evaluator: the snapshot is arithmetic over
+     * the whole listening history.
+     */
+    val achievementProgress:
+        StateFlow<com.slukhayka.audiobooks.data.achievements.AchievementProgress> =
+        App.instance.achievements.snapshot
+            .stateIn(
+                viewModelScope, SharingStarted.WhileSubscribed(5000),
+                com.slukhayka.audiobooks.data.achievements.AchievementProgress()
+            )
+
+    /**
+     * F18 — the current-week strip: the listener's local week, Monday first,
+     * plus the run of days that is still alive. [AchievementPresentation.week]
+     * is pure, so the only thing that can be wrong here is the date.
+     */
+    val achievementWeek:
+        StateFlow<com.slukhayka.audiobooks.ui.achievements.AchievementPresentation.Week> =
+        App.instance.achievementDays
+            .map { days ->
+                com.slukhayka.audiobooks.ui.achievements.AchievementPresentation.week(
+                    days,
+                    java.time.LocalDate.now(java.time.ZoneId.systemDefault()),
+                )
+            }
+            .flowOn(kotlinx.coroutines.Dispatchers.Default)
+            .stateIn(
+                viewModelScope, SharingStarted.WhileSubscribed(5000),
+                com.slukhayka.audiobooks.ui.achievements.AchievementPresentation.Week.Empty
             )
 
     /** The title, derived from the same snapshot the evaluator uses. */
@@ -2834,8 +2943,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             is RouteResolution.Invalid -> _privacyError.value = resolution.reason
             is RouteResolution.Ok -> {
                 App.instance.privacySettings.save(prefs)
-                TransportPrivacy.install(prefs)
-                _privacyPrefs.value = prefs
+                App.instance.applyPrivacyPrefs(prefs)
                 _privacyError.value = null
             }
         }
@@ -3107,8 +3215,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun openSourceCategory(sourceId: String, genrePath: String, cursor: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
-            val kind = com.slukhayka.audiobooks.data.collective.CollectiveBlockKind.COLLECTIONS
-            val key = com.slukhayka.audiobooks.data.collective.collectiveBlockKey(sourceId, kind)
+            // #1238 — the key names the collection PAGE, so «до A» and «до B»
+            // of one Source coexist instead of overwriting one shared row.
+            val key = com.slukhayka.audiobooks.data.collective.collectiveGenreBlockKey(
+                sourceId,
+                genrePath
+            )
             val block = App.instance.collectiveFeedRefresh.observeExplicit(key) {
                 val fetched = sourceCatalog.collectiveGenreBlockFetch(sourceId, genrePath, cursor)
                 _categoryNextCursor.value = fetched.nextCursor
@@ -3437,6 +3549,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // over the next tab. Same close-on-tab-switch contract as its six
         // siblings above.
         closeSourceAudioRefusal()
+        // F18 — «Досягнення» is a settings destination too. Before its row
+        // existed the panel was unreachable from the UI, so nobody noticed it
+        // missing here: a tab switch must drop it like every sibling above.
+        closeAchievements()
         _selectedTab.value = tab
     }
 
@@ -3950,6 +4066,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             android.net.Uri.fromFile(java.io.File(localPath!!)).toString()
         } else trackUrl
 
+        // #1722 — the browser recovery just refreshed the WebView session;
+        // resolve the stream cookie on IO and hand the ready header to the
+        // install below. prepareChapter never touches CookieManager on main.
+        val streamCookieHeader = App.instance.streamCookieCache.refresh()
+
         return withContext(Dispatchers.Main) {
             coroutineScope {
                 val verdict = async(start = CoroutineStart.UNDISPATCHED) {
@@ -3968,7 +4089,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     initialChapterIndex = chapterIndex,
                     initialPositionSeconds = positionMs / 1000L,
                     autoPlay = true,
-                    expectedChapterStructureVersion = chapterStructureVersion
+                    expectedChapterStructureVersion = chapterStructureVersion,
+                    cookieHeader = streamCookieHeader
                 )
                 verdict.await().also { started ->
                     if (!started && playerState.value.currentBook?.id == bookId) {
@@ -4150,11 +4272,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshEmbeddingVectors() {
         if (!_embeddingPassInFlight.compareAndSet(false, true)) return
-        // #483 — a listener interaction with recommendations starts the one-time model install.
-        if (!modelInstaller.isInstalled()) ensureEmbeddingModel()
-        _recommendationsReady.value = false
         viewModelScope.launch(Dispatchers.IO) {
             try {
+                // #1723 — the two File.length() stats are disk reads; this
+                // function is called from the UI, so the probe runs here on IO
+                // rather than before the launch. #483 — a listener interaction
+                // with recommendations starts the one-time model install.
+                if (!modelInstaller.isInstalled()) ensureEmbeddingModel()
+                _recommendationsReady.value = false
                 // #484 — the pool is the PERSISTENT Room catalogue, not the
                 // ephemeral union: suggestions are stable across sessions and
                 // cover the whole library. Priority: library works first,
@@ -4305,8 +4430,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
-        if (modelInstaller.isInstalled()) {
-            _embeddingModelState.value = com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed
+        // #1723 — two File.length() calls are disk stats; the constructor runs
+        // on main, so the probe moved to IO. The state flow starts NotInstalled
+        // (the honest answer until the stat answers) and the settings row
+        // updates as soon as it does.
+        viewModelScope.launch(Dispatchers.IO) {
+            if (modelInstaller.isInstalled()) {
+                _embeddingModelState.value =
+                    com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed
+            }
         }
     }
 
@@ -4486,6 +4618,84 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }.debounce(1_000L).flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // #1743 — the Огляд projections that depend only on data, never on scroll.
+    // They used to run in `remember { … }` on the composition thread; a
+    // catalogue refresh landing during the first scroll recomputed the whole
+    // projection on main and caught two 370–390 ms frames. The builders stay
+    // pure; this seam moves them to Dispatchers.Default and hands the screen
+    // already-projected lists. `stateIn` keeps the previous value while a new
+    // one is computed, so a refresh neither blanks a shelf nor adds a spinner;
+    // the initial value is the same empty projection the screen starts with.
+    private val homeProjections = HomeProjections()
+
+    private data class HomePeopleNewArrivalsInputs(
+        val bookmarks: List<com.slukhayka.audiobooks.data.db.PersonBookmarkEntity>,
+        val works: List<com.slukhayka.audiobooks.data.db.WorkEntity>,
+        val editions: List<com.slukhayka.audiobooks.data.db.EditionEntity>,
+        val unifiedCatalog: List<GlobalSearchResult>,
+        val libraryEntries: List<com.slukhayka.audiobooks.data.db.LibraryEntryEntity>
+    )
+
+    private data class HomeCycleInputs(
+        val books: List<com.slukhayka.audiobooks.data.db.AudiobookEntity>,
+        val progress: List<com.slukhayka.audiobooks.data.db.PlaybackProgressEntity>,
+        val works: List<com.slukhayka.audiobooks.data.db.WorkEntity>,
+        val recommendations: List<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Recommendation>
+    )
+
+    private val homePeopleNewArrivalsInputs = combine(
+        personBookmarks.allBookmarks(),
+        sourceCatalog.discoverableWorks,
+        sourceCatalog.allEditions,
+        sourceCatalog.unifiedCatalog,
+        sourceCatalog.allLibraryEntries
+    ) { bookmarks, works, editions, catalog, entries ->
+        HomePeopleNewArrivalsInputs(bookmarks, works, editions, catalog, entries)
+    }
+
+    val peopleNewArrivals: StateFlow<PersonNewArrivals.CatalogProjection> =
+        homePeopleNewArrivalsInputs
+            .map { input ->
+                homeProjections.peopleNewArrivals(
+                    bookmarks = input.bookmarks,
+                    works = input.works,
+                    editions = input.editions,
+                    unifiedCatalog = input.unifiedCatalog,
+                    libraryEntries = input.libraryEntries
+                )
+            }
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                PersonNewArrivals.CatalogProjection(emptyList(), emptySet())
+            )
+
+    val homeDurationBooks: StateFlow<DurationBooks> = libraryEntries.allBooks
+        .map { books -> homeProjections.durationBooks(books) }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            DurationBooks(short = emptyList(), long = emptyList())
+        )
+
+    val homeCycleShelves: StateFlow<HomeCycleShelves> = combine(
+        libraryEntries.allBooks,
+        libraryEntries.recentProgress,
+        sourceCatalog.discoverableWorks,
+        recommendedBooks
+    ) { books, progress, works, recommendations ->
+        HomeCycleInputs(books, progress, works, recommendations)
+    }
+        .map { input ->
+            homeProjections.cycleShelves(
+                libraryBooks = input.books,
+                progress = input.progress,
+                works = input.works,
+                recommendations = input.recommendations
+            )
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeCycleShelves())
 
     private val pendingRecommendationBookId = java.util.concurrent.atomic.AtomicReference<String?>(null)
 
@@ -4690,6 +4900,67 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /**
+     * #1230 — whether the open book is a LOCAL book whose files no longer
+     * read, plus the facts the recovery panel needs. This is the one read
+     * path for the local-first door order; the network is never first here.
+     *
+     * The DAO rows are the truth: a local Source exists, its tracks have no
+     * readable locator, and no other (non-refused) Source can play the
+     * Edition. ADR-0061/T2: a by-reference track's address is a SAF document
+     * URI, and it counts as present only while the document really opens —
+     * a revoked grant must surface here as «відновити доступ», not hide
+     * behind the scheme.
+     */
+    val bookLocalAccess: StateFlow<LocalAccessRecovery.State?> = _selectedBookId
+        .flatMapLatest { bookId ->
+            if (bookId == null) flowOf(null as LocalAccessRecovery.State?)
+            else {
+                val dao = App.instance.audiobookDao
+                val refused = App.instance.sourceAudioRefusal.refusedSources
+                combine(
+                    flow { emit(dao.getAudiobookById(bookId)) },
+                    dao.getSourcesForBook(bookId),
+                    dao.getTracksForBook(bookId),
+                    refused
+                ) { book, sources, tracks, refusedSet ->
+                    val localIds = sources.filter { it.type == "local" }.map { it.id }.toSet()
+                    val localTracks = tracks.filter { it.sourceId in localIds }
+                    val otherPlayable = sources.any { source ->
+                        source.type != "local" && source.type !in refusedSet &&
+                            tracks.any { it.sourceId == source.id && it.url.startsWith("http") }
+                    }
+                    LocalAccessRecovery.stateOf(
+                        localBook = localIds.isNotEmpty(),
+                        hasKnownFolder = !book?.sourceTreeUri.isNullOrBlank(),
+                        localTracks = localTracks.map {
+                            LocalAccessRecovery.LocalTrackAddress(it.localFilePath, it.url)
+                        },
+                        isLocalFileReady = SmartRetryPolicy::localFileReady,
+                        isDocumentReadable = ::isLocalDocumentReadable,
+                        otherPlayableSource = otherPlayable
+                    )
+                }
+            }
+        }
+        // The readiness probe opens every local document until one fails; on the
+        // main thread that is one binder round-trip per track per emission, so
+        // the whole transform runs on IO — only the resulting State is observed.
+        .flowOn(Dispatchers.IO)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * #1185/T2 — does a by-reference track's SAF document really open? The
+     * recovery panel reflects a revoked grant, so this asks the resolver for
+     * the stream and closes it at once: no bytes are read, only readability is
+     * proven. A failing provider counts as unreadable — the honest answer.
+     */
+    private fun isLocalDocumentReadable(address: String): Boolean = try {
+        App.instance.contentResolver.openInputStream(android.net.Uri.parse(address))?.use { true } ?: false
+    } catch (e: Exception) {
+        false
+    }
 
     /** Whether the open book is on the Source Watch (ADR-0037 §6). */
     val bookWatched: StateFlow<Boolean> = _selectedBookId
@@ -5264,6 +5535,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         chapterId: String? = null
     ) {
         withNarrationSwitchConfirmation(narrationSwitchIdentity(book)) {
+            val attempt = if (autoPlay) {
+                playbackStartSeam.begin(book.id, ExplicitPlaybackAttempts.Kind.RESUME)
+            } else {
+                null
+            }
             if (autoPlay && pendingRecommendationBookId.compareAndSet(book.id, null)) {
                 recommendationPersonalization.recordPlaybackStart()
             }
@@ -5273,7 +5549,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 autoPlay = autoPlay,
                 forceRelisten = false,
                 preferredSource = preferredSource,
-                chapterId = chapterId
+                chapterId = chapterId,
+                attempt = attempt
             )
         }
     }
@@ -5282,8 +5559,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // position 0, logged as RELISTEN, no smart-rewind of a stale pause marker.
     fun relistenBook(book: AudiobookEntity) {
         withNarrationSwitchConfirmation(narrationSwitchIdentity(book)) {
-            automaticPlaybackRecoveryGate.arm(book.id)
-            startAudiobookPlayback(book, chapterIndex = null, autoPlay = true, forceRelisten = true)
+            val attempt = playbackStartSeam.begin(book.id, ExplicitPlaybackAttempts.Kind.RELISTEN)
+            startAudiobookPlayback(
+                book,
+                chapterIndex = null,
+                autoPlay = true,
+                forceRelisten = true,
+                attempt = attempt
+            )
         }
     }
 
@@ -5293,7 +5576,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         autoPlay: Boolean,
         forceRelisten: Boolean,
         preferredSource: SourceEntity? = null,
-        chapterId: String? = null
+        chapterId: String? = null,
+        attempt: ExplicitPlaybackAttempts.Attempt? = null
     ) {
         viewModelScope.launch(Dispatchers.IO) {
             startAudiobookPlaybackNow(
@@ -5302,7 +5586,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 autoPlay = autoPlay,
                 forceRelisten = forceRelisten,
                 preferredSource = preferredSource,
-                chapterId = chapterId
+                chapterId = chapterId,
+                attempt = attempt
             )
         }
     }
@@ -5313,9 +5598,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         autoPlay: Boolean,
         forceRelisten: Boolean,
         preferredSource: SourceEntity? = null,
-        chapterId: String? = null
+        chapterId: String? = null,
+        attempt: ExplicitPlaybackAttempts.Attempt? = null
     ) {
-            if (autoPlay) automaticPlaybackRecoveryGate.beginAttempt(book.id)
             var chapterStructureVersion = playerManager.chapterStructureVersion(book.id)
             val updatedBook = libraryEntries.getBookSync(book.id) ?: book
             // ADR-0007: the chapter→track pairing rides the same fetch — the
@@ -5328,7 +5613,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Code-review LOW: if the book was deleted while this IO fetch was
             // in flight (e.g. deleteBook on another screen), do not resurrect
             // playback for it.
-            if (libraryEntries.getBookSync(updatedBook.id) == null) return
+            if (libraryEntries.getBookSync(updatedBook.id) == null) {
+                settlePlaybackAttempt(attempt, installed = false)
+                return
+            }
             // Spec-49 T2b — player preparation asks the replacement mapping
             // once per touch: resume/auto-play of a refused-only (or
             // sourceless) book self-heals through the same resolver the card
@@ -5336,12 +5624,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // door (progress carries on narrator agreement — T3). A miss or
             // a failure keeps the honest path below; an explicit source
             // choice is always respected, never mapped over.
+            //
+            // #1230 — a local book is excluded from that automatic mapping:
+            // its first «інше джерело» is another file on the device, and the
+            // book page offers that recovery before any network search. The
+            // row is read here so the local provenance is a fact, not a guess
+            // from a blank sourceUrl.
+            val hasLocalSource = App.instance.audiobookDao
+                .getSourcesForBookSync(updatedBook.id)
+                .any { it.type == "local" }
             var playbackBook = updatedBook
             try {
                 playbackReplacementMapping.mapIfNeeded(
                     book = playbackBook,
                     playableEmpty = playable.isEmpty(),
-                    hasPreferredSource = preferredSource != null
+                    hasPreferredSource = preferredSource != null,
+                    localProvenance = hasLocalSource
                 )?.let { imported ->
                     if (libraryEntries.getBookSync(imported.id) != null) {
                         playbackBook = imported
@@ -5349,6 +5647,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            }
+            // #1241 — the replacement mapping may resolve to a different
+            // Edition; a record deleted meanwhile must not be installed later.
+            if (libraryEntries.getBookSync(playbackBook.id) == null) {
+                settlePlaybackAttempt(attempt, installed = false)
+                return
             }
             if (playbackBook.id != updatedBook.id) {
                 chapterStructureVersion = playerManager.chapterStructureVersion(playbackBook.id)
@@ -5367,7 +5671,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val chapters = playable.map { it.chapter }
             val requestedChapterId = chapterId ?: chapterIndex?.let { chapters.getOrNull(it)?.id }
             val requestedIndex = requestedChapterId?.let { id -> chapters.indexOfFirst { it.id == id } }
-            if (requestedIndex != null && requestedIndex < 0) return
+            if (requestedIndex != null && requestedIndex < 0) {
+                settlePlaybackAttempt(attempt, installed = false)
+                return
+            }
             // ADR-0051 (spec-43 T6): the cloud mirror lands BEFORE the resume
             // decision — «почав на телефоні — продовж тут». A forced
             // re-listen skips it: the explicit restart intent wins.
@@ -5393,19 +5700,56 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     progressChapterId = anchoredProgress?.chapterId
                 )
             }
-            // ADR-0007: the pause marker lives on the Edition's progress row;
-            // cleared so the same pause never rewinds twice.
-            if (progress?.lastPausedAtEpochMs != null) {
-                listeningState.updatePausedAt(playbackBook.id, null)
+            // #1241 — ownership covers the WHOLE preparation: a slower attempt
+            // that a newer gesture superseded must not consume the pause marker
+            // or install its queue.
+            if (!playbackStartSeam.shouldInstall(attempt)) {
+                settlePlaybackAttempt(attempt, installed = false)
+                return
             }
 
+            // #1241 — controlled delay point: the test adapter suspends here so
+            // a newer gesture can complete first; production has no hook.
+            playbackPreparationHook?.invoke(attempt?.id ?: -1L, playbackBook.id)
+
+            // #1722 — resolve the 4read session cookie on IO and hand the
+            // ready header to the install below. prepareChapter/play must never
+            // call CookieManager on the main thread.
+            val streamCookieHeader = App.instance.streamCookieCache.refresh()
+
             withContext(Dispatchers.Main) {
+                // #1241 — re-check on the install thread: a newer gesture may
+                // have won while the preparation finished.
+                if (!playbackStartSeam.shouldInstall(attempt)) {
+                    settlePlaybackAttempt(attempt, installed = false)
+                    return@withContext
+                }
+                // #1241 — the pause marker is consumed only by the winning
+                // attempt, and only AFTER its install; a loser never clears or
+                // restores it (same-Edition A1/A2 must not resurrect a marker
+                // the winner already read as null).
+                val pausedAt = progress?.lastPausedAtEpochMs
                 if (autoPlay) {
-                    // The Play gesture may have started while the previous
-                    // session still held an error. Clear that stale emission,
-                    // then arm recovery only for the attempt installed below.
-                    playerManager.clearPlaybackFailureForNewAttempt()
-                    automaticPlaybackRecoveryGate.arm(playbackBook.id)
+                    // #1240 — the failure was cleared at the gesture's start
+                    // seam; here the successful preparation arms recovery for
+                    // the attempt it actually installed. A superseded attempt
+                    // (#1241) cannot arm.
+                    attempt?.let { playbackStartSeam.armOnSuccess(it, playbackBook.id) }
+                }
+                val installRequest = PlaybackInstallRequest(
+                    bookId = playbackBook.id,
+                    attemptId = attempt?.id ?: -1L,
+                    chapterId = if (forceRelisten) chapters.firstOrNull()?.id else requestedChapterId ?: anchoredProgress?.chapterId,
+                    chapterIndex = resume.chapterIndex,
+                    positionSeconds = resume.positionSeconds,
+                    autoPlay = autoPlay,
+                    forceRelisten = forceRelisten
+                )
+                if (playbackInstallAdapter != null) {
+                    playbackInstallAdapter.invoke(installRequest)
+                    if (pausedAt != null) listeningState.updatePausedAt(playbackBook.id, null)
+                    settlePlaybackAttempt(attempt, installed = true)
+                    return@withContext
                 }
                 playerManager.loadAndPlayBook(
                     book = playbackBook,
@@ -5415,9 +5759,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     initialPositionSeconds = resume.positionSeconds,
                     autoPlay = autoPlay,
                     forceRelisten = forceRelisten,
-                    initialChapterId = if (forceRelisten) chapters.firstOrNull()?.id else requestedChapterId ?: anchoredProgress?.chapterId,
-                    expectedChapterStructureVersion = chapterStructureVersion
+                    initialChapterId = installRequest.chapterId,
+                    expectedChapterStructureVersion = chapterStructureVersion,
+                    cookieHeader = streamCookieHeader
                 )
+                if (pausedAt != null) listeningState.updatePausedAt(playbackBook.id, null)
+                settlePlaybackAttempt(attempt, installed = true)
             }
 
             // Asynchronously refresh metadata/cover in background without delaying audio startup
@@ -5449,6 +5796,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun jumpToBookmark(bookmark: BookmarkEntity) {
+        // #1240 — the gesture's start seam runs BEFORE the asynchronous
+        // preparation, so a stale error cannot stay on screen and the active-
+        // Edition seek path below cannot skip the clear/arm pair either.
+        val bookmarkAttempt =
+            playbackStartSeam.begin(bookmark.bookId, ExplicitPlaybackAttempts.Kind.BOOKMARK)
         viewModelScope.launch(Dispatchers.IO) {
             val chapterStructureVersion = playerManager.chapterStructureVersion(bookmark.bookId)
             val book = libraryEntries.getBookSync(bookmark.bookId)
@@ -5459,6 +5811,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // list has no join, so a dead entry looks alive and leads
                 // nowhere. Say it instead of returning in silence.
                 _bookmarkMessage.value = bookmarkUnavailableMessage
+                settlePlaybackAttempt(bookmarkAttempt, installed = false)
                 return@launch
             }
             // ADR-0007: chapter→track pairing rides the same fetch.
@@ -5497,11 +5850,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // (The preferred source is not resolved: the anchor the listener
             // chose IS the anchor — `(editionId, chapterIndex, time)` per the
             // ticket's «не вгадувати джерело чи розділ замість якоря».)
+            // #1241 — controlled delay point for the Bookmark door too.
+            playbackPreparationHook?.invoke(bookmarkAttempt.id, book.id)
+
             viewModelScope.launch(Dispatchers.Main) {
-                if (playerState.value.currentBook?.id != bookmark.bookId ||
-                    chapterStructureVersion != playerManager.chapterStructureVersion(bookmark.bookId)) {
-                    playerManager.clearPlaybackFailureForNewAttempt()
-                    automaticPlaybackRecoveryGate.arm(book.id)
+                // #1240 — arm only now that the anchor is installed; the stale
+                // error was cleared at the gesture, so no earlier emission can
+                // spend this allowance.
+                // #1241 — a slower Bookmark that a newer gesture superseded
+                // must not reopen the player or a deleted record.
+                if (!playbackStartSeam.shouldInstall(bookmarkAttempt)) {
+                    settlePlaybackAttempt(bookmarkAttempt, installed = false)
+                    return@launch
+                }
+                playbackStartSeam.armOnSuccess(bookmarkAttempt, bookmark.bookId)
+                val bookmarkLoads = playerState.value.currentBook?.id != bookmark.bookId ||
+                    chapterStructureVersion != playerManager.chapterStructureVersion(bookmark.bookId)
+                if (playbackInstallAdapter != null) {
+                    // #1241 — engine adapter: the bookmark install is recorded
+                    // without constructing a real player.
+                    playbackInstallAdapter.invoke(
+                        PlaybackInstallRequest(
+                            bookId = book.id,
+                            chapterId = anchorId,
+                            chapterIndex = anchorChapter,
+                            positionSeconds = anchorPosition,
+                            autoPlay = true,
+                            forceRelisten = false
+                        )
+                    )
+                    _showFullPlayer.value = true
+                    settlePlaybackAttempt(bookmarkAttempt, installed = true)
+                    return@launch
+                }
+                if (bookmarkLoads) {
                     playerManager.loadAndPlayBook(
                         book = book,
                         chapters = chapters,
@@ -5521,6 +5903,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     playerManager.play()
                 }
                 _showFullPlayer.value = true
+                settlePlaybackAttempt(bookmarkAttempt, installed = true)
             }
         }
     }
@@ -5555,7 +5938,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     val catalogDownloadProgress: StateFlow<Map<String, Float>> = combine(
         _catalogDownloadingKeys,
-        libraryEntries.allBooks
+        // ADR-0063 — a catalogue card may be a TECHNICAL materialization, so
+        // this mirror-facing flow reads every materialized book, not the
+        // personal shelf.
+        libraryEntries.materializedBooks
     ) { keys, books ->
         keys.associateWith { key ->
             books.firstOrNull { book ->
@@ -5569,7 +5955,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * CloudDone instead of the download affordance). Matched on the same
      * identity the union cards use — merge key, else source url.
      */
-    val catalogDownloadedKeys: StateFlow<Set<String>> = libraryEntries.allBooks
+    val catalogDownloadedKeys: StateFlow<Set<String>> = libraryEntries.materializedBooks
         .map { books ->
             books.asSequence()
                 .filter { it.isDownloaded }
@@ -5964,6 +6350,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * catalogue. Requires an explicit confirmation dialog in the UI.
      */
     fun deleteBook(bookId: String) {
+        // #1241 — only THIS record's in-flight preparation is invalidated.
+        playbackStartSeam.supersede(bookId)
         if (playerState.value.currentBook?.id == bookId) {
             playerManager.stopAndClear()
         }
@@ -5982,6 +6370,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * the action is reversible by re-adding the book.
      */
     fun removeFromLibrary(bookId: String) {
+        // #1241 — an in-flight preparation for this record must not resurrect it.
+        playbackStartSeam.supersede(bookId)
         if (playerState.value.currentBook?.id == bookId) {
             playerManager.stopAndClear()
         }
@@ -6003,6 +6393,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Local import failed", e)
                 _importMessage.value = "Не вдалося імпортувати файл"
+            } finally {
+                // #1163 — the new private copy IS the «На пристрої» proof, and
+                // the filesystem is not a Room table: without this read the
+                // filter would not see the book until the next app start.
+                refreshCacheSize()
             }
         }
     }
@@ -6016,56 +6411,91 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      * [confirmImportPreview] writes to Room.
      */
     fun importLocalAudioFolder(uri: android.net.Uri) {
+        // #1243 — the session is fixed BEFORE the asynchronous scan, so a scan
+        // that finishes late cannot replace a newer preview.
+        val scanSession = importPlanLifecycle.beginScan()
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val plan = libraryImport.planLocalAudioFolder(uri)
                 if (plan.books.isEmpty()) {
-                    _importMessage.value = "У вибраній папці не знайдено аудіофайлів (mp3/m4a/ogg)"
+                    if (importPlanLifecycle.reportScanProblem(scanSession)) {
+                        _importMessage.value = "У вибраній папці не знайдено аудіофайлів (mp3/m4a/ogg)"
+                    }
                     return@launch
                 }
-                _importPreview.value = ImportPreviewState(plan = plan, treeUri = uri.toString())
+                importPlanLifecycle.completeScan(scanSession, plan, uri.toString())
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Folder import failed", e)
-                _importMessage.value = "Не вдалося імпортувати папку"
+                if (importPlanLifecycle.reportScanProblem(scanSession)) {
+                    _importMessage.value = "Не вдалося імпортувати папку"
+                }
             }
         }
     }
 
-    /** The user confirmed the preview — apply the plan (the only writer). */
+    /**
+     * The user confirmed the preview — apply the plan (the only writer).
+     *
+     * #1242 — the lifecycle moves to Applying BEFORE this coroutine starts, so a
+     * double tap or a second programmatic call cannot start another write, and
+     * the module writes the frozen snapshot rather than whatever the preview
+     * shows later.
+     */
     fun confirmImportPreview() {
-        val preview = _importPreview.value ?: return
+        val request = importPlanLifecycle.beginApply() ?: return
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val result = libraryImport.applyImportPlan(preview.plan, preview.treeUri)
-                // wayfinder #48: remember the tree so a future rescan can
-                // re-open it without asking the user to pick again.
-                if (result.booksImported > 0 || result.duplicateFiles > 0) {
-                    ImportGrantStore(getApplication()).addTreeUri(preview.treeUri)
+                val result = importPlanLifecycle.apply(request)
+                if (result == null) {
+                    // The write failed without a result: the plan is kept for an
+                    // explicit retry, and the listener hears that honestly.
+                    if (importPlanLifecycle.isCurrent(request)) {
+                        _importMessage.value = "Не вдалося імпортувати папку"
+                    }
+                } else {
+                    // wayfinder #48: remember the tree so a future rescan can
+                    // re-open it without asking the user to pick again.
+                    if (result.booksImported > 0 || result.duplicateFiles > 0) {
+                        ImportGrantStore(getApplication()).addTreeUri(request.treeUri)
+                    }
+                    // #1243 — a late success still records its own tree grant,
+                    // but its outcome text does not pose as the newer session's.
+                    if (importPlanLifecycle.isCurrent(request)) {
+                        _importMessage.value = OutcomeMessages.importOutcome(result)
+                    }
                 }
-                _importPreview.value = null
-                _importMessage.value = OutcomeMessages.importOutcome(result)
+            } catch (cancellation: kotlinx.coroutines.CancellationException) {
+                throw cancellation
             } catch (e: Exception) {
+                // #1242 — the module turns a storage failure into its Failed
+                // state, but the grant store and the message builder run HERE:
+                // they must not escape the coroutine as an unhandled crash, and
+                // their stack trace must stay diagnosable (CODING_STANDARDS).
                 android.util.Log.w("MainViewModel", "Preview import failed", e)
-                _importMessage.value = "Не вдалося імпортувати папку"
+                if (importPlanLifecycle.isCurrent(request)) {
+                    _importMessage.value = "Не вдалося імпортувати папку"
+                }
+            } finally {
+                // #1163 — the applied plan's private copies are now on disk, so
+                // «На пристрої» can include them on the very next frame.
+                refreshCacheSize()
             }
         }
     }
 
     /** Dismisses the preview without applying — zero trace left (wayfinder #29). */
     fun dismissImportPreview() {
-        _importPreview.value = null
+        importPlanLifecycle.dismiss()
     }
 
     /** Accepts a T0/T2 merge suggestion in the preview. */
     fun acceptMergeInPreview(bookId: String) {
-        val preview = _importPreview.value ?: return
-        _importPreview.value = preview.copy(plan = ImportPlanner.acceptMerge(preview.plan, bookId))
+        importPlanLifecycle.edit { plan -> ImportPlanner.acceptMerge(plan, bookId) }
     }
 
     /** Rejects a suggestion — the pair becomes a remembered NEVER_MATCH. */
     fun rejectMergeInPreview(bookId: String) {
-        val preview = _importPreview.value ?: return
-        _importPreview.value = preview.copy(plan = ImportPlanner.rejectMerge(preview.plan, bookId))
+        importPlanLifecycle.edit { plan -> ImportPlanner.rejectMerge(plan, bookId) }
     }
 
     /** Applies the library mutation and preserves the playing Chapter, including a pending Play. */
@@ -6078,30 +6508,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /** Joins two explicit preview selections; the destination keeps its metadata. */
     fun mergePlannedBooksInPreview(sourceBookId: String, targetBookId: String) {
-        val preview = _importPreview.value ?: return
-        _importPreview.value = preview.copy(plan = ImportPlanner.mergePlannedBooks(preview.plan, sourceBookId, targetBookId))
+        importPlanLifecycle.edit { plan ->
+            ImportPlanner.mergePlannedBooks(plan, sourceBookId, targetBookId)
+        }
     }
 
     /** Changes only the root-file grouping of the isolated preview. */
     fun changeFolderGroupingInPreview(grouping: com.slukhayka.audiobooks.data.imports.LocalFolderGrouping) {
-        val preview = _importPreview.value ?: return
-        _importPreview.value = preview.copy(plan = ImportPlanner.changeFolderGrouping(preview.plan, grouping))
+        importPlanLifecycle.edit { plan -> ImportPlanner.changeFolderGrouping(plan, grouping) }
     }
 
     /** Reorders the isolated import draft; [newOrder] contains its current indices. */
     fun reorderChaptersInPreview(bookId: String, newOrder: List<Int>) {
-        val preview = _importPreview.value ?: return
-        _importPreview.value = preview.copy(
-            plan = ImportPlanner.reorderChapters(preview.plan, bookId, newOrder)
-        )
+        importPlanLifecycle.edit { plan -> ImportPlanner.reorderChapters(plan, bookId, newOrder) }
     }
 
     /** Splits the chosen preview book at [chapterIndex] without reading audio. */
     fun splitBookInPreview(bookId: String, chapterIndex: Int) {
-        val preview = _importPreview.value ?: return
-        _importPreview.value = preview.copy(
-            plan = ImportPlanner.splitBook(preview.plan, bookId, chapterIndex)
-        )
+        importPlanLifecycle.edit { plan -> ImportPlanner.splitBook(plan, bookId, chapterIndex) }
     }
 
     /**
@@ -6119,10 +6543,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         seriesIndex: Int? = null,
         clearSeriesIndex: Boolean = false
     ) {
-        val preview = _importPreview.value ?: return
-        _importPreview.value = preview.copy(
-            plan = ImportPlanner.editBook(
-                plan = preview.plan,
+        importPlanLifecycle.edit { plan ->
+            ImportPlanner.editBook(
+                plan = plan,
                 bookId = bookId,
                 title = title,
                 author = author,
@@ -6131,7 +6554,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 seriesIndex = seriesIndex,
                 clearSeriesIndex = clearSeriesIndex
             )
-        )
+        }
     }
 
     /**
@@ -6158,6 +6581,68 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } catch (e: Exception) {
                 android.util.Log.w("MainViewModel", "Re-scan failed", e)
                 _importMessage.value = "Не вдалося пересканувати папки"
+            } finally {
+                // #1163 — a re-scan adds and loses private copies; the readable
+                // set and the local-copies figure must follow it.
+                refreshCacheSize()
+            }
+        }
+    }
+
+    /**
+     * #1230 — «Відновити доступ» → re-pick ONE file for this book. The data
+     * layer hashes it first and relinks only exact stored bytes; the report
+     * never turns a name match into an Edition fork or a progress move.
+     */
+    fun recoverLocalAccessWithFile(bookId: String, uri: android.net.Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val report = libraryImport.recoverLocalAccessWithFile(bookId, uri)
+                _localRecoveryMessage.value = OutcomeMessages.localAccessRecovery(report)
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Local access recovery (file) failed", e)
+                _localRecoveryMessage.value = OutcomeMessages.localAccessRecoveryFailed()
+            } finally {
+                refreshCacheSize()
+            }
+        }
+    }
+
+    /**
+     * #1230 — re-pick the FOLDER for this book (the moved-tree case). Only
+     * exact-hash files are relinked; unknown files are reported, not imported,
+     * so a second card can never appear behind the listener's back.
+     */
+    fun recoverLocalAccessWithFolder(bookId: String, treeUri: android.net.Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val report = libraryImport.recoverLocalAccessWithFolder(bookId, treeUri)
+                _localRecoveryMessage.value = OutcomeMessages.localAccessRecovery(report)
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Local access recovery (folder) failed", e)
+                _localRecoveryMessage.value = OutcomeMessages.localAccessRecoveryFailed()
+            } finally {
+                refreshCacheSize()
+            }
+        }
+    }
+
+    /**
+     * #1230 — «Пересканувати відому теку»: the same recovery core against the
+     * tree the book already remembers. Ordinary rescan imports new files as
+     * new chapters; recovery only relinks stored bytes, because the chapter
+     * list and listening state are the listener's, not the folder's.
+     */
+    fun rescanLocalFolderForBook(bookId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val report = libraryImport.recoverLocalAccessFromKnownFolder(bookId)
+                _localRecoveryMessage.value = OutcomeMessages.localAccessRecovery(report)
+            } catch (e: Exception) {
+                android.util.Log.w("MainViewModel", "Local access recovery (rescan) failed", e)
+                _localRecoveryMessage.value = OutcomeMessages.localAccessRecoveryFailed()
+            } finally {
+                refreshCacheSize()
             }
         }
     }
@@ -6165,6 +6650,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** One-shot user-facing message for import outcomes (consumed by the UI). */
     private val _importMessage = MutableStateFlow<String?>(null)
     val importMessage: StateFlow<String?> = _importMessage.asStateFlow()
+
+    /**
+     * #1230 — the book page's own one-shot recovery outcome. It is separate
+     * from [importMessage] because the book page owns the recovery door and
+     * must speak on its own snackbar; the library screen may not even be
+     * composed behind it on a phone.
+     */
+    private val _localRecoveryMessage = MutableStateFlow<String?>(null)
+    val localRecoveryMessage: StateFlow<String?> = _localRecoveryMessage.asStateFlow()
+
+    fun consumeLocalRecoveryMessage() {
+        _localRecoveryMessage.value = null
+    }
 
     /**
      * #1081 — a bookmark whose book no longer resolves used to fail in silence:
@@ -6188,9 +6686,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val bookmarkChapterGoneMessage: String
         get() = getApplication<Application>().getString(R.string.bookmark_chapter_gone)
 
+    /**
+     * #1242 — the ONE import-plan lifecycle. The shared ViewModel keeps the
+     * orchestration (ADR-0008); the plan, its frozen confirmed snapshot and the
+     * allowed transitions live in the module.
+     */
+    private val importPlanLifecycle = ImportPlanLifecycle { plan, treeUri ->
+        libraryImport.applyImportPlan(plan, treeUri)
+    }
+
     /** The pending smart-import preview (wayfinder #29), null when none. */
-    private val _importPreview = MutableStateFlow<ImportPreviewState?>(null)
-    val importPreview: StateFlow<ImportPreviewState?> = _importPreview.asStateFlow()
+    val importPreview: StateFlow<ImportPreviewState?> = importPlanLifecycle.state
+        .map { state ->
+            when (state) {
+                ImportPlanLifecycle.State.Idle -> null
+                is ImportPlanLifecycle.State.Editing ->
+                    ImportPreviewState(plan = state.plan, treeUri = state.treeUri)
+                is ImportPlanLifecycle.State.Applying ->
+                    ImportPreviewState(plan = state.plan, treeUri = state.treeUri, applying = true)
+                is ImportPlanLifecycle.State.Failed ->
+                    ImportPreviewState(
+                        plan = state.plan,
+                        treeUri = state.treeUri,
+                        retryable = true
+                    )
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     fun consumeImportMessage() {
         _importMessage.value = null
@@ -6211,7 +6733,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     /** The pending smart-import preview (wayfinder #29) plus its tree uri. */
     data class ImportPreviewState(
         val plan: ImportPlan,
-        val treeUri: String
+        val treeUri: String,
+        /** #1242 — one confirmed write is in flight; every action is blocked. */
+        val applying: Boolean = false,
+        /** #1242 — the write failed without a result; the plan waits for a retry. */
+        val retryable: Boolean = false
     )
 
     companion object {

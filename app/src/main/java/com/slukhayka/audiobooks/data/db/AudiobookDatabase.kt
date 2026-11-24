@@ -65,8 +65,9 @@ import com.slukhayka.audiobooks.data.search.SearchIndexNormalize
         WorkMergeOperationEntity::class,
         WorkIdentityRedirectRow::class,
         PreservedWorkMergeParticipant::class,
+        PreservedWorkMergeBook::class,
     ],
-    version = 55,
+    version = 58,
     exportSchema = true
 )
 abstract class AudiobookDatabase : RoomDatabase() {
@@ -105,6 +106,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): AudiobookDatabase {
             return INSTANCE ?: synchronized(this) {
+                INSTANCE?.let { return@synchronized it }
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AudiobookDatabase::class.java,
@@ -117,16 +119,24 @@ abstract class AudiobookDatabase : RoomDatabase() {
                     // upgrades, so a schema change fails loudly at runtime
                     // instead of silently dropping the database.
                     .addMigrations(
-                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50, MIGRATION_50_51, MIGRATION_51_52, MIGRATION_52_53, MIGRATION_53_54, MIGRATION_54_55
-                    )
+                        MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16, MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45, MIGRATION_45_46, MIGRATION_46_47, MIGRATION_47_48, MIGRATION_48_49, MIGRATION_49_50, MIGRATION_50_51, MIGRATION_51_52, MIGRATION_52_53, MIGRATION_53_54, MIGRATION_54_55, MIGRATION_55_56, MIGRATION_56_57, MIGRATION_57_58,)
                     .build()
                 INSTANCE = instance
                 instance
             }
         }
 
+        /** Durable Book policy: explicit existing pairs only, with boolean OR per operation/Book. */
+        internal val MIGRATION_57_58 = object : Migration(57, 58) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS work_merge_preserved_books (operationId TEXT NOT NULL, bookId TEXT NOT NULL, autoMergeExcluded INTEGER NOT NULL, PRIMARY KEY(operationId, bookId))")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_work_merge_preserved_books_bookId ON work_merge_preserved_books(bookId)")
+                db.execSQL("INSERT INTO work_merge_preserved_books(operationId, bookId, autoMergeExcluded) SELECT operationId, bookId, MAX(CASE WHEN autoMergeExcluded <> 0 THEN 1 ELSE 0 END) FROM work_merge_preserved_participants GROUP BY operationId, bookId")
+            }
+        }
+
         /** #968: local recoverable journal, namespaced aliases and retained Edition protection. */
-        internal val MIGRATION_54_55 = object : Migration(54, 55) {
+        internal val MIGRATION_56_57 = object : Migration(56, 57) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS work_merge_operations (operationId TEXT NOT NULL PRIMARY KEY, state TEXT NOT NULL, canonicalWorkId TEXT NOT NULL, participantWorkIds TEXT NOT NULL, approvedIdentity TEXT NOT NULL, payloadVersion INTEGER NOT NULL, beforeImages BLOB NOT NULL, afterImages BLOB NOT NULL)")
                 db.execSQL("CREATE TABLE IF NOT EXISTS work_identity_redirects (namespace TEXT NOT NULL, oldKey TEXT NOT NULL, canonicalWorkId TEXT NOT NULL, operationId TEXT NOT NULL, PRIMARY KEY(namespace, oldKey))")
@@ -203,6 +213,74 @@ abstract class AudiobookDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS achievement_counters (" +
                         "`key` TEXT NOT NULL, `count` INTEGER NOT NULL, PRIMARY KEY(`key`))"
+                )
+            }
+        }
+
+        /**
+         * ПОВЕРНЕННЯ ДАНИХ КОРИСТУВАЧА ПІСЛЯ ОНОВЛЕННЯ (регресія v1.6).
+         *
+         * ЩО СТАЛОСЯ. `v1.6` додав до запитів бібліотеки й ачівок фільтр
+         * `origin IN ('EXPLICIT_SAVE','EXPLICIT_IMPORT')`. Рядки, які міграція
+         * раніше чесно позначила `UNKNOWN`, і автоматичні `AUTO_SEED` /
+         * `CATALOG_SYNC` / `TECHNICAL_OPEN` через це ЗНИКЛИ з очей: бібліотека
+         * спорожніла, ачівки почали рахуватись заново, хоч дані лежали в базі.
+         *
+         * ЧОМУ ЦЕ НЕ ЗДОГАДКА. ADR-0047 §2 сам називає явною дією слухача
+         * «збереження, свідомий імпорт, АБО ФАКТИЧНО РОЗПОЧАТЕ ПРОСЛУХОВУВАННЯ».
+         * Рядок із доказом реального прослуховування (є прогрес або позначка
+         * останнього прослуховування) МУСИТЬ бути особистим — це застосування
+         * власного правила ADR, а не переписування факту навмання.
+         *
+         * ЧОГО НЕ РОБИТЬ. Не чіпає рядки без жодного доказу: вони лишаються
+         * `UNKNOWN` і, як задумано, чекають у «Імпортоване». Не вигадує
+         * прослуховування, якого не було.
+         */
+        internal val MIGRATION_54_55 = object : Migration(54, 55) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    UPDATE library_entries
+                       SET origin = 'EXPLICIT_SAVE'
+                     WHERE origin NOT IN ('EXPLICIT_SAVE', 'EXPLICIT_IMPORT')
+                       AND (
+                             isFavorite = 1
+                             OR id IN (
+                                 SELECT a.id FROM audiobooks a
+                                   JOIN editions e ON e.workId = a.id
+                                   JOIN playback_progress pp ON pp.editionId = e.id
+                                  WHERE pp.currentPositionSeconds > 0
+                                     OR pp.lastListenedAt > 0
+                             )
+                       )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        /**
+         * #1465 — a library saved before `origin` existed came back as ONE book out of 211.
+         *
+         * `MIGRATION_54_55` promoted only rows with listening evidence, so a book the user
+         * added and never played kept `origin = 'UNKNOWN'` and stayed hidden behind the
+         * library predicate `origin IN ('EXPLICIT_SAVE','EXPLICIT_IMPORT')`.
+         *
+         * Before v47 there was no way to add a `library_entries` row except by an explicit
+         * user action, so `UNKNOWN` on those rows does not mean "unknown origin" — it means
+         * "the column did not exist yet". Promote exactly those rows.
+         *
+         * Rows whose origin is a known automatic one (`AUTO_SEED`, `CATALOG_SYNC`,
+         * `TECHNICAL_OPEN`) are deliberately untouched: they are not `UNKNOWN`, and
+         * promoting them would put generated rows into «Мої книги».
+         */
+        internal val MIGRATION_55_56 = object : Migration(55, 56) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    UPDATE library_entries
+                       SET origin = 'EXPLICIT_SAVE'
+                     WHERE origin = 'UNKNOWN'
+                    """.trimIndent()
                 )
             }
         }

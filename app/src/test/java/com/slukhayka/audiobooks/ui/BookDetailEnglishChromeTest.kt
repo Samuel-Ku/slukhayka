@@ -134,7 +134,7 @@ class BookDetailEnglishChromeTest {
         // so both chips legitimately render twice — hence "exists", not count.
         assertTextExists("Current")
         assertTextExists("Streaming only")
-        assertTextExists("Source rating: ★ 4.6")
+        assertTextExists("Source rating: 4.6")
         assertTextExists("Narrated by (source data): Kate Reading")
         assertTextExists("Genres (source data): Adventure · Fantasy")
         assertTextExists("Different description from the source: Another blurb.")

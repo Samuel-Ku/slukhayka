@@ -489,7 +489,7 @@ class ManualWorkMergeCatalogCarriersApplyUndoRoomTest {
             listOf(entryA, entryB, entryC).forEach {
                 dao.upsertLibraryEntry(
                     id = it.id, workId = it.workId, isFavorite = it.isFavorite, createdAt = it.createdAt,
-                    downloadProgress = it.downloadProgress, downloadState = it.downloadState,
+                    downloadProgress = it.downloadProgress, downloadState = it.downloadState, origin = it.origin,
                 )
             }
             listOf(editionA, editionB).forEach { dao.replaceEdition(it) }

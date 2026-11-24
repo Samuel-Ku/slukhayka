@@ -21,7 +21,7 @@ sluhay.com.ua).
 колекцій (ADR-0013): «ТОП-100 sound-books» із серверно відрендереної топ-
 сторінки sound-books.net та «Популярне у sluhay.com.ua» з ендпоінта каталогу,
 відсортованого за завантаженнями. Обидві їдуть спільним HTTP-транспортом,
-годують той самий `CollectionMatcher` проти каталожного union на тих самих
+годують той самий `CollectionMatcher` проти Медіатеки (ADR-0041) на тих самих
 тригерах оновлення, з'являються на екрані «Колекції» й блоці Огляду без жодних
 змін UI; контракт best-effort (збій → нема колекції) і TTL-кеш per source —
 як в існуючого живого списка.
@@ -76,9 +76,11 @@ sluhay.com.ua).
 - **Zero SourceCatalog changes.** The per-source TTL cache and best-effort loop
   are already generic by sourceId; a failing or shape-changed source yields no
   collection, never throws, never breaks the union refresh.
-- **No persistence, no UI changes.** Live lists are matched against the catalog
-  union on the same triggers as today; nothing lands in Room; empty
-  collections are dropped by the matcher (ADR-0012/0013 semantics).
+- **No match persistence, no UI changes.** Live lists are matched against the
+  Медіатека (ADR-0041) on the same triggers as today; match results land nowhere
+  in Room; empty collections are dropped by the matcher. Rank signals from the
+  fetched lists are persisted as popularity assertions (#485) — that is ranking
+  evidence, not a stored collection.
 - **Recorded rejections.** 4read «Популярне» as a collection (already an Огляд
   section row — duplicate affordance), sluhay.com (challenge wall,
   session-bound), lihtar.in.ua (no top page found), OpenLibrary monthly
@@ -106,7 +108,8 @@ sluhay.com.ua).
 
 - New screens, components or per-collection affordances (refresh button,
   follow/subscribe, notifications about a changed list).
-- Persisting live lists to Room or syncing them across devices.
+- Persisting live match results to Room or syncing them across devices
+  (rank signals as popularity assertions are in scope, #485).
 - Fetching beyond page 1 of either endpoint.
 - New static award assets; a 4read «Популярне» collection; sluhay.com and
   lihtar sources; OpenLibrary monthly/hourly variants; API-key providers
@@ -121,6 +124,7 @@ sluhay.com.ua).
   `bookAuthor` JSON behind the XHR gate — the same gate as the adapter's other
   endpoints, documented since spec-11.
 - The lists are provenance-bearing Metadata Assertions about Works: they claim
-  membership, the local matcher decides against the union, nothing is stored.
+  membership, the local matcher decides against the Медіатека; only rank signals
+  are stored, as popularity assertions (#485).
 - On landing, CONTEXT.md's «Live collections» paragraph gains the two new
   sources' names — domain doc updated together with code per CONTRIBUTING.

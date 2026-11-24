@@ -7,10 +7,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,9 +22,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.EmptyStatePanel
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.theme.*
@@ -90,7 +88,7 @@ fun LibraryRatingScreen(
                     item {
                         val loadingLabel = stringResource(R.string.secondary_loading)
                         EmptyState(
-                            icon = Icons.Filled.Info,
+                            icon = PaperInkIcons.Info,
                             title = loadingLabel,
                             body = "",
                             iconContent = {
@@ -111,7 +109,7 @@ fun LibraryRatingScreen(
                 loadFailed -> {
                     item {
                         EmptyState(
-                            icon = Icons.Filled.Warning,
+                            icon = PaperInkIcons.Alert,
                             title = stringResource(R.string.secondary_library_rating_error),
                             body = "",
                             stateDescription = stringResource(R.string.secondary_state_error),
@@ -124,14 +122,11 @@ fun LibraryRatingScreen(
 
                 rows.isEmpty() -> {
                     item {
-                        EmptyState(
-                            icon = Icons.Filled.Info,
-                            title = stringResource(R.string.secondary_library_rating_empty),
-                            body = "",
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(48.dp)
-                        )
+                        // #1766 (audit U9/U13) — a ranked board with nothing on
+                        // it is an ABSENCE, so it is stated in type, with no
+                        // placeholder glyph, and it owns the list viewport
+                        // instead of floating under the header.
+                        LibraryRatingEmptyState(modifier = Modifier.fillParentMaxSize())
                     }
                 }
 
@@ -177,7 +172,7 @@ fun LibraryRatingScreen(
                                     modifier = Modifier.defaultMinSize(minWidth = 48.dp, minHeight = 48.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.PlayArrow,
+                                        imageVector = PaperInkIcons.Play,
                                         contentDescription = stringResource(R.string.secondary_play_book, row.book.title),
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(26.dp)
@@ -198,6 +193,27 @@ fun LibraryRatingScreen(
     }
 }
 
+/**
+ * #1766 — the «Рейтинг» empty board, extracted so the surface can be rendered
+ * without a `MainViewModel`.
+ *
+ * The screen itself takes the ViewModel (its whole body is a flow read), so an
+ * inline branch inside it cannot be composed in a JVM test. This composable is
+ * the branch: the same `EmptyStatePanel`, no glyph, the honest one-line fact
+ * (a board with no votes is empty — there is no action to offer), and the
+ * caller hands it the list viewport.
+ */
+@Composable
+internal fun LibraryRatingEmptyState(modifier: Modifier = Modifier) {
+    EmptyStatePanel(
+        title = stringResource(R.string.secondary_library_rating_empty),
+        body = "",
+        modifier = modifier
+    )
+}
+
 /** ADR-0022: the rule never rounds; the surface does, for display only. */
 internal fun formatRatingAverage(average: Double): String =
-    String.format(java.util.Locale.getDefault(), "%.1f", average)
+    // #1600 — every other rating surface formats with Locale.US ("4.5"); a
+    // locale-default comma here made the same score read «4,5» on uk/pl.
+    String.format(java.util.Locale.US, "%.1f", average)

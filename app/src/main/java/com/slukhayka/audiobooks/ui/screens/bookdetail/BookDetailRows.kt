@@ -20,8 +20,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -70,6 +69,7 @@ import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.library.siblingNarrations
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.data.reviews.ReviewSaveResult
@@ -141,19 +141,40 @@ fun ChapterRowItem(
         isPlaying -> onPauseClick
         else -> onPlayClick
     }
+    val paperInk = LocalPaperInkDesign.current
+    Column(modifier = Modifier.fillMaxWidth()) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(AppDimens.RadiusCard))
-            .border(
-                1.dp,
-                if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant,
-                RoundedCornerShape(AppDimens.RadiusCard)
+            .padding(
+                start = if (paperInk) PaperInkDimens.SpacePage else 16.dp,
+                end = if (paperInk) PaperInkDimens.SpacePage else 16.dp,
+                top = 0.dp,
+                bottom = 0.dp,
+            )
+            .then(if (paperInk) Modifier else Modifier.clip(RoundedCornerShape(AppDimens.RadiusCard)))
+            .then(
+                if (paperInk) {
+                    Modifier
+                } else {
+                    Modifier.border(
+                        1.dp,
+                        if (isCurrent) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outlineVariant
+                        },
+                        RoundedCornerShape(AppDimens.RadiusCard)
+                    )
+                }
             ),
+        shape = if (paperInk) RoundedCornerShape(0.dp) else RoundedCornerShape(AppDimens.RadiusCard),
         colors = CardDefaults.cardColors(
-            containerColor = if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
-            else MaterialTheme.colorScheme.surfaceContainer
+            containerColor = when {
+                paperInk -> MaterialTheme.colorScheme.background
+                isCurrent -> MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                else -> MaterialTheme.colorScheme.surfaceContainer
+            }
         )
     ) {
         Row(
@@ -173,22 +194,44 @@ fun ChapterRowItem(
                     stateDescription = chapterState
                     selected = isCurrent
                 }
-                .padding(14.dp),
+                .padding(if (paperInk) 14.dp else 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
                 shape = CircleShape,
-                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+                color = when {
+                    paperInk && isCurrent -> MaterialTheme.colorScheme.tertiary
+                    paperInk -> MaterialTheme.colorScheme.surfaceVariant
+                    isCurrent -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.surfaceContainerHigh
+                },
                 modifier = Modifier.size(36.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     if (isCurrent) {
-                        Icon(imageVector = Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.size(20.dp))
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Outlined.VolumeUp,
+                            contentDescription = null,
+                            tint = if (paperInk) {
+                                MaterialTheme.colorScheme.onTertiary
+                            } else {
+                                MaterialTheme.colorScheme.onPrimary
+                            },
+                            modifier = Modifier.size(20.dp)
+                        )
                     } else {
                         Text(
                             text = "${index + 1}",
-                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface
+                            style = if (paperInk) {
+                                PaperInkType.Label
+                            } else {
+                                MaterialTheme.typography.labelLarge
+                            },
+                            color = if (paperInk) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            }
                         )
                     }
                 }
@@ -199,11 +242,21 @@ fun ChapterRowItem(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = chapter.title,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium
-                    ),
-                    color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
+                    style = if (paperInk) {
+                        PaperInkType.RowTitle
+                    } else {
+                        MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium
+                        )
+                    },
+                    color = if (!paperInk && isCurrent) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    // A paper row has room for two lines; the legacy card stays
+                    // single-line so its compact geometry does not move.
+                    maxLines = if (paperInk) 2 else 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 if (chapter.durationSeconds > 0L) {
@@ -212,7 +265,11 @@ fun ChapterRowItem(
                     Text(
                         text = MainViewModel.formatTime(chapter.durationSeconds),
                         // Spec-22 T2: tabular figures for duration counters.
-                        style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+                        style = if (paperInk) {
+                            PaperInkType.Micro.copy(fontFeatureSettings = "tnum")
+                        } else {
+                            MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum")
+                        },
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -223,7 +280,7 @@ fun ChapterRowItem(
                 // selectable; the rest carry a checkbox.
                 if (isDownloadedCopy) {
                     Icon(
-                        imageVector = Icons.Default.CloudDone,
+                        imageVector = PaperInkIcons.Downloaded,
                         contentDescription = stringResource(
                             R.string.book_detail_chapter_already_downloaded,
                             chapter.title
@@ -242,7 +299,7 @@ fun ChapterRowItem(
                 if (isDownloadedCopy && onDeleteCopy != null) {
                     IconButton(onClick = onDeleteCopy) {
                         Icon(
-                            imageVector = Icons.Default.Delete,
+                            imageVector = PaperInkIcons.Trash,
                             contentDescription = stringResource(R.string.book_detail_chapter_delete_copy),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(24.dp)
@@ -251,13 +308,23 @@ fun ChapterRowItem(
                 }
 
                 Icon(
-                    imageVector = if (isPlaying) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
+                    imageVector = if (isPlaying) PaperInkIcons.Pause else PaperInkIcons.Play,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(32.dp)
+                    tint = if (paperInk) {
+                        MaterialTheme.colorScheme.tertiary
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                    modifier = Modifier.size(if (paperInk) 22.dp else 32.dp)
                 )
             }
         }
+    }
+    if (paperInk) {
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        )
+    }
     }
 }
 
@@ -297,7 +364,7 @@ fun BookmarkRowItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Default.Bookmark,
+                imageVector = PaperInkIcons.Bookmark,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.size(24.dp)
@@ -308,7 +375,7 @@ fun BookmarkRowItem(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = bookmark.chapterTitle,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
@@ -327,7 +394,7 @@ fun BookmarkRowItem(
                 modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.PlayArrow,
+                    imageVector = PaperInkIcons.Play,
                     contentDescription = jumpLabel,
                     tint = MaterialTheme.colorScheme.primary
                 )
@@ -344,7 +411,7 @@ fun BookmarkRowItem(
                     .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
             ) {
                 Icon(
-                    imageVector = Icons.Default.Delete,
+                    imageVector = PaperInkIcons.Trash,
                     contentDescription = deleteLabel,
                     tint = MaterialTheme.colorScheme.error
                 )

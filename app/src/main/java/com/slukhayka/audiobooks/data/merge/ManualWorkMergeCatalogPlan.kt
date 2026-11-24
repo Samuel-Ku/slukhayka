@@ -127,9 +127,7 @@ internal class ManualWorkMergeCatalogPlan private constructor(
                 val owner = text(row, "workId"); val editionId = text(row, "editionId")
                 val participant = preview.participants.single { it.work.id == owner }
                 val edition = requireNotNull(participant.editions.singleOrNull { it.edition.id == editionId }) { "Edition facet owner missing" }
-                val bookId = requireNotNull(edition.bookId) { "Edition facet library anchor missing" }
-                require(edition.edition.workId == bookId &&
-                    preview.snapshot.library.entries.any { it.id == bookId && it.workId == owner }) {
+                requireNotNull(manualMergeEditionOwner(preview, owner, edition)) {
                     "Edition facet owner needs a decision"
                 }
                 result.getValue("edition_facets") += moved(row)

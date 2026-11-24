@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 55,
-    "identityHash": "927e2eda1f97e502c78ee8692db15851",
+    "identityHash": "7f8e83348bd6c5086fcb23573bd98fd4",
     "entities": [
       {
         "tableName": "achievements",
@@ -2584,186 +2584,11 @@
             "direction"
           ]
         }
-      },
-      {
-        "tableName": "work_merge_operations",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`operationId` TEXT NOT NULL, `state` TEXT NOT NULL, `canonicalWorkId` TEXT NOT NULL, `participantWorkIds` TEXT NOT NULL, `approvedIdentity` TEXT NOT NULL, `payloadVersion` INTEGER NOT NULL, `beforeImages` BLOB NOT NULL, `afterImages` BLOB NOT NULL, PRIMARY KEY(`operationId`))",
-        "fields": [
-          {
-            "fieldPath": "operationId",
-            "columnName": "operationId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "state",
-            "columnName": "state",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "canonicalWorkId",
-            "columnName": "canonicalWorkId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "participantWorkIds",
-            "columnName": "participantWorkIds",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "approvedIdentity",
-            "columnName": "approvedIdentity",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "payloadVersion",
-            "columnName": "payloadVersion",
-            "affinity": "INTEGER",
-            "notNull": true
-          },
-          {
-            "fieldPath": "beforeImages",
-            "columnName": "beforeImages",
-            "affinity": "BLOB",
-            "notNull": true
-          },
-          {
-            "fieldPath": "afterImages",
-            "columnName": "afterImages",
-            "affinity": "BLOB",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "operationId"
-          ]
-        }
-      },
-      {
-        "tableName": "work_identity_redirects",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`namespace` TEXT NOT NULL, `oldKey` TEXT NOT NULL, `canonicalWorkId` TEXT NOT NULL, `operationId` TEXT NOT NULL, PRIMARY KEY(`namespace`, `oldKey`))",
-        "fields": [
-          {
-            "fieldPath": "namespace",
-            "columnName": "namespace",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "oldKey",
-            "columnName": "oldKey",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "canonicalWorkId",
-            "columnName": "canonicalWorkId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "operationId",
-            "columnName": "operationId",
-            "affinity": "TEXT",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "namespace",
-            "oldKey"
-          ]
-        },
-        "indices": [
-          {
-            "name": "index_work_identity_redirects_operationId",
-            "unique": false,
-            "columnNames": [
-              "operationId"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_work_identity_redirects_operationId` ON `${TABLE_NAME}` (`operationId`)"
-          },
-          {
-            "name": "index_work_identity_redirects_canonicalWorkId",
-            "unique": false,
-            "columnNames": [
-              "canonicalWorkId"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_work_identity_redirects_canonicalWorkId` ON `${TABLE_NAME}` (`canonicalWorkId`)"
-          }
-        ]
-      },
-      {
-        "tableName": "work_merge_preserved_participants",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`operationId` TEXT NOT NULL, `bookId` TEXT NOT NULL, `editionId` TEXT NOT NULL, `autoMergeExcluded` INTEGER NOT NULL, PRIMARY KEY(`operationId`, `bookId`, `editionId`))",
-        "fields": [
-          {
-            "fieldPath": "operationId",
-            "columnName": "operationId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "bookId",
-            "columnName": "bookId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "editionId",
-            "columnName": "editionId",
-            "affinity": "TEXT",
-            "notNull": true
-          },
-          {
-            "fieldPath": "autoMergeExcluded",
-            "columnName": "autoMergeExcluded",
-            "affinity": "INTEGER",
-            "notNull": true
-          }
-        ],
-        "primaryKey": {
-          "autoGenerate": false,
-          "columnNames": [
-            "operationId",
-            "bookId",
-            "editionId"
-          ]
-        },
-        "indices": [
-          {
-            "name": "index_work_merge_preserved_participants_bookId",
-            "unique": false,
-            "columnNames": [
-              "bookId"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_work_merge_preserved_participants_bookId` ON `${TABLE_NAME}` (`bookId`)"
-          },
-          {
-            "name": "index_work_merge_preserved_participants_editionId",
-            "unique": false,
-            "columnNames": [
-              "editionId"
-            ],
-            "orders": [],
-            "createSql": "CREATE INDEX IF NOT EXISTS `index_work_merge_preserved_participants_editionId` ON `${TABLE_NAME}` (`editionId`)"
-          }
-        ]
       }
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '927e2eda1f97e502c78ee8692db15851')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '7f8e83348bd6c5086fcb23573bd98fd4')"
     ]
   }
 }

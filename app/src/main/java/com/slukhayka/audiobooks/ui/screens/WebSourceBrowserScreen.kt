@@ -13,15 +13,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,6 +33,8 @@ import androidx.webkit.ProxyController
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcon
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.privacy.WebViewSessionPrivacy
 import com.slukhayka.audiobooks.data.privacy.BrowserDnsProxy
 import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
@@ -543,7 +538,7 @@ fun WebSourceBrowserScreen(
                                 .semantics { contentDescription = actionLabels.closeSource }
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                imageVector = PaperInkIcons.ChevronLeft,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurface
                             )
@@ -556,7 +551,7 @@ fun WebSourceBrowserScreen(
                                 .semantics { contentDescription = actionLabels.back }
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                imageVector = PaperInkIcons.ChevronLeft,
                                 contentDescription = null,
                                 tint = if (canGoBack) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                             )
@@ -569,7 +564,7 @@ fun WebSourceBrowserScreen(
                                 .semantics { contentDescription = actionLabels.forward }
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                imageVector = PaperInkIcons.ChevronRight,
                                 contentDescription = null,
                                 tint = if (canGoForward) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                             )
@@ -581,7 +576,7 @@ fun WebSourceBrowserScreen(
                                 .semantics { contentDescription = actionLabels.reload }
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Refresh,
+                                imageVector = PaperInkIcons.Refresh,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary
                             )
@@ -600,7 +595,7 @@ fun WebSourceBrowserScreen(
                                 .semantics { contentDescription = actionLabels.home }
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Home,
+                                imageVector = Icons.Outlined.Home,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary
                             )
@@ -620,7 +615,7 @@ fun WebSourceBrowserScreen(
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Add,
+                            imageVector = PaperInkIcons.Plus,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onPrimary,
                             modifier = Modifier.size(16.dp)
@@ -637,16 +632,33 @@ fun WebSourceBrowserScreen(
                 // #528 — the category door on its OWN row: one action = one
                 // category page on «Огляд», the next page behind its own tap.
                 Row(modifier = Modifier.fillMaxWidth()) {
+                    val addCategoryDescription =
+                        stringResource(R.string.browser_add_category_action)
                     TextButton(
                         onClick = { addCurrentCategoryToFeed() },
                         modifier = Modifier.semantics {
-                            contentDescription = "Додати категорію до Огляду"
+                            contentDescription = addCategoryDescription
                         }
                     ) {
-                        Text(
-                            text = "Категорія → Огляд",
-                            style = MaterialTheme.typography.labelMedium
-                        )
+                        // F21: no «→» character and no hardcoded Ukrainian —
+                        // the two labels are resources and the direction is the
+                        // family's own chevron, as in the prototype.
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = stringResource(R.string.browser_category_label),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                            PaperInkIcon(
+                                imageVector = PaperInkIcons.ChevronRight,
+                                contentDescription = null,
+                                size = 16.dp,
+                                modifier = Modifier.padding(horizontal = 4.dp),
+                            )
+                            Text(
+                                text = stringResource(R.string.nav_explore),
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
                     }
                 }
 
@@ -773,7 +785,7 @@ fun WebSourceBrowserScreen(
                     placeholder = { Text(stringResource(R.string.browser_address_hint)) },
                     leadingIcon = {
                         Icon(
-                            imageVector = Icons.Default.Link,
+                            imageVector = PaperInkIcons.Link,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary
                         )
@@ -795,7 +807,7 @@ fun WebSourceBrowserScreen(
                                         .size(AppDimens.TouchTarget)
                                         .semantics { contentDescription = actionLabels.openExternal }
                                 ) {
-                                    Icon(imageVector = Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
+                                    Icon(imageVector = Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = null, tint = MaterialTheme.colorScheme.secondary)
                                 }
                             }
                             if (urlInput.isNotBlank()) {
@@ -818,7 +830,7 @@ fun WebSourceBrowserScreen(
                                         .size(AppDimens.TouchTarget)
                                         .semantics { contentDescription = actionLabels.goToAddress }
                                 ) {
-                                    Icon(imageVector = Icons.Default.Link, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                    Icon(imageVector = PaperInkIcons.Link, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                                 }
                             }
                         }
@@ -891,7 +903,7 @@ fun WebSourceBrowserScreen(
                         Column(modifier = Modifier.padding(12.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    imageVector = Icons.Default.Warning,
+                                    imageVector = PaperInkIcons.Alert,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.secondary,
                                     modifier = Modifier.size(20.dp)
@@ -909,7 +921,7 @@ fun WebSourceBrowserScreen(
                                         .size(AppDimens.TouchTarget)
                                         .semantics { contentDescription = actionLabels.closeRouteMessage }
                                 ) {
-                                    Icon(imageVector = Icons.Default.Close, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Icon(imageVector = PaperInkIcons.Close, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
                             }
                             Text(
@@ -1222,7 +1234,7 @@ fun WebSourceBrowserScreen(
                     Column(modifier = Modifier.padding(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Default.Warning,
+                                imageVector = PaperInkIcons.Alert,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.secondary,
                                 modifier = Modifier.size(20.dp)
@@ -1240,7 +1252,7 @@ fun WebSourceBrowserScreen(
                                     .size(AppDimens.TouchTarget)
                                     .semantics { contentDescription = actionLabels.closeNetworkError }
                             ) {
-                                Icon(imageVector = Icons.Default.Close, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Icon(imageVector = PaperInkIcons.Close, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         Text(
@@ -1316,7 +1328,7 @@ private fun WebViewRouteGateCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (failed) {
                     Icon(
-                        imageVector = Icons.Default.Warning,
+                        imageVector = PaperInkIcons.Alert,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.secondary,
                         modifier = Modifier.size(20.dp)
@@ -1343,7 +1355,7 @@ private fun WebViewRouteGateCard(
                         contentDescription = "Закрити браузер джерела"
                     }
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = null)
+                    Icon(PaperInkIcons.Close, contentDescription = null)
                 }
             }
             if (failed) {

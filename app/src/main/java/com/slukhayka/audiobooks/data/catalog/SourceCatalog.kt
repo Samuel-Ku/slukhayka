@@ -40,6 +40,9 @@ import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
 import com.slukhayka.audiobooks.data.facets.applyEditionFacet
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.merge.MergeKey
+import com.slukhayka.audiobooks.data.merge.WorkIdentityAccess
+import com.slukhayka.audiobooks.data.merge.IdentityWriteRefusal
+import com.slukhayka.audiobooks.data.merge.WorkIdentityWriteRefused
 import com.slukhayka.audiobooks.player.SmartRetryPolicy
 import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
@@ -62,6 +65,7 @@ import com.slukhayka.audiobooks.data.source.SourceAccessMode
 import com.slukhayka.audiobooks.data.source.SourceAccessPolicy
 import com.slukhayka.audiobooks.data.source.mergeGlobalSearchResults
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
+import com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.SourceSelectionCoordinator
 import com.slukhayka.audiobooks.data.source.SourceRegistry
@@ -119,11 +123,12 @@ class SourceCatalog(
     // constructor default (like fourReadFetcher's) must never leak onto
     // foreign hosts (SEC-004).
     private val probeFetcher: HttpFetcher = HttpFetcher(),
-    // Spec-16: the curated smart-collection lists, loaded at the composition
-    // root through the context seam (CollectionAssets). Empty in tests that
-    // don't exercise collections; a list asset is pure data — adding one is
-    // a JSON file, never a code change.
-    private val collectionLists: List<com.slukhayka.audiobooks.data.collections.CollectionList> = emptyList(),
+    // Spec-16: the curated smart-collection lists. Production starts empty and
+    // reads them from [collectionListsProvider] at match time (the startup
+    // batch loads them on IO); tests may pass a fixed list. Empty is honest
+    // when no list is loaded; a list asset is pure data — adding one is a JSON
+    // file, never a code change.
+    collectionLists: List<com.slukhayka.audiobooks.data.collections.CollectionList> = emptyList(),
     // Spec-16 follow-up: LIVE collection sources (bestsellers/trending)
     // fetched over the shared HTTP transport on the union refresh. Best-effort
     // per source — a failing source contributes no collection, never breaks
@@ -198,10 +203,26 @@ class SourceCatalog(
      * Wired in App to the cookie-backed session check; false in tests and
      * wherever no session can exist.
      */
-    private val sessionAlive: (sourceId: String) -> Boolean = { false }
+    private val sessionAlive: (sourceId: String) -> Boolean = { false },
+    /**
+     * #1723 — where the curated lists come from when they are loaded after
+     * this module was built (the startup batch on IO). Null keeps the
+     * constructor/static-list behaviour tests and older callers rely on.
+     */
+    private val collectionListsProvider: (() -> List<com.slukhayka.audiobooks.data.collections.CollectionList>)? = null,
+    private val workIdentityAccess: WorkIdentityAccess? = null,
 ) {
+    init { workIdentityAccess?.requireDao(dao) }
+
     /** Frozen local-write seam consumed by the later shared delta lane. */
     val facetWriter: LocalFacetWriter = RoomLocalFacetWriter(dao)
+
+    // ADR-0004 + ADR-0007: the on-open preparation of a chapter-less Edition
+    // stores its resolved page through the SAME write module the explicit
+    // import uses — one provenance rule, one transaction, no door-local
+    // source literal.
+    private val editionSourceWriter =
+        com.slukhayka.audiobooks.data.imports.EditionSourceWriter(dao, writeBatchRunner)
 
     /** ADR-0037 — the source ids whose AUDIO the listener has refused. */
     private fun refusedAudioSources(): Set<String> = sourceAudioRefusal.value
@@ -383,6 +404,42 @@ class SourceCatalog(
         _smartCollections.asStateFlow()
 
     /**
+     * #1723 — the curated lists are loaded by the startup batch on IO, after
+     * this module may already have been constructed on main. [collectionLists]
+     * is the test/legacy input; [collectionListsProvider] (production) is read
+     * at match time, so no asset is opened while main is building the module.
+     */
+    @Volatile
+    private var curatedCollectionLists: List<com.slukhayka.audiobooks.data.collections.CollectionList> =
+        collectionLists
+
+    // #1730 — one lock for the curated lists and the corpus they are matched
+    // against. It is NOT held across a database read; it covers the snapshot
+    // of both inputs and the resulting publish, so a re-match that runs after
+    // the startup batch cannot be interleaved by an in-flight refresh still
+    // holding the old (empty) lists, and the newer publication cannot be
+    // overwritten by the older one.
+    private val collectionsLock = Any()
+
+    private fun currentCollectionLists(): List<com.slukhayka.audiobooks.data.collections.CollectionList> =
+        synchronized(collectionsLock) {
+            val provided = collectionListsProvider?.invoke()
+            if (provided != null && provided != curatedCollectionLists) {
+                curatedCollectionLists = provided
+            }
+            curatedCollectionLists
+        }
+
+    /**
+     * #1723 — re-match the already-drawn shelves after the startup batch has
+     * published the curated lists. Without this trigger a refresh that raced
+     * the batch would keep empty collections until the next catalogue refresh.
+     */
+    fun refreshCuratedCollections() {
+        recomputeCollections()
+    }
+
+    /**
      * #735 — the match corpus of the last collections recompute: the
      * Медіатека rows projected to one card per Work. Cached because the
      * content-language reprojection recomputes the collections without
@@ -407,7 +464,12 @@ class SourceCatalog(
      */
     val discoverableWorks: kotlinx.coroutines.flow.Flow<List<WorkEntity>> = dao.observeDiscoverableWorks()
 
-    /** The local Edition projection paired with [allWorks]. */
+    /**
+     * Every materialized card→Work link, technical anchors included. Discovery
+     * projections (person arrivals, source watch) use it to map a mirror Work
+     * to an openable card; it is NOT the listener's shelf — that is
+     * `LibraryEntries.allBooks` (ADR-0063).
+     */
     val allLibraryEntries = dao.observeLibraryEntries()
 
     val allEditions: kotlinx.coroutines.flow.Flow<List<EditionEntity>> = dao.observeEditions()
@@ -483,15 +545,23 @@ class SourceCatalog(
                 // the library never appears in a collection. Live sources stay
                 // best-effort and TTL-cached; matchAll drops empty collections.
                 _liveCollections.value = liveCollectionsFor()
-                collectionsMatchCorpus =
-                    com.slukhayka.audiobooks.data.collections.libraryMatchCorpus(
-                        dao.getAllAudiobooksOnce().map { it.toAudiobookEntity() }
-                    )
-                _smartCollections.value =
-                    com.slukhayka.audiobooks.data.collections.CollectionMatcher.matchAll(
-                        collectionLists + _liveCollections.value,
-                        collectionsMatchCorpus
-                    )
+                val corpus = com.slukhayka.audiobooks.data.collections.libraryMatchCorpus(
+                    // ADR-0063 §5 — collections are the listener's own
+                    // shelf; a technical anchor is not a collection member.
+                    dao.getPersonalAudiobooksOnce().map { it.toAudiobookEntity() }
+                )
+                // #1730 — publish the corpus and the match over the curated
+                // lists as ONE critical section: the startup batch's re-match
+                // must see either this refresh's full inputs or the previous
+                // ones, never a half-published pair.
+                synchronized(collectionsLock) {
+                    collectionsMatchCorpus = corpus
+                    _smartCollections.value =
+                        com.slukhayka.audiobooks.data.collections.CollectionMatcher.matchAll(
+                            currentCollectionLists() + _liveCollections.value,
+                            corpus
+                        )
+                }
                 visible
             } finally {
                 _isUnifiedCatalogLoading.value = false
@@ -609,11 +679,16 @@ class SourceCatalog(
         // the last refresh — an owned Work shows in its collection regardless
         // of the content-language selection, and a Work the listener does not
         // own can never appear. Empty collections are absent from the flow.
-        _smartCollections.value =
-            com.slukhayka.audiobooks.data.collections.CollectionMatcher.matchAll(
-                collectionLists + _liveCollections.value,
-                collectionsMatchCorpus
-            )
+        // #1730 — read both inputs and publish under the same lock the refresh
+        // uses, so a re-match started before the startup batch cannot publish
+        // its stale curated list after the newer one.
+        synchronized(collectionsLock) {
+            _smartCollections.value =
+                com.slukhayka.audiobooks.data.collections.CollectionMatcher.matchAll(
+                    currentCollectionLists() + _liveCollections.value,
+                    collectionsMatchCorpus
+                )
+        }
     }
 
     private val _isFeedsLoading = MutableStateFlow(false)
@@ -819,7 +894,11 @@ class SourceCatalog(
         }
         com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Success(
             com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock(
-                blockKey = com.slukhayka.audiobooks.data.collective.collectiveBlockKey(sourceId, kind),
+                blockKey = com.slukhayka.audiobooks.data.collective.collectiveBlockKey(
+                    sourceId,
+                    kind,
+                    SourceRegistry.facts(sourceId)?.homeUrl.orEmpty()
+                ),
                 sourceId = sourceId,
                 kind = kind,
                 name = sourceDisplayName(sourceId),
@@ -881,15 +960,22 @@ class SourceCatalog(
             )
         }
         val kind = com.slukhayka.audiobooks.data.collective.CollectiveBlockKind.COLLECTIONS
+        // #1238 — the identity and the provenance name the COLLECTION PAGE,
+        // never the page cursor: page 2 is still the same collection, while a
+        // different genre path is a different related collection that must
+        // coexist instead of replacing its sibling.
+        val provenanceUrl = com.slukhayka.audiobooks.data.collective.genreProvenanceUrl(sourceId, genrePath)
         com.slukhayka.audiobooks.data.collective.CollectiveGenreFetch(
             outcome = com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Success(
                 com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock(
-                    blockKey = com.slukhayka.audiobooks.data.collective.collectiveBlockKey(sourceId, kind),
+                    blockKey = com.slukhayka.audiobooks.data.collective.collectiveGenreBlockKey(
+                        sourceId,
+                        genrePath
+                    ),
                     sourceId = sourceId,
                     kind = kind,
                     name = sourceDisplayName(sourceId),
-                    provenanceUrl = SourceRegistry.facts(sourceId)?.homeUrl.orEmpty() +
-                        (cursor ?: genrePath),
+                    provenanceUrl = provenanceUrl,
                     cards = page.books.map { book ->
                         com.slukhayka.audiobooks.data.collective.CollectiveBlockCard(
                             sourceId = book.sourceId.ifBlank { sourceId },
@@ -1290,9 +1376,15 @@ class SourceCatalog(
      * construction: the browser surface that exposes it is debug-gated, T2).
      * Crawls a WebView-source's catalogue through the live session
      * ([SourceAdapter.fetchCatalog] — session cookies past Cloudflare),
-     * fetches each book page with the same session and imports through the
-     * shared [LibraryImport.importBookFromSource] path (MergeKey dedup —
-     * re-hydration adds new books without duplicating existing Works).
+     * fetches each book page with the same session and writes it into the
+     * catalogue MIRROR (`works`/`editions`, merge-on-write — re-hydration adds
+     * new Works without duplicating existing ones).
+     *
+     * ADR-0063 — one write only: the mirror. Hydration is an automatic pass,
+     * so it creates NO Library Entry and never touches the listener's
+     * personal library. Opening a hydrated card materializes it technically;
+     * saving or playing it makes it personal.
+     *
      * Best-effort per book: a failing book simply counts as failed, never
      * aborts the crawl.
      */
@@ -1319,22 +1411,15 @@ class SourceCatalog(
                         failed++
                         continue
                     }
-                    // Count honestly: a book whose Work already exists (same
-                    // merge key) is a merge — the new source is attached to
-                    // the existing card, never a duplicate Work.
-                    // ADR-0010: the Work key is bibliographic — the narrator
-                    // distinguishes Editions, never Works.
-                    val mergeKey = MergeKey.keyFor(detail.title, detail.author)
-                    val alreadyKnown = mergeKey.isNotBlank() && dao.findByMergeKey(mergeKey) != null
+                    // Spec-23 T3: the hydrated row lands in the persisted
+                    // browse layer (works/editions) via merge-on-write — the
+                    // endless feed's source of truth. Idempotent: the edition
+                    // id is deterministic, so re-hydration never duplicates.
+                    // The per-source policy rides along (stream-only flags),
+                    // and playback already routes Referer/UA via headersFor.
+                    var written: WorkWriteResult? = null
                     writeBatchRunner {
-                        libraryImport.importBookFromSource(sourceId, detail, origin = com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin.CATALOG_SYNC)
-                        // Spec-23 T3: the hydrated row ALSO lands in the persisted
-                        // browse layer (works/editions) via merge-on-write — the
-                        // endless feed's source of truth. Idempotent: the edition
-                        // id is deterministic, so re-hydration never duplicates.
-                        // The per-source policy rides along (stream-only flags),
-                        // and playback already routes Referer/UA via headersFor.
-                        writeWorkEdition(
+                        written = writeWorkEdition(
                             sourceId = sourceId,
                             title = detail.title,
                             author = detail.author,
@@ -1348,7 +1433,9 @@ class SourceCatalog(
                             genreTexts = detail.genres.ifEmpty { listOf(book.genre) }
                         )
                     }
-                    if (alreadyKnown) merged++ else imported++
+                    // Count honestly: a Work that already existed is a merge
+                    // (the new source was attached to the mirror card).
+                    if (written?.workCreated == true) imported++ else merged++
                 } catch (e: Exception) {
                     failed++
                 }
@@ -1358,10 +1445,12 @@ class SourceCatalog(
 
     /**
      * Outcome of a [hydrateWebSourceCatalog] run: how many books the crawl
-     * found, how many were imported as NEW Works, how many merged into
-     * existing Works (same merge key — the new source was attached, no
-     * duplicate), and how many failed to fetch/parse. The UI surfaces these
-     * counts so the debug tool reports, never silently no-ops.
+     * found, how many became NEW Works in the catalogue mirror, how many
+     * merged into existing Works (same merge key — the new source was
+     * attached, no duplicate), and how many failed to fetch/parse. Counts are
+     * mirror rows only — hydration never writes the personal library
+     * (ADR-0063). The UI surfaces these counts so the debug tool reports,
+     * never silently no-ops.
      */
     data class HydrationResult(
         val sourceId: String,
@@ -1470,10 +1559,11 @@ class SourceCatalog(
         // live page's chapters on EVERY play/refresh -- observed on-device as
         // 54 chapter rows for one 6-chapter seed book, scrambled order, and
         // the player picking up reasd.org streams instead of the seeded ones.
-        // The empty-chapter warning below must name 4read only when the 4read
-        // fallback actually ran; a mirror work (e.g. LibriVox) has no chapters
-        // yet for its own reasons — the mirror is not an import.
-        var attemptedFourReadFallback = false
+        // The empty-chapter warning below must name the fallback only when the
+        // book's OWN source fallback actually ran; a mirror work (e.g.
+        // LibriVox) has no chapters yet for its own reasons — the mirror is
+        // not an import.
+        var attemptedOwnSourceFallback = false
         // #814 — матеріалізація з ВЛАСНОГО джерела книги, а не лише з 4read.
         //
         // Ця гілка — той самий «метод 4read», про який просив користувач:
@@ -1495,30 +1585,41 @@ class SourceCatalog(
             // materialization either — the refusal covers the fallback too.
             bookSourceId !in refusedAudioSources()
         ) {
-            attemptedFourReadFallback = true
+            attemptedOwnSourceFallback = true
             // Spec-14 T5: the adapter owns the page parse; the catalog only
             // persists what the seam's SourceBookDetail carries.
             val detail = bookAdapter.fetchBookPage(sourceUrl)
             if (detail.chapters.isNotEmpty()) {
                 // ADR-0004 + ADR-0007: materialization (one id format, one
                 // title fallback, duration conventions; Edition chapters +
-                // Source tracks) comes from the one module.
+                // Source tracks) and the Source's provenance come from the
+                // shared write module. The stored type is the page's OWN
+                // adapter id — the fallback used to hard-code «4read» for any
+                // allowed Direct Source, so a foreign page's tracks stopped
+                // pairing under the wrong provenance.
                 val edition = dao.getEditionForWork(bookId)
                 // Spec-45 (#405) — the fallback-created Edition claims the
                 // page's content language, and the id formula agrees with the
                 // import write path so lookups match stored rows.
-                val editionId = edition?.id ?: EditionId.forBook(book?.mergeKey ?: "", bookId, book?.narrator ?: "", detail.language)
-                if (edition == null) {
-                    dao.insertEdition(
-                        EditionEntity(
-                            id = editionId,
-                            workId = bookId,
-                            narrator = book?.narrator ?: "",
-                            language = detail.language,
-                            totalChapters = detail.chapters.size,
-                            totalDurationSeconds = detail.totalDurationSeconds ?: 0L
-                        )
+                val editionId = edition?.id
+                    ?: EditionId.forBook(book?.mergeKey ?: "", bookId, book?.narrator ?: "", detail.language)
+                val written = editionSourceWriter.writeResolvedPage(
+                    bookId = bookId,
+                    bookTitle = book?.title ?: bookSourceId,
+                    sourceId = bookAdapter.sourceId,
+                    pageUrl = sourceUrl,
+                    detail = detail,
+                    existingEdition = edition,
+                    draftEdition = EditionEntity(
+                        id = editionId,
+                        workId = bookId,
+                        narrator = book?.narrator ?: "",
+                        language = detail.language,
+                        totalChapters = detail.chapters.size,
+                        totalDurationSeconds = detail.totalDurationSeconds ?: 0L
                     )
+                )
+                if (edition == null) {
                     // R1 (#508): the fallback-created Edition's facet projection
                     // lands through the same shared seam — the feed's language
                     // dimension sees a page-materialized rendition too.
@@ -1527,7 +1628,7 @@ class SourceCatalog(
                         domainWorkId = book?.workId?.takeIf { it.isNotBlank() } ?: bookId,
                         narrator = book?.narrator ?: "",
                         language = detail.language,
-                        chapterCount = detail.chapters.size
+                        chapterCount = written.chapters.size
                     )
                 } else if (edition.language.isBlank() && detail.language.isNotBlank()) {
                     // R1 (#508): the Edition row predates the language claim —
@@ -1539,28 +1640,9 @@ class SourceCatalog(
                         domainWorkId = book?.workId?.takeIf { it.isNotBlank() } ?: bookId,
                         narrator = edition.narrator,
                         language = detail.language,
-                        chapterCount = detail.chapters.size
+                        chapterCount = written.chapters.size
                     )
                 }
-                val source = dao.getSourcesForBookSync(bookId).firstOrNull { it.type == "4read" }
-                    ?: SourceEntity(
-                        id = "4read-$editionId",
-                        bookId = bookId,
-                        editionId = editionId,
-                        type = "4read",
-                        url = sourceUrl,
-                        streamOnly = streamOnlyFor("4read"),
-                        addedAt = System.currentTimeMillis()
-                    ).also { dao.insertSources(listOf(it)) }
-                val materialized = MetadataAssertions.materializeChaptersAndTracks(
-                    editionId = editionId,
-                    sourceId = source.id,
-                    bookId = bookId,
-                    bookTitle = book?.title ?: "4read",
-                    chapters = detail.chapters
-                )
-                dao.insertChapters(materialized.chapters)
-                dao.insertTracks(materialized.tracks)
                 // Back-fill the real chapter count, the site's own total
                 // duration ("Триває:"), and the real author/narrator/genre/
                 // rating/series now that we've fetched the book page — the
@@ -1570,7 +1652,7 @@ class SourceCatalog(
                     book?.totalDurationSeconds ?: 0L,
                     detail.totalDurationSeconds
                 )
-                dao.updateBookStats(bookId, materialized.chapters.size, knownDuration)
+                dao.updateBookStats(bookId, written.chapters.size, knownDuration)
                 val author = MetadataAssertions.normalizeClaimedText(detail.author)
                 val narrator = MetadataAssertions.normalizeClaimedText(detail.narrator)
                 val genres = detail.genres.joinToString(" · ").ifBlank { null }
@@ -1601,21 +1683,22 @@ class SourceCatalog(
                 MetadataAssertions.coverDelta(detail.coverImageUrl)?.let { cover ->
                     dao.updateCoverImageUrl(bookId, cover)
                 }
-                chapters = materialized.chapters
+                chapters = written.chapters
             }
         }
 
-        // Phase 2.5 hotfix (CR-002 / SF-003 / SF-005 / SF-006): when 4read fetch
-        // returns no streams the previous code synthesised N chapters pointing
-        // at unrelated archive.org MP3s (time_machine / war_of_the_worlds) so
-        // that the chapter list was always populated. Users heard 19th-century
-        // sci-fi while the UI showed their selected book. We refuse to fabricate
-        // audio and surface an empty chapter list — the player / UI sees the
-        // absence and shows a "no chapters available" message instead.
-        if (chapters.isEmpty() && attemptedFourReadFallback) {
+        // Phase 2.5 hotfix (CR-002 / SF-003 / SF-005 / SF-006): when the page
+        // fetch returns no streams the previous code synthesised N chapters
+        // pointing at unrelated archive.org MP3s (time_machine /
+        // war_of_the_worlds) so that the chapter list was always populated.
+        // Users heard 19th-century sci-fi while the UI showed their selected
+        // book. We refuse to fabricate audio and surface an empty chapter list
+        // — the player / UI sees the absence and shows a "no chapters
+        // available" message instead.
+        if (chapters.isEmpty() && attemptedOwnSourceFallback) {
             Log.w(
                 "SourceCatalog",
-                "No chapters for bookId=$bookId and 4read fetch returned none; " +
+                "No chapters for bookId=$bookId and the source page returned none; " +
                     "refusing to fabricate placeholder audio."
             )
         }
@@ -1646,11 +1729,13 @@ class SourceCatalog(
                     sourceName = sourceDisplayName(source.type),
                     url = source.url,
                     localAvailable = tracks.any { track ->
-                        // #472: the ONE local-file threshold (#471) — the same
-                        // [SmartRetryPolicy.localFileReady] buildMediaItem and
-                        // the heal gate apply, so source ordering can never
-                        // disagree with what the engine would actually play.
-                        track.isDownloaded && SmartRetryPolicy.localFileReady(track.localFilePath)
+                        // #472: the ONE local-address verdict (#471, ADR-0061)
+                        // — the same [SmartRetryPolicy.localAddressReady]
+                        // buildMediaItem and the heal gate apply, so source
+                        // ordering can never disagree with what the engine
+                        // would actually play.
+                        track.isDownloaded &&
+                            SmartRetryPolicy.localAddressReady(track.localFilePath, track.url)
                     }
                 )
             }
@@ -1684,7 +1769,7 @@ class SourceCatalog(
         val localReadySource = if (applyLocalLock && preferred == null) {
             playbackOrder.firstOrNull { source ->
                 tracksBySource[source].orEmpty().any { track ->
-                    SmartRetryPolicy.localFileReady(track.localFilePath)
+                    SmartRetryPolicy.localAddressReady(track.localFilePath, track.url)
                 }
             }
         } else {
@@ -1712,8 +1797,9 @@ class SourceCatalog(
             tracksBySource[source].orEmpty().map { source to it }
         }
         fun resolveTrack(index: Int): Pair<SourceEntity?, SourceTrackEntity?> {
-            lockedTracks.firstOrNull { it.trackIndex == index && SmartRetryPolicy.localFileReady(it.localFilePath) }
-                ?.let { return localReadySource to it }
+            lockedTracks.firstOrNull {
+                it.trackIndex == index && SmartRetryPolicy.localAddressReady(it.localFilePath, it.url)
+            }?.let { return localReadySource to it }
             lockedTracks.firstOrNull { it.trackIndex == index && it.url?.startsWith("http") == true }
                 ?.let { return localReadySource to it }
             fallbackTracks.firstOrNull { (_, track) -> track.trackIndex == index && track.url?.startsWith("http") == true }
@@ -1858,7 +1944,9 @@ class SourceCatalog(
         // ADR-0010: the Work key is bibliographic (title|author) — the
         // narrator is a rendition (Edition) property, never part of the Work.
         val mergeKey = MergeKey.keyFor(title, author)
-        val existing = if (mergeKey.isNotBlank()) dao.findWorkByMergeKey(mergeKey) else null
+        val identity = workIdentityAccess?.resolveSource(mergeKey, sourceId, sourceUrl, narrator, language)
+        val existing = if (workIdentityAccess != null) identity?.work
+            else if (mergeKey.isNotBlank()) dao.findWorkByMergeKey(mergeKey) else null
         val work = existing ?: if (mergeKey.isNotBlank()) {
             WorkEntity(
                 id = mergeKey,
@@ -1890,11 +1978,17 @@ class SourceCatalog(
                 addedAt = System.currentTimeMillis()
             )
         }
-        val workSourceId = "${work.id}|$sourceId|${stableIdOf(sourceUrl)}"
+        val claims = dao.getWorkSourcesForWorkSync(work.id)
+        val matchingClaims = claims.filter { it.sourceId == sourceId && it.sourceUrl == sourceUrl }
+        if (workIdentityAccess != null && matchingClaims.size > 1) {
+            throw WorkIdentityWriteRefused(IdentityWriteRefusal.AmbiguousSource)
+        }
+        val preservedClaim = if (workIdentityAccess != null) matchingClaims.singleOrNull() else null
+        val workSourceId = preservedClaim?.id ?: "${work.id}|$sourceId|${stableIdOf(sourceUrl)}"
         // Every persisted Work immediately participates in the canonical
         // cross-Source author index. This is idempotent and entirely local.
         authorIndex.indexWorks(listOf(work), sourceId)
-        val sourceAlreadyKnown = dao.getWorkSourcesForWorkSync(work.id).any { it.id == workSourceId }
+        val sourceAlreadyKnown = claims.any { it.id == workSourceId }
         val workSource = WorkSourceEntity(
             id = workSourceId,
             workId = work.id,
@@ -1903,7 +1997,7 @@ class SourceCatalog(
             streamOnly = streamOnly,
             coverImageUrl = coverImageUrl,
             durationSeconds = durationSeconds,
-            addedAt = System.currentTimeMillis()
+            addedAt = preservedClaim?.addedAt ?: System.currentTimeMillis()
         )
         // #388 — use safe/transactional upsert. If the Work was just
         // created, both rows are written atomically; if it already
@@ -1938,7 +2032,7 @@ class SourceCatalog(
         // lands the Edition row (narrator unknown at catalogue depth) and its
         // facet projection through the shared seam, so the Work participates
         // in the feed's language dimension from the moment it is written.
-        if (language.isNotBlank()) {
+        if (language.isNotBlank() && identity?.existingSource == null) {
             val editionId = EditionId.forBook(mergeKey, work.id, narrator, language)
             if (dao.getEditionById(editionId) == null) {
                 dao.insertEdition(
@@ -2326,7 +2420,11 @@ class SourceCatalog(
                 )
             )
             // #741: a scam source (4read) never renders a source row/badge.
-        }.filterNot { SourceRegistry.isScam(it.sourceId) }
+            // #1528: the internal `unknown` marker (a probed public page of a
+            // host no source claims) is not a Source either — the library
+            // already hides its provenance chip; the book page must not show
+            // the raw marker as a name.
+        }.filterNot { it.sourceId == UNKNOWN_SOURCE_ID || SourceRegistry.isScam(it.sourceId) }
         val downloadedBySource = dao.getSourcesForBookSync(bookId)
             .associate { source ->
                 (source.type to source.url) to dao.getTracksForSourceSync(source.id).any { it.isDownloaded }

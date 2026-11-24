@@ -10,6 +10,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.duration.ChapterDurationProbe
+import com.slukhayka.audiobooks.data.duration.LocalFileDurationReader
 import com.slukhayka.audiobooks.data.duration.MpegAudioFrame
 import com.slukhayka.audiobooks.data.duration.ProbeResult
 import com.slukhayka.audiobooks.data.duration.StreamProber
@@ -34,7 +35,9 @@ import org.robolectric.annotation.Config
  * the same seams it runs on in production: Room chapters + a fake
  * chapter→track pairing (the catalog seam's shape) + a fake stream prober
  * (prior art: DurationEnrichmentRepositoryTest). Unknown-duration chapters
- * receive size × 8 / bitrate from the prober; local books are never probed;
+ * receive size × 8 / bitrate from the prober; a local import (#1187) is
+ * measured from its own files through the local reader and never reaches the
+ * stream transport;
  * a failing probe leaves the row untouched and never aborts the batch; the
  * book total becomes the chapter sum only when it was 0 and every chapter is
  * known; the pass respects its batch limit and throttles itself.
@@ -127,6 +130,30 @@ class ChapterDurationProbeRepositoryTest {
         url = url
     )
 
+    /** #1187 — a local import's track: the copied file, url doubling as the path. */
+    private fun localTrack(bookId: String, index: Int, path: String) = SourceTrackEntity(
+        id = "$bookId-tr$index",
+        sourceId = "local-$bookId",
+        trackIndex = index,
+        url = path,
+        localFilePath = path,
+        isDownloaded = true
+    )
+
+    /**
+     * #1187 — the local reader as the pass sees it: one recorded path per
+     * chapter, and the configured answer (absent = the file is unreadable).
+     */
+    private class FakeLocalDurations(
+        private val secondsByPath: Map<String, Long>
+    ) : LocalFileDurationReader {
+        val readPaths = java.util.Collections.synchronizedList(mutableListOf<String>())
+        override suspend fun durationSeconds(path: String): Long? {
+            readPaths += path
+            return secondsByPath[path]
+        }
+    }
+
     /** Pairs each chapter with a track of the same index — the catalog seam's shape. */
     private fun pairs(bookId: String, tracks: Map<Int, SourceTrackEntity>): List<PlayableChapter> {
         val chapters = runBlocking { dao.getChaptersListForBook(bookId) }
@@ -153,10 +180,11 @@ class ChapterDurationProbeRepositoryTest {
     private fun pass(
         prober: StreamProber,
         tracks: Map<String, Map<Int, SourceTrackEntity>> = emptyMap(),
-        store: FakeSharedBookMetaStore? = null
+        store: FakeSharedBookMetaStore? = null,
+        localReader: LocalFileDurationReader? = null
     ): ChapterDurationProbe {
         val provider: suspend (String) -> List<PlayableChapter> = { bookId -> pairs(bookId, tracks[bookId].orEmpty()) }
-        return ChapterDurationProbe(dao, provider, prober, sharedStore = store)
+        return ChapterDurationProbe(dao, provider, prober, sharedStore = store, localDurations = localReader)
     }
 
     private fun run(pass: ChapterDurationProbe, batchLimit: Int = 10, now: Long = START_EPOCH): Int =
@@ -203,18 +231,65 @@ class ChapterDurationProbeRepositoryTest {
     }
 
     // ---------------------------------------------------------------------
-    // Local books are skipped
+    // Local books are measured from their own files (#1187)
     // ---------------------------------------------------------------------
 
     @Test
-    fun `local books with a blank source url are never probed`() {
-        val local = book("local", url = "")
-        val prober = FakeProber(emptyMap())
-        seed(listOf(local), listOf(chapter("local", 0, 0L)))
+    fun `local chapters are measured from their files and become the book total`() {
+        seed(listOf(book("local", url = "")), listOf(chapter("local", 0, 0L), chapter("local", 1, 0L)))
+        val reader = FakeLocalDurations(
+            mapOf("/books/local/a.mp3" to 45L, "/books/local/b.mp3" to 30L)
+        )
+        val tracks = mapOf(
+            "local" to mapOf(
+                0 to localTrack("local", 0, "/books/local/a.mp3"),
+                1 to localTrack("local", 1, "/books/local/b.mp3")
+            )
+        )
+        val prober = FakeProber(emptyMap()) // a local book must never reach the transport
 
-        assertEquals(0, run(pass(prober)))
+        assertEquals(2, run(pass(prober, tracks, localReader = reader)))
+
+        assertEquals(45L, durationOf("local-ch0"))
+        assertEquals(30L, durationOf("local-ch1"))
+        // The measured sum is the book's own total — known only now that EVERY
+        // chapter is measured, which is what makes completion honest.
+        assertEquals(75L, bookDurationOf("local"))
+        assertTrue("no stream probe for a local file", prober.probedUrls.isEmpty())
+        assertEquals(
+            listOf("/books/local/a.mp3", "/books/local/b.mp3"),
+            reader.readPaths.sorted()
+        )
+    }
+
+    @Test
+    fun `a local book stays without a total while one file cannot be measured`() {
+        seed(listOf(book("local", url = "")), listOf(chapter("local", 0, 0L), chapter("local", 1, 0L)))
+        val reader = FakeLocalDurations(mapOf("/books/local/a.mp3" to 45L)) // b is unreadable
+        val tracks = mapOf(
+            "local" to mapOf(
+                0 to localTrack("local", 0, "/books/local/a.mp3"),
+                1 to localTrack("local", 1, "/books/local/b.mp3")
+            )
+        )
+
+        assertEquals(1, run(pass(FakeProber(emptyMap()), tracks, localReader = reader)))
+
+        assertEquals(45L, durationOf("local-ch0"))
+        assertEquals(0L, durationOf("local-ch1"))
+        assertEquals("a partial sum is not a book total", 0L, bookDurationOf("local"))
+    }
+
+    @Test
+    fun `without a local reader no local book is probed`() {
+        val prober = FakeProber(emptyMap())
+        seed(listOf(book("local", url = "")), listOf(chapter("local", 0, 0L)))
+        val tracks = mapOf("local" to mapOf(0 to localTrack("local", 0, "/books/local/a.mp3")))
+
+        assertEquals(0, run(pass(prober, tracks)))
         assertTrue(prober.probedUrls.isEmpty())
         assertEquals(0L, durationOf("local-ch0"))
+        assertEquals(0L, bookDurationOf("local"))
     }
 
     // ---------------------------------------------------------------------
@@ -378,15 +453,20 @@ class ChapterDurationProbeRepositoryTest {
     }
 
     @Test
-    fun `targeted probe skips local books and unknown ids`() = runBlocking {
+    fun `targeted probe measures a local book and still ignores unknown ids`() = runBlocking {
         val prober = FakeProber(emptyMap())
         seed(listOf(book("local", url = "")), listOf(chapter("local", 0, 0L)))
-        val pass = pass(prober)
+        val reader = FakeLocalDurations(mapOf("/books/local/a.mp3" to 45L))
+        val pass = pass(
+            prober,
+            mapOf("local" to mapOf(0 to localTrack("local", 0, "/books/local/a.mp3"))),
+            localReader = reader
+        )
 
-        assertEquals(0, pass.probeBookNow("local"))
+        assertEquals(1, pass.probeBookNow("local"))
+        assertEquals(45L, durationOf("local-ch0"))
         assertEquals(0, pass.probeBookNow("missing-book"))
         assertTrue(prober.probedUrls.isEmpty())
-        assertEquals(0L, durationOf("local-ch0"))
     }
 
     // ---------------------------------------------------------------------

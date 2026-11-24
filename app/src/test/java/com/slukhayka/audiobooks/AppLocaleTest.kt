@@ -18,6 +18,13 @@ import org.robolectric.annotation.Config
  * speaks English per US15) while an EXPLICITLY stored choice from any
  * earlier store version is preserved; the R7 review fixed the test that
  * wrongly pinned the old Ukrainian default.
+ *
+ * #1387–#1389 — SYSTEM follows the device only for a language whose resource
+ * set is complete ([AppLocale.SYSTEM_FOLLOWS]). The class deliberately runs
+ * on a POLISH device: during the three translation batches (`pl` absent from
+ * the set) it had to resolve to Ukrainian instead of a half-Polish screen
+ * (#1385); with the last batch (#1389) Polish is complete and now follows the
+ * device — the two tests below pin the switch in its ON state.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "pl")
@@ -48,10 +55,43 @@ class AppLocaleTest {
     }
 
     @Test
-    fun systemLocaleFollowsTheDevice() {
+    @Config(qualifiers = "en-rUS")
+    fun systemLocaleFollowsADeviceLanguageWithACompleteTranslation() {
+        // English IS in SYSTEM_FOLLOWS, so on an English device SYSTEM leaves
+        // the context unpinned and the app speaks English (US15). The class
+        // qualifier is Polish, hence the per-method override.
+        val englishDevice = ApplicationProvider.getApplicationContext<Context>()
+        assertEquals("en", englishDevice.resources.configuration.locales[0].language)
+
+        val appUiContext = englishDevice.withAppLocale(AppLocale.SYSTEM)
+
+        assertEquals("en", appUiContext.resources.configuration.locales[0].language)
+    }
+
+    @Test
+    fun aCompletePolishTranslationIsFollowedOnAPolishDevice() {
+        // #1389 — the last batch made `values-pl` complete; `pl` is in
+        // SYSTEM_FOLLOWS, so a Polish device is no longer forced into
+        // Ukrainian (the #1385 fallback was only for the incomplete set).
         val appUiContext = deviceContext.withAppLocale(AppLocale.SYSTEM)
 
         assertEquals("pl", appUiContext.resources.configuration.locales[0].language)
+    }
+
+    @Test
+    fun polishIsAnInterfaceLanguageNowThatTheTranslationIsComplete() {
+        org.junit.Assert.assertTrue(
+            "Polish must be selectable once its translation is complete (#1389)",
+            AppLocale.entries.any { it.tag == "pl" }
+        )
+        org.junit.Assert.assertTrue(
+            "SYSTEM_FOLLOWS must contain pl after #1389",
+            "pl" in AppLocale.SYSTEM_FOLLOWS
+        )
+        assertEquals(AppLocale.POLISH, AppLocale.fromStored("POLISH"))
+        assertEquals(AppLocale.POLISH, AppLocalePrefs(deviceContext).apply {
+            locale = AppLocale.POLISH
+        }.locale)
     }
 
     @Test

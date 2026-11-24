@@ -132,6 +132,60 @@
 `scripts/tests/fixtures/verdict_field/{unpinned,pinned}`: у неї байт-у-байт той
 самий інструмент, різниця лише в наборі-свідку.
 
+Ціна й тимчасові дерева (#1271). Копіюється лише `scripts/`, решта top-level
+записів — симлінки: виміряно 1.4 MiB на дерево проти 76.2 MiB у повної копії
+дерева (0.01 с проти 0.32 с) — на дереві `d6c35cdf`, і число росте разом із
+деревом: піниться ВІДНОШЕННЯ, а не число.
+На гейт дерева будуються 38 разів, тож разом це 38 × 1.4 MiB = 53.2 MiB проти
+38 × 76.2 MiB = 2.8 GiB, якби копіювалося все. Дерево звільняється одразу після
+свого прогону, тож пік — це `--jobs` дерев, а не всі 38: виміряно 46.9 MiB піку,
+поки всі 38 жили до кінця прогону, і 5.3 MiB після правки (той самий гейт, той
+самий метод). Місце перевіряється ДО першої копії (`tmp_budget.prepare`): він
+міряє копію, додає запас на воркери й підлогу на scratch свідків і відмовляє
+кодом 2 із числами («треба X, вільно Y») замість того, щоб заповнити ФС —
+заповнена ФС валить не цей прогін, а кожен запуск процесу в середовищі. Маленький
+tmpfs у RAM — окрема відмова, застарілі дерева попередніх падінь прибираються на
+старті, а явне перенесення (`SLUKHAYKA_MUTANTS_TMPDIR`) голосне.
+
+Зрізання того самого гейта (#1313). Прогін МУТАНТА спиняється на першій
+червоній цілі (`MUTANT_FLAGS`), а базовий прогін лишається повним. Це не
+послаблення: вердикт прогону — це код виходу, а не кількість червоних тестів,
+тож прапорець не може ні створити червоне, ні зняти його — він може лише
+ВКОРОТИТИ прогін. Базовий прогін прапорця не бере навмисно: його справа —
+довести, що зелені ВСІ цілі, і вкоротити його означало б доводити менше, ніж
+він обіцяє. Єдине, чим прапорець видимий, — скільком свідкам прогін устигає
+впасти; саме це пінить `test_verdict_field_mutants.FailfastTest`, і саме тому
+«швидше» тут не може тихо означати «інакше». Скільки це дає — вимір, а не
+обіцянка: на машині #1313 найдовша ціль `tests` вкоротилася з 4.7 до 0.7 с,
+`artifactSha256` — з 7.3 до 1.1 с, `failures` — з 14.7 до 9.8 с (там перша
+червона ціль стоїть десятою, і вкорочувати далі нема чого).
+
+Друге зрізання — порядок фаз (`witness_phases`): вузькі фази ВСІХ свідків ідуть
+перед повними будь-кого. Це перестановка, а не звуження — набір фаз той самий, і
+якщо жодна вузька не вб'є, повні біжать усі, як і раніше; змінюється лише те,
+який свідок назветься першим. Воно прибирає роботу, яка вже не могла нічого
+змінити: повна фаза модуля, що не вбиває, більше не біжить перед вузькою
+модуля, що вбиває.
+
+Третє зрізання — черга на замку ключа (`warm_baselines`). Базовий прогін
+робиться рівно один на ключ, але той, кому той самий ключ потрібен другим,
+СТОЇТЬ і чекає, — а це час ВОРКЕРА, не робота: поки сусіди чекають, ядер не
+використовує ніхто. Виміряно на цій машині: 41 с із 95 с роботи (43 %) були
+очікуванням, і паралелізм падав із 4 до 2.5 при вільних ядрах. Прогрів рахує
+базові прогони ПЕРШИХ фаз усіх сайтів однією хвилею — ключі в ній різні, тож
+вона не чекає сама на себе, і після неї ті самі прогони лежать у кеші. Вердикт
+не змінюється: ключі ті самі, кличе вона той самий `Runner.baseline`.
+
+Межа всіх трьох зрізань — паралелізм, і вона названа. Пул лишається `--jobs` (типово
+`DEFAULT_JOBS` — не більше чотирьох, не більше ядер); зрізання зменшує РОБОТУ,
+а не додає потоків, тож на одному ядрі воно дає той самий виграш у секундах,
+лише без ділення на ядра. Мутації незалежні за побудовою: кожна біжить у
+власній копії дерева, у власній теці під спільним носієм, і спільного стану
+між ними немає; `TMPDIR` той самий, що й був. Розібраний AST свідків
+(`test_targets`) кешується на процес: файли, які він читає, за прогін не
+змінюються — мутація живе лише в копії дерева, — а копія механізму біжить в
+окремому процесі й тому бере власний, порожній кеш.
+
 Виклик: scripts/verdict_field_mutants.py [--list] [--field <поле>]... [--jobs N] [--root <шлях>]
 Коди виходу: 0 — усі місця всіх полів убиті мутантом; 1 — є живі мутанти
 (поле нічого не тримає); 2 — перевірити не вдалося (невідомість).
@@ -142,6 +196,7 @@ from __future__ import annotations
 import argparse
 import ast
 import dataclasses
+import functools
 import os
 import re
 import shutil
@@ -153,15 +208,26 @@ import time
 from concurrent.futures import CancelledError, ThreadPoolExecutor
 from pathlib import Path
 
+import tmp_budget
+
 ROOT = Path(__file__).resolve().parents[1]
 TESTS_DIR = Path("scripts/tests")
 
+# Піддерево, яке копіюється в тимчасове дерево, і те, що в копію не йде. Обидві
+# константи читають і копіювання, і вимір копії: розійтися їм нема чого, інакше
+# бюджет міряв би не те, що пише `_roots` (#1271). Джерело в них одне —
+# `tmp_budget`, де живе саме копіювання (#1270): друга редакція набору розійшлася
+# б із першою, і жоден тест цього не побачив би.
+COPY_ENTRY = tmp_budget.LINK_COPY_ENTRY
+COPY_IGNORE = tmp_budget.LINK_COPY_IGNORE
+
+# Префікс тимчасових дерев механізму: за ним застарілі дерева попередніх падінь
+# відрізняються від чужих тек.
+TEMP_PREFIX = "slukhayka-field-"
+
 # Теки, куди механізм не дивиться: або не код репозиторію, або кеші з копіями
 # того самого коду, які дали б той самий мутант удруге.
-SKIP_DIRS = {
-    ".git", ".gradle", ".gradle-home", ".kotlin", ".mutations", ".robolectric-jars",
-    ".scratch", ".worktrees", "build", "node_modules",
-}
+SKIP_DIRS = tmp_budget.LINK_SKIP_DIRS
 
 # Скільки мутантів гнати одночасно. Це швидкість, а не вимикач: кожен мутант
 # усе одно буде перевірений — черга лише коротшає.
@@ -173,6 +239,12 @@ DEFAULT_JOBS = min(4, os.cpu_count() or 1)
 # коротший таймаут може лише ПЕРЕТВОРИТИ вердикт у невідомість, тобто додати
 # відмов, а не дозволів.
 DEFAULT_RUN_TIMEOUT_SECONDS = 240
+
+# Прапорці прогону МУТАНТА (#1313). Вердикт прогону — це код виходу, тож
+# прапорець може лише ВКОРОТИТИ прогін, не створивши й не знявши червоне.
+# Базовий прогін його не бере: його справа — довести, що зелені ВСІ цілі.
+# Межа названа в шапці («Зрізання того самого гейта»).
+MUTANT_FLAGS = ("-f",)
 
 
 def run_timeout() -> int:
@@ -205,10 +277,17 @@ class FieldError(Exception):
 
 @dataclasses.dataclass(frozen=True)
 class Field:
-    """Поле вердикту: чим воно вирішує і як виглядає його нуль."""
+    """Поле вердикту: як воно зветься і як виглядає його нуль.
+
+    Поля `decides` тут немає навмисно (#1276). Воно оголошувало, ЧИМ поле
+    вирішує вердикт, і не читав його ніхто: ні механізм, ні жоден тест — запис
+    ніс прозу, яку не перевіряло ніщо, а `--list` і відмови друкують місця
+    (`site.describe()`), а не цю прозу. Проза про те, чим поле вирішує, живе в
+    шапці модуля («Чому саме ці поля»), де вона й читається; поле, яке лише
+    виглядало захистом, прибрано, а не підперто сьомою перевіркою.
+    """
 
     name: str
-    decides: str
     python_zero: str
     shell_zero: str
 
@@ -216,32 +295,26 @@ class Field:
 FIELDS = (
     Field(
         name="tests",
-        decides="без нього немає вердикту взагалі, і skipped == tests не з чим порівняти",
         python_zero="0",
         shell_zero="0",
     ),
     Field(
         name="failures",
-        decides="failures > 0 — мутацію вбито",
         python_zero="0",
         shell_zero="0",
     ),
     Field(
         name="errors",
-        decides="errors > 0 — мутацію вбито; без нього свідок, що падає error'ом, "
-                "читається як no-verdict",
         python_zero="0",
         shell_zero="0",
     ),
     Field(
         name="skipped",
-        decides="skipped == tests — не виконалося нічого, тож вердикту немає",
         python_zero="0",
         shell_zero="0",
     ),
     Field(
         name="artifactSha256",
-        decides="status називає XML на диску артефактом мутації лише за цим хешем",
         # Хеша немає — це порожнеча, а не «нульовий хеш»: саме так поле несе
         # себе, коли артефакт не цього прогону.
         python_zero="None",
@@ -625,33 +698,88 @@ def _mentions(node: ast.AST, field: str) -> bool:
     return False
 
 
-def runs_the_suite(node: ast.ClassDef) -> bool:
-    """Чи цей клас ганяє набір у собі (через `sys.executable -m unittest`).
+def module_programs(tree: ast.Module) -> dict[str, str]:
+    """Сталі рядки модуля: `PROGRAM = '''…'''` — програми, які клас ГАНЯЄ.
+
+    Без них форма виклику не читається: `subprocess.run([sys.executable, "-c",
+    PROGRAM, …])` називає програму ІМЕНЕМ, а не текстом, і «ганяє набір» видно
+    лише з того, що в програмі написано (#1270).
+    """
+    programs: dict[str, str] = {}
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
+            programs[node.targets[0].id] = node.value.value
+    return programs
+
+
+def runs_tests_by_name(call: ast.Call, programs: dict[str, str]) -> bool:
+    """Чи цей виклик передає `-c` програму, яка вантажить тести ЗА ІМЕНАМИ.
+
+    Це та сама поведінка, що `-m unittest <ціль>`: клас, який кличе таку
+    програму, ганяє набір, а не перевіряє інструмент. Ознака береться з ОБʼЄКТА
+    виклику (аргумент-стала чи стала модуля), а не з підрядка в тексті класу:
+    згадка в прозі — не запуск, і саме на цьому вже горів реєстр фікстур.
+    """
+    literals = [
+        part.value for part in ast.walk(call)
+        if isinstance(part, ast.Constant) and isinstance(part.value, str)
+    ]
+    literals += [
+        programs[part.id] for part in ast.walk(call)
+        if isinstance(part, ast.Name) and part.id in programs
+    ]
+    return any("loadTestsFromNames" in text for text in literals)
+
+
+def runs_the_suite(node: ast.ClassDef, programs: dict[str, str] | None = None) -> bool:
+    """Чи цей клас ганяє набір у собі (`sys.executable` + unittest).
 
     Такий клас — свідок НАБОРУ, а не інструмента: він сам підсовує інструментові
     копії й вимагає, щоб укладена в нього мутація почервонила названий тест.
     Порахувати його свідком поля означало б визнати вбитим будь-якого мутанта:
     він вимагає, щоб `intact`-прогін був зелений, а `intact` тут — той самий
     мутант. Мета-тест, який ловить «щось змінилося», не є свідком того, ЩО саме.
+
+    Дві форми — одна поведінка: `-m unittest` (ім'я видно у виклику) і `-c
+    <програма>`, яка вантажить тести за іменами (#1270). Друга форму зробив
+    ґард оточення, коли почав брати лічильники з прогону: сам лише підрядок
+    `unittest` у виклику перестав його впізнавати, і клас-мета-тест раптом став
+    свідком поля — на кожне місце `mutate.sh` по десять секунд прогону.
     """
+    programs = programs or {}
     for child in ast.walk(node):
         if not (isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute)):
             continue
         if child.func.attr not in {"run", "Popen", "check_output", "check_call"}:
             continue
         spelled = ast.unparse(child)
-        if "sys.executable" in spelled and "unittest" in spelled:
+        if "sys.executable" not in spelled:
+            continue
+        if "unittest" in spelled or runs_tests_by_name(child, programs):
             return True
     return False
 
 
-def test_targets(module: Path, field: str | None = None) -> list[str]:
-    """Тести модуля — усі або лише ті, що називають поле.
+@functools.lru_cache(maxsize=None)
+def _parsed_targets(module: Path, field: str | None = None) -> tuple[str, ...]:
+    """Розібраний перелік цілей — незмінний, тож і кешований (#1313).
 
-    Спільний список для обох фаз: вузька (лише ті, що називають поле) — швидкий
-    шлях до вбивства, повна (усі) — те, чим механізм закриває питання, коли
-    вузька не вбила. Звузити можна лише ВБИВСТВО, тож хибної відмови звуження
-    не робить. Мета-тести набору (`runs_the_suite`) не входять до жодної фази.
+    Той самий модуль розбирається на кожне місце й на кожну фазу: за повний
+    виклик `test_targets` кличуть 356 разів, а розборів — 24 (чотири
+    модулі-свідки на п'ять полів і повний набір кожного), решту 332 віддає кеш.
+    Числа виміряні `cache_info()` після повного виклику (356 викликів, 332
+    влучання, 24 промахи), а не взяті з голови.
+
+    Вміст модуля за прогін не змінюється: мутація живе лише в копії дерева. Кеш
+    не спільний між процесами, тож копія механізму у своєму процесі починає з
+    порожнього, а тека-фікстура дає власний ключ (шлях входить у нього). Порядок
+    і вміст ті самі, що були до кеша: розбір — чиста функція від (шлях, поле).
     """
     try:
         tree = ast.parse(module.read_text(encoding="utf-8"))
@@ -662,6 +790,7 @@ def test_targets(module: Path, field: str | None = None) -> list[str]:
     # `unittest.TestCase`. Спільна фікстура на кшталт `MutateFixtureTest` — теж
     # предок, тож прямий пошук `TestCase` у базах не побачив би жодного тесту.
     classes = {node.name: node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)}
+    programs = module_programs(tree)
 
     def is_test_class(name: str, seen: frozenset = frozenset()) -> bool:
         if name in seen or name not in classes:
@@ -676,7 +805,7 @@ def test_targets(module: Path, field: str | None = None) -> list[str]:
 
     targets = []
     for name, node in classes.items():
-        if not is_test_class(name) or runs_the_suite(node):
+        if not is_test_class(name) or runs_the_suite(node, programs):
             continue
         for item in node.body:
             if not isinstance(item, ast.FunctionDef) or not item.name.startswith("test"):
@@ -693,7 +822,21 @@ def test_targets(module: Path, field: str | None = None) -> list[str]:
                 if not any(_mentions(statement, field) for statement in body):
                     continue
             targets.append("%s.%s.%s" % (module.stem, name, item.name))
-    return sorted(targets)
+    return tuple(sorted(targets))
+
+
+def test_targets(module: Path, field: str | None = None) -> list[str]:
+    """Тести модуля — усі або лише ті, що називають поле.
+
+    Спільний список для обох фаз: вузька (лише ті, що називають поле) — швидкий
+    шлях до вбивства, повна (усі) — те, чим механізм закриває питання, коли
+    вузька не вбила. Звузити можна лише ВБИВСТВО, тож хибної відмови звуження
+    не робить. Мета-тести набору (`runs_the_suite`) не входять до жодної фази.
+
+    Назовні йде СВІЖИЙ список, а кешується незмінний кортеж: виклик не може
+    зіпсувати кеш сусідові, а розбір не повторюється (див. `_parsed_targets`).
+    """
+    return list(_parsed_targets(module, field))
 
 
 # --------------------------------------------------------------------------
@@ -701,38 +844,44 @@ def test_targets(module: Path, field: str | None = None) -> list[str]:
 # --------------------------------------------------------------------------
 
 
+def copy_bytes(root: Path) -> int:
+    """Байти, які займе одна копія дерева: рівно те, що пише `_roots`.
+
+    Міряється те саме піддерево з тими самими винятками, що й копіюється:
+    інакше бюджет охороняв би не той обсяг, який механізм справді пише.
+    """
+    return tmp_budget.tree_bytes(root / COPY_ENTRY, COPY_IGNORE)
+
+
 def _roots(root: Path, tmp: Path) -> Path:
     """Копія дерева, де `scripts/` справжня, а решта — посилання.
 
-    Мутант живе лише в копії, тож дерево репозиторію не змінюється. Каталоги з
-    кешами й `.git` не переносяться: свідку потрібні тести, а не історія.
+    Саме копіювання (і те, чому воно таке) — у `tmp_budget.link_tree`: та сама
+    функція будує копію для всіх трьох механізмів мутацій (#1270), тож копія не
+    може розійтися з виміром `copy_bytes` і з копією сусіднього механізму. Тут
+    лишаються самі константи — вони факти про ЦЕЙ механізм, і їх пінять його
+    власні тести.
     """
-    work = tmp / "root"
-    work.mkdir()
-    shutil.copytree(
-        root / "scripts",
-        work / "scripts",
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    return tmp_budget.link_tree(
+        root, tmp, copy_entry=COPY_ENTRY, ignore=COPY_IGNORE, skip_dirs=SKIP_DIRS
     )
-    for entry in root.iterdir():
-        if entry.name in {"scripts"} | SKIP_DIRS:
-            continue
-        (work / entry.name).symlink_to(entry, target_is_directory=entry.is_dir())
-    return work
 
 
-def _run(work: Path, tests_dir: Path, targets: list[str]) -> tuple[int | None, str]:
+def _run(work: Path, tests_dir: Path, targets: list[str],
+         flags: tuple[str, ...] = ()) -> tuple[int | None, str]:
     """Один прогін свідка в копії. `None` — прогін не завершився.
 
     Цілі вантажаться як `test_mutate.Class.test` з каталогу тестів — рівно те,
-    що робить джоба script-tests, коли `discover` знаходить модуль.
+    що робить джоба script-tests, коли `discover` знаходить модуль. `flags` —
+    прапорці `unittest`: базовий прогін іде без них (усі цілі мусять бути
+    зелені), мутант — із `MUTANT_FLAGS` (досить однієї червоної).
     """
     environment = os.environ.copy()
     environment["PYTHONDONTWRITEBYTECODE"] = "1"
     environment[RECURSION_MARKER] = str(int(environment.get(RECURSION_MARKER) or 0) + 1)
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "unittest", *targets],
+            [sys.executable, "-m", "unittest", *flags, *targets],
             cwd=str(work / tests_dir), capture_output=True, text=True,
             env=environment, timeout=run_timeout(),
         )
@@ -781,10 +930,39 @@ class Runner:
         self.tests_dir = tests_dir
         self._baselines: dict[tuple, str] = {}
         self._lock = threading.Lock()
-        self._temporary = tempfile.TemporaryDirectory(prefix="slukhayka-field-")
+        # Замок на КЛЮЧ, а не на весь базовий прогін (#1266). Під спільним
+        # замком перший-ліпший базовий прогін спиняв решту потоків на свої
+        # секунди: виміряно 35 % простою пулу на 4 ядрах, а після правки — 16 %.
+        # Ключі незалежні (кожен прогін іде у власній копії дерева), тож чекати
+        # один одного їм нема чого; той самий ключ, як і раніше, рахується один
+        # раз — за це відповідає замок самого ключа.
+        self._baseline_locks: dict[tuple, threading.Lock] = {}
+        # Тимчасові дерева живуть у спільному корені, який сам себе позначає
+        # власником (#1271): сусідній прогін бачить маркер і не приймає живий
+        # корінь за застарілий, а корінь без живого власника — прибирає.
+        #
+        # Місце міряється ТУТ, ДО першої копії — і це ЄДИНЕ місце перевірки.
+        # Заповнена ФС валить не цей прогін, а кожен запуск процесу в середовищі
+        # (`bash` не стартує навіть на `true`), тож відмова з числами — те, що
+        # потрібно, а не `ENOSPC` посередині. Другого такого виклику немає
+        # навмисно: перевірку, розмазану по двох місцях, зняття одного з них не
+        # червонить, і мутація-свідок перестає щось тримати. Одного виміру досить
+        # і за побудовою: пік прогону — `--jobs` дерев (`COPY_HEADROOM` = 8), а
+        # не всі 38, тож запас покриває весь прогін, а не лише першу копію.
+        base = tmp_budget.prepare(tmp_budget.OWN_PREFIXES, copy_bytes(root))
+        # Тека-носій створюється й позначається одним викликом — та сама форма,
+        # що в порожній формі (#1271, огляд #1275): маркер окремим рядком легко
+        # лишити поза `try`, і збій його запису дав би трейсбек і теку без
+        # власника. Прибирання — явне, у `cleanup` (тут воно в `finally`).
+        self._temporary = tmp_budget.claim(base, TEMP_PREFIX)
+
+    def _baseline_lock(self, key: tuple) -> threading.Lock:
+        """Замок цього ключа. Словник замків — під `self._lock`."""
+        with self._lock:
+            return self._baseline_locks.setdefault(key, threading.Lock())
 
     def cleanup(self) -> None:
-        self._temporary.cleanup()
+        shutil.rmtree(self._temporary, ignore_errors=True)
 
     def baseline(self, module: Path, targets: list[str]) -> str:
         """Зелений прогін БЕЗ мутації, або причина, чому його немає.
@@ -793,39 +971,51 @@ class Runner:
         набір під мутантом доводить щось лише тоді, коли без мутанта він зелений.
         """
         key = (module.name, tuple(targets))
-        with self._lock:
-            if key in self._baselines:
-                return self._baselines[key]
-            tmp = Path(tempfile.mkdtemp(dir=self._temporary.name))
-            work = _roots(self.root, tmp)
-            status, output = _run(work, self.tests_dir, targets)
+        with self._baseline_lock(key):
+            with self._lock:
+                if key in self._baselines:
+                    return self._baselines[key]
+            tmp = Path(tempfile.mkdtemp(dir=str(self._temporary)))
+            try:
+                work = _roots(self.root, tmp)
+                status, output = _run(work, self.tests_dir, targets)
+            finally:
+                # Дерево звільняється одразу (#1271): інакше всі 38 копій живуть
+                # до кінця прогону, і пік тимчасової ФС — це 38 дерев, а не `--jobs`.
+                shutil.rmtree(tmp, ignore_errors=True)
             state, why = verdict_of_run(status, output)
             if state == "unknown":
-                self._baselines[key] = "набір-свідок %s не дав вердикту: %s" % (module.name, why)
+                value = "набір-свідок %s не дав вердикту: %s" % (module.name, why)
             elif state == "red":
-                self._baselines[key] = (
+                value = (
                     "набір-свідок %s червоний БЕЗ мутації — зеленого мутанта тут не "
                     "відрізнити від зламаного набору:\n%s" % (module.name, output)
                 )
             else:
-                self._baselines[key] = ""
-        with self._lock:
-            return self._baselines[key]
+                value = ""
+            with self._lock:
+                self._baselines[key] = value
+            return value
 
     def mutant(self, site: Site, module: Path, targets: list[str],
                seconds: list[float]) -> tuple[bool, str, str]:
         """Прогін мутанта. Повертає (червоний, вивід, причина-невідомості)."""
-        tmp = Path(tempfile.mkdtemp(dir=self._temporary.name))
-        work = _roots(self.root, tmp)
-        target_file = work / site.path
-        started = time.monotonic()
+        tmp = Path(tempfile.mkdtemp(dir=str(self._temporary)))
         try:
-            target_file.write_text(mutate(target_file.read_text(encoding="utf-8"), site),
-                                   encoding="utf-8")
-        except OSError as error:
-            return False, "", "мутанта не записати: %s" % error
-        status, output = _run(work, self.tests_dir, targets)
-        seconds.append(time.monotonic() - started)
+            work = _roots(self.root, tmp)
+            target_file = work / site.path
+            started = time.monotonic()
+            try:
+                target_file.write_text(mutate(target_file.read_text(encoding="utf-8"), site),
+                                       encoding="utf-8")
+            except OSError as error:
+                return False, "", "мутанта не записати: %s" % error
+            # Мутант спиняється на першій червоній цілі (MUTANT_FLAGS): вердикт —
+            # це код виходу, і решта цілей додала б секунди, не правду.
+            status, output = _run(work, self.tests_dir, targets, MUTANT_FLAGS)
+            seconds.append(time.monotonic() - started)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
         state, why = verdict_of_run(status, output)
         if state == "unknown":
             return False, output, why
@@ -835,6 +1025,12 @@ class Runner:
 # --------------------------------------------------------------------------
 # Перевірка
 # --------------------------------------------------------------------------
+
+
+# Імена фаз. Вони не лише проза у виводі: за ними `witness_phases` ставить
+# вузькі фази ВСІХ свідків перед повними будь-кого (#1313).
+NARROW_PHASE = "вузький набір"
+FULL_PHASE = "повний модуль"
 
 
 def phases_for(module: Path, field: str) -> list[tuple[str, list[str]]]:
@@ -849,18 +1045,87 @@ def phases_for(module: Path, field: str) -> list[tuple[str, list[str]]]:
     full = test_targets(module)
     phases = []
     if narrow:
-        phases.append(("вузький набір", narrow))
+        phases.append((NARROW_PHASE, narrow))
     if full and full != narrow:
-        phases.append(("повний модуль", full))
+        phases.append((FULL_PHASE, full))
     return phases
+
+
+def witness_phases(modules: list[Path],
+                   field: str) -> list[tuple[Path, str, list[str]]]:
+    """Усі фази всіх свідків — і вузькі ВСІХ перед повними будь-кого (#1313).
+
+    Порядок усередині модуля лишається тим, що й був (`phases_for`: вузька, тоді
+    повна), і це пінить `WitnessTest.test_the_two_phases_are_narrow_then_full`.
+    Змінюється лише порядок МІЖ модулями, і вердикту він змінити не може: killed
+    — це «хоч одна фаза червона», а не «перша-ліпша». Нічого не скасовується:
+    якщо жодна вузька не вб'є, повні біжать усі, як і раніше, — просто пізніше.
+
+    Коштує це тим, що повна фаза модуля, який не вбиває, більше не біжить перед
+    вузькою модуля, який убиває. Виміряно на дереві #1313: 26 повних фаз
+    `test_fixture_environments.py` (~29 с) і повна `test_mutate.py` (~17 с) були
+    зелені — і стояли саме там, перед вузькою, яка вбивала.
+    """
+    narrow: list[tuple[Path, str, list[str]]] = []
+    full: list[tuple[Path, str, list[str]]] = []
+    for module in modules:
+        for phase, targets in phases_for(module, field):
+            if not targets:
+                continue
+            (narrow if phase == NARROW_PHASE else full).append((module, phase, targets))
+    return narrow + full
+
+
+def first_phase_baselines(sites: list[Site],
+                          witnesses: dict) -> dict[tuple, tuple[Path, list[str]]]:
+    """Базові прогони, які кожен сайт попросить ПЕРШИМИ: ключ → (модуль, цілі).
+
+    Сайт починає з першої фази свого першого свідка (`witness_phases`), і саме
+    цей базовий прогін він попросить раніше за всіх. Ключів тут рівно стільки,
+    скільки різних перших фаз, тож прогрів (`warm_baselines`) не рахує нічого
+    зайвого — він лише переносить ту саму роботу раніше й без черги.
+    """
+    keys: dict[tuple, tuple[Path, list[str]]] = {}
+    for site in sites:
+        phases = witness_phases(witnesses[site.path], site.field.name)
+        if not phases:
+            continue
+        module, _phase, targets = phases[0]
+        keys.setdefault((module.name, tuple(targets)), (module, targets))
+    return keys
+
+
+def warm_baselines(pool: ThreadPoolExecutor, runner: Runner, keys: dict) -> None:
+    """Прогріти базові прогони перших фаз ПАРАЛЕЛЬНО — до першої мутації (#1313).
+
+    Замок ключа робить базовий прогін рівно один на ключ, але той, кому той самий
+    ключ потрібен другим, СТОЇТЬ і чекає, — і це час ВОРКЕРА, а не робота: поки
+    сусіди чекають, ядер не використовує ніхто. Виміряно на дереві #1313:
+    очікування на замку — 41 с із 95 с роботи (43 %), і паралелізм падає з 4 до
+    2.5, хоч ядра вільні. Тут ключі РІЗНІ, тож хвиля не чекає сама на себе, а
+    після неї ті самі прогони лежать у кеші й черга не збирається.
+
+    Це не звуження і не зміна вердикту: ключі — ті самі, що попросив би
+    `judge_site`, і кличе тут той самий `Runner.baseline`. Провал базового прогону
+    хвилю не спиняє: його однаково назве `judge_site` — з тим самим ключем,
+    значенням із кеша й тим самим текстом.
+    """
+    futures = [pool.submit(runner.baseline, module, targets)
+               for module, targets in keys.values()]
+    for future in futures:
+        try:
+            future.result()
+        except (OSError, FieldError):
+            continue
 
 
 def judge_site(site: Site, tests_dir: Path, witnesses: dict, runner: Runner):
     """Один мутант: вердикт або рядок-невідомість.
 
-    Фази йдуть від дешевої до повної, і перше червоне вікно закриває питання:
-    мутант, який червонить хоч один тест, — убитий. Якщо не почервонив жоден,
-    поле тут не тримає нічого, і це відмова, а не «ну, майже».
+    Фази йдуть від дешевої до повної (`witness_phases`: вузькі всіх свідків перед
+    повними будь-кого), і перше червоне вікно закриває питання: мутант, який
+    червонить хоч один тест, — убитий. Якщо не почервонив жоден, поле тут не
+    тримає нічого, і це відмова, а не «ну, майже».
     """
     modules = witnesses[site.path]
     if not modules:
@@ -872,23 +1137,20 @@ def judge_site(site: Site, tests_dir: Path, witnesses: dict, runner: Runner):
     verdict = Verdict(site)
     seconds: list[float] = []
     done: set = set()
-    for module in modules:
-        for phase, targets in phases_for(module, site.field.name):
-            if not targets or (module.name, tuple(targets)) in done:
-                continue
-            done.add((module.name, tuple(targets)))
-            broken = runner.baseline(module, targets)
-            if broken:
-                return "FAIL  %s: %s" % (site.describe(), broken)
-            red, output, unreadable = runner.mutant(site, module, targets, seconds)
-            if unreadable:
-                return "FAIL  %s: %s" % (site.describe(), unreadable)
-            if red:
-                verdict.killed_by.extend(
-                    failing_tests(output, targets) or ["%s (%s)" % (module.name, phase)]
-                )
-                break
-        if verdict.killed_by:
+    for module, phase, targets in witness_phases(modules, site.field.name):
+        if (module.name, tuple(targets)) in done:
+            continue
+        done.add((module.name, tuple(targets)))
+        broken = runner.baseline(module, targets)
+        if broken:
+            return "FAIL  %s: %s" % (site.describe(), broken)
+        red, output, unreadable = runner.mutant(site, module, targets, seconds)
+        if unreadable:
+            return "FAIL  %s: %s" % (site.describe(), unreadable)
+        if red:
+            verdict.killed_by.extend(
+                failing_tests(output, targets) or ["%s (%s)" % (module.name, phase)]
+            )
             break
     verdict.seconds = max(seconds) if seconds else 0.0
     if not verdict.killed_by:
@@ -980,11 +1242,30 @@ def check(root: Path, tests_dir: Path = TESTS_DIR, only: list[str] | None = None
 
     try:
         runner = Runner(root, tests_dir)
+    except tmp_budget.BudgetError as error:
+        # Бюджет тимчасових дерев (#1271): відмова ДО копіювання, з числами —
+        # «треба X, вільно Y». Це код 2, а не «заповнимо ФС і подивимось».
+        report.blocked.append("FAIL  %s" % error)
+        return report
     except OSError as error:
         report.blocked.append("FAIL  тимчасового каталогу для мутантів не створити: %s" % error)
         return report
     try:
         with ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
+            # Прогрів перших базових прогонів — ДО першої мутації: інакше сусіди
+            # стоять у черзі за тим самим ключем, і ядра простоюють (див.
+            # `warm_baselines`).
+            try:
+                warm = first_phase_baselines(report.sites, witnesses)
+            except (OSError, FieldError) as error:
+                # Невідомість — код 2, а не трейсбек: той самий контракт, що в
+                # `judged`. Ключі читають СВІДКІВ, і модуль-свідок, якого не
+                # розібрано, падає саме тут — до першої мутації, — тож спіймати
+                # його мусить теж тут, а не `judged` (знахідка огляду #1313).
+                report.blocked.append("FAIL  %s" % error)
+                return report
+            warm_baselines(pool, runner, warm)
+
             def judged(site: Site):
                 try:
                     return judge_site(site, tests_dir, witnesses, runner)

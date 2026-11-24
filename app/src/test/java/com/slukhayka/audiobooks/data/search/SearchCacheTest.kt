@@ -4,6 +4,7 @@ import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -11,9 +12,10 @@ import org.junit.Test
 /**
  * Spec-33 T1 (#229) — the [SearchCache] seam over a fake in-memory document
  * store (prior art: the universe store fixture tests): get/put round-trip,
- * query-key normalization, the ~24-hour freshness window and the
- * no-negative-cache rule. The seam never throws — a failing or corrupt
- * store is a miss, exactly what degrade-never promises.
+ * query-key normalization, the pseudonymised document id (#1735), the
+ * ~24-hour freshness window and the no-negative-cache rule. The seam never
+ * throws — a failing or corrupt store is a miss, exactly what degrade-never
+ * promises.
  */
 class SearchCacheTest {
 
@@ -32,13 +34,13 @@ class SearchCacheTest {
     ) : SearchCache {
         val documents = mutableMapOf<String, Map<String, Any>>()
 
-        override suspend fun readDocument(queryKey: String): Map<String, Any>? {
+        override suspend fun readDocument(documentId: String): Map<String, Any>? {
             if (failReads) throw IllegalStateException("store is down")
-            return documents[queryKey]
+            return documents[documentId]
         }
 
-        override suspend fun writeDocument(queryKey: String, document: Map<String, Any>) {
-            documents[queryKey] = document
+        override suspend fun writeDocument(documentId: String, document: Map<String, Any>) {
+            documents[documentId] = document
         }
 
         override fun nowMillis(): Long = nowMillis
@@ -59,6 +61,38 @@ class SearchCacheTest {
         store.nowMillis += 60_000
 
         assertEquals(listOf(card), store.getResults("Шевченко"))
+    }
+
+    @Test
+    fun `the raw query is never the stored document key - a hit round-trips through the hash`() = runBlocking {
+        val store = FakeStore()
+
+        store.putResults("  Гаррі Поттер / 2 ", listOf(card))
+
+        // #1735: the store is publicly readable, so the key must be the
+        // pseudonymised id — not the query, and not even its normalized text.
+        assertEquals(setOf(SearchDocumentId.of("гаррі поттер / 2")), store.documents.keys)
+        assertFalse(store.documents.containsKey("гаррі поттер / 2"))
+        assertEquals(64, store.documents.keys.single().length)
+
+        store.nowMillis += 60_000
+        assertEquals(listOf(card), store.getResults("ГАРРІ ПОТТЕР / 2"))
+    }
+
+    @Test
+    fun `old plaintext-keyed documents are unreachable through the cache`() = runBlocking {
+        // Before #1735 the normalized query itself was the document key.
+        // Such a document must stay a miss, never be served through the
+        // derived id; the next live resolve writes the hashed key instead.
+        val store = FakeStore()
+        store.documents["шевченко"] = SearchResultCodec.toMap(store.nowMillis, listOf(card))
+
+        assertNull(store.getResults("Шевченко"))
+        store.putResults("Шевченко", listOf(card))
+        assertEquals(
+            setOf("шевченко", SearchDocumentId.of("шевченко")),
+            store.documents.keys
+        )
     }
 
     @Test
@@ -110,7 +144,7 @@ class SearchCacheTest {
         // future; without the guard the entry would stay "fresh" for years,
         // pinning a stale result for every listener.
         val store = FakeStore()
-        store.documents["шевченко"] = SearchResultCodec.toMap(
+        store.documents[SearchDocumentId.of("Шевченко")!!] = SearchResultCodec.toMap(
             fetchedAt = store.nowMillis + 365L * 24 * 60 * 60 * 1000,
             results = listOf(card)
         )
@@ -131,7 +165,7 @@ class SearchCacheTest {
     @Test
     fun `a corrupt document is a miss, never a crash`() = runBlocking {
         val store = FakeStore()
-        store.documents["шевченко"] = mapOf("fetchedAt" to "вчора")
+        store.documents[SearchDocumentId.of("Шевченко")!!] = mapOf("fetchedAt" to "вчора")
 
         assertNull(store.getResults("Шевченко"))
     }

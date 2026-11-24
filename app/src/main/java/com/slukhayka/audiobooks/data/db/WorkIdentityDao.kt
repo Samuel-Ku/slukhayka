@@ -24,8 +24,21 @@ abstract class WorkIdentityDao {
     @Query("SELECT * FROM work_merge_preserved_participants WHERE operationId = :operationId ORDER BY bookId, editionId")
     abstract suspend fun preservedParticipants(operationId: String): List<PreservedWorkMergeParticipant>
 
+    @Query("SELECT * FROM work_merge_preserved_books WHERE operationId = :operationId ORDER BY bookId")
+    abstract suspend fun preservedBooks(operationId: String): List<PreservedWorkMergeBook>
+
+    @Insert
+    internal abstract suspend fun insertPreservedBooks(books: List<PreservedWorkMergeBook>)
+
+    @Query("SELECT EXISTS(SELECT 1 FROM work_merge_preserved_books WHERE bookId = :bookId AND autoMergeExcluded = 1)")
+    abstract suspend fun bookAutoMergeExcluded(bookId: String): Boolean
+
     @Query("SELECT * FROM work_identity_redirects WHERE namespace = :namespace AND oldKey = :alias")
     abstract suspend fun redirectByAlias(namespace: String, alias: String): WorkIdentityRedirectRow?
+
+    /** One bounded reverse frontier; the caller refuses the overflow row, never truncates. */
+    @Query("SELECT * FROM work_identity_redirects WHERE canonicalWorkId IN (:workIds) ORDER BY namespace, oldKey LIMIT 4097")
+    internal abstract suspend fun redirectsTargeting(workIds: List<String>): List<WorkIdentityRedirectRow>
 
     @Query("SELECT EXISTS(SELECT 1 FROM work_merge_preserved_participants WHERE autoMergeExcluded = 1 AND (bookId = :bookId OR editionId = :editionId))")
     abstract suspend fun autoMergeExcluded(bookId: String, editionId: String): Boolean

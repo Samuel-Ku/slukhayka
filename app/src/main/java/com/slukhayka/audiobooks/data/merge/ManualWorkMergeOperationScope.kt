@@ -10,7 +10,9 @@ internal class ManualWorkMergeOperationScope private constructor(fields: List<Li
     private val values = fields.map { immutableMergeList(it) }
     val workIds get() = values[0]
     val workKeys get() = values[1]
-    val bookIds get() = values[2]
+    val entryIds get() = values[2]
+    // Historical wire field "bookIds" contains ALL personal Entry anchors.
+    val bookIds get() = entryIds
     val editionIds get() = values[3]
     val sourceIds get() = values[4]
     val providerIds get() = values[5]
@@ -50,6 +52,16 @@ internal class ManualWorkMergeOperationScope private constructor(fields: List<Li
         require(workIds == canonicalize(roots + canonical)) { "Operation scope participants disagree" }
         require(bookIds == canonicalize(books)) { "Operation scope library anchors disagree" }
         require(editionIds.containsAll(protectedEditions)) { "Operation scope Edition anchors disagree" }
+        if (before.formatVersion == 4) {
+            val rows = before.rows.getValue("editions")
+            val rawIds = rows.map { journal.text(it, "id", before.encoding) }
+            require(rawIds.distinct().size == rawIds.size && editionIds == canonicalize(rawIds)) {
+                "Operation scope must contain every raw Edition anchor"
+            }
+            require(rows.all { journal.text(it, "workId", before.encoding) in roots + books }) {
+                "Original Edition owner is outside participants"
+            }
+        }
         fun text(row: ManualWorkMergeJournal.Row, column: String) = journal.text(row, column, before.encoding)
         require(workKeys.containsAll(roots + canonical + before.rows.getValue("works").map { text(it, "mergeKey") }))
         require(seriesIds.containsAll(before.rows.getValue("series_members").map { text(it, "seriesId") } +

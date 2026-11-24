@@ -8,7 +8,7 @@ import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.achievements.AchievementEvaluator
-import com.slukhayka.audiobooks.data.achievements.RoomAchievementProgressSource
+import com.slukhayka.audiobooks.data.achievements.AchievementSnapshotSource
 import com.slukhayka.audiobooks.data.achievements.RoomAchievementStore
 import com.slukhayka.audiobooks.data.facets.FacetIdentity
 import java.io.File
@@ -77,9 +77,10 @@ class GenreClaimRenormalizationMigrationTest {
         legacy.close()
 
         val migrated = Room.databaseBuilder(context, AudiobookDatabase::class.java, name)
-            // The historical genre migration must reach the current schema,
-            // including #968 identity storage, so Room can validate the database.
-            .addMigrations(AudiobookDatabase.MIGRATION_52_53, AudiobookDatabase.MIGRATION_53_54, AudiobookDatabase.MIGRATION_54_55)
+            // #1173 — the chain must reach the CURRENT version, or Room finds
+            // no path from v52 and fails with "A migration from 52 to 54 was
+            // required but not found".
+            .addMigrations(AudiobookDatabase.MIGRATION_52_53, AudiobookDatabase.MIGRATION_53_54, AudiobookDatabase.MIGRATION_54_55, AudiobookDatabase.MIGRATION_55_56, AudiobookDatabase.MIGRATION_56_57, AudiobookDatabase.MIGRATION_57_58)
             .allowMainThreadQueries()
             .build()
         try {
@@ -114,7 +115,7 @@ class GenreClaimRenormalizationMigrationTest {
             )
 
             // Нагорода справді відкривається після міграції — це і є сенс зрізу.
-            val snapshot = RoomAchievementProgressSource(
+            val snapshot = AchievementSnapshotSource(
                 achievementDao, RoomAchievementStore(achievementDao), emptySet(),
                 abandonedBookIds = flowOf(emptySet())
             ).observe().first()

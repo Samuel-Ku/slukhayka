@@ -1,6 +1,6 @@
 # Codemaps Index
 
-<!-- Generated: 2026-08-16 | Modules: 8 | Files scanned: 119 | Kotlin lines: ~26,750 -->
+<!-- Generated: 2026-08-16 | Updated: 2026-10-27 (UI module note for #1490) | Modules: 8 | Files scanned: 119 | Kotlin lines: ~26,750 -->
 
 Token-lean architecture documentation for the audiobook player app.
 Each file covers one bounded area of the codebase. Read them in this order for a complete mental model.
@@ -37,12 +37,15 @@ catalog browsing — almost everything depends on it) and **`data-sources.md`**
 **`data-import.md`** and **`data-enrichment.md`** are the two deepest feature
 areas (ingestion + series universes/recommendations). **`audio-player.md`** is
 orthogonal — same DB, separate surface. **`ui-system.md`** is design tokens +
-shared components, read it before any theming work; **`ui-screens.md`** is the
-largest module and the natural home for most UI bug fixes.
+shared components (legacy v1.4 vocabulary + the 2026 «Папір і голос» direction),
+read it before any theming work; **`ui-screens.md`** is the largest module and
+the natural home for most UI bug fixes. The 2026 direction has its own contract
+outside the codemaps — `docs/specs/2026-10-26-ui-refresh-2027.md` and
+`docs/prototypes/2026-ui-refresh/`.
 
 ## Freshness
 
-- Generated: 2026-08-16
+- Generated: 2026-08-16; UI module note refreshed 2026-10-27 for #1490
 - Source commit scanned: current `main` after the repo-cleanup (ADR-0016) and
 the package rename to `com.slukhayka.audiobooks`
 - Refresh rule: regenerate when the module-to-file mapping drifts by more than a

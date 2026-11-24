@@ -202,9 +202,9 @@ class ManualWorkMergePairRulesRoomTest {
                     totalDurationSeconds = 0L, totalChapters = 0, rating = 0f, sourceTreeUri = null,
                 ),
             ))
-            dao.upsertLibraryEntry("pair-book-A", "local-folder:pair-A", true, 11L, 0f, "IDLE")
-            dao.upsertLibraryEntry("pair-book-B", "chapter-order:pair-B", false, 21L, 0.25f, "IDLE")
-            dao.upsertLibraryEntry("pair-book-X", "pair-X", true, 31L, 0.5f, "IDLE")
+            dao.upsertLibraryEntry("pair-book-A", "local-folder:pair-A", true, 11L, 0f, "IDLE", origin = entryA.origin)
+            dao.upsertLibraryEntry("pair-book-B", "chapter-order:pair-B", false, 21L, 0.25f, "IDLE", origin = entryB.origin)
+            dao.upsertLibraryEntry("pair-book-X", "pair-X", true, 31L, 0.5f, "IDLE", origin = entryX.origin)
             dao.upsertCorrection(ruleP)
             dao.upsertCorrection(ruleT)
             dao.upsertCorrection(ruleU)

@@ -29,6 +29,8 @@
     <string name="book_detail_download_progress_unknown_total">%1$d/%2$d • завантажено %3$d МБ</string>
     <!-- #394 — Download controls -->
     <string name="download_notification_paused">Призупинено</string>
+    <!-- #1734 — Android 15+ dataSync timeout: honest system-stopped state. -->
+    <string name="download_notification_system_stopped">Зупинено системою: вичерпано ліміт часу</string>
     <string name="download_action_pause">Пауза</string>
     <string name="download_action_continue">Продовжити</string>
     <string name="download_action_cancel">Скасувати</string>
@@ -36,7 +38,6 @@
     <string name="book_detail_browser_needed">Потрібен браузер</string>
     <!-- Spec-45 (#405) T10 (#498): visible UI literals migrated from hardcoded
          strings, grouped by screen. values/ stays the fallback. -->
-    <string name="home_search_placeholder">Пошук книги або автора…</string>
     <string name="home_not_recommend">Не рекомендувати…</string>
     <!-- #486 — the per-Source badge on a «джерело радить» recommendation card. -->
     <string name="home_recommendation_source_badge">Джерело радить · %1$s</string>
@@ -45,16 +46,22 @@
     <string name="feed_sort_title">За назвою</string>
     <string name="feed_filters">Фільтри</string>
     <string name="feed_all_genres">Усі жанри</string>
+    <string name="feed_empty_title">Творів ще немає</string>
+    <string name="feed_empty_body">Каталог ще не приніс жодного твору. Онови стрічку — або заглянь у «Медіатеку».</string>
+    <string name="feed_empty_refresh">Оновити</string>
+    <string name="feed_filters_empty_title">Нічого не знайдено</string>
+    <string name="feed_filters_empty_body">Жоден твір не відповідає вибраним фільтрам.</string>
+    <string name="feed_refresh_error_empty_body">Стрічка не завантажилася. Перевір з\'єднання і спробуй ще раз.</string>
+    <string name="feed_refresh_error_title">Не вдалося оновити стрічку</string>
+    <string name="feed_refresh_error_body">Уже показані твори лишилися. Спробуй ще раз.</string>
+    <string name="feed_refresh_retry">Повторити</string>
     <string name="feed_reset_all">Скинути все</string>
     <string name="feed_done">Готово</string>
     <!-- v1.4 EN/UK chrome (E3 + «Огляд rails → ресурси»): the feed's section
          headers and search doors moved off hardcoded strings. -->
-    <string name="feed_quick_links">Швидкі переходи</string>
-    <string name="feed_for_you">Для вас</string>
     <string name="feed_your_cycles">Ваші цикли</string>
     <string name="feed_similar_cycles">Схожі цикли</string>
     <string name="feed_recommended_for_you">Рекомендовано для вас</string>
-    <string name="feed_discover">Відкрити нове</string>
     <string name="feed_genres">Жанри</string>
     <string name="feed_duration">Тривалість</string>
     <string name="home_new_arrivals">Новинки</string>
@@ -83,8 +90,8 @@
     <string name="player_feedback_chapter_end">До кінця розділу</string>
     <string name="player_feedback_timer_minutes">Таймер на %1$d хв</string>
     <string name="player_feedback_bookmark_saved">Закладку додано на %1$s</string>
-    <string name="player_seek_back_label">15 с</string>
-    <string name="player_seek_forward_label">30 с</string>
+    <!-- #1474 — the temporary sum of one «−15 s / +30 s» tap series. -->
+    <string name="player_seek_sum_a11y">Разом %1$s</string>
     <string name="player_chapters_title">Розділи</string>
     <!-- v1.4: locale-aware remaining-time units (formatRemainingTime /
          formatRemainingLocalized share the strings; EN differs, UK matches
@@ -96,7 +103,7 @@
     <string name="lib_books_count">Книги (%1$d)</string>
     <string name="lib_bookmarks_count">Закладки (%1$d)</string>
     <string name="lib_statistics">Статистика</string>
-    <string name="lib_search_placeholder">Назва, автор або серія</string>
+    <string name="lib_search_short_hint">Пошук</string>
     <string name="lib_add_own_files">Додати свої файли</string>
     <string name="lib_find_book">Знайти книгу</string>
     <string name="lib_import_connect">З\'єднати</string>
@@ -107,6 +114,8 @@
     <string name="browser_clear_session_consequence">Потрібно буде знову увійти або пройти перевірку лише для цього джерела. Сесії інших джерел залишаться.</string>
     <string name="browser_fix_structure_question">Виправити структуру книги?</string>
     <string name="browser_fix">Виправити</string>
+    <string name="browser_category_label">Категорія</string>
+    <string name="browser_add_category_action">Додати категорію до Огляду</string>
     <string name="browser_address_hint">Введіть адресу…</string>
     <string name="browser_got_it">Зрозуміло</string>
     <string name="browser_in_browser">В браузері</string>
@@ -129,6 +138,8 @@
     <string name="feed_recommendation_consent_body">Локальні рекомендації вже працюють приватно. За окремою згодою майбутнє спільне навчання використовуватиме лише тижневе оновлення п’яти ваг — без книг та історії.</string>
     <string name="feed_more">Докладніше</string>
     <string name="update_hide">Приховати</string>
+    <string name="update_available_title">Доступна версія %1$s</string>
+    <string name="update_available_action">Оновити</string>
     <string name="speed_default_for_all">Стандарт для всіх</string>
     <string name="book_detail_mark_listened">Позначити прослуханим</string>
     <string name="book_detail_unmark_listened">Зняти позначку</string>
@@ -142,6 +153,7 @@
     <string name="book_detail_metadata_narrator">Начитка</string>
     <string name="book_detail_metadata_cover">Обкладинка (URL)</string>
     <string name="book_detail_metadata_save">Зберегти</string>
+    <string name="book_detail_save_to_library">Зберегти в бібліотеку</string>
     <string name="book_detail_listened_state_on">Позначено прослуханим</string>
     <string name="book_detail_listened_state_off">Не позначено прослуханим</string>
     <!-- spec-52 US28 (#1174) — «покинути книгу»: дія лише для книг із поступом,
@@ -176,6 +188,12 @@
     <string name="narration_claim_action">Це та сама начитка — об’єднати</string>
     <string name="narration_claim_done">Об’єднано. Прогрес перенесено.</string>
     <string name="book_detail_audio_unavailable">Аудіо цієї книги зараз недоступне — шукаємо в інших джерелах.</string>
+    <!-- #1230 — local files are the first door for a local book, never the network. -->
+    <string name="book_detail_local_access_unavailable">Аудіо цієї книги більше не читається з пристрою. Відновіть доступ до файлів або теки — книга, поступ і закладки залишаться на місці.</string>
+    <string name="book_detail_recover_file">Обрати файл заново</string>
+    <string name="book_detail_recover_folder">Обрати теку заново</string>
+    <string name="book_detail_recover_rescan">Пересканувати відому теку</string>
+    <string name="book_detail_recover_network_hint">Не знайшли на пристрої? Пошук в інших джерелах — окрема подальша дія.</string>
     <string name="book_detail_watch_action">Поставити на спостереження</string>
     <string name="book_detail_watching">Чекаємо на джерело…</string>
     <string name="book_detail_stop_watching">Прибрати спостереження</string>
@@ -184,7 +202,7 @@
     <string name="source_audio_refusal_title">Аудіо джерел</string>
     <string name="source_audio_refusal_description">Позначені джерела більше не пропонуються для прослуховування й завантаження — метадані, каталог і підбірки лишаються. Зніміть прапорець, щоб повернути джерело без повторного імпорту.</string>
     <!-- v1.4 (ADR-0033): player and timer chrome rides resources. -->
-    <string name="player_now_playing">ЗАРАЗ ЗВУЧИТЬ</string>
+    <string name="player_now_playing">Зараз звучить</string>
     <string name="player_favorite_add">Додати в обране</string>
     <string name="player_favorite_remove">Прибрати з обраного</string>
     <string name="timer_off">Вимкнено</string>
@@ -195,7 +213,35 @@
     <string name="timer_remaining_countdown">Залишилось: %1$d:%2$02d</string>
 
     <!-- v1.4 (ADR-0033): Слухати hero chrome. -->
-    <string name="listen_hero_overline">ПРОДОВЖИТИ СЛУХАТИ</string>
+    <string name="listen_hero_overline">Продовжити слухати</string>
+
+    <!-- #1478 — shelf titles and reasons come from resources, not ListenComposer code. -->
+    <string name="listen_shelf_hero">Продовжити слухати</string>
+    <string name="listen_shelf_almost_done">Майже дочитали</string>
+    <string name="listen_shelf_return">Поверніться</string>
+    <string name="listen_shelf_next_in_series">Продовжити серію</string>
+    <string name="listen_shelf_travel">Готово до поїздки</string>
+    <string name="listen_shelf_short">Щось коротке</string>
+    <string name="listen_shelf_favorite_authors">Улюблені автори</string>
+    <string name="listen_shelf_recently_added">Нещодавно додані</string>
+    <string name="listen_shelf_finished">Прослухані</string>
+    <string name="listen_reason_remaining">До кінця %1$s</string>
+    <plurals name="listen_reason_dormant">
+        <item quantity="one">Ви слухали %1$d день тому</item>
+        <item quantity="few">Ви слухали %1$d дні тому</item>
+        <item quantity="many">Ви слухали %1$d днів тому</item>
+        <item quantity="other">Ви слухали %1$d дня тому</item>
+    </plurals>
+    <string name="listen_reason_next_volume">Наступний том: %1$s</string>
+    <string name="listen_reason_offline_ready">Завантажено · працює офлайн</string>
+    <string name="listen_reason_short">%1$s прослуховування</string>
+    <string name="listen_short_less_than_hour">менше години</string>
+    <string name="listen_short_hours">~%1$d год</string>
+    <string name="listen_reason_favorite_author">Ви часто слухаєте цього автора</string>
+    <string name="listen_reason_added_this_week">Додано цього тижня</string>
+    <string name="listen_reason_finished">Завершено: %1$d</string>
+    <string name="listen_series_part">Частина %1$d</string>
+    <string name="listen_series_next_part">Наступна частина</string>
     <string name="listen_chapter_of">Розділ %1$d із %2$d</string>
     <string name="listen_chapter_position">Розділ %1$d · %2$s</string>
     <string name="listen_progress_percent">%1$d%%</string>
@@ -210,6 +256,9 @@
     <!-- #885 (wave 3) — every shelf hidden is a STATE, not a blank screen. -->
     <string name="listen_all_shelves_hidden_title">Усі полиці приховано</string>
     <string name="listen_all_shelves_hidden_body">Ваші книги на місці — поверніть потрібну полицю, і вона знову з\'явиться тут.</string>
+    <!-- #1703 — «Не цікаво» is reversible from the shelf it was chosen on. -->
+    <string name="listen_dismissed_message">Книгу приховано з полиць «Слухати»</string>
+    <string name="listen_dismiss_undo">Повернути</string>
     <string name="collection_with_book_title">Добірки з цією книгою</string>
     <string name="collection_by_pseudonym">добірка слухача %1$s</string>
     <string name="collection_no_ratings">Ще без оцінок</string>
@@ -296,6 +345,7 @@
     <string name="people_narrators_title">Виконавці</string>
     <string name="collections_index_title">Колекції</string>
     <string name="collections_index_empty">Колекції з\'являться після завантаження каталогу.</string>
+    <string name="collections_index_refresh">Оновити каталог</string>
     <!-- spec-46 T16 (#577): the Слухати fresh-install empty state. -->
     <string name="listen_empty_title">Продовжити слухати</string>
     <string name="listen_empty_body">Тут з\'явиться ваша поточна книга, щойно ви почнете слухати.</string>
@@ -307,10 +357,22 @@
         <item quantity="many">%1$d нових</item>
         <item quantity="other">%1$d нових</item>
     </plurals>
+    <!-- #1547 — the «Новинки від людей» notification copy: the count is a
+         plural (the old hardcode said «1 нові книги»), the rest is localized. -->
+    <plurals name="people_new_notification_title">
+        <item quantity="one">%1$d нова книга</item>
+        <item quantity="few">%1$d нові книги</item>
+        <item quantity="many">%1$d нових книг</item>
+        <item quantity="other">%1$d нових книг</item>
+    </plurals>
+    <string name="people_new_notification_from">Від %1$s</string>
+    <string name="people_new_notification_two_people">%1$s та %2$s</string>
+    <string name="people_new_notification_some_people">ваших авторів</string>
+    <string name="people_new_notification_action">Переглянути</string>
+    <string name="people_new_notification_channel_name">Новинки від людей</string>
     <string name="a11y_people_new_mark_seen">Позначити новинки переглянутими</string>
     <string name="home_search_no_results">Нічого не знайдено</string>
     <string name="home_search_no_results_hint">Спробуйте змінити запит або фільтр.</string>
-    <string name="home_no_personal_picks">Персональних добірок поки немає.</string>
     <string name="home_personal_picks_loading">Готуємо персональні добірки…</string>
 
     <!-- v1.4 (ADR-0033): book-page section headers and source chrome. -->
@@ -349,7 +411,7 @@
     <string name="book_detail_series_pill">«%1$s»</string>
     <string name="book_detail_series_pill_index">«%1$s» • Кн. %2$d</string>
     <string name="book_detail_universe_line">Всесвіт: «%1$s»</string>
-    <string name="book_detail_source_rating">Оцінка джерела: ★ %1$s</string>
+    <string name="book_detail_source_rating">Оцінка джерела: %1$s</string>
     <string name="book_detail_source_narrator">Озвучує за даними джерела: %1$s</string>
     <string name="book_detail_source_genres">Жанри за даними джерела: %1$s</string>
     <string name="book_detail_source_description">Інший опис від джерела: %1$s</string>
@@ -369,6 +431,9 @@
     <string name="book_detail_review_pending_sync">надішлемо при мережі</string>
     <string name="book_detail_review_rate_narration">Оцінити начитку</string>
     <string name="book_detail_review_narration_tag">Начитка: %1$s</string>
+    <string name="book_detail_rate_unavailable_no_backend">Оцінка начитки недоступна: сервіс оцінок не налаштований.</string>
+    <string name="book_detail_rate_unavailable_no_profile">Оцінка начитки недоступна: потрібен профіль слухача.</string>
+    <string name="book_detail_rate_unavailable_no_edition">Оцінка начитки недоступна: у цієї книги немає видання, яке можна оцінити.</string>
     <string name="book_detail_review_edition_line">Начитка:</string>
     <string name="book_detail_review_edition_none">Не вказувати</string>
     <string name="book_detail_visitor_comments">Коментарі відвідувачів %1$s</string>
@@ -480,7 +545,7 @@
     <string name="a11y_submission_pane">Надіслати посилання</string>
     <string name="a11y_submission_close">Закрити</string>
     <string name="submission_sheet_title">Надіслати посилання</string>
-    <string name="submission_sheet_subtitle">YouTube-відео, плейлист або пост Telegram. Книга з’явиться у медіатеці одразу, а в спільному каталозі — після реального програвання.</string>
+    <string name="submission_sheet_subtitle">YouTube-відео, плейлист, пост Telegram або сторінка книги з відомого джерела. Книга з’явиться у медіатеці одразу.</string>
     <string name="submission_url_label">Посилання</string>
     <string name="submission_remaining">Залишилось надсилань сьогодні: %1$d</string>
     <string name="submission_submit_action">Додати одразу</string>
@@ -527,6 +592,8 @@
     <string name="submission_status_working">Обробляємо посилання…</string>
     <string name="submission_status_imported">Книгу додано. Слухайте — після програвання вона потрапить у спільний каталог.</string>
     <string name="submission_status_imported_local">Книгу додано локально. Спільна база недоступна — публікації не буде.</string>
+    <string name="submission_status_imported_catalog">Книгу з відомого джерела додано до медіатеки. Вона вже є в каталозі джерела — публікувати нічого.</string>
+    <string name="submission_status_imported_probed">Книгу додано зі сторінки джерела. Це не каталог Слухайки: якість і доступність залежать від сайту.</string>
     <string name="submission_status_published">Опубліковано в спільному каталозі.</string>
     <string name="submission_status_metadata_published">Метадані опубліковано. Аудіо з цього посилання недоступне без логіну — інші побачать чесний недоступний стан.</string>
     <string name="submission_status_refused_limit">Денний ліміт надсилань вичерпано.</string>
@@ -574,6 +641,14 @@
     <string name="lib_year_record_hint">Сторінки або відсоток</string>
     <string name="lib_year_record">Записати</string>
     <string name="lib_year_finish">Завершити</string>
+    <string name="lib_year_recorded">Запис додано до журналу проходу.</string>
+    <string name="lib_year_finished">Прохід завершено.</string>
+    <string name="lib_year_refused_unknown">Цього проходу немає у сховищі — запис не додано.</string>
+    <string name="lib_year_refused_closed">Прохід уже завершено або закрито — запис не додано.</string>
+    <string name="lib_year_save_failed">Не вдалося зберегти запис. Спробуйте ще раз.</string>
+    <string name="lib_year_error_title">Не вдалося прочитати поступ</string>
+    <string name="lib_year_error_body">Відомий показ лишається, доки читання не вдасться. Спробуйте ще раз.</string>
+    <string name="lib_year_refresh_failed">Не вдалося перечитати поступ — показ може бути застарілим.</string>
     <string name="manual_add_menu">Додати книгу вручну</string>
     <string name="manual_add_title">Додати книгу</string>
     <string name="manual_add_name">Назва</string>
@@ -610,13 +685,16 @@
     <string name="submission_open_book">Відкрити книгу</string>
     <string name="submission_status_refused_not_verified">Публікація потребує реального програвання.</string>
     <string name="submission_status_refused_unavailable">Спільна база недоступна.</string>
+    <string name="submission_status_refused_page_unreadable">Не вдалося прочитати сторінку за посиланням. Відкрийте її у браузері — можливо, там є аудіо.</string>
+    <string name="submission_status_refused_page_no_audio">Сторінка відкрилася, але аудіо на ній не знайдено. Відкрийте її у браузері.</string>
+    <string name="submission_open_in_browser">Відкрити у браузері</string>
     <string name="submission_listen_now">Слухати зараз</string>
     <string name="submission_awaiting_badge">Очікує</string>
     <!-- Spec-53 T5: the TG card's honest state — the preview has no audio. -->
     <string name="submission_watching_source">Шукаємо джерело</string>
     <string name="submission_published_toast">Поділилися книгою зі спільнотою</string>
     <string name="submission_paste_from_clipboard">Вставити з буфера</string>
-    <string name="submission_status_unsupported">Це посилання не підтримується. Надішліть YouTube-відео, плейлист або пост Telegram.</string>
+    <string name="submission_status_unsupported">Це посилання не підтримується. Надішліть YouTube-відео, плейлист, пост Telegram або сторінку книги з відомого джерела.</string>
     <!-- Spec-53 T8 — the offline queue. -->
     <string name="submission_status_deferred">Немає мережі — посилання відкладено. Оброблю, коли зʼявиться звʼязок.</string>
     <string name="submission_deferred_title">Відкладені посилання</string>
@@ -626,7 +704,7 @@
     <string name="submission_status_deferred_publication">Денний ліміт вичерпано — опублікуємо завтра, без повторного програвання.</string>
     <string name="submission_deferred_publication_badge">Опублікуємо завтра</string>
     <string name="import_option_link">Надіслати посилання</string>
-    <string name="import_option_link_subtitle">YouTube-відео, плейлист або TG-пост</string>
+    <string name="import_option_link_subtitle">YouTube-відео, плейлист, TG-пост або книга з відомого джерела</string>
     <string name="source_audio_refusal_publish_title">Анонімно ділитися моїми відмовами</string>
     <string name="source_audio_refusal_publish_description">Коли ввімкнено, застосунок додає один анонімний голос до спільного лічильника кожного позначеного джерела — лише кількість, без імені, книг чи посилань. Вимкнення зупиняє нові голоси.</string>
     <string name="source_audio_refusal_shared_count">Анонімних відмов: %1$d</string>
@@ -645,7 +723,7 @@
     <string name="lib_grid_pane_too_narrow">Панель завузька для двох колонок — плитки в один стовпчик</string>
     <string name="lib_audiobook_fallback">Аудіокнига</string>
     <string name="lib_source_local">Локальна</string>
-    <string name="lib_continue_label">ПРОДОВЖИТИ</string>
+    <string name="lib_continue_label">Продовжити</string>
     <string name="lib_progress_percent">Прослухано %1$d%%</string>
     <string name="lib_listen_continue">Слухати далі</string>
     <string name="lib_listen_continue_remaining">Слухати далі · %1$s</string>
@@ -680,8 +758,13 @@
     <string name="lib_import_chapter_order">Порядок розділів</string>
     <string name="lib_import_move_up">Вгору</string>
     <string name="lib_import_move_down">Вниз</string>
+    <string name="a11y_chapter_drag_handle">Перетягнути розділ</string>
+    <string name="a11y_chapter_move_up">Перемістити розділ вгору</string>
+    <string name="a11y_chapter_move_down">Перемістити розділ вниз</string>
     <string name="lib_import_title_label">Назва</string>
     <string name="lib_import_save">Зберегти</string>
+    <string name="lib_import_retry">Повторити</string>
+    <string name="lib_import_retry_body">Запис перервався. План збережено — спробуйте ще раз.</string>
     <string name="lib_import_confirm">Імпортувати %1$d</string>
     <string name="lib_person_role_author">Автор</string>
     <string name="lib_person_role_narrator">Виконавець</string>
@@ -706,7 +789,11 @@
     <string name="lib_filter_new">Нові</string>
     <string name="lib_filter_listening">Слухаю</string>
     <string name="lib_filter_completed">Завершені</string>
-    <string name="lib_filter_downloaded">Завантажені</string>
+    <!-- #1163 — «На пристрої», not «Завантажені»: the chip holds the books whose
+         audio is readable on this device (source downloads AND readable local
+         copies), while the download manager stays the surface for network
+         downloads only (owner decision 2026-10-11). -->
+    <string name="lib_filter_downloaded">На пристрої</string>
     <string name="lib_filter_local">Локальні</string>
     <string name="lib_filter_online">Онлайн</string>
     <string name="lib_filter_favorite">Обрані</string>
@@ -810,6 +897,35 @@
     <string name="achievements_upcoming">Попереду</string>
     <string name="achievements_empty_title">Ще немає нагород</string>
     <string name="achievements_empty_body">Слухайте книги — нагороди з\'являться тут.</string>
+    <!-- F18 — hero-панель, статуси реєстру й смуга поточного тижня. -->
+    <string name="achievements_status_earned">Здобуто</string>
+    <string name="achievements_progress_count">%1$d із %2$d</string>
+    <plurals name="achievements_progress_hours">
+        <item quantity="one">%1$d із %2$d год.</item>
+        <item quantity="few">%1$d із %2$d год.</item>
+        <item quantity="other">%1$d із %2$d год.</item>
+    </plurals>
+    <plurals name="achievements_hero_caption">
+        <item quantity="one">із %1$d відзнаки</item>
+        <item quantity="few">із %1$d відзнак</item>
+        <item quantity="other">із %1$d відзнак</item>
+    </plurals>
+    <string name="achievements_streak_title">Серія днів</string>
+    <plurals name="achievements_streak_run">
+        <item quantity="one">%1$d день поспіль</item>
+        <item quantity="few">%1$d дні поспіль</item>
+        <item quantity="other">%1$d днів поспіль</item>
+    </plurals>
+    <string name="achievements_ring_a11y">%1$d%% — здобуто %2$d із %3$d</string>
+    <string name="achievements_weekday_1">Пн</string>
+    <string name="achievements_weekday_2">Вт</string>
+    <string name="achievements_weekday_3">Ср</string>
+    <string name="achievements_weekday_4">Чт</string>
+    <string name="achievements_weekday_5">Пт</string>
+    <string name="achievements_weekday_6">Сб</string>
+    <string name="achievements_weekday_7">Нд</string>
+    <string name="achievements_day_listened">слухали</string>
+    <string name="achievements_day_today">сьогодні</string>
     <!-- #702 (T4): «10 книг у жанрі» — лише для полиць, які джерела справді заявляють. -->
     <string name="achievement_genre_detective_10">10 детективів</string>
     <string name="achievement_genre_fantasy_10">10 фентезі</string>
@@ -841,4 +957,20 @@
         <item quantity="few">Прослухано %1$d години</item>
         <item quantity="other">Прослухано %1$d годин</item>
     </plurals>
+    <!-- Plan 2026-2027: the appearance group on the Settings root. -->
+    <string name="settings_group_appearance">Вигляд</string>
+    <string name="settings_theme">Тема</string>
+    <string name="settings_theme_auto">Авто</string>
+    <string name="settings_theme_paper">Папір</string>
+    <string name="settings_theme_ink">Чорнило</string>
+    <string name="settings_player_always_ink">Плеєр завжди темний</string>
+    <string name="settings_player_always_ink_desc">Плеєр лишається «Чорнилом», навіть коли застосунок світлий.</string>
+    <string name="settings_density">Щільність</string>
+    <string name="settings_density_comfortable">Зручно</string>
+    <string name="settings_density_compact">Компактно</string>
+    <string name="settings_density_desc">Компактно зменшує рядки й плакати, не тач-цілі.</string>
+    <!-- #1752: cast hand-back is an info banner, not a playback failure.
+         Appended at the end so existing lint-baseline line numbers stay put. -->
+    <string name="player_cast_ended">Трансляцію завершено. Можна слухати далі на телефоні.</string>
+    <string name="player_cast_lost">Зв’язок із пристроєм втрачено. Можна слухати далі на телефоні.</string>
 </resources>

@@ -251,6 +251,7 @@ internal object ManualWorkMergeSnapshotReader {
         roots.filter { it !in works }.forEach { missing("works", it, "Work", it) }
         l.entries.forEach { if (it.workId !in works) missing("library_entries", it.id, "Work", it.workId) }
         l.books.forEach { if (it.id !in entries) missing("audiobooks", it.id, "LibraryEntry", it.id) }
+        val actualBookIds = l.books.map { it.id }.toSet()
         val editionOwners = l.editions.associate { edition ->
             val owners = buildSet {
                 if (edition.workId in works) add(edition.workId)
@@ -258,21 +259,28 @@ internal object ManualWorkMergeSnapshotReader {
             }
             if (owners.isEmpty()) missing("editions", edition.id, "WorkOrLibraryEntry", edition.workId)
             ambiguous("editions", edition.id, owners, issues)
-            if (edition.workId in works && edition.workId in entries)
+            if (edition.workId in works && edition.workId in actualBookIds &&
+                !hasProvenLibraryEditionOwner(l, edition.workId, edition))
                 issues += ManualWorkMergeConflict.AmbiguousNamespace(edition.id, edition.workId)
             val associations = buildSet {
-                if (edition.workId in entries) add(edition.workId)
-                l.sources.filter { it.editionId == edition.id }.forEach { if (it.bookId in entries) add(it.bookId) }
-                l.chapters.filter { it.editionId == edition.id }.forEach { if (it.bookId in entries) add(it.bookId) }
-                l.progress.filter { it.editionId == edition.id }.forEach { if (it.bookId in entries) add(it.bookId) }
-                l.bookmarks.filter { it.editionId == edition.id }.forEach { if (it.bookId in entries) add(it.bookId) }
-                l.readthroughs.filter { it.editionId == edition.id }.forEach { if (it.libraryEntryId in entries) add(it.libraryEntryId) }
+                if (edition.workId in entries && edition.workId in actualBookIds) add(edition.workId)
+                l.sources.filter { it.editionId == edition.id }.forEach { if (it.bookId in entries && it.bookId in actualBookIds) add(it.bookId) }
+                l.chapters.filter { it.editionId == edition.id }.forEach { if (it.bookId in entries && it.bookId in actualBookIds) add(it.bookId) }
+                l.progress.filter { it.editionId == edition.id }.forEach { if (it.bookId in entries && it.bookId in actualBookIds) add(it.bookId) }
+                l.bookmarks.filter { it.editionId == edition.id }.forEach { if (it.bookId in entries && it.bookId in actualBookIds) add(it.bookId) }
             }.sortedWith(::compareMergeUtf8)
             for (i in associations.indices) for (j in i + 1 until associations.size)
                 issues += ManualWorkMergeConflict.MultipleLibraryEntries(edition.id, associations[i], associations[j])
             edition.id to owners
         }
-        fun checkAnchors(table: String, key: String, bookId: String, editionId: String?, workId: String? = null) {
+        fun requireAudioBook(table: String, key: String, bookId: String) {
+            if (bookId !in actualBookIds) missing(table, key, "Audiobook", bookId)
+        }
+        fun checkAnchors(
+            table: String, key: String, bookId: String, editionId: String?, workId: String? = null,
+            requiresAudioBook: Boolean = true,
+        ) {
+            if (requiresAudioBook) requireAudioBook(table, key, bookId)
             val entry = entries[bookId]
             if (entry == null) missing(table, key, "LibraryEntry", bookId)
             if (editionId != null && editionId !in editions) missing(table, key, "Edition", editionId)
@@ -288,7 +296,10 @@ internal object ManualWorkMergeSnapshotReader {
         l.chapters.forEach { checkAnchors("chapters", it.id, it.bookId, it.editionId) }
         l.progress.forEach { checkAnchors("playback_progress", it.editionId, it.bookId, it.editionId) }
         l.bookmarks.forEach { checkAnchors("bookmarks", it.id.toString(), it.bookId, it.editionId) }
-        l.readthroughs.forEach { checkAnchors("readthroughs", it.id, it.libraryEntryId, it.editionId, it.workId) }
+        l.readthroughs.forEach {
+            checkAnchors("readthroughs", it.id, it.libraryEntryId, it.editionId, it.workId,
+                requiresAudioBook = false)
+        }
         l.settings.forEach { if (it.bookId !in entries) missing("edition_settings", it.bookId + ":" + it.sourceKey, "LibraryEntry", it.bookId) }
         l.events.forEach { if (it.bookId !in entries) missing("playback_events", it.id.toString(), "LibraryEntry", it.bookId) }
         l.failures.forEach { if (it.bookId !in entries) missing("playback_failures", it.id.toString(), "LibraryEntry", it.bookId) }
@@ -299,7 +310,11 @@ internal object ManualWorkMergeSnapshotReader {
                 editionOwners[source.editionId]?.let(::addAll)
             }
         }
+        l.settings.forEach { requireAudioBook("edition_settings", it.bookId + ":" + it.sourceKey, it.bookId) }
+        l.events.forEach { requireAudioBook("playback_events", it.id.toString(), it.bookId) }
+        l.failures.forEach { requireAudioBook("playback_failures", it.id.toString(), it.bookId) }
         l.submissions.forEach { submission ->
+            requireAudioBook("submission_states", submission.sourceId, submission.bookId)
             if (submission.bookId !in entries)
                 missing("submission_states", submission.sourceId, "LibraryEntry", submission.bookId)
             if (submission.sourceId !in sourceIds)

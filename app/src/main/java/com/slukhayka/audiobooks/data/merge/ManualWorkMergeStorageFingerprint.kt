@@ -11,7 +11,7 @@ import java.security.MessageDigest
 import kotlin.coroutines.CoroutineContext
 
 /**
- * Room55 exported-column change detector used inside scoped Room transactions.
+ * Room57 exported-column change detector used inside scoped Room transactions.
  * Uses actual SQLite classes and binary64 values; this digest is not an Undo journal.
  * Retained globals and hidden SQLite/FTS storage internals are outside its contract.
  */
@@ -310,7 +310,7 @@ internal object ManualWorkMergeStorageFingerprint {
     ): String {
         val context = currentCoroutineContext()
         context.ensureActive()
-        requireRoom55(dao)
+        requireRoom58(dao)
         context.ensureActive()
         val encoding = textEncoding(dao)
         context.ensureActive()
@@ -352,6 +352,7 @@ internal object ManualWorkMergeStorageFingerprint {
             "works" to library.works.map { listOf(it.id) },
         )
         val out = Frames(context)
+        // Keep the persisted v2 domain; schema57 retains the same carrier layouts.
         out.string("ManualWorkMergeStorage\u0000v2\u0000Room55")
         out.string(encoding)
         val participants = roots.distinct().sortedWith(::compareMergeUtf8)
@@ -388,11 +389,11 @@ internal object ManualWorkMergeStorageFingerprint {
         return "manual-work-merge-operation-scope-v1:" + hex(out.finish())
     }
 
-    private fun requireRoom55(dao: AudiobookDao) {
+    private fun requireRoom58(dao: AudiobookDao) {
         dao.manualMergeStorageCursor(SimpleSQLiteQuery("PRAGMA user_version")).use { cursor ->
             check(cursor.columnCount == 1 && cursor.moveToFirst()) { "Missing SQLite schema version" }
-            check(cursor.getType(0) == Cursor.FIELD_TYPE_INTEGER && cursor.getLong(0) == 55L) {
-                "Storage fingerprint requires Room55"
+            check(cursor.getType(0) == Cursor.FIELD_TYPE_INTEGER && cursor.getLong(0) == 58L) {
+                "Storage fingerprint requires Room58"
             }
             check(!cursor.moveToNext()) { "Ambiguous SQLite schema version" }
         }

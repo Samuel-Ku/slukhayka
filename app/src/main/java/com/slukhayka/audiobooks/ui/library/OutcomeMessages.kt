@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.ui.library
 
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.imports.LocalCopyMigration
 import com.slukhayka.audiobooks.data.imports.LocalImportResult
 
 /**
@@ -70,6 +71,38 @@ object OutcomeMessages {
             if (result.skippedFiles > 0) append(" · ${result.skippedFiles} файлів не вдалося додати")
         }
     }
+
+    /**
+     * #1230 — the outcome of «відновити доступ». Identity is proven by exact
+     * file bytes only; when no picked file matches, the message says nothing
+     * changed and points at the explicit narration choice instead of implying
+     * the book was restored.
+     */
+    fun localAccessRecovery(report: com.slukhayka.audiobooks.data.imports.LocalAccessRecoveryReport): String {
+        if (!report.identityProven) {
+            return "Ці файли не належать книзі за вмістом — нічого не змінено. Іншу начитку виберіть явно."
+        }
+        return buildString {
+            append("Доступ відновлено: ${report.relinkedTracks} файлів цієї книги")
+            if (report.unprovenFiles > 0) append(" · ${report.unprovenFiles} чужих файлів не додано")
+            if (report.skippedFiles > 0) append(" · ${report.skippedFiles} не вдалося прочитати")
+        }
+    }
+
+    /**
+     * #1185 T4 — the one-time copy-migration report: how much disk the pass
+     * freed and how many copies it had to keep. The pass cannot know WHY a copy
+     * was kept (a dead grant, unmatched bytes, a single-file import, a
+     * rolled-back transaction), so the message never guesses the cause.
+     */
+    fun localCopyMigration(report: LocalCopyMigration.Report): String = buildString {
+        append("Звільнено ${formatBytes(report.freedBytes)}: копії локальних книг переїхали на оригінальні теки")
+        if (report.keptTracks > 0) append(" · ${report.keptTracks} копій лишено")
+    }
+
+    /** #1230 — the recovery door itself failed (no report was produced). */
+    fun localAccessRecoveryFailed(): String =
+        "Не вдалося відновити доступ — виберіть файл або теку заново."
 
     /**
      * The snackbar text after a re-scan of every previously imported folder.

@@ -21,6 +21,14 @@ interface CollectiveFeedBlockStore {
 
     /** Records the latest attempt WITHOUT touching the active cards. */
     suspend fun recordAttempt(blockKey: String, attempt: CollectiveAttempt)
+
+    /**
+     * #1238 — records the SERVER revision the shared lane assigned to the row
+     * this owner activated, without touching the cards, the honest window or
+     * the version. A no-op when the row moved on (a newer activation won), so
+     * a late publish answer can never relabel newer cards as its own.
+     */
+    suspend fun recordRevision(blockKey: String, revision: Long, expectedVersion: Long) = Unit
 }
 
 /** #523 — the single-owner refresh lease with a hard expiry. */
@@ -58,6 +66,13 @@ class InMemoryCollectiveFeedBlockStore : CollectiveFeedBlockStore {
         mutex.withLock {
             val current = blocks[blockKey] ?: return@withLock
             blocks[blockKey] = current.copy(lastAttempt = attempt)
+        }
+
+    override suspend fun recordRevision(blockKey: String, revision: Long, expectedVersion: Long) =
+        mutex.withLock {
+            val current = blocks[blockKey] ?: return@withLock
+            if (current.version != expectedVersion) return@withLock
+            blocks[blockKey] = current.copy(revision = revision)
         }
 }
 

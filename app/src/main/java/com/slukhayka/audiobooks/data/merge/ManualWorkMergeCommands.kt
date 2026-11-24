@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import androidx.sqlite.db.SimpleSQLiteQuery
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.PreservedWorkMergeParticipant
+import com.slukhayka.audiobooks.data.db.PreservedWorkMergeBook
 import com.slukhayka.audiobooks.data.db.WorkIdentityRedirectRow
 import com.slukhayka.audiobooks.data.db.WorkMergeOperationEntity
 import com.slukhayka.audiobooks.data.db.WorkMergeOperationState
@@ -66,8 +67,8 @@ sealed interface ManualWorkMergeUndoResult {
 }
 
 /**
- * First local library identity tracer. Additional metadata-carrier policies and
- * application writer/resolver composition must be implemented before UI exposure.
+ * Transaction boundary for approved manual Work identity operations.
+ * Remaining carrier policies and writer composition must precede UI exposure.
  */
 class ManualWorkMergeCommands(
     private val database: AudiobookDatabase,
@@ -95,21 +96,37 @@ class ManualWorkMergeCommands(
             sourceChoices.any { sourceChoiceIds(it).all { claimId -> claimId == null } }) {
             return ManualWorkMergeApplyResult.NeedsDecision("Source metadata choices must identify unique pairs and selected fields")
         }
-        val books = participantBooks(plan.prepared.preview)
-        return gate.withIdleBooks(books) {
+        val books = participantEntryIds(plan.prepared.preview)
+        val physicalBooks = participantPhysicalBookIds(plan.prepared.preview)
+        return when (val admission = gate.withIdleIdentities(plan.prepared.workIds + canonical, physicalBooks) {
             database.withTransaction {
                 val identity = database.workIdentityDao()
                 val prior = identity.operationById(plan.operationId)
                 if (prior != null) {
+                    if (!ManualWorkMergeJournal.supportsVersion(prior.payloadVersion)) {
+                        return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Unknown journal format")
+                    }
                     val proof = JSONObject(prior.approvedIdentity)
-                    if (prior.payloadVersion == 3) {
+                    if (prior.payloadVersion >= 3) {
                         try {
-                            require(proof.getInt("format") == 2)
+                            val proofFormat = ManualWorkMergeBookProof.requireFormat(proof, prior.payloadVersion)
+                            val savedBooks = if (proofFormat == ManualWorkMergeBookProof.FORMAT) ManualWorkMergeBookProof.read(proof) else null
+                            if (savedBooks != null) {
+                                require(savedBooks == physicalBooks)
+                                require(validBookRows(plan.operationId, savedBooks, identity.preservedBooks(plan.operationId)))
+                            }
                             val savedScope = ManualWorkMergeOperationScope.decode(proof.getJSONArray("operationScope"))
                             require(savedScope.digest() == proof.getString("scopeDigest"))
                             val savedJournal = ManualWorkMergeJournal(database, currentCoroutineContext())
                             val savedBefore = savedJournal.decode(prior.beforeImages)
-                            require(savedBefore.formatVersion == 3 && proof.getString("beforeDigest") == bytesDigest(prior.beforeImages))
+                            require(savedBefore.formatVersion == prior.payloadVersion && proof.getString("beforeDigest") == bytesDigest(prior.beforeImages))
+                            if (savedBefore.formatVersion == 4) {
+                                require(identity.preservedParticipants(plan.operationId).all { it.autoMergeExcluded })
+                                require(validFormat4Protection(savedBefore, savedJournal, plan.prepared.workIds,
+                                    identity.preservedParticipants(plan.operationId).map { it.bookId to it.editionId }, savedBooks)) {
+                                    "Journal and actual Book protection disagree"
+                                }
+                            }
                             savedScope.validateOriginals(plan.prepared.workIds, canonical, books,
                                 identity.preservedParticipants(plan.operationId).map { it.editionId }, savedBefore, savedJournal)
                         } catch (cancelled: CancellationException) {
@@ -118,21 +135,24 @@ class ManualWorkMergeCommands(
                             return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Operation scope is invalid")
                         }
                     }
+                    val expectedApproval = if (proof.getInt("format") == ManualWorkMergeBookProof.FORMAT) {
+                        ManualWorkMergeBookProof.approval(approval(plan, prior.beforeImages), ManualWorkMergeBookProof.read(proof))
+                    } else approval(plan, prior.beforeImages)
                     if (prior.state == WorkMergeOperationState.APPLIED.name &&
-                        prior.canonicalWorkId == canonical && proof.getString("approval") == approval(plan, prior.beforeImages)) {
+                        prior.canonicalWorkId == canonical && proof.getString("approval") == expectedApproval) {
                         return@withTransaction ManualWorkMergeApplyResult.Applied(prior.operationId, prior.canonicalWorkId)
                     }
                     return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Operation identity is already used")
                 }
                 val roots = plan.prepared.workIds
                 val preview = ManualWorkMerge(database.audiobookDao()).prepareManualWorkMerge(roots[0], roots[1])
-                if (version(preview) != plan.prepared.version || participantBooks(preview) != books) {
+                if (version(preview) != plan.prepared.version || participantEntryIds(preview) != books || participantPhysicalBookIds(preview) != physicalBooks) {
                     return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Prepared library state changed")
                 }
                 if (preview.participants.size != 2 || preview.conflicts.isNotEmpty()) {
                     return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Participant conflicts need a decision")
                 }
-                if (!supportsLibraryTracer(preview)) {
+                if (!supportsMergeCarriers(preview)) {
                     return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Additional carrier policies are not implemented")
                 }
                 val sql = database.openHelper.writableDatabase
@@ -162,7 +182,9 @@ class ManualWorkMergeCommands(
                 val journal = ManualWorkMergeJournal(database, context)
                 val scope = (roots + canonical).distinct()
                 val editionIds = preview.participants.flatMap { it.editions }.map { it.edition.id }.distinct()
-                val before = journal.capture(scope, books, editionIds, if (preview.snapshot.catalog.popularity.isEmpty()) 1 else 3)
+                // New Book policy proof3 always has full raw Edition coverage, including empty sets.
+                val formatFloor = 4
+                val before = journal.capture(scope, books, editionIds, formatFloor)
                 val capturedPasses = before.rows.getValue("readthroughs")
                 if (capturedPasses.any { journal.text(it, "workId", before.encoding) !in roots } ||
                     capturedPasses.map { journal.text(it, "id", before.encoding) }.toSet() !=
@@ -173,6 +195,11 @@ class ManualWorkMergeCommands(
                     ManualWorkMergeCatalogPlan.prepare(preview, before, canonical, journal)
                 } catch (invalid: IllegalArgumentException) {
                     return@withTransaction ManualWorkMergeApplyResult.NeedsDecision(invalid.message ?: "Catalog policies need a decision")
+                }
+                val catalogEditions = try {
+                    ManualWorkMergeCatalogEditionPlan.prepare(preview, canonical, before, journal)
+                } catch (invalid: IllegalArgumentException) {
+                    return@withTransaction ManualWorkMergeApplyResult.NeedsDecision(invalid.message ?: "Edition ownership needs a decision")
                 }
                 val preparedScope = try {
                     ManualWorkMergeOperationScope.capture(preview.snapshot, canonical).also {
@@ -191,9 +218,28 @@ class ManualWorkMergeCommands(
                     return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Expanded operation dependencies need a decision")
                 }
                 if (expanded.library.entries.any { it.id == canonical } || expanded.library.books.any { it.id == canonical }) {
-                    return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Canonical identity collides with a Library namespace")
+                    val participant = preview.participants.singleOrNull { it.work.id == canonical }
+                    val entry = preview.snapshot.library.entries.singleOrNull { it.id == canonical }
+                    val capturedBooks = preview.snapshot.library.books.filter { it.id == canonical }
+                    val expandedBooks = expanded.library.books.filter { it.id == canonical }
+                    val book = capturedBooks.singleOrNull()
+                    val sameCanonicalEntry = existingCanonical && canonical in roots && participant != null &&
+                        entry != null && entry.workId == canonical &&
+                        expanded.library.entries.filter { it.id == canonical } == listOf(entry)
+                    // An Entry does not imply a physical Book, even at the canonical Work ID.
+                    val entryOnly = capturedBooks.isEmpty() && expandedBooks.isEmpty()
+                    val provenLibrary = participant?.editions?.any { edition ->
+                        manualMergeEditionOwner(preview, canonical, edition) ==
+                            ManualWorkMergeEditionOwner.Library(canonical, canonical)
+                    } == true
+                    val samePhysicalBook = book != null && expandedBooks == listOf(book) &&
+                        (provenLibrary || (isUnmaterializedBook(preview.snapshot.library, canonical) &&
+                            isUnmaterializedBook(expanded.library, canonical)))
+                    if (!sameCanonicalEntry || !(entryOnly || samePhysicalBook)) {
+                        return@withTransaction ManualWorkMergeApplyResult.NeedsDecision("Canonical identity collides with a Library namespace")
+                    }
                 }
-                val operationScope = if (before.formatVersion == 3) preparedScope else null
+                val operationScope = if (before.formatVersion >= 3) preparedScope else null
                 val beforeBytes = journal.encode(before)
                 val rootRows = before.rows.getValue("works")
                 check(rootRows.size == 2)
@@ -310,8 +356,10 @@ class ManualWorkMergeCommands(
                         }
                     }
                 }
-                val protected = preview.participants.flatMap { participant -> participant.editions.map { edition ->
-                    PreservedWorkMergeParticipant(plan.operationId, checkNotNull(edition.bookId), edition.edition.id, true)
+                val protected = preview.participants.flatMap { participant -> participant.editions.mapNotNull { edition ->
+                    (manualMergeEditionOwner(preview, participant.work.id, edition) as? ManualWorkMergeEditionOwner.Library)?.let { owner ->
+                        PreservedWorkMergeParticipant(plan.operationId, owner.bookId, edition.edition.id, true)
+                    }
                 } }.distinctBy { it.bookId to it.editionId }
                 context.ensureActive()
                 if (existingCanonical) check(journal.updateById(canonicalRow, canonical) == 1)
@@ -328,6 +376,7 @@ class ManualWorkMergeCommands(
                 // The before-image retains every original claim, including deduplicated donors.
                 for (previousId in originalClaimIds) check(execute("DELETE FROM work_sources WHERE id = ?", previousId) == 1)
                 for (row in claims) journal.insert(row)
+                catalogEditions.apply(journal)
                 catalogPlan.apply(journal)
                 for (root in roots) {
                     execute("DELETE FROM works_fts WHERE workId = ?", root)
@@ -336,12 +385,14 @@ class ManualWorkMergeCommands(
                 database.audiobookDao().refreshWorkSearchIndex(canonical)
                 identity.insertRedirects(aliases)
                 identity.insertPreservedParticipants(protected)
+                identity.insertPreservedBooks(physicalBooks.map { PreservedWorkMergeBook(plan.operationId, it, true) })
                 val after = journal.capture(scope, books, editionIds, before.formatVersion)
                 check(after.formatVersion == before.formatVersion)
                 val afterBytes = journal.encode(after)
                 val afterFingerprint = if (operationScope == null) database.audiobookDao().readManualWorkMergeRows(scope).storageFingerprint
                     else ManualWorkMergeStorageFingerprint.forOperation(database.audiobookDao(), operationScope)
-                val proof = JSONObject().put("format", if (operationScope == null) 1 else 2).put("approval", approval(plan, beforeBytes))
+                val proof = JSONObject().put("format", ManualWorkMergeBookProof.FORMAT)
+                    .put("approval", ManualWorkMergeBookProof.approval(approval(plan, beforeBytes), physicalBooks))
                     .put("afterFingerprint", afterFingerprint).put("beforeDigest", bytesDigest(beforeBytes))
                     .put("afterDigest", bytesDigest(afterBytes))
                     .put("preserved", JSONArray(protected.map { JSONArray(listOf(it.bookId, it.editionId)) }))
@@ -362,6 +413,7 @@ class ManualWorkMergeCommands(
                 if (operationScope != null) {
                     proof.put("operationScope", operationScope.encode()).put("scopeDigest", operationScope.digest())
                 }
+                ManualWorkMergeBookProof.write(proof, physicalBooks)
                 identity.insertOperation(WorkMergeOperationEntity(
                     operationId = plan.operationId, state = WorkMergeOperationState.APPLIED.name,
                     canonicalWorkId = canonical, participantWorkIds = JSONArray(roots).toString(),
@@ -371,6 +423,9 @@ class ManualWorkMergeCommands(
                 context.ensureActive()
                 ManualWorkMergeApplyResult.Applied(plan.operationId, canonical)
             }
+        }) {
+            is IdleBookAdmission.Admitted -> admission.value
+            IdleBookAdmission.ActiveParticipants -> ManualWorkMergeApplyResult.NeedsDecision("A participant has active work")
         }
     }
 
@@ -380,13 +435,30 @@ class ManualWorkMergeCommands(
         val initial = database.workIdentityDao().operationById(operationId)
             ?: return ManualWorkMergeUndoResult.NeedsDecision("Operation not found")
         if (initial.state == WorkMergeOperationState.UNDONE.name) return ManualWorkMergeUndoResult.Undone(operationId)
+        val lockRoots = try {
+            val values = JSONArray(initial.participantWorkIds)
+            (0 until values.length()).map(values::getString).also { roots ->
+                require(roots.size == 2 && roots.distinct().size == 2 && roots.none(String::isBlank))
+                require(initial.canonicalWorkId.isNotBlank())
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (invalid: RuntimeException) {
+            return ManualWorkMergeUndoResult.NeedsDecision("Invalid participant journal")
+        }
         val protected = database.workIdentityDao().preservedParticipants(operationId)
-        return gate.withIdleBooks(protected.map { it.bookId }) {
+        val protectedBooks = database.workIdentityDao().preservedBooks(operationId)
+        return when (val admission = gate.withIdleIdentities(lockRoots + initial.canonicalWorkId,
+            protected.map { it.bookId } + protectedBooks.map { it.bookId }) {
             database.withTransaction {
                 val identity = database.workIdentityDao()
                 val operation = identity.operationById(operationId)
                     ?: return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Operation disappeared")
                 if (operation.state == WorkMergeOperationState.UNDONE.name) return@withTransaction ManualWorkMergeUndoResult.Undone(operationId)
+                if (operation.participantWorkIds != initial.participantWorkIds ||
+                    operation.canonicalWorkId != initial.canonicalWorkId) {
+                    return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Operation identity changed during admission")
+                }
                 if (!ManualWorkMergeJournal.supportsVersion(operation.payloadVersion) || operation.state != WorkMergeOperationState.APPLIED.name) {
                     return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Unknown journal format or operation state")
                 }
@@ -394,20 +466,33 @@ class ManualWorkMergeCommands(
                 val roots = (0 until rootsJson.length()).map(rootsJson::getString)
                 if (roots.size != 2 || roots.distinct().size != 2) return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Invalid participant journal")
                 val currentProtected = identity.preservedParticipants(operationId)
-                if (currentProtected != protected) return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Participant protection changed")
+                if (currentProtected != protected || identity.preservedBooks(operationId) != protectedBooks)
+                    return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Participant protection changed")
                 val context = currentCoroutineContext()
                 val journal = ManualWorkMergeJournal(database, context)
                 val proof = JSONObject(operation.approvedIdentity)
-                if (proof.getInt("format") != (if (operation.payloadVersion == 3) 2 else 1) || proof.getString("beforeDigest") != bytesDigest(operation.beforeImages) ||
+                val proofFormat = try { ManualWorkMergeBookProof.requireFormat(proof, operation.payloadVersion) }
+                    catch (invalid: RuntimeException) { return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Unknown approval proof format") }
+                val savedBookIds = if (proofFormat == ManualWorkMergeBookProof.FORMAT) {
+                    try { ManualWorkMergeBookProof.read(proof) }
+                    catch (invalid: RuntimeException) { return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Book policy proof is invalid") }
+                } else null
+                if (savedBookIds != null && !validBookRows(operationId, savedBookIds, protectedBooks))
+                    return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Book policy changed")
+                if (proof.getString("beforeDigest") != bytesDigest(operation.beforeImages) ||
                     proof.getString("afterDigest") != bytesDigest(operation.afterImages)) {
                     return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Journal payload integrity changed")
                 }
                 val savedProtected = proof.getJSONArray("preserved")
-                val expectedProtected = (0 until savedProtected.length()).map { index ->
+                val savedProtectedPairs = (0 until savedProtected.length()).map { index ->
                     val pair = savedProtected.getJSONArray(index)
                     require(pair.length() == 2)
                     pair.getString(0) to pair.getString(1)
-                }.toSet()
+                }
+                if (operation.payloadVersion == 4 && savedProtectedPairs.distinct().size != savedProtectedPairs.size) {
+                    return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Duplicate preserved Edition proof")
+                }
+                val expectedProtected = savedProtectedPairs.toSet()
                 if (currentProtected.any { !it.autoMergeExcluded } ||
                     currentProtected.map { it.bookId to it.editionId }.toSet() != expectedProtected) {
                     return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Preserved Edition identities changed")
@@ -429,9 +514,13 @@ class ManualWorkMergeCommands(
                     return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Original canonical identity changed")
                 }
                 val books = before.rows.getValue("library_entries").map { journal.text(it, "id", before.encoding) }
-                if (books.toSet() != protected.map { it.bookId }.toSet()) return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Journal and protection disagree")
+                if (before.formatVersion < 4) {
+                    if (books.toSet() != protected.map { it.bookId }.toSet()) return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Journal and protection disagree")
+                } else if (!validFormat4Protection(before, journal, roots, savedProtectedPairs, savedBookIds)) {
+                    return@withTransaction ManualWorkMergeUndoResult.NeedsDecision("Journal and actual Book protection disagree")
+                }
                 val scope = (roots + operation.canonicalWorkId).distinct()
-                val operationScope = if (operation.payloadVersion == 3) {
+                val operationScope = if (operation.payloadVersion >= 3) {
                     try {
                         ManualWorkMergeOperationScope.decode(proof.getJSONArray("operationScope")).also {
                             require(it.digest() == proof.getString("scopeDigest")) { "Operation scope checksum changed" }
@@ -466,6 +555,7 @@ class ManualWorkMergeCommands(
                 for (row in beforeWorks) {
                     if (journal.text(row, "id", before.encoding) != operation.canonicalWorkId) journal.insert(row)
                 }
+                if (before.formatVersion == 4) ManualWorkMergeCatalogEditionPlan.restore(journal, before)
                 for (row in before.rows.getValue("library_entries")) {
                     check(journal.updateById(row, journal.text(row, "id", before.encoding)) == 1)
                 }
@@ -485,18 +575,68 @@ class ManualWorkMergeCommands(
                 context.ensureActive()
                 ManualWorkMergeUndoResult.Undone(operationId)
             }
+        }) {
+            is IdleBookAdmission.Admitted -> admission.value
+            IdleBookAdmission.ActiveParticipants -> ManualWorkMergeUndoResult.NeedsDecision("A participant has active work")
         }
     }
 
-    private fun participantBooks(preview: ManualWorkMergePreview): List<String> = preview.snapshot.library.entries
+    private suspend fun validFormat4Protection(
+        before: ManualWorkMergeJournal.Image, journal: ManualWorkMergeJournal,
+        roots: List<String>, pairs: List<Pair<String, String>>, protectedBookIds: List<String>? = null,
+    ): Boolean {
+        fun text(row: ManualWorkMergeJournal.Row, column: String) = journal.text(row, column, before.encoding)
+        val entries = before.rows.getValue("library_entries")
+        val entryIds = entries.map { text(it, "id") }
+        val ownerByEntry = entries.associate { text(it, "id") to text(it, "workId") }
+        if (entryIds.distinct().size != entryIds.size || ownerByEntry.values.any { it !in roots } ||
+            pairs.distinct().size != pairs.size) return false
+        val actualBooks = mutableSetOf<String>()
+        for (id in entryIds) if (database.audiobookDao().getAudiobookById(id) != null) actualBooks += id
+        val editions = before.rows.getValue("editions")
+        val editionIds = editions.map { text(it, "id") }
+        if (editionIds.distinct().size != editionIds.size) return false
+        val expected = mutableSetOf<Pair<String, String>>()
+        for (edition in editions) {
+            val owner = text(edition, "workId")
+            if (owner in actualBooks && ownerByEntry[owner] in roots &&
+                (owner !in roots || protectedBookIds?.contains(owner) == true)) {
+                expected += owner to text(edition, "id")
+            } else if (owner !in roots ||
+                (ownerByEntry[owner] != null && ownerByEntry[owner] != owner) ||
+                database.audiobookDao().getAudiobookById(owner) != null) {
+                // Entry→same Work is catalog ownership; an actual root Book still conflicts.
+                return false
+            }
+        }
+        return expected == pairs.toSet() && if (protectedBookIds == null) {
+            expected.map { it.first }.toSet() == actualBooks
+        } else {
+            protectedBookIds.distinct().size == protectedBookIds.size &&
+                protectedBookIds.all { it in entryIds } && actualBooks == protectedBookIds.toSet()
+        }
+    }
+
+    private fun participantEntryIds(preview: ManualWorkMergePreview): List<String> = preview.snapshot.library.entries
         .filter { it.workId in preview.participants.map { participant -> participant.work.id } }
         .map { it.id }.distinct().sortedWith(::compareMergeUtf8)
 
-    private fun supportsLibraryTracer(preview: ManualWorkMergePreview): Boolean {
+    private fun participantPhysicalBookIds(preview: ManualWorkMergePreview): List<String> {
+        val entryIds = participantEntryIds(preview).toSet()
+        return preview.snapshot.library.books.map { it.id }.filter { it in entryIds }
+            .distinct().sortedWith(::compareMergeUtf8)
+    }
+
+    private fun supportsMergeCarriers(preview: ManualWorkMergePreview): Boolean {
         val snapshot = preview.snapshot
         val roots = preview.participants.map { it.work.id }.toSet()
         // Fail closed while the remaining carrier policies are implemented; never orphan them.
-        return preview.participants.all { it.editions.isNotEmpty() && it.editions.all { edition -> edition.bookId != null && edition.edition.workId == edition.bookId } } &&
+        return preview.participants.all { participant ->
+            participant.editions.all { edition ->
+                manualMergeEditionOwner(preview, participant.work.id, edition) != null
+            }
+        } &&
+            supportsActualAudioEdges(preview) &&
             snapshot.library.entries.all { it.workId in roots && it.downloadState in setOf("IDLE", "PAUSED") } &&
             snapshot.personal.corrections.isEmpty() && snapshot.personal.preferences.isEmpty() &&
             snapshot.personal.feedSnapshots.isEmpty() && supportsReadthroughs(preview) &&
@@ -504,6 +644,45 @@ class ManualWorkMergeCommands(
             snapshot.library.tracks.all { it.localFilePath == null && it.contentHash == null && !it.isDownloaded && remote(it.url) } &&
             snapshot.library.sources.all { remote(it.url) }
     }
+
+    private fun supportsActualAudioEdges(preview: ManualWorkMergePreview): Boolean {
+        val library = preview.snapshot.library
+        val entries = library.entries.associateBy { it.id }
+        val roots = preview.participants.map { it.work.id }.toSet()
+        val books = library.books.map { it.id }.toSet()
+        val sources = library.sources.associateBy { it.id }
+        return library.books.all { book ->
+            entries[book.id]?.workId in roots && (preview.participants.any { participant ->
+                participant.editions.any { edition ->
+                    (manualMergeEditionOwner(preview, participant.work.id, edition) as? ManualWorkMergeEditionOwner.Library)?.bookId == book.id
+                }
+            } || isUnmaterializedBook(library, book.id))
+        } &&
+            library.sources.all { it.bookId in books } &&
+            library.chapters.all { it.bookId in books } &&
+            library.progress.all { it.bookId in books } &&
+            library.bookmarks.all { it.bookId in books } &&
+            library.settings.all { it.bookId in books } &&
+            library.events.all { it.bookId in books } &&
+            library.failures.all { it.bookId in books } &&
+            library.submissions.all { it.bookId in books } &&
+            library.tracks.all { sources[it.sourceId]?.bookId in books }
+    }
+
+    private fun isUnmaterializedBook(rows: ManualWorkMergeLibraryRows, bookId: String): Boolean {
+        return rows.editions.none { it.workId == bookId } &&
+            rows.sources.none { it.bookId == bookId } && rows.chapters.none { it.bookId == bookId } &&
+            rows.progress.none { it.bookId == bookId } && rows.bookmarks.none { it.bookId == bookId } &&
+            rows.events.none { it.bookId == bookId } && rows.failures.none { it.bookId == bookId } &&
+            rows.submissions.none { it.bookId == bookId } &&
+            rows.settings.none { it.bookId == bookId && it.sourceKey.isNotBlank() }
+    }
+
+    private fun validBookRows(
+        operationId: String, books: List<String>, rows: List<PreservedWorkMergeBook>,
+    ): Boolean = rows.map { it.bookId }.distinct().size == rows.size &&
+        rows.all { it.operationId == operationId && it.autoMergeExcluded } &&
+        rows.map { it.bookId }.toSet() == books.toSet()
 
     private fun supportsReadthroughs(preview: ManualWorkMergePreview): Boolean {
         val entries = preview.snapshot.library.entries.associateBy { it.id }
@@ -514,7 +693,9 @@ class ManualWorkMergeCommands(
             pass.workId in roots && entry?.workId == pass.workId && when (pass.format) {
                 "AUDIO" -> pass.editionId?.let { editionId ->
                     val edition = editions[editionId]
-                    edition != null && edition.bookId == pass.libraryEntryId
+                    // The personal Entry owns the reading, not the physical narration.
+                    // Resolve the selected Edition independently and require the same Work.
+                    edition != null && manualMergeEditionOwner(preview, pass.workId, edition) != null
                 } == true
                 "PAPER", "EBOOK" -> pass.editionId == null
                 else -> false
@@ -539,7 +720,7 @@ class ManualWorkMergeCommands(
     private suspend fun version(preview: ManualWorkMergePreview): String {
         val roots = preview.participants.map { it.work.id }
         val keys = (roots + preview.participants.map { it.work.mergeKey }).filter { it.isNotBlank() }.distinct()
-        val books = participantBooks(preview)
+        val books = participantEntryIds(preview)
         val evidence = mutableListOf(preview.fingerprint, preview.storageFingerprint)
         val sql = database.openHelper.readableDatabase
         if (keys.isNotEmpty()) {
@@ -552,6 +733,9 @@ class ManualWorkMergeCommands(
             val placeholders = books.joinToString(", ") { "?" }
             sql.query(SimpleSQLiteQuery("SELECT operationId, bookId, editionId, autoMergeExcluded FROM work_merge_preserved_participants WHERE bookId IN ($placeholders) ORDER BY operationId, bookId, editionId", books.toTypedArray())).use {
                 while (it.moveToNext()) for (index in 0..3) evidence += it.getString(index)
+            }
+            sql.query(SimpleSQLiteQuery("SELECT operationId, bookId, autoMergeExcluded FROM work_merge_preserved_books WHERE bookId IN ($placeholders) ORDER BY operationId, bookId", books.toTypedArray())).use {
+                while (it.moveToNext()) for (index in 0..2) evidence += it.getString(index)
             }
         }
         return digest(evidence)

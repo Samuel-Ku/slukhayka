@@ -61,6 +61,18 @@
    Маркер глибини (`SLUKHAYKA_EMPTY_SHAPE_DEPTH`) ставить сам механізм і може
    лише ВІДМОВИТИ: гейт, який можна вимкнути, — це побажання, а не механізм.
 
+Ціна й тимчасові дерева (#1271). Копіюється лише `scripts/`, решта top-level
+записів — симлінки: виміряно 1.4 MiB на дерево проти 76.2 MiB у повної копії
+дерева (0.01 с проти 0.32 с) — на дереві `d6c35cdf`, і число росте разом із
+деревом: піниться ВІДНОШЕННЯ, а не число.
+Дерева будуються на скрипт (1–2) і звільняються одразу після прогону. Місце
+перевіряється ДО першої копії (`tmp_budget.prepare`): він міряє копію, додає запас
+на воркери й підлогу на scratch свідків і відмовляє кодом 2 із числами («треба X,
+вільно Y») замість того, щоб заповнити ФС — заповнена ФС валить не цей прогін, а
+кожен запуск процесу в середовищі. Маленький tmpfs у RAM — окрема відмова,
+застарілі дерева попередніх падінь прибираються на старті, а явне перенесення
+(`SLUKHAYKA_MUTANTS_TMPDIR`) голосне.
+
 Виклик: scripts/empty_shape_mutants.py [--list] [--script <шлях>]... [--root <шлях>]
 Коди виходу: 0 — усі порожні форми піняться; 1 — є непінені; 2 — перевірити не
 вдалося.
@@ -75,19 +87,27 @@ import re
 import shutil
 import subprocess
 import sys
-import tempfile
 import time
 from pathlib import Path
+
+import tmp_budget
 
 ROOT = Path(__file__).resolve().parents[1]
 TESTS_DIR = Path("scripts/tests")
 
+# Піддерево, яке копіюється в тимчасове дерево, і те, що в копію не йде. Обидві
+# константи читають і копіювання, і вимір копії: розійтися їм нема чого, інакше
+# бюджет міряв би не той обсяг, який `_roots` справді пише (#1271).
+COPY_ENTRY = tmp_budget.LINK_COPY_ENTRY
+COPY_IGNORE = tmp_budget.LINK_COPY_IGNORE
+
+# Префікс тимчасових дерев механізму: за ним застарілі дерева попередніх падінь
+# відрізняються від тек інших інструментів.
+TEMP_PREFIX = "slukhayka-shape-"
+
 # Теки, куди механізм не дивиться: або не код репозиторію, або кеші з копіями
 # тих самих скриптів (`.worktrees/`), які дали б той самий мутант удруге.
-SKIP_DIRS = {
-    ".git", ".gradle", ".gradle-home", ".kotlin", ".mutations", ".robolectric-jars",
-    ".scratch", ".worktrees", "build", "node_modules",
-}
+SKIP_DIRS = tmp_budget.LINK_SKIP_DIRS
 
 # Фікстури тестів — не скрипти репозиторію, а дані для цих самих тестів.
 # `scripts/tests/fixtures/empty_shape/unpinned` навмисно НЕ піниться: це стан
@@ -390,24 +410,21 @@ def paired_modules(script: Path, tests_dir: Path) -> list[Path]:
     return modules
 
 
+def copy_bytes(root: Path) -> int:
+    """Байти, які займе одна копія дерева: рівно те, що пише `_roots`."""
+    return tmp_budget.tree_bytes(root / COPY_ENTRY, COPY_IGNORE)
+
+
 def _roots(root: Path, tmp: Path) -> Path:
     """Копія дерева, де `scripts/` справжня, а решта — посилання.
 
-    Мутант живе лише в копії, тож дерево репозиторію не змінюється. Каталоги з
-    кешами й `.git` не переносяться: свідку потрібні тести, а не історія.
+    Саме копіювання — у `tmp_budget.link_tree`: та сама функція будує копію для
+    всіх трьох механізмів мутацій (#1270). Тут лишаються самі константи — вони
+    факти про ЦЕЙ механізм, і їх пінять його власні тести.
     """
-    work = tmp / "root"
-    work.mkdir()
-    shutil.copytree(
-        root / "scripts",
-        work / "scripts",
-        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    return tmp_budget.link_tree(
+        root, tmp, copy_entry=COPY_ENTRY, ignore=COPY_IGNORE, skip_dirs=SKIP_DIRS
     )
-    for entry in root.iterdir():
-        if entry.name in {"scripts"} | SKIP_DIRS:
-            continue
-        (work / entry.name).symlink_to(entry, target_is_directory=entry.is_dir())
-    return work
 
 
 def _run_module(work: Path, module: Path, tests_dir: Path) -> tuple[int | None, str]:
@@ -461,8 +478,54 @@ def check(script: Path, tests_dir: Path, root: Path) -> Report:
         )
         return report
 
-    with tempfile.TemporaryDirectory(prefix="slukhayka-shape-") as tmp:
-        baseline = _roots(root, Path(tmp))
+    try:
+        # Місце міряється ТУТ, ДО першої копії — і це ЄДИНЕ місце перевірки
+        # (#1271). Заповнена ФС валить не цей прогін, а кожен запуск процесу в
+        # середовищі, тож відмова з числами — те, що потрібно, а не `ENOSPC`
+        # посередині. Другого такого виклику немає навмисно: перевірку, розмазану
+        # по двох місцях, зняття одного з них не червонить, і мутація-свідок
+        # перестає щось тримати. Одного виміру досить і за побудовою: на скрипт
+        # тут припадає 1–2 дерева, тож запас `COPY_HEADROOM` покриває їх усі.
+        base = tmp_budget.prepare(tmp_budget.OWN_PREFIXES, copy_bytes(root))
+    except tmp_budget.BudgetError as error:
+        report.blocked.append("FAIL  %s" % error)
+        return report
+
+    def tree() -> Path | None:
+        """Тимчасове дерево прогону: створене, позначене власником, із копією.
+
+        Маркер тут — не косметика (#1271). Механізм сам прибирає теки СВОГО
+        префікса без маркера після пільгового часу, тож непозначена тека — це
+        тека, яку сусідній прогін має право прибрати. Прогін, довший за пільгу,
+        утратив би своє дерево посеред роботи: дерево базового прогону живе крізь
+        усі прогони — базовий і мутантний на два модулі-свідки по 240 с таймауту,
+        тобто 4 × 240 с = 960 с. Сам себе механізм маркером і захищає: у
+        `verdict_field_mutants.py` ту саму роль грає `Runner`.
+
+        Створення й маркер — один крок (`tmp_budget.claim`), як і в механізмі
+        полів: невдача створення чи маркера (диск, права, ліміти) — невідомість
+        (код 2), а не трейсбек, і теки-носія без маркера вона не лишає.
+        """
+        try:
+            directory = tmp_budget.claim(base, TEMP_PREFIX)
+        except OSError as error:
+            report.blocked.append("FAIL  %s: тимчасового дерева не завести: %s"
+                                  % (script, error))
+            return None
+        try:
+            _roots(root, directory)
+        except (OSError, tmp_budget.BudgetError) as error:
+            report.blocked.append("FAIL  %s: тимчасового дерева не зібрати: %s"
+                                  % (script, error))
+            shutil.rmtree(directory, ignore_errors=True)
+            return None
+        return directory
+
+    baseline_tree = tree()
+    if baseline_tree is None:
+        return report
+    try:
+        baseline = baseline_tree / "root"
         for module in modules:
             status, output = _run_module(baseline, module, tests_dir)
             if status is None:
@@ -482,12 +545,17 @@ def check(script: Path, tests_dir: Path, root: Path) -> Report:
             verdict = Verdict(shape)
             mutant_text = mutate(text, shape)
             for module in modules:
-                with tempfile.TemporaryDirectory(prefix="slukhayka-shape-") as tmp:
-                    work = _roots(root, Path(tmp))
+                mutant_tree = tree()
+                if mutant_tree is None:
+                    return report
+                try:
+                    work = mutant_tree / "root"
                     (work / script.relative_to(root)).write_text(mutant_text, encoding="utf-8")
                     started = time.monotonic()
                     status, output = _run_module(work, module, tests_dir)
                     verdict.seconds = max(verdict.seconds, time.monotonic() - started)
+                finally:
+                    shutil.rmtree(mutant_tree, ignore_errors=True)
                 if status is None:
                     # Невідомість, не відмова: «мутанта не вбито» і «прогін не
                     # завершився» — різні речі, і код виходу в них різний.
@@ -509,6 +577,8 @@ def check(script: Path, tests_dir: Path, root: Path) -> Report:
                        ", ".join(module.name for module in modules))
                 )
             report.verdicts.append(verdict)
+    finally:
+        shutil.rmtree(baseline_tree, ignore_errors=True)
     return report
 
 

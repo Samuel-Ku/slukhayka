@@ -1,7 +1,7 @@
 package com.slukhayka.audiobooks.data.entries
 
 import com.slukhayka.audiobooks.data.db.AudiobookDao
-import com.slukhayka.audiobooks.data.db.LibraryEntryEntity
+import com.slukhayka.audiobooks.data.db.TriageRow
 
 /**
  * ADR-0047 / spec-54 T09 (#867) — the «Імпортоване» queue as ONE seam.
@@ -13,9 +13,9 @@ import com.slukhayka.audiobooks.data.db.LibraryEntryEntity
  */
 class ImportedLibraryEntries(private val dao: AudiobookDao) {
 
-    /** The rows waiting for a decision, newest first. */
-    suspend fun pending(): List<LibraryEntryEntity> =
-        dao.libraryEntriesWithOrigin(LibraryEntryOrigin.UNKNOWN.name)
+    /** The rows waiting for a decision, newest first, with their titles. */
+    suspend fun pending(): List<TriageRow> =
+        dao.triageRowsWithOrigin(LibraryEntryOrigin.UNKNOWN.name)
 
     /**
      * Applies one explicit action to one row.

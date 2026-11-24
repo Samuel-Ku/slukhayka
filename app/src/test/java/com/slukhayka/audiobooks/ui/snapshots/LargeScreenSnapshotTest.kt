@@ -286,9 +286,7 @@ class LargeScreenSnapshotTest {
                             MiniPlayerBar(
                                 playerState = miniPlayerState,
                                 onPlayPauseClick = {},
-                                onPreviousClick = {},
-                                onSkipNextClick = {},
-                                onCloseClick = {},
+                                                onCloseClick = {},
                                 onBarClick = {}
                             )
                         }
@@ -363,7 +361,6 @@ class LargeScreenSnapshotTest {
                     continueBook = null,
                     denseTitle = "Усі"
                 ),
-                browsing = false,
                 gridMode = true,
                 availability = emptyMap(),
                 downloadCounts = emptyMap(),

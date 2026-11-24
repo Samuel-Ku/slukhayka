@@ -13,7 +13,7 @@ import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.screens.RecommendedBookCard
-import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
@@ -46,7 +46,7 @@ class RecommendedBookCardSnapshotTest {
     @Test
     fun recommended_book_card_with_reason_chip() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 RecommendedSurface {
                     RecommendedBookCard(
                         rec = RecommendationEngine.Recommendation(
@@ -76,7 +76,7 @@ class RecommendedBookCardSnapshotTest {
     @Test
     fun source_badge_on_exploration_slot() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 RecommendedSurface {
                     RecommendedBookCard(
                         rec = RecommendationEngine.Recommendation(
@@ -110,7 +110,7 @@ class RecommendedBookCardSnapshotTest {
     @Test
     fun reason_slot_is_a_metadata_chip() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 RecommendedSurface {
                     PosterCard(
                         title = "Тіні забутих предків",

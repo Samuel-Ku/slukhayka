@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import androidx.compose.foundation.shape.RoundedCornerShape
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
@@ -15,13 +17,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudUpload
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -30,6 +25,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -63,6 +59,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.reviews.ListenerReview
 import com.slukhayka.audiobooks.data.reviews.ListenerReviewLimits
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
@@ -83,12 +80,18 @@ import java.util.Locale
  * Rating seam shared by read-only cards and the editor. Read-only ratings
  * are one spoken value; editing exposes exactly five RadioButton choices.
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun ReviewStarsRow(
     rating: Int,
     modifier: Modifier = Modifier,
     starSize: Int = 16,
     interactive: Boolean = false,
+    // F31 review: five 48 dp touch boxes are 240 dp — wider than the compact
+    // hero's column (182 dp on a 360 dp phone), where the last star used to be
+    // clamped away. `wrap` lays them out as a FlowRow of at most three per
+    // line (3+2), keeping every 48 dp target.
+    wrap: Boolean = false,
     onRatingChange: (Int) -> Unit = {}
 ) {
     val ratingSummary = stringResource(R.string.book_detail_review_rating_summary, rating)
@@ -99,7 +102,7 @@ fun ReviewStarsRow(
             contentDescription = ratingSummary
         }
     }
-    Row(modifier = rowModifier, verticalAlignment = Alignment.CenterVertically) {
+    val content: @Composable () -> Unit = {
         repeat(ListenerReviewLimits.MAX_RATING) { index ->
             val position = index + 1
             if (interactive) {
@@ -123,14 +126,28 @@ fun ReviewStarsRow(
             }
         }
     }
+    if (interactive && wrap) {
+        androidx.compose.foundation.layout.FlowRow(
+            modifier = rowModifier,
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.Start,
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(0.dp),
+            maxItemsInEachRow = 3,
+        ) { content() }
+    } else {
+        Row(modifier = rowModifier, verticalAlignment = Alignment.CenterVertically) { content() }
+    }
 }
 
 @Composable
 private fun StarIcon(filled: Boolean, size: Int) {
     Icon(
-        imageVector = if (filled) Icons.Default.Star else Icons.Default.StarBorder,
+        imageVector = if (filled) PaperInkIcons.Star else PaperInkIcons.StarOutline,
         contentDescription = null,
-        tint = MaterialTheme.colorScheme.secondary,
+        tint = if (com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current) {
+            MaterialTheme.colorScheme.tertiary
+        } else {
+            MaterialTheme.colorScheme.secondary
+        },
         modifier = Modifier.size(size.dp)
     )
 }
@@ -172,14 +189,28 @@ fun ReviewCard(
         R.string.book_detail_review_author_actions,
         review.authorName
     )
+    val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
+    Column(modifier = Modifier.fillMaxWidth()) {
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .padding(
+                start = if (paperInk) com.slukhayka.audiobooks.ui.theme.PaperInkDimens.SpacePage else 16.dp,
+                end = if (paperInk) com.slukhayka.audiobooks.ui.theme.PaperInkDimens.SpacePage else 16.dp,
+                top = if (paperInk) 0.dp else 6.dp,
+                bottom = if (paperInk) 0.dp else 6.dp,
+            )
             .testTag("review_card_${review.uid}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+        shape = if (paperInk) RoundedCornerShape(0.dp) else MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(
+            containerColor = if (paperInk) {
+                MaterialTheme.colorScheme.background
+            } else {
+                MaterialTheme.colorScheme.surfaceContainer
+            }
+        )
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(if (paperInk) 14.dp else 14.dp)) {
             // Stars ABOVE the text — the Google pattern the ticket pins.
             ReviewStarsRow(rating = review.rating)
 
@@ -188,7 +219,11 @@ fun ReviewCard(
             if (!review.body.isNullOrBlank()) {
                 Text(
                     text = review.body,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = if (paperInk) {
+                        com.slukhayka.audiobooks.ui.theme.PaperInkType.Body
+                    } else {
+                        MaterialTheme.typography.bodyMedium
+                    },
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(8.dp))
@@ -198,8 +233,12 @@ fun ReviewCard(
             // chip. An empty tag renders nothing (ADR-0014: no filler).
             if (!review.editionTag.isNullOrBlank()) {
                 Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shape = MaterialTheme.shapes.small,
+                    color = if (paperInk) {
+                        MaterialTheme.colorScheme.background
+                    } else {
+                        MaterialTheme.colorScheme.surfaceContainerHigh
+                    },
+                    shape = RoundedCornerShape(percent = 50),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
                     Text(
@@ -207,7 +246,11 @@ fun ReviewCard(
                             R.string.book_detail_review_narration_tag,
                             review.editionTag
                         ),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = if (paperInk) {
+                            com.slukhayka.audiobooks.ui.theme.PaperInkType.Micro
+                        } else {
+                            MaterialTheme.typography.labelSmall
+                        },
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -222,7 +265,7 @@ fun ReviewCard(
                 // queued; it is NOT published yet.
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.CloudUpload,
+                        imageVector = PaperInkIcons.Upload,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(14.dp)
@@ -241,14 +284,22 @@ fun ReviewCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = review.authorName,
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                        style = if (paperInk) {
+                            com.slukhayka.audiobooks.ui.theme.PaperInkType.Label
+                        } else {
+                            MaterialTheme.typography.labelLarge
+                        },
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = reviewDateLabel(review.createdAt),
-                        style = MaterialTheme.typography.labelSmall,
+                        style = if (paperInk) {
+                            com.slukhayka.audiobooks.ui.theme.PaperInkType.Micro
+                        } else {
+                            MaterialTheme.typography.labelSmall
+                        },
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
@@ -263,7 +314,7 @@ fun ReviewCard(
                             .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
                             .semantics { contentDescription = editLabel }
                     ) {
-                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(PaperInkIcons.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.size(2.dp))
                         Text(
                             stringResource(R.string.book_detail_review_edit_action),
@@ -283,7 +334,7 @@ fun ReviewCard(
                             .semantics { contentDescription = deleteLabel }
                     ) {
                         Icon(
-                            Icons.Default.Delete,
+                            PaperInkIcons.Trash,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(16.dp)
@@ -300,7 +351,7 @@ fun ReviewCard(
                             .semantics { contentDescription = authorActionsLabel }
                     ) {
                         Icon(
-                            Icons.Default.MoreVert,
+                            PaperInkIcons.More,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(18.dp)
@@ -329,6 +380,12 @@ fun ReviewCard(
             }
         }
     }
+    if (paperInk) {
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+        )
+    }
+    }
 }
 
 /**
@@ -340,6 +397,7 @@ fun ReviewCard(
  * a rating instead of faking a 0-star value. Renders nothing when there is
  * nothing to show and nobody to ask.
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun NarrationRatingRow(
     average: Double?,
@@ -349,27 +407,39 @@ fun NarrationRatingRow(
     onRate: (Int) -> Unit,
     onDeleteOwn: (() -> Unit)? = null,
     deleteFocusRequester: FocusRequester? = null,
+    /**
+     * #1383 — WHY rating is unavailable, as a string resource; null when it is
+     * available. Rendered only when there is an average to show, because that
+     * is the case where the stars above look tappable but are read-only.
+     */
+    unavailableReasonRes: Int? = null,
+    // F31 review: the compact book-page hero puts this row BESIDE the cover,
+    // in a ~182 dp column on a 360 dp phone. The default centred layout
+    // overflows there, so the hero asks for a start-aligned, wrapping variant.
+    startAligned: Boolean = false,
+    compact: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     if (average == null && !canRate) return
+    val starSize = if (compact) 12 else 14
     Column(
         modifier = modifier
             .fillMaxWidth()
             .testTag("narration_rating_row"),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        horizontalAlignment = if (startAligned) Alignment.Start else Alignment.CenterHorizontally,
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp)
     ) {
         // #383 — the whole average line (label + stars + count) exists only
         // behind real votes; without them there is nothing truthful to show.
         if (average != null) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            val averageLine: @Composable () -> Unit = {
                 Text(
                     text = stringResource(R.string.book_detail_review_edition_line),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.size(6.dp))
-                ReviewStarsRow(rating = kotlin.math.round(average).toInt(), starSize = 14)
+                Spacer(modifier = Modifier.size(if (compact) 4.dp else 6.dp))
+                ReviewStarsRow(rating = kotlin.math.round(average).toInt(), starSize = starSize)
                 Spacer(modifier = Modifier.size(4.dp))
                 Text(
                     text = String.format(java.util.Locale.US, "%.1f", average) + " · $voteCount",
@@ -378,22 +448,49 @@ fun NarrationRatingRow(
                     modifier = Modifier.testTag("narration_rating_average")
                 )
             }
+            if (compact) {
+                // Wraps instead of clipping when the hero's column is narrow.
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(0.dp),
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp),
+                    itemVerticalAlignment = Alignment.CenterVertically,
+                ) { averageLine() }
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) { averageLine() }
+            }
+        }
+        // #1383 — the defect the listener reported: "the stars are there but
+        // tapping does nothing". The average row above draws the SAME stars
+        // the rater block uses, but read-only, and nothing said so. Rather
+        // than make the average look untappable by guesswork, name the missing
+        // condition — the message also tells the next diagnosis which of the
+        // three gates failed.
+        val reasonRes = unavailableReasonRes
+        if (!canRate && average != null && reasonRes != null) {
+            Text(
+                text = stringResource(reasonRes),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                modifier = Modifier.testTag("narration_rating_unavailable_reason")
+            )
         }
         if (canRate) {
             // The rater block always names itself («Оцінити начитку») — with
             // no own rating yet these five outline stars are an invitation to
             // rate, never a displayed value.
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            val raterLine: @Composable () -> Unit = {
                 Text(
                     text = stringResource(R.string.book_detail_review_rate_narration),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Spacer(modifier = Modifier.size(6.dp))
+                Spacer(modifier = Modifier.size(if (compact) 4.dp else 6.dp))
                 ReviewStarsRow(
                     rating = ownRating ?: 0,
-                    starSize = 14,
+                    starSize = starSize,
                     interactive = true,
+                    wrap = compact,
                     onRatingChange = onRate,
                     modifier = Modifier.testTag("narration_rating_own_stars")
                 )
@@ -409,7 +506,7 @@ fun NarrationRatingRow(
                             .testTag("narration_rating_delete")
                     ) {
                         Icon(
-                            Icons.Default.Delete,
+                            PaperInkIcons.Trash,
                             contentDescription = stringResource(R.string.book_detail_narration_rating_delete),
                             tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(16.dp)
@@ -417,8 +514,43 @@ fun NarrationRatingRow(
                     }
                 }
             }
+            if (compact) {
+                androidx.compose.foundation.layout.FlowRow(
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(0.dp),
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp),
+                    itemVerticalAlignment = Alignment.CenterVertically,
+                ) { raterLine() }
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) { raterLine() }
+            }
         }
     }
+}
+
+/**
+ * #1383 — which gate stopped the narration rating, as a string resource, or
+ * `null` when every gate is open and the listener CAN rate.
+ *
+ * Pure on purpose: the three gates are booleans the screen already knows
+ * (a ratings backend, a listener identity, the open Work's edition), so the
+ * decision is testable in the JVM partition without a Compose rule — and the
+ * screen can never drift from the reason it shows.
+ *
+ * Precedence is deliberate and matches the ticket's diagnosis: a missing
+ * backend makes the other two irrelevant (nothing could be stored), so it is
+ * named first; a missing identity is second; a Work without an edition is
+ * last, because it is the only one about THIS book rather than the build.
+ */
+@androidx.annotation.StringRes
+fun narrationRateUnavailableReason(
+    hasRatingsBackend: Boolean,
+    hasListenerIdentity: Boolean,
+    hasEdition: Boolean
+): Int? = when {
+    !hasRatingsBackend -> R.string.book_detail_rate_unavailable_no_backend
+    !hasListenerIdentity -> R.string.book_detail_rate_unavailable_no_profile
+    !hasEdition -> R.string.book_detail_rate_unavailable_no_edition
+    else -> null
 }
 
 /**
@@ -470,7 +602,7 @@ fun ListenerReviewFormSheet(
                     if (editing == null) R.string.book_detail_review_new_title
                     else R.string.book_detail_review_edit_title
                 ),
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                style = com.slukhayka.audiobooks.ui.theme.PaperInkType.Heading.Section,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.semantics { heading() }
             )

@@ -10,8 +10,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -34,10 +32,10 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.ingest.ChannelCardState
 import com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow
 import com.slukhayka.audiobooks.data.ingest.SubmissionState
@@ -56,7 +54,16 @@ import androidx.compose.ui.Alignment
 sealed interface SubmissionUiState {
     data object Idle : SubmissionUiState
     data object Working : SubmissionUiState
-    data class Imported(val publishable: Boolean) : SubmissionUiState
+    /**
+     * #1487 — [knownSource] separates "nothing to publish because the book is
+     * already in that source's catalogue" from "shared base unavailable".
+     */
+    data class Imported(
+        val publishable: Boolean,
+        val knownSource: Boolean = false,
+        /** #1487 slice 2 — the card came from a probed page of an unknown host. */
+        val probedPage: Boolean = false
+    ) : SubmissionUiState
 
     /**
      * Spec-53 T6 — the link's copy is already in MY library: a friendly state
@@ -77,14 +84,19 @@ sealed interface SubmissionUiState {
      * the publication waits for tomorrow and needs no second playback.
      */
     data object DeferredPublication : SubmissionUiState
-    data class Refused(val reason: ListenerSubmissionFlow.Reason) : SubmissionUiState
+    data class Refused(
+        val reason: ListenerSubmissionFlow.Reason,
+        /** #1487 slice 2 — the canonical page URL the browser door opens. */
+        val browserUrl: String? = null
+    ) : SubmissionUiState
     data object Unsupported : SubmissionUiState
 }
 
 /**
- * The one «надіслати посилання» door: paste a YouTube video/playlist or a
- * Telegram post, submit, and follow the honest state. Publication happens
- * only after the imported copy really plays — the sheet says so plainly.
+ * The one «надіслати посилання» door: paste a YouTube video/playlist, a
+ * Telegram post or a book page of a known source, submit, and follow the
+ * honest state. Publication happens only after the imported copy really plays
+ * (a catalogue page has nothing to publish at all) — the sheet says so plainly.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -112,6 +124,10 @@ fun SubmissionSheet(
     /** Spec-53 T10 — the whole-channel selection card and its doors. */
     channelCard: ChannelCardState? = null,
     isChannelLink: ((String) -> Boolean)? = null,
+    /** #1487 — a known-source book page is imported directly: no preview card. */
+    isKnownSourceLink: ((String) -> Boolean)? = null,
+    /** #1487 slice 2 — opens the refused page in the system browser. */
+    onOpenBrowser: ((String) -> Unit)? = null,
     onOpenChannel: ((String) -> Unit)? = null,
     channelCallbacks: ChannelCardCallbacks? = null,
     /** Spec-53 T11 — the playlist preview's selection and its doors. */
@@ -147,6 +163,8 @@ fun SubmissionSheet(
             onSubmitWithEdits = onSubmitWithEdits,
             channelCard = channelCard,
             isChannelLink = isChannelLink,
+            isKnownSourceLink = isKnownSourceLink,
+            onOpenBrowser = onOpenBrowser,
             onOpenChannel = onOpenChannel,
             channelCallbacks = channelCallbacks,
             playlistSelection = playlistSelection,
@@ -178,6 +196,10 @@ fun SubmissionSheetContent(
     /** Spec-53 T10 — the whole-channel selection card and its doors. */
     channelCard: ChannelCardState? = null,
     isChannelLink: ((String) -> Boolean)? = null,
+    /** #1487 — a known-source book page is imported directly: no preview card. */
+    isKnownSourceLink: ((String) -> Boolean)? = null,
+    /** #1487 slice 2 — opens the refused page in the system browser. */
+    onOpenBrowser: ((String) -> Unit)? = null,
     onOpenChannel: ((String) -> Unit)? = null,
     channelCallbacks: ChannelCardCallbacks? = null,
     /** Spec-53 T11 — the playlist preview's selection and its doors. */
@@ -212,7 +234,7 @@ fun SubmissionSheetContent(
         Row {
             Text(
                 text = stringResource(R.string.submission_sheet_title),
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                style = com.slukhayka.audiobooks.ui.theme.PaperInkType.Heading.Sub,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .weight(1f)
@@ -224,7 +246,7 @@ fun SubmissionSheetContent(
                     onClick = onClose,
                     modifier = Modifier.size(48.dp).testTag("submission_sheet_close")
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = stringResource(R.string.a11y_submission_close))
+                    Icon(PaperInkIcons.Close, contentDescription = stringResource(R.string.a11y_submission_close))
                 }
             }
         }
@@ -279,6 +301,20 @@ fun SubmissionSheetContent(
                 modifier = Modifier.testTag("submission_status")
             )
         }
+        // #1487 slice 2 — an unknown page the app could not turn into a card:
+        // the honest door is the listener's own browser, not a silent WebView.
+        val browserUrl = (state as? SubmissionUiState.Refused)?.browserUrl
+        if (browserUrl != null && onOpenBrowser != null) {
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedButton(
+                onClick = { onOpenBrowser(browserUrl) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("submission_open_browser")
+            ) {
+                Text(stringResource(R.string.submission_open_in_browser))
+            }
+        }
         // Spec-53 T3 — the one explicit action after an import; no autoplay.
         if (state is SubmissionUiState.Imported && onListen != null) {
             Spacer(modifier = Modifier.height(12.dp))
@@ -308,7 +344,7 @@ fun SubmissionSheetContent(
             Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = stringResource(R.string.submission_deferred_title),
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                style = com.slukhayka.audiobooks.ui.theme.PaperInkType.Heading.Group,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.testTag("submission_deferred_title")
             )
@@ -366,7 +402,7 @@ fun SubmissionSheetContent(
                 ) {
                     Text(stringResource(R.string.submission_channel_open))
                 }
-            } else if (onPreview != null) {
+            } else if (onPreview != null && isKnownSourceLink?.invoke(url.trim()) != true) {
                 OutlinedButton(
                     onClick = { onPreview(url.trim()) },
                     enabled = url.isNotBlank() && state !is SubmissionUiState.Working,
@@ -417,7 +453,7 @@ fun SubmissionSheetContent(
                     )
                     Text(
                         text = shownTitle,
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
@@ -549,10 +585,11 @@ private fun formatPreviewDuration(totalSeconds: Long): String {
 private fun submissionStatusText(state: SubmissionUiState): String? = when (state) {
     SubmissionUiState.Idle -> null
     SubmissionUiState.Working -> stringResource(R.string.submission_status_working)
-    is SubmissionUiState.Imported -> if (state.publishable) {
-        stringResource(R.string.submission_status_imported)
-    } else {
-        stringResource(R.string.submission_status_imported_local)
+    is SubmissionUiState.Imported -> when {
+        state.probedPage -> stringResource(R.string.submission_status_imported_probed)
+        state.knownSource -> stringResource(R.string.submission_status_imported_catalog)
+        state.publishable -> stringResource(R.string.submission_status_imported)
+        else -> stringResource(R.string.submission_status_imported_local)
     }
     SubmissionUiState.Published -> stringResource(R.string.submission_status_published)
     SubmissionUiState.PendingModeration -> stringResource(R.string.submission_status_pending_moderation)
@@ -575,4 +612,7 @@ private fun submissionRefusalRes(reason: ListenerSubmissionFlow.Reason): Int = w
     ListenerSubmissionFlow.Reason.NOT_VERIFIED -> R.string.submission_status_refused_not_verified
     ListenerSubmissionFlow.Reason.REJECTED -> R.string.submission_status_refused_rejected
     ListenerSubmissionFlow.Reason.SHARED_BASE_UNAVAILABLE -> R.string.submission_status_refused_unavailable
+    // #1487 slice 2 — an unknown page: read failed, or no playable audio.
+    ListenerSubmissionFlow.Reason.PAGE_UNREADABLE -> R.string.submission_status_refused_page_unreadable
+    ListenerSubmissionFlow.Reason.PAGE_NO_AUDIO -> R.string.submission_status_refused_page_no_audio
 }

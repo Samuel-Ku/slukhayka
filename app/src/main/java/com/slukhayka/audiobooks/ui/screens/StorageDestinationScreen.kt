@@ -13,10 +13,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.focusable
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.SdCard
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -44,9 +40,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.theme.*
 
@@ -68,6 +64,11 @@ fun StorageDestinationPane(
     // prototype shows them as a stat PAIR (`.sl-stat-pair`, `:1218-1220`).
     occupiedBytes: Long,
     freeBytes: Long,
+    // #1163 — the private copies of local imports are a THIRD figure of their
+    // own, never folded into the downloads' bytes: they are the app's data but
+    // not a download, and a listener who imported 3,23 ГБ must find that number
+    // here instead of in Android's settings.
+    localCopyBytes: Long = 0L,
     hasLocalBooks: Boolean,
     showDelete: Boolean,
     bookCount: Int,
@@ -96,6 +97,7 @@ fun StorageDestinationPane(
     StorageDestinationContent(
         occupiedBytes = occupiedBytes,
         freeBytes = freeBytes,
+        localCopyBytes = localCopyBytes,
         hasLocalBooks = hasLocalBooks,
         showDelete = showDelete,
         onRescan = onRescan,
@@ -139,6 +141,7 @@ fun StorageDestinationPane(
 fun StorageDestinationContent(
     occupiedBytes: Long,
     freeBytes: Long,
+    localCopyBytes: Long = 0L,
     hasLocalBooks: Boolean,
     showDelete: Boolean,
     onRescan: () -> Unit,
@@ -162,7 +165,7 @@ fun StorageDestinationContent(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = Icons.Default.SdCard,
+                    imageVector = PaperInkIcons.Storage,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(24.dp)
@@ -178,12 +181,14 @@ fun StorageDestinationContent(
                             .semantics { heading() }
                     )
                     // The prototype's pair: a 32 px number over a 12 px muted
-                    // label, two equal columns (`:1218-1220`). The first stat
-                    // is the audio on device — `getAudioCacheSizeBytes()` is
-                    // what fills it, so the label says exactly that rather
-                    // than the vaguer «зайнято». The second is FREE SPACE,
-                    // which is the pair that answers «чи стане місця» — the
-                    // prototype's own second slot measures the cover cache,
+                    // label, two equal columns (`:1218-1220`). #1163 gave the
+                    // first stat its honest name: it is what `getAudioCacheSizeBytes()`
+                    // fills — the SOURCE downloads — so it says «Завантаження»
+                    // and the private local copies get their own line below
+                    // rather than hiding inside this number (or outside it, as
+                    // the 0 МБ complaint of #1163 did). The second is FREE
+                    // SPACE, which is the pair that answers «чи стане місця» —
+                    // the prototype's own second slot measures the cover cache,
                     // which the app does not track at all.
                     Row(
                         modifier = Modifier
@@ -193,7 +198,7 @@ fun StorageDestinationContent(
                     ) {
                         StorageStat(
                             value = formatBytes(occupiedBytes),
-                            label = stringResource(R.string.storage_stat_audio_on_device),
+                            label = stringResource(R.string.storage_stat_downloads),
                             modifier = Modifier.weight(1f)
                         )
                         StorageStat(
@@ -201,6 +206,34 @@ fun StorageDestinationContent(
                             label = stringResource(R.string.storage_stat_free),
                             modifier = Modifier.weight(1f)
                         )
+                    }
+                    // #1163 — the third figure, and only when there IS one: a
+                    // listener whose library is local imports only must see the
+                    // bytes the app holds for them, named «Локальні копії» and
+                    // never called a download. Zero is not drawn — a permanent
+                    // «Локальні копії — 0 МБ» row would be noise for the
+                    // majority who never imported a folder.
+                    if (localCopyBytes > 0L) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = AppDimens.SpaceSm)
+                                .testTag("storage_local_copies_row"),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = stringResource(R.string.storage_stat_local_copies),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = formatBytes(localCopyBytes),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.testTag("storage_local_copies_value")
+                            )
+                        }
                     }
                 }
             }
@@ -214,7 +247,7 @@ fun StorageDestinationContent(
                     .heightIn(min = 48.dp)
                     .testTag("rescan_folders_button")
             ) {
-                Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(imageVector = PaperInkIcons.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(stringResource(R.string.storage_rescan_action))
             }
@@ -229,7 +262,7 @@ fun StorageDestinationContent(
             Spacer(modifier = Modifier.height(24.dp))
             Text(
                 text = stringResource(R.string.storage_danger_heading),
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                style = PaperInkType.Heading.Group,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.semantics { heading() }
             )
@@ -253,7 +286,7 @@ fun StorageDestinationContent(
                     .testTag("clear_cache_button")
                     .then(deleteButtonModifier)
             ) {
-                Icon(imageVector = Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(imageVector = PaperInkIcons.Trash, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(stringResource(R.string.storage_delete_action))
             }
@@ -277,8 +310,10 @@ private fun StorageStat(value: String, label: String, modifier: Modifier = Modif
     Column(modifier = modifier) {
         Text(
             text = value,
+            // U7: the direction puts big numbers in Literata, whose family
+            // ships ONE face — the weight stays the token's SemiBold. Tracking
+            // is an optical correction and stays local to this pair.
             style = MaterialTheme.typography.headlineMedium.copy(
-                fontWeight = FontWeight.Bold,
                 letterSpacing = (-1).sp
             ),
             color = MaterialTheme.colorScheme.onSurface,

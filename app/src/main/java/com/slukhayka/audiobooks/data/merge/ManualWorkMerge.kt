@@ -26,10 +26,10 @@ class ManualWorkMerge(private val dao: AudiobookDao) {
                 second.addedAt.compareTo(first.addedAt).takeIf { it != 0 }
                     ?: compareMergeUtf8(first.id, second.id)
             }.map { edition ->
-                val actualEntryIds = snapshot.library.entries.map { it.id }.toSet()
+                val actualBookIds = snapshot.library.books.map { it.id }.filter { it in entryIds }.toSet()
                 val associations = buildSet {
-                    if (edition.workId in actualEntryIds) add(edition.workId)
-                    addAll(associatedBookIds(snapshot, edition.id).filter { it in actualEntryIds })
+                    if (edition.workId in actualBookIds) add(edition.workId)
+                    addAll(associatedBookIds(snapshot, edition.id).filter { it in actualBookIds })
                 }
                 ManualWorkMergeEditionPreview(
                     bookId = associations.singleOrNull()?.takeIf { it in entryIds },
@@ -58,7 +58,6 @@ class ManualWorkMerge(private val dao: AudiobookDao) {
         snapshot.library.chapters.filter { it.editionId == editionId }.forEach { add(it.bookId) }
         snapshot.library.progress.filter { it.editionId == editionId }.forEach { add(it.bookId) }
         snapshot.library.bookmarks.filter { it.editionId == editionId }.forEach { add(it.bookId) }
-        snapshot.library.readthroughs.filter { it.editionId == editionId }.forEach { add(it.libraryEntryId) }
     }
 }
 

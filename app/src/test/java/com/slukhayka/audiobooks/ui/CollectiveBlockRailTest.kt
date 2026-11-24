@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.ui
 
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -12,7 +13,11 @@ import com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock
 import com.slukhayka.audiobooks.data.collective.collectiveBlockKey
 import com.slukhayka.audiobooks.ui.screens.CollectiveBlockRail
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
+import androidx.compose.ui.unit.width
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import kotlin.math.abs
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -68,6 +73,28 @@ class CollectiveBlockRailTest {
             .assertExists()
             .performClick()
         assertEquals("Місто", opened?.title)
+    }
+
+    /** #1546 — the rail follows the Огляд paper grid and keeps the 2:3 card. */
+    @Test
+    fun `the paper rail sits on the 20 dp grid with the 132 dp shelf card`() {
+        compose.setContent {
+            PaperInkTheme(darkTheme = true) {
+                CollectiveBlockRail(block = block(), onCardClick = {})
+            }
+        }
+
+        val card = compose.onNodeWithTag(
+            "collective_card_soundbooks_${"https://sound-books.net/kobzar".hashCode()}"
+        ).getUnclippedBoundsInRoot()
+        assertTrue(
+            "the first card starts at ${card.left}, expected 20 dp",
+            abs(card.left.value - 20f) <= 0.5f
+        )
+        assertTrue(
+            "the paper shelf card is ${card.width} wide, expected 132 dp",
+            abs(card.width.value - 132f) <= 0.5f
+        )
     }
 
     @Test

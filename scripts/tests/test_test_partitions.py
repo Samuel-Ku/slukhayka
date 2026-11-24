@@ -95,6 +95,98 @@ class TestPartitionsCliTest(unittest.TestCase):
 
         self.assertEqual("com.slukhayka.audiobooks.player.SmartRewindTest\n", result.stdout)
 
+    def write_multi_class_test(self, package: str, name: str, classes: list[str]) -> str:
+        """A *Test.kt file that declares several test classes (#1634)."""
+        package_path = Path(*package.split("."))
+        target = self.root / "app/src/test/java" / package_path / f"{name}.kt"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        body = (
+            "import org.robolectric.RobolectricTestRunner\n"
+            + "\n".join(f"class {class_name}" for class_name in classes)
+        )
+        target.write_text(f"package {package}\n{body}\n", encoding="utf-8")
+        return f"app/src/test/java/{package_path.as_posix()}/{name}.kt"
+
+    def test_list_includes_every_top_level_test_class_in_a_file(self):
+        # #1634 — CI runs the partition list; a second class in the same file
+        # must not be silently absent from it.
+        self.write_multi_class_test(
+            "com.slukhayka.audiobooks.ui",
+            "CanonicalStateFacadesTest",
+            ["CanonicalStateFacadesGuardTest", "CanonicalStateFacadesBehaviorTest"],
+        )
+
+        listed = self.run_cli("list", "--partition", "room-robolectric").stdout.split()
+
+        self.assertEqual(
+            [
+                "com.slukhayka.audiobooks.ui.CanonicalStateFacadesBehaviorTest",
+                "com.slukhayka.audiobooks.ui.CanonicalStateFacadesGuardTest",
+            ],
+            sorted(listed),
+        )
+
+    def test_declared_class_name_wins_over_the_file_stem(self):
+        # #1634 — the stem is only a fallback for a file that declares no
+        # *Test class at all; it must never add a phantom class the source
+        # does not contain.
+        target = self.root / "app/src/test/java/com/slukhayka/audiobooks/ui/RenamedGateTest.kt"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            "package com.slukhayka.audiobooks.ui\n"
+            "import org.robolectric.RobolectricTestRunner\n"
+            "class RealGateTest\n",
+            encoding="utf-8",
+        )
+
+        listed = self.run_cli("list", "--partition", "room-robolectric").stdout.split()
+
+        self.assertEqual(["com.slukhayka.audiobooks.ui.RealGateTest"], listed)
+
+    def test_helper_classes_do_not_join_the_test_list(self):
+        # #1636 — the «ends with Test» filter is what keeps fakes, abstract bases
+        # and data holders out of the partition list. Without it a mutation on a
+        # real repository adds ~20 helpers to the list CI runs — and every one of
+        # them is not a test.
+        target = self.root / "app/src/test/java/com/slukhayka/audiobooks/ui/FacadeTest.kt"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            "package com.slukhayka.audiobooks.ui\n"
+            "import org.robolectric.RobolectricTestRunner\n"
+            "abstract class AbstractFacade\n"
+            "class Helper\n"
+            "class TestDataFactory\n"
+            "class FacadeTest\n",
+            encoding="utf-8",
+        )
+
+        listed = self.run_cli("list", "--partition", "room-robolectric").stdout.split()
+
+        self.assertEqual(["com.slukhayka.audiobooks.ui.FacadeTest"], listed)
+
+    def test_changed_test_file_selects_every_class_it_declares(self):
+        # #1634 — `select --changed-file <the file>` used to look up only the
+        # file stem, so a co-located class made the whole file "unknown" and
+        # fell back to the full suite instead of its two classes.
+        changed = self.write_multi_class_test(
+            "com.slukhayka.audiobooks.ui",
+            "CanonicalStateFacadesTest",
+            ["CanonicalStateFacadesGuardTest", "CanonicalStateFacadesBehaviorTest"],
+        )
+
+        payload = json.loads(self.run_cli("select", "--changed-file", changed).stdout)
+
+        self.assertFalse(payload["fullSuite"])
+        self.assertEqual(
+            {
+                "room-robolectric-only": [
+                    "com.slukhayka.audiobooks.ui.CanonicalStateFacadesBehaviorTest",
+                    "com.slukhayka.audiobooks.ui.CanonicalStateFacadesGuardTest",
+                ]
+            },
+            payload["partitions"],
+        )
+
     def test_changed_production_package_selects_its_tests(self):
         self.seed_three_partitions()
 
@@ -227,10 +319,55 @@ class TestPartitionsCliTest(unittest.TestCase):
 
         self.assertIn("unsupported SDK cohort", result.stderr)
 
+    def test_documentation_only_change_selects_nothing(self):
+        self.seed_three_partitions()
+
+        for changed_files in (
+            ("docs/plans/2026-10-27-retro-agent-environment.md",),
+            ("AGENTS.md", "CONTRIBUTING.md"),
+            ("README.md",),
+            ("docs/adr/0039-source-request-gate.md", "docs/agents/swarm.md"),
+            # A non-markdown file under docs/ is still documentation: the
+            # prefix branch, not the suffix one (#1493, review of #1494 — the
+            # prefix alone was unpinned, a mutation removing it survived).
+            ("docs/screenshots/01-listen.webp",),
+            ("docs/agents/fixtures/report.xml", "docs/adr/0001-recording.md"),
+            # A markdown file under a code tree is documentation too: it cannot
+            # change the web build, and the web check is reserved for the tree.
+            ("web/README.md",),
+        ):
+            with self.subTest(changed_files=changed_files):
+                arguments = ["select"]
+                for changed_file in changed_files:
+                    arguments += ["--changed-file", changed_file]
+                result = self.run_cli(*arguments)
+                payload = json.loads(result.stdout)
+                self.assertFalse(payload["fullSuite"])
+                self.assertEqual({}, payload["partitions"])
+                self.assertEqual("documentation only", payload["reason"])
+
+    def test_documentation_mixed_with_code_maps_the_code(self):
+        self.seed_three_partitions()
+
+        result = self.run_cli(
+            "select",
+            "--changed-file",
+            "docs/plans/2026-10-27-retro-agent-environment.md",
+            "--changed-file",
+            "app/src/main/java/com/slukhayka/audiobooks/player/SmartRewind.kt",
+        )
+
+        payload = json.loads(result.stdout)
+        self.assertFalse(payload["fullSuite"])
+        self.assertEqual({"pure-jvm"}, set(payload["partitions"]))
+
     def test_shared_or_unknown_change_falls_back_to_full_suite(self):
         self.seed_three_partitions()
 
-        for changed_file in ("app/build.gradle.kts", "app/schemas/16.json", "README.md"):
+        # A documentation file is no longer part of this loop: it selects
+        # nothing (#1493), and test_documentation_only_change_selects_nothing
+        # pins that separately.
+        for changed_file in ("app/build.gradle.kts", "app/schemas/16.json"):
             with self.subTest(changed_file=changed_file):
                 result = self.run_cli("select", "--changed-file", changed_file)
                 self.assertTrue(json.loads(result.stdout)["fullSuite"])

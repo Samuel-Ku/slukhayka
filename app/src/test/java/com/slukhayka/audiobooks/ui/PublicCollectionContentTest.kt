@@ -131,7 +131,7 @@ class PublicCollectionContentTest {
             }
         }
 
-        composeTestRule.onNodeWithText("★ 4.5 · 2 оцінки").assertIsDisplayed()
+        composeTestRule.onNodeWithText("4.5 · 2 оцінки").assertIsDisplayed()
         composeTestRule.onNodeWithTag("public_collection_no_ratings").assertDoesNotExist()
     }
 

@@ -10,11 +10,19 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 /**
  * Spec-33 T1 (#229) — the Firestore implementation of [SearchCache]: reads
  * the merged search result of one query from the `search_results` collection,
- * document per normalized query key. Thin Android glue (like the transport
- * adapters — no unit tests here); the read-path policy (normalization,
- * freshness, no-negative-cache) and the document shape are pinned by the
- * fixture tests over the seam ([SearchCacheTest]) and by [SearchResultCodec]
- * tests.
+ * one document per [SearchDocumentId]. The id is a SHA-256 hex of the
+ * normalized query (pseudonymisation, not anonymisation — see the honest
+ * limit in [SearchDocumentId]), so the publicly readable collection never
+ * carries the raw query text; both read and write address it through the
+ * same derivation supplied by the seam. Thin Android glue (like the
+ * transport adapters — no unit tests here); the read-path policy
+ * (normalization, freshness, no-negative-cache) and the document shape are
+ * pinned by the fixture tests over the seam ([SearchCacheTest]) and by
+ * [SearchResultCodec] tests.
+ *
+ * Documents keyed by the old plaintext query are no longer addressed: a miss
+ * on the derived id falls through to the live sources, which then write a
+ * hashed document.
  *
  * Degrade-never-throw: a missing document, a network failure, a timeout or
  * an unreadable document all yield null — the caller falls through to the
@@ -25,9 +33,9 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  */
 class FirestoreSearchCache(private val firestore: FirebaseFirestore) : SearchCache {
 
-    override suspend fun readDocument(queryKey: String): Map<String, Any>? {
+    override suspend fun readDocument(documentId: String): Map<String, Any>? {
         return try {
-            val snapshot = firestore.collection(COLLECTION).document(queryKey).get()
+            val snapshot = firestore.collection(COLLECTION).document(documentId).get()
                 .awaitOrNull() ?: return null
             if (snapshot.exists()) snapshot.data else null
         } catch (e: Exception) {
@@ -35,13 +43,13 @@ class FirestoreSearchCache(private val firestore: FirebaseFirestore) : SearchCac
         }
     }
 
-    override suspend fun writeDocument(queryKey: String, document: Map<String, Any>) {
+    override suspend fun writeDocument(documentId: String, document: Map<String, Any>) {
         // Best-effort fire-and-forget: the write proceeds in the background; a
         // synchronous failure (a closed Firestore, a bad document) is caught
         // here and the caller never sees it. set() on a document key is
         // idempotent — a re-write replaces, never duplicates.
         runCatching {
-            firestore.collection(COLLECTION).document(queryKey).set(document)
+            firestore.collection(COLLECTION).document(documentId).set(document)
         }
     }
 

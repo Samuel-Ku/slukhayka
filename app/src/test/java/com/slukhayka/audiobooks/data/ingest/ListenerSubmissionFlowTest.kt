@@ -33,7 +33,26 @@ class ListenerSubmissionFlowTest {
         stateStore: SubmissionStateStore = InMemorySubmissionStateStore(),
         importWatching: (suspend (String, ListenerSubmissionFlow.TgIdentity) -> ListenerSubmissionFlow.WatchingImport)? = null,
         watchSource: (suspend (String, String) -> Unit)? = null,
-        online: Boolean = true
+        online: Boolean = true,
+        /** #1487 — the registry answer for the pasted book page, or null. */
+        knownLink: KnownSourceLink? = null,
+        /** #1487 — override the resolver (tests the REAL `sourceIdForUrl`). */
+        knownResolver: ((String) -> KnownSourceLink?)? = null,
+        /** #1487 slice 2 — the page the probe returns for an unknown host. */
+        probedPage: ProbedPage? = null,
+        probedImport: ListenerSubmissionFlow.ImportOutcome? =
+            ListenerSubmissionFlow.ImportOutcome(
+                result = ListenerSubmissionFlow.ImportResult.IMPORTED,
+                bookId = "book-probed",
+                sourceId = "unknown"
+            ),
+        /** #1487 — what the ordinary source import returns for that page. */
+        knownImport: ListenerSubmissionFlow.ImportOutcome? = ListenerSubmissionFlow.ImportOutcome(
+            result = ListenerSubmissionFlow.ImportResult.IMPORTED,
+            bookId = "book-known",
+            sourceId = "audiobookcoua"
+        ),
+        withKnownImporter: Boolean = true
     ) {
         val store = FakeSharedBookMetaStore()
         val verification = SubmissionVerification { 1_000L }
@@ -43,6 +62,34 @@ class ListenerSubmissionFlowTest {
         var fetchCalls = 0
         var importCalls = 0
         var tgCalls = 0
+
+        /** #1487 — how often the known-source import seam was reached, and with what. */
+        var knownImportCalls = 0
+        val knownImportedUrls = mutableListOf<String>()
+
+        /** #1487 slice 2 — how the single page request and the persistence went. */
+        var probeCalls = 0
+        val probedUrls = mutableListOf<String>()
+        var probedImportCalls = 0
+        val probedPages = mutableListOf<ProbedPage>()
+
+        val probedImporter: (suspend (ProbedPage) -> ListenerSubmissionFlow.ImportOutcome?)? =
+            { page ->
+                probedImportCalls++
+                probedPages += page
+                probedImport
+            }
+
+        val knownImporter: (suspend (KnownSourceLink) -> ListenerSubmissionFlow.ImportOutcome?)? =
+            if (withKnownImporter) {
+                { link ->
+                    knownImportCalls++
+                    knownImportedUrls += link.url
+                    knownImport
+                }
+            } else {
+                null
+            }
 
         /** Spec-53 T6 — exactly which url reached the engine. */
         val fetchedUrls = mutableListOf<String>()
@@ -69,7 +116,17 @@ class ListenerSubmissionFlowTest {
             remainingToday = { remaining },
             submitterId = { submitter },
             store = stateStore,
-            isOnline = { online }
+            isOnline = { online },
+            resolveKnownSource = knownResolver ?: { url ->
+                knownLink?.takeIf { KnownSourceLinkResolver.canonicalUrl(url) == it.url }
+            },
+            importKnownSource = knownImporter,
+            probePage = { url ->
+                probeCalls++
+                probedUrls += url
+                probedPage?.copy(url = url)
+            },
+            importProbedPage = probedImporter
         )
     }
 
@@ -90,7 +147,10 @@ class ListenerSubmissionFlowTest {
         assertEquals(ListenerSubmissionFlow.Kind.YOUTUBE, flow.classify("https://youtu.be/abc12345678"))
         assertEquals(ListenerSubmissionFlow.Kind.YOUTUBE, flow.classify("https://m.youtube.com/watch?v=x"))
         assertEquals(ListenerSubmissionFlow.Kind.TELEGRAM, flow.classify("https://t.me/channel/1"))
-        assertEquals(ListenerSubmissionFlow.Kind.UNSUPPORTED, flow.classify("https://example.com/book.mp3"))
+        // #1487 slice 2 — an unknown http page is a probe candidate, not
+        // "unsupported": the probe decides read/no-audio/playable.
+        assertEquals(ListenerSubmissionFlow.Kind.PAGE, flow.classify("https://example.com/book.mp3"))
+        assertEquals(ListenerSubmissionFlow.Kind.UNSUPPORTED, flow.classify("not a link"))
     }
 
     @Test
@@ -483,8 +543,17 @@ class ListenerSubmissionFlowTest {
     @Test
     fun `unsupported links and blanks are refused without any work`() = runTest {
         val harness = Harness()
-        assertEquals(ListenerSubmissionFlow.Start.Unsupported, harness.flow.submit("https://example.com/x.mp3"))
+        // #1487 slice 2 — an http page is probed; a non-link stays unsupported.
+        assertEquals(
+            ListenerSubmissionFlow.Start.Refused(
+                ListenerSubmissionFlow.Reason.PAGE_UNREADABLE,
+                10,
+                "https://example.com/book"
+            ),
+            harness.flow.submit("https://example.com/book")
+        )
         assertEquals(ListenerSubmissionFlow.Start.Unsupported, harness.flow.submit("   "))
+        assertEquals(ListenerSubmissionFlow.Start.Unsupported, harness.flow.submit("file:///tmp/book.mp3"))
         assertEquals(0, harness.fetchCalls)
         assertEquals(0, harness.importCalls)
     }
@@ -923,5 +992,298 @@ class ListenerSubmissionFlowTest {
         assertEquals(listOf(ListenerSubmissionFlow.Verdict.PendingModeration), verdicts)
         assertEquals("no duplicate document", 1, harness.store.submissionPuts.size)
         assertTrue(harness.flow.deferredPublicationBookIds().isEmpty())
+    }
+
+    // --- #1487 (slice 1): a book page of a known source --------------------
+
+    private val knownBook = KnownSourceLink(
+        sourceId = "audiobookcoua",
+        url = "https://audiobook.co.ua/doktor-son-stiven-king"
+    )
+
+    private val knownBookLink = "https://audiobook.co.ua/doktor-son-stiven-king/"
+
+    @Test
+    fun `a known source book page is classified as a source link`() {
+        val harness = Harness(knownLink = knownBook)
+
+        assertEquals(ListenerSubmissionFlow.Kind.SOURCE, harness.flow.classify(knownBookLink))
+        assertEquals(ListenerSubmissionFlow.Kind.SOURCE, harness.flow.classify(knownBook.url))
+        // The two existing paths are not reclassified by the new branch.
+        assertEquals(ListenerSubmissionFlow.Kind.YOUTUBE, harness.flow.classify(youtube))
+        assertEquals(ListenerSubmissionFlow.Kind.TELEGRAM, harness.flow.classify(tgPost))
+    }
+
+    @Test
+    fun `telegram stays telegram even though the registry claims the t me host`() {
+        // The regression the first review caught: the registry has a
+        // `telegram` source with homeUrl t.me/slukhayka, so a bare resolver
+        // check would hide the WORKING Telegram preview. The predicate must
+        // keep classify's order — YouTube/Telegram first.
+        val harness = Harness(
+            knownResolver = { url ->
+                KnownSourceLinkResolver.resolve(url) {
+                    com.slukhayka.audiobooks.data.source.sourceIdForUrl(it)
+                }
+            }
+        )
+
+        assertFalse(harness.flow.isKnownSourceLink("https://t.me/slukhayka/42"))
+        assertEquals(
+            ListenerSubmissionFlow.Kind.TELEGRAM,
+            harness.flow.classify("https://t.me/slukhayka/42")
+        )
+        assertFalse(harness.flow.isKnownSourceLink("https://youtu.be/abc12345678"))
+        assertTrue(harness.flow.isKnownSourceLink("https://audiobook.co.ua/doktor-son"))
+        assertEquals(
+            ListenerSubmissionFlow.Kind.SOURCE,
+            harness.flow.classify("https://audiobook.co.ua/doktor-son")
+        )
+    }
+
+    @Test
+    fun `a known source page imports like the ordinary door and never publishes`() = runTest {
+        val harness = Harness(knownLink = knownBook)
+
+        val start = harness.flow.submit(knownBookLink)
+
+        assertTrue(start is ListenerSubmissionFlow.Start.Imported)
+        start as ListenerSubmissionFlow.Start.Imported
+        assertEquals("book-known", start.bookId)
+        assertEquals("audiobookcoua", start.sourceId)
+        // Not a listener submission: the catalogue already has the book.
+        assertFalse(start.publishable)
+        assertFalse(start.alreadyInLibrary)
+        assertTrue(start.knownSource)
+        assertEquals(10, start.remainingToday)
+        assertEquals(1, harness.knownImportCalls)
+        assertEquals(listOf(knownBook.url), harness.knownImportedUrls)
+        // The YouTube engine was never asked: the two paths stay separate.
+        assertEquals(0, harness.fetchCalls)
+        assertEquals(0, harness.importCalls)
+    }
+
+    @Test
+    fun `a known source page already in the library says so`() = runTest {
+        val harness = Harness(
+            knownLink = knownBook,
+            knownImport = ListenerSubmissionFlow.ImportOutcome(
+                result = ListenerSubmissionFlow.ImportResult.ALREADY_ADDED,
+                bookId = "book-known",
+                sourceId = "audiobookcoua"
+            )
+        )
+
+        val start = harness.flow.submit(knownBookLink)
+
+        assertTrue(start is ListenerSubmissionFlow.Start.Imported)
+        assertTrue((start as ListenerSubmissionFlow.Start.Imported).alreadyInLibrary)
+    }
+
+    @Test
+    fun `a failed known source import is refused rather than unsupported`() = runTest {
+        val harness = Harness(
+            knownLink = knownBook,
+            knownImport = null
+        )
+
+        val start = harness.flow.submit(knownBookLink)
+
+        assertTrue(start is ListenerSubmissionFlow.Start.Refused)
+        assertEquals(
+            ListenerSubmissionFlow.Reason.IMPORT_FAILED,
+            (start as ListenerSubmissionFlow.Start.Refused).reason
+        )
+    }
+
+    @Test
+    fun `a known source page without an import seam is an honest import failure`() = runTest {
+        val harness = Harness(knownLink = knownBook, withKnownImporter = false)
+
+        val start = harness.flow.submit(knownBookLink)
+
+        assertTrue(start is ListenerSubmissionFlow.Start.Refused)
+        assertEquals(
+            ListenerSubmissionFlow.Reason.IMPORT_FAILED,
+            (start as ListenerSubmissionFlow.Start.Refused).reason
+        )
+    }
+
+    @Test
+    fun `a known source page pasted offline waits in the visible queue`() = runTest {
+        val harness = Harness(knownLink = knownBook, online = false)
+
+        val start = harness.flow.submit(knownBookLink)
+
+        assertTrue(start is ListenerSubmissionFlow.Start.Deferred)
+        assertEquals(
+            listOf(knownBook.url),
+            harness.flow.deferredSubmissions().map { it.url }
+        )
+        assertEquals(0, harness.knownImportCalls)
+    }
+
+    // --- #1487 (slice 2): a probed page of an unknown host -----------------
+
+    private val probedBook = ProbedPage(
+        url = "https://unknown-site.example/book",
+        title = "Неначе сон",
+        author = "Іван Франко",
+        coverImageUrl = "https://unknown-site.example/cover.jpg",
+        description = "Опис сторінки",
+        audios = listOf(
+            ProbedAudio("https://cdn.unknown-site.example/part-1.mp3", "Частина 1"),
+            ProbedAudio("https://cdn.unknown-site.example/part-2.mp3", "Частина 2")
+        )
+    )
+
+    @Test
+    fun `an unknown page with audio becomes a local probed card`() = runTest {
+        val harness = Harness(probedPage = probedBook)
+
+        val start = harness.flow.submit("https://unknown-site.example/book")
+
+        assertTrue(start is ListenerSubmissionFlow.Start.Imported)
+        start as ListenerSubmissionFlow.Start.Imported
+        assertEquals("book-probed", start.bookId)
+        assertEquals("unknown", start.sourceId)
+        assertFalse(start.publishable)
+        assertFalse(start.knownSource)
+        assertTrue(start.probedPage)
+        assertFalse(start.alreadyInLibrary)
+        assertEquals(1, harness.probeCalls)
+        assertEquals(listOf("https://unknown-site.example/book"), harness.probedUrls)
+        assertEquals(1, harness.probedImportCalls)
+        // The YouTube engine was never asked: unknown pages have their own door.
+        assertEquals(0, harness.fetchCalls)
+    }
+
+    @Test
+    fun `a probed page pasted in another shape is probed by its canonical url`() = runTest {
+        val harness = Harness(probedPage = probedBook)
+
+        harness.flow.submit("http://www.unknown-site.example/book/?utm_source=chat")
+
+        assertEquals(1, harness.probeCalls)
+        assertEquals(listOf("https://unknown-site.example/book"), harness.probedUrls)
+    }
+
+    @Test
+    fun `a readable page without audio is refused with its browser door`() = runTest {
+        val harness = Harness(
+            probedPage = probedBook.copy(audios = emptyList())
+        )
+
+        val start = harness.flow.submit("https://unknown-site.example/book")
+
+        assertEquals(
+            ListenerSubmissionFlow.Start.Refused(
+                ListenerSubmissionFlow.Reason.PAGE_NO_AUDIO,
+                10,
+                "https://unknown-site.example/book"
+            ),
+            start
+        )
+        // Nothing was persisted for a page with no audio.
+        assertEquals(0, harness.probedImportCalls)
+    }
+
+    @Test
+    fun `an unreadable page is refused with its browser door`() = runTest {
+        val harness = Harness(probedPage = null)
+
+        val start = harness.flow.submit("https://unknown-site.example/book")
+
+        assertEquals(
+            ListenerSubmissionFlow.Start.Refused(
+                ListenerSubmissionFlow.Reason.PAGE_UNREADABLE,
+                10,
+                "https://unknown-site.example/book"
+            ),
+            start
+        )
+        assertEquals(0, harness.probedImportCalls)
+    }
+
+    @Test
+    fun `a probed import failure is an honest import refusal`() = runTest {
+        val harness = Harness(probedPage = probedBook, probedImport = null)
+
+        val start = harness.flow.submit("https://unknown-site.example/book")
+
+        assertEquals(
+            ListenerSubmissionFlow.Start.Refused(
+                ListenerSubmissionFlow.Reason.IMPORT_FAILED,
+                10
+            ),
+            start
+        )
+    }
+
+    @Test
+    fun `an already imported probed page says so`() = runTest {
+        val harness = Harness(
+            probedPage = probedBook,
+            probedImport = ListenerSubmissionFlow.ImportOutcome(
+                result = ListenerSubmissionFlow.ImportResult.ALREADY_ADDED,
+                bookId = "book-probed",
+                sourceId = "unknown"
+            )
+        )
+
+        val start = harness.flow.submit("https://unknown-site.example/book")
+
+        assertTrue(start is ListenerSubmissionFlow.Start.Imported)
+        assertTrue((start as ListenerSubmissionFlow.Start.Imported).alreadyInLibrary)
+        assertTrue(start.probedPage)
+    }
+
+    @Test
+    fun `an unknown page pasted offline waits in the visible queue`() = runTest {
+        val harness = Harness(probedPage = probedBook, online = false)
+
+        val start = harness.flow.submit("https://unknown-site.example/book")
+
+        assertTrue(start is ListenerSubmissionFlow.Start.Deferred)
+        assertEquals(
+            listOf("https://unknown-site.example/book"),
+            harness.flow.deferredSubmissions().map { it.url }
+        )
+        assertEquals(0, harness.probeCalls)
+    }
+
+    @Test
+    fun `a direct audio link becomes a one-chapter card without a page request`() = runTest {
+        val harness = Harness()
+
+        val start = harness.flow.submit("https://cdn.example/Part%20one.mp3")
+
+        assertTrue(start is ListenerSubmissionFlow.Start.Imported)
+        assertTrue((start as ListenerSubmissionFlow.Start.Imported).probedPage)
+        // The file IS the chapter: no page was fetched for it.
+        assertEquals(0, harness.probeCalls)
+        assertEquals(1, harness.probedImportCalls)
+        val page = harness.probedPages.single()
+        assertEquals("Part one", page.title)
+        assertEquals(listOf("https://cdn.example/Part%20one.mp3"), page.audios.map { it.url })
+    }
+
+    @Test
+    fun `an unidentified page is refused instead of imported without a title`() = runTest {
+        val harness = Harness(
+            probedPage = probedBook.copy(title = null)
+        )
+
+        val start = harness.flow.submit("https://unknown-site.example/book")
+
+        assertEquals(
+            ListenerSubmissionFlow.Start.Refused(
+                ListenerSubmissionFlow.Reason.PAGE_UNREADABLE,
+                10,
+                "https://unknown-site.example/book"
+            ),
+            start
+        )
+        assertEquals(0, harness.probedImportCalls)
     }
 }

@@ -122,11 +122,14 @@ class SearchResultsContentTest {
         compose.waitForIdle()
 
         assertEquals(1, compose.onAllNodesWithText("Нічого не знайдено").fetchSemanticsNodes().size)
-        // Both honest section headers remain, but the live status is folded
-        // into the single empty state instead of stacking a second message.
-        compose.onNodeWithTag("search_library_header").assertExists()
-        compose.onNodeWithTag("search_sources_header").assertExists()
+        // F33: ONE statement, not six blocks — no counted «(0)» headers, no
+        // live status, and no placeholder glyph in the empty state.
+        compose.onNodeWithTag("search_library_header").assertDoesNotExist()
+        compose.onNodeWithTag("search_sources_header").assertDoesNotExist()
         compose.onNodeWithTag("global_search_status").assertDoesNotExist()
+        compose.onNodeWithTag("search_no_results").assertExists()
+        compose.onNodeWithTag("empty_state_icon", useUnmergedTree = true)
+            .assertDoesNotExist()
     }
 
     @Test
@@ -136,6 +139,31 @@ class SearchResultsContentTest {
 
         compose.onNodeWithTag("global_search_status").assertExists()
         assertEquals(0, compose.onAllNodesWithText("Нічого не знайдено").fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun aSearchInFlightDoesNotClaimZeroWereFound() {
+        setSearchContent(localBooks = emptyList(), globalResults = emptyList(), isGlobalLoading = true)
+        compose.waitForIdle()
+
+        // The loading status is the honest statement; a counted header would
+        // contradict it with a «found 0» that is not a result yet (#1553).
+        compose.onNodeWithTag("search_sources_header").assertDoesNotExist()
+        assertEquals(0, compose.onAllNodesWithText("Знайдені книги (0)").fetchSemanticsNodes().size)
+    }
+
+    @Test
+    fun aPreviousQueryCountIsNotShownAsTheCurrentResult() {
+        setSearchContent(
+            localBooks = emptyList(),
+            globalResults = listOf(sourceHit),
+            isGlobalLoading = true
+        )
+        compose.waitForIdle()
+
+        compose.onNodeWithTag("search_sources_header").assertDoesNotExist()
+        compose.onNodeWithText("Шукаємо в усіх джерелах").assertExists()
+        compose.onNodeWithTag("global_search_result_${sourceHit.key}").assertExists()
     }
 
     @Test

@@ -148,20 +148,25 @@ fun showsWideDetailPane(
 ): Boolean = layout == WindowLayout.EXPANDED && detailOpen && tab == SelectedTab.LIBRARY
 
 /**
- * #900 — the same question for «Огляд»: does the list the listener opened the
- * work FROM stay beside the work's card?
+ * #900 / #1208 / #1235 — the same question for «Огляд»: does the list the
+ * listener opened the work FROM stay beside the work's card?
  *
- * [hasParentList] is true only when the open book came from one of the two
- * surfaces the owner named — a genre page or a series page («добірка/жанр»).
- * The rating (TOP_100) and person lists keep the phone route for now: the
- * issue does not say whether they belong here, and this slice does not guess
- * (the question is recorded on #900).
+ * [detailOpenFromParentList] is true when the open book came from ANY book list
+ * of «Огляд» — genre, series, the library rating (TOP_100) and a person's works.
+ * The owner's decision on #1208 (2026-10-11) gives all four one behaviour: the
+ * selected work opens beside the list under the same 600 dp rule, with no new
+ * breakpoint and no third pane.
+ *
+ * It is also false whenever no book is explicitly selected. That is the «no
+ * empty right pane» half of the decision: before a tap the list keeps the whole
+ * window, and nothing selects the first row merely to fill 60 % of the screen.
  */
 fun showsWideExploreDetailPane(
     layout: WindowLayout,
     tab: SelectedTab,
-    hasParentList: Boolean
-): Boolean = layout == WindowLayout.EXPANDED && hasParentList && tab == SelectedTab.EXPLORE
+    detailOpenFromParentList: Boolean
+): Boolean =
+    layout == WindowLayout.EXPANDED && detailOpenFromParentList && tab == SelectedTab.EXPLORE
 
 /**
  * #962 — the height below which an EXPANDED window is a LANDSCAPE PHONE, not a

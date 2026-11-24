@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.testing
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookRow
+import com.slukhayka.audiobooks.data.db.BookNameRow
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.ChapterOrderRow
@@ -26,6 +27,7 @@ import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.db.EmbeddingVectorEntity
 import com.slukhayka.audiobooks.data.db.BookDownloadCount
 import com.slukhayka.audiobooks.data.db.DescriptionRow
+import com.slukhayka.audiobooks.data.db.PersonNameRow
 import com.slukhayka.audiobooks.data.db.TitleRow
 import com.slukhayka.audiobooks.data.db.UniverseEntity
 import com.slukhayka.audiobooks.data.db.TombstoneEntity
@@ -75,6 +77,10 @@ class FakeAudiobookDao(
     books: List<AudiobookEntity> = emptyList(),
     chapters: List<ChapterEntity> = emptyList()
 ) : AudiobookDao {
+    private companion object {
+        val PERSONAL_ORIGINS = setOf("EXPLICIT_SAVE", "EXPLICIT_IMPORT")
+    }
+
 
     private val popularityState = MutableStateFlow(emptyList<PopularityAssertionEntity>())
     private val booksState = MutableStateFlow(books)
@@ -153,10 +159,27 @@ class FakeAudiobookDao(
 
     // --- Audiobooks (ADR-0009: the fake returns the JOINed [BookRow] shape) -
 
+    override fun getPersonalAudiobooks(): Flow<List<BookRow>> =
+        // combine, not a snapshot: an entry-only change (save / origin
+        // upgrade) must re-emit the personal projection.
+        kotlinx.coroutines.flow.combine(booksState, libraryEntriesState) { books, entries ->
+            val personal = entries
+                .filter { it.origin in PERSONAL_ORIGINS }
+                .mapTo(mutableSetOf()) { it.id }
+            books.filter { it.id in personal }.sortedBy { it.title }.map { it.toBookRow() }
+        }
+
     override fun getAllAudiobooks(): Flow<List<BookRow>> =
         booksState.map { books -> books.sortedBy { it.title }.map { it.toBookRow() } }
 
     override suspend fun getAllAudiobooksOnce(): List<BookRow> = booksState.value.map { it.toBookRow() }
+
+    override suspend fun getPersonalAudiobooksOnce(): List<BookRow> {
+        val personal = libraryEntriesState.value
+            .filter { it.origin in PERSONAL_ORIGINS }
+            .mapTo(mutableSetOf()) { it.id }
+        return booksState.value.filter { it.id in personal }.sortedBy { it.title }.map { it.toBookRow() }
+    }
 
     override fun getDownloadedAudiobooks(): Flow<List<BookRow>> =
         booksState.map { books -> books.filter { it.isDownloaded }.sortedBy { it.title }.map { it.toBookRow() } }
@@ -169,6 +192,12 @@ class FakeAudiobookDao(
 
     override fun observeAudiobookById(id: String): Flow<BookRow?> =
         booksState.map { books -> books.firstOrNull { it.id == id }?.toBookRow() }
+
+    override suspend fun updateBookSourceTree(bookId: String, treeUri: String?) {
+        booksState.update { current ->
+            current.map { book -> if (book.id == bookId) book.copy(sourceTreeUri = treeUri) else book }
+        }
+    }
 
     override suspend fun insertAudiobooks(books: List<AudiobookEntity>) {
         val incomingIds = books.map { it.id }.toSet()
@@ -330,26 +359,16 @@ class FakeAudiobookDao(
         }
     }
 
-    override suspend fun resetAllEntryDownloadProgress() {
-        libraryEntriesState.update { current -> current.map { it.copy(downloadProgress = 0f) } }
-    }
-
     override suspend fun markBookNotDownloaded(bookId: String) {
         updateDownloadState(bookId, isDownloaded = false, progress = 0f)
     }
 
-    override suspend fun clearAllBookDownloadState() {
-        booksState.update { current -> current.map { it.copy(isDownloaded = false) } }
-    }
-
-    override suspend fun markAllNotDownloaded() {
-        booksState.update { current ->
-            current.map {
-                it.copy(isDownloaded = false).also { b -> b.downloadProgress = 0f }
-            }
-        }
-        libraryEntriesState.update { current -> current.map { it.copy(downloadProgress = 0f) } }
-    }
+    // #1163 — the global clear trio (markAllNotDownloaded /
+    // clearAllBookDownloadState / resetAllEntryDownloadProgress /
+    // clearAllTracksDownloadState) is gone from the DAO: it reset local imports
+    // too. The scoped destructive clear goes through
+    // OfflineDownloads.clearAllAudioCache, which this fake serves with the
+    // per-book methods below.
 
     // --- Chapters ---------------------------------------------------------
 
@@ -502,6 +521,9 @@ class FakeAudiobookDao(
     override suspend fun getTrackByContentHash(hash: String): SourceTrackEntity? =
         tracksState.value.firstOrNull { it.contentHash == hash }
 
+    override suspend fun getTrackById(trackId: String): SourceTrackEntity? =
+        tracksState.value.firstOrNull { it.id == trackId }
+
     override suspend fun getAllTrackContentHashes(): List<String> =
         tracksState.value.mapNotNull { it.contentHash }
 
@@ -530,12 +552,6 @@ class FakeAudiobookDao(
         val sourceIds = sourcesState.value.filter { it.bookId == bookId }.map { it.id }.toSet()
         tracksState.update { current ->
             current.map { tr -> if (tr.sourceId in sourceIds) tr.copy(isDownloaded = false, localFilePath = null) else tr }
-        }
-    }
-
-    override suspend fun clearAllTracksDownloadState() {
-        tracksState.update { current ->
-            current.map { it.copy(isDownloaded = false, localFilePath = null) }
         }
     }
 
@@ -660,6 +676,9 @@ class FakeAudiobookDao(
 
     override suspend fun getSourceByUrl(url: String): SourceEntity? =
         sourcesState.value.firstOrNull { it.url == url }
+
+    override suspend fun getSourcesByIdentity(sourceId: String, url: String): List<SourceEntity> =
+        sourcesState.value.filter { it.type == sourceId && it.url == url }
 
     override suspend fun getSourcesForBookSync(bookId: String): List<SourceEntity> =
         sourcesState.value.filter { it.bookId == bookId }.sortedBy { it.addedAt }
@@ -789,24 +808,30 @@ class FakeAudiobookDao(
         createdAt: Long,
         downloadProgress: Float,
         downloadState: String,
-        preserveExistingDownloads: Boolean
+        preserveExistingDownloads: Boolean,
+        origin: String
     ) {
         libraryEntriesState.update { current ->
             val existing = current.firstOrNull { it.id == id }
             if (existing != null) {
-                // True upsert: only the link and progress update on an
-                // existing row (isFavorite/createdAt never reset on re-sync).
+                // True upsert, mirroring the production SQL: only the link and
+                // progress update on an existing row (isFavorite/createdAt
+                // never reset on re-sync), and ONLY an incoming personal origin
+                // may change the stored origin — an automatic pass never
+                // rewrites a row it did not create (ADR-0063 §2/§9).
                 current.map {
                     if (it.id != id) it else it.copy(
                         workId = workId,
                         downloadProgress = if (preserveExistingDownloads) it.downloadProgress else downloadProgress,
-                        downloadState = if (preserveExistingDownloads) it.downloadState else downloadState
+                        downloadState = if (preserveExistingDownloads) it.downloadState else downloadState,
+                        origin = if (origin in PERSONAL_ORIGINS) origin else it.origin
                     )
                 }
             } else {
                 current + LibraryEntryEntity(
                     id = id, workId = workId, isFavorite = isFavorite,
-                    createdAt = createdAt, downloadProgress = downloadProgress, downloadState = downloadState
+                    createdAt = createdAt, downloadProgress = downloadProgress,
+                    downloadState = downloadState, origin = origin
                 )
             }
         }
@@ -1111,8 +1136,18 @@ class FakeAudiobookDao(
     override suspend fun missingWorkSearchIds(): List<String> =
         worksState.value.filter { it.mergeKey.isNotBlank() && it.id !in workSearchState.value }.map { it.id }
 
-    override suspend fun firstEditionNarrator(workId: String): String? =
-        editionsState.value.firstOrNull { it.workId == workId && it.narrator.isNotBlank() }?.narrator
+    override suspend fun firstEditionNarrator(workId: String): String? {
+        val libraryAnchors = libraryEntriesState.value.filter { it.workId == workId }.map { it.id }.toSet()
+        return editionsState.value.filter {
+            it.narrator.isNotEmpty() && (it.workId == workId || it.workId in libraryAnchors)
+        }.sortedWith { first, second ->
+            val direct = (if (first.workId == workId) 0 else 1)
+                .compareTo(if (second.workId == workId) 0 else 1)
+            if (direct != 0) direct else java.util.Arrays.compareUnsigned(
+                first.id.toByteArray(Charsets.UTF_8), second.id.toByteArray(Charsets.UTF_8),
+            )
+        }.firstOrNull()?.narrator
+    }
 
     override suspend fun firstFacetNarrator(workId: String): String? =
         editionFacetsState.value.firstOrNull { it.workId == workId && !it.narratorId.isNullOrBlank() }?.narratorId
@@ -1211,6 +1246,12 @@ class FakeAudiobookDao(
     override suspend fun getWorkSourcesForWorkSync(workId: String): List<WorkSourceEntity> =
         workSourcesState.value.filter { it.workId == workId }.sortedBy { it.addedAt }
 
+    override suspend fun getWorkSourcesByIdentity(sourceId: String, sourceUrl: String): List<WorkSourceEntity> =
+        workSourcesState.value.filter { it.sourceId == sourceId && it.sourceUrl == sourceUrl }
+            .sortedWith { first, second ->
+                java.util.Arrays.compareUnsigned(first.id.toByteArray(Charsets.UTF_8), second.id.toByteArray(Charsets.UTF_8))
+            }.take(4097)
+
     override fun observeWorks(): Flow<List<WorkEntity>> = worksState
 
     /** #484 — the fake owns no entry facts; the pool honestly has none. */
@@ -1247,6 +1288,31 @@ class FakeAudiobookDao(
 
     override suspend fun updateBookDescription(id: String, description: String) {
         booksState.update { current -> current.map { if (it.id == id) it.copy(description = description) else it } }
+    }
+
+    // #964 follow-up: the stored person-name scrub reads/writes through the
+    // same projections and name columns the real DAO serves.
+    override suspend fun getAllBookNameRows(): List<BookNameRow> =
+        booksState.value.map { BookNameRow(it.id, it.author, it.narrator) }
+
+    override suspend fun getAllWorkAuthorRows(): List<PersonNameRow> =
+        worksState.value.map { PersonNameRow(it.id, it.author) }
+
+    override suspend fun getAllEditionNarratorRows(): List<PersonNameRow> =
+        editionsState.value.map { PersonNameRow(it.id, it.narrator) }
+
+    override suspend fun updateBookNames(id: String, author: String, narrator: String) {
+        booksState.update {
+            current -> current.map { if (it.id == id) it.copy(author = author, narrator = narrator) else it }
+        }
+    }
+
+    override suspend fun updateWorkAuthor(id: String, author: String) {
+        worksState.update { current -> current.map { if (it.id == id) it.copy(author = author) else it } }
+    }
+
+    override suspend fun updateEditionNarrator(id: String, narrator: String) {
+        editionsState.update { current -> current.map { if (it.id == id) it.copy(narrator = narrator) else it } }
     }
 
     override suspend fun countWorks(): Int = worksState.value.size
@@ -1751,6 +1817,16 @@ class FakeAudiobookDao(
     override suspend fun allReadthroughs(): List<com.slukhayka.audiobooks.data.db.ReadthroughEntity> =
         readthroughs.value.values.toList()
 
+    /**
+     * #1469 — mirrors the DAO's `SELECT DISTINCT workId … WHERE finishedAt IS
+     * NOT NULL`: the state is read through [map], not snapshotted, so a pass
+     * finished during a test moves the «Прослухані» shelf in the same run.
+     */
+    override fun observeFinishedWorkIds(): Flow<List<String>> =
+        readthroughs.map { passes ->
+            passes.values.filter { it.finishedAt != null }.map { it.workId }.distinct()
+        }
+
     /** #1174 — the abandoned AUDIO passes, exactly as the Room query reads them. */
     override fun observeAbandonedAudioPasses(): Flow<List<String>> =
         readthroughs.map { rows ->
@@ -1796,6 +1872,20 @@ class FakeAudiobookDao(
         bookId: String
     ): com.slukhayka.audiobooks.data.db.LibraryEntryEntity? =
         libraryEntriesState.value.firstOrNull { it.id == bookId }
+
+    override fun observeLibraryEntryById(
+        bookId: String
+    ): Flow<com.slukhayka.audiobooks.data.db.LibraryEntryEntity?> =
+        libraryEntriesState.map { rows -> rows.firstOrNull { it.id == bookId } }
+
+    override suspend fun triageRowsWithOrigin(origin: String): List<com.slukhayka.audiobooks.data.db.TriageRow> =
+        libraryEntriesState.value.filter { it.origin == origin }.sortedByDescending { it.createdAt }
+            .map { entry ->
+                com.slukhayka.audiobooks.data.db.TriageRow(
+                    bookId = entry.id,
+                    title = booksState.value.firstOrNull { it.id == entry.id }?.title.orEmpty()
+                )
+            }
 
     // Spec-53 T8 (#715) — drops one deferred row.
     override suspend fun deleteSubmissionState(sourceId: String) {

@@ -154,9 +154,9 @@ class ManualWorkMergeStoragePrecisionRoomTest {
                     totalDurationSeconds = 0L, totalChapters = 0, rating = 0.75f, sourceTreeUri = null,
                 ),
             ))
-            dao.upsertLibraryEntry("storage-book-a", "storage-work-a", true, 11L, 0f, "IDLE")
-            dao.upsertLibraryEntry("storage-book-b", "storage-work-b", false, 21L, 0.25f, "IDLE")
-            dao.upsertLibraryEntry("storage-book-c", "storage-work-c", true, 31L, 0.5f, "IDLE")
+            dao.upsertLibraryEntry("storage-book-a", "storage-work-a", true, 11L, 0f, "IDLE", origin = entryA.origin)
+            dao.upsertLibraryEntry("storage-book-b", "storage-work-b", false, 21L, 0.25f, "IDLE", origin = entryB.origin)
+            dao.upsertLibraryEntry("storage-book-c", "storage-work-c", true, 31L, 0.5f, "IDLE", origin = entryC.origin)
         }
 
         suspend fun assertStored(dao: AudiobookDao) {

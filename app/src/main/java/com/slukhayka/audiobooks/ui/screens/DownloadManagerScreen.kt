@@ -12,8 +12,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
@@ -36,11 +34,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.downloads.DownloadQueue
 import com.slukhayka.audiobooks.data.downloads.DownloadQueueItem
 import com.slukhayka.audiobooks.data.downloads.DownloadQueueStatus
@@ -75,6 +73,9 @@ fun DownloadManagerScreen(
     val queue by viewModel.downloadQueue.collectAsState()
     val cacheSizeFormatted by viewModel.cacheSizeFormatted.collectAsState()
     val cacheSizeBytes by viewModel.cacheSizeBytes.collectAsState()
+    // #1163 — the private copies of local imports are their own figure: app
+    // data, but not a download, and never added to the downloads' bytes.
+    val localCopyBytes by viewModel.localCopyBytes.collectAsState()
     val freeBytes by viewModel.downloadFreeBytes.collectAsState()
     var storageDialogVisible by remember { mutableStateOf(false) }
 
@@ -88,7 +89,11 @@ fun DownloadManagerScreen(
         viewModel.refreshDownloadQueue()
     }
 
-    val offlineCount = libraryBooks.count { it.book.isDownloaded }
+    // #1163 — the destructive clear's scope is SOURCE downloads. A local import
+    // keeps its copy and its state (see OfflineDownloads.clearAllAudioCache), so
+    // the confirmation must not count it as a book it will empty: the number and
+    // the action have to name the same set.
+    val offlineCount = libraryBooks.count { it.book.isDownloaded && !it.isLocal }
     val hasLocalBooks = libraryBooks.any { it.isLocal }
 
     SettingsDestinationScaffold(
@@ -100,6 +105,7 @@ fun DownloadManagerScreen(
             items = queue,
             occupiedBytes = cacheSizeBytes,
             freeBytes = freeBytes,
+            localCopyBytes = localCopyBytes,
             hasLocalBooks = hasLocalBooks,
             showDelete = offlineCount > 0 || cacheSizeBytes > 0L,
             bookCount = offlineCount,
@@ -133,6 +139,9 @@ fun DownloadManagerPane(
     items: List<DownloadQueueItem>,
     occupiedBytes: Long,
     freeBytes: Long,
+    // #1163 — the private local copies, shown as their own figure in the storage
+    // card below (never a download, never added to occupiedBytes).
+    localCopyBytes: Long = 0L,
     hasLocalBooks: Boolean,
     showDelete: Boolean,
     bookCount: Int,
@@ -178,6 +187,7 @@ fun DownloadManagerPane(
         StorageDestinationPane(
             occupiedBytes = occupiedBytes,
             freeBytes = freeBytes,
+            localCopyBytes = localCopyBytes,
             hasLocalBooks = hasLocalBooks,
             showDelete = showDelete,
             bookCount = bookCount,
@@ -293,7 +303,7 @@ private fun DownloadQueueRow(
     ) {
         Text(
             text = item.title,
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+            style = MaterialTheme.typography.titleSmall,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
@@ -416,7 +426,7 @@ fun DownloadQueueEmptyState(modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center
     ) {
         EmptyState(
-            icon = Icons.Default.CloudDownload,
+            icon = PaperInkIcons.Download,
             title = stringResource(R.string.download_manager_empty_title),
             body = stringResource(R.string.download_manager_empty_body)
         )

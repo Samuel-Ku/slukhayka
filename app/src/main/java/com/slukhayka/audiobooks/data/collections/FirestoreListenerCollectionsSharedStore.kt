@@ -31,6 +31,9 @@ class FirestoreListenerCollectionsSharedStore(
         itemSnapshots: Map<String, PublishedCollectionFactory.ItemSnapshot>
     ): PublishResult {
         if (!CuratorIdentity.isPublishable(authorId)) return PublishResult.Refused("no-identity")
+        // #1405 — an empty collection has nothing to publish. Refuse it here,
+        // not only in the UI sheet, so no future caller can write an empty doc.
+        if (collection.items.isEmpty()) return PublishResult.Refused("no-books")
         // #695/#692 — the reasons AND the display snapshots travel with the
         // books, so a fork keeps the curation and a reader renders the
         // composition without owning those books.

@@ -19,10 +19,17 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+# Скільки випадків чутливості гнати одночасно (#1266). Кожен — окремий
+# підпроцес зі своєю копією скрипта, тож черга тут не потрібна: вона лишала
+# ядра просто. Це швидкість, а не вимикач — кожен випадок усе одно виконується.
+SENSITIVITY_JOBS = min(4, os.cpu_count() or 1)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -129,6 +136,11 @@ class Fixture:
     def __init__(self, root: Path, logs: Path, sources: dict[str, Path]):
         self.root = root
         self.logs = logs
+        # Свій `TMPDIR` — ПОЗА копією дерева і свій, а не успадкований: інакше
+        # тека прогону лягає в спільний `/tmp` і лишається там після SIGKILL
+        # (#1300), а в самому дереві вона робила б його брудним.
+        self.tmp = logs / "tmp"
+        self.tmp.mkdir(parents=True, exist_ok=True)
         self.build(sources)
 
     def build(self, sources: dict[str, Path]) -> None:
@@ -141,6 +153,12 @@ class Fixture:
         )
         (self.root / "scripts" / "mutation_python_runner.py").write_text(
             sources["runner"].read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        # Сусід скрипта, якого той кличе за текою прогону (#1300): копія дерева
+        # мусить мати все, що `mutate.sh` шукає поряд із собою.
+        (self.root / "scripts" / "tmp_budget.py").write_text(
+            (REPO_ROOT / "scripts" / "tmp_budget.py").read_text(encoding="utf-8"),
+            encoding="utf-8",
         )
         # The root ignore file keeps .mutations/ invisible: without it the tool's
         # own record and artifact would make the tree dirty for the next run.
@@ -177,6 +195,7 @@ class Fixture:
             "LC_ALL": "C",
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_CONFIG_GLOBAL": str(self.logs / "gitconfig"),
+            "TMPDIR": str(self.tmp),
         }
         environment.update(overrides)
         return environment
@@ -867,6 +886,8 @@ class PythonSensitivityTest(unittest.TestCase):
             "test_mutate_python.PythonMutationRunTest.test_runs_one_python_class_and_records_a_caught_mutation",
         ),
     )
+    # Друге джерело правди про розмір `CASES` — див. коментар у тесті.
+    EXPECTED_CASES = 12
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -920,16 +941,69 @@ class PythonSensitivityTest(unittest.TestCase):
         return directory
 
     def test_the_suite_dies_when_a_promise_is_mutated(self):
-        for index, (name, edited, needle, replacement, target) in enumerate(self.CASES):
-            with self.subTest(mutation=name):
-                mutant = self.mutant(needle, replacement, edited, index)
+        """Випадки незалежні, тож ідуть одночасно (#1266).
 
-                # The nested run has to work at all, or "it failed" means nothing.
-                intact = self.run_one_test(target, None)
+        У кожного свій каталог мутанта, свій тимчасовий корінь і свій підпроцес —
+        спільного в них лише те, що вони читають той самий скрипт. Черга лишала
+        три ядра з чотирьох просто: 17 с із 136 с джоби `script-tests` — один
+        послідовний блок. Це швидкість, а не вимикач: кожен випадок усе одно
+        перевіряється, і жодна перевірка не зникає.
+        """
+        # Оголошене число тут — ДРУГЕ джерело правди, і саме тому воно потрібне
+        # (#1266, огляд). `CASES` — це джерело ітерації: перевірка «скільки
+        # зібрано» проти нього ж не тримає нічого, бо `CASES = ()` дає порожній
+        # `outcomes` і зелений набір — «Ran 1 test ... OK» на наборі, який не
+        # виконав жодного випадку. Це та сама діра, яку лікує ця серія: свідок,
+        # зелений тому, що не виконався. Число поруч робить червоними і порожній
+        # перелік, і зрізаний, і воно навмисно вимагає правки разом із `CASES`:
+        # зникнення випадку мусить бути видимим, а не тихим.
+        self.assertEqual(self.EXPECTED_CASES, len(self.CASES),
+                         "оголошених випадків чутливості мусить бути рівно стільки")
+
+        in_flight = 0
+        observed = 0
+        lock = threading.Lock()
+
+        def judge(index, case):
+            nonlocal in_flight, observed
+            with lock:
+                in_flight += 1
+                observed = max(observed, in_flight)
+            try:
+                name, edited, needle, replacement, target = case
+                try:
+                    mutant = self.mutant(needle, replacement, edited, index)
+                    # The nested run has to work at all, or "it failed" means nothing.
+                    intact = self.run_one_test(target, None)
+                    mutated = self.run_one_test(target, mutant)
+                except Exception as error:  # noqa: BLE001 — звітується під subTest
+                    return name, None, None, error
+                return name, intact, mutated, None
+            finally:
+                with lock:
+                    in_flight -= 1
+
+        with ThreadPoolExecutor(max_workers=SENSITIVITY_JOBS) as pool:
+            outcomes = list(pool.map(lambda pair: judge(*pair), enumerate(self.CASES)))
+
+        # Одночасність не мусить тихо з'їсти випадок: скільки оголошено, стільки
+        # й перевірено.
+        self.assertEqual(len(self.CASES), len(outcomes),
+                         "кожен оголошений випадок мусить бути перевірений")
+        if SENSITIVITY_JOBS > 1:
+            # І випадки мусять іти одночасно, а не чергою: повернення `for`
+            # лишило б набір зеленим, тож черга піниться тим, скільки випадків
+            # побувало в польоті разом. На одному ядрі пінити нічого — пул там
+            # і буде один.
+            self.assertGreater(observed, 1,
+                               "випадки мусять іти одночасно, а не чергою")
+
+        for name, intact, mutated, error in outcomes:
+            with self.subTest(mutation=name):
+                self.assertIsNone(error, error)
                 self.assertEqual(0, intact.returncode, intact.stderr)
                 self.assertIn("Ran 1 test", intact.stderr)
 
-                mutated = self.run_one_test(target, mutant)
                 self.assertNotEqual(
                     0,
                     mutated.returncode,

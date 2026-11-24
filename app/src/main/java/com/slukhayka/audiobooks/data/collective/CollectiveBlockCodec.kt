@@ -20,6 +20,7 @@ object CollectiveBlockCodec {
     const val FIELD_FETCHED_AT = "fetchedAt"
     const val FIELD_STALE_AFTER = "staleAfter"
     const val FIELD_VERSION = "version"
+    const val FIELD_REVISION = "revision"
     const val FIELD_CARDS = "cards"
 
     val ALLOWED_FIELDS: Set<String> = setOf(
@@ -31,6 +32,7 @@ object CollectiveBlockCodec {
         FIELD_FETCHED_AT,
         FIELD_STALE_AFTER,
         FIELD_VERSION,
+        FIELD_REVISION,
         FIELD_CARDS
     )
 
@@ -40,8 +42,17 @@ object CollectiveBlockCodec {
     fun toMap(block: CollectiveFeedBlock): Map<String, Any>? {
         if (block.cards.isEmpty()) return null
         if (block.blockKey.isBlank() || block.sourceId.isBlank()) return null
-        if (parseCollectiveBlockKey(block.blockKey) == null) return null
+        val ref = parseCollectiveBlockKey(block.blockKey) ?: return null
+        if (ref.sourceId != block.sourceId || ref.kind != block.kind) return null
         if (block.name.isBlank() || block.provenanceUrl.isBlank()) return null
+        // #1238 — an identity that names a context must name THIS provenance.
+        // A block cannot claim «collection A» while carrying page B's URL.
+        if (ref.provenanceContext.isNotEmpty() &&
+            ref.provenanceContext != canonicalProvenanceContext(block.provenanceUrl)
+        ) {
+            return null
+        }
+        if (block.revision < 0L) return null
         if (block.fetchedAt <= 0L || block.staleAfter < block.fetchedAt) return null
         return buildMap {
             put(FIELD_BLOCK_KEY, block.blockKey)
@@ -52,6 +63,7 @@ object CollectiveBlockCodec {
             put(FIELD_FETCHED_AT, block.fetchedAt)
             put(FIELD_STALE_AFTER, block.staleAfter)
             put(FIELD_VERSION, block.version)
+            put(FIELD_REVISION, block.revision)
             put(
                 FIELD_CARDS,
                 block.cards.map { card ->
@@ -82,6 +94,13 @@ object CollectiveBlockCodec {
         val fetchedAt = (data[FIELD_FETCHED_AT] as? Number)?.toLong() ?: return null
         val staleAfter = (data[FIELD_STALE_AFTER] as? Number)?.toLong() ?: return null
         val version = (data[FIELD_VERSION] as? Number)?.toLong() ?: return null
+        val revision = (data[FIELD_REVISION] as? Number)?.toLong() ?: 0L
+        if (revision < 0L) return null
+        if (ref.provenanceContext.isNotEmpty() &&
+            ref.provenanceContext != canonicalProvenanceContext(provenanceUrl)
+        ) {
+            return null
+        }
         val cardMaps = data[FIELD_CARDS] as? List<*> ?: return null
         val cards = cardMaps.mapNotNull { item ->
             val map = item as? Map<*, *> ?: return@mapNotNull null
@@ -109,7 +128,8 @@ object CollectiveBlockCodec {
             fetchedAt = fetchedAt,
             staleAfter = staleAfter,
             version = version,
-            lastAttempt = CollectiveAttempt(fetchedAt, CollectiveAttemptStatus.SUCCESS)
+            lastAttempt = CollectiveAttempt(fetchedAt, CollectiveAttemptStatus.SUCCESS),
+            revision = revision
         )
     }
 
@@ -121,11 +141,23 @@ object CollectiveBlockCodec {
     }
 }
 
-/** #527 — the ordered high-water mark of the shared block lane. */
+/**
+ * #527/#1238 — the ordered high-water mark of the shared block lane.
+ *
+ * [revision] is the SERVER order of the shared row (assigned by the
+ * conditional publish), never a device clock. [CollectiveFeedBlock.fetchedAt]
+ * stays the time the observing device actually saw the page; it is not an
+ * ordering key and may move backwards across devices.
+ */
 data class CollectiveBlockCursor(
-    val fetchedAt: Long,
+    val revision: Long,
     val documentId: String
-)
+) {
+    init {
+        require(revision >= 0L) { "a cursor revision is never negative" }
+        require(documentId.isNotBlank()) { "a cursor names its document" }
+    }
+}
 
 /** #527 — one bounded ordered page of shared blocks. */
 data class CollectiveBlockPage(

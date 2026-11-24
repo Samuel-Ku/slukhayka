@@ -15,8 +15,9 @@ package com.slukhayka.audiobooks.data.imports
  * the source tree — the library entry and its private copy stay untouched,
  * wayfinder #59), moved files (same bytes, different name — the private copy
  * is still valid, report only), duplicates (bytes already in another book —
- * never copied). Pure JVM, no Android, no I/O: the caller hashes the streams
- * and feeds [RescanFile]s.
+ * never copied). Pure JVM, no Android, no I/O: the caller decides which
+ * streams must be read (ADR-0061 §3 — a file with matching metadata and a
+ * known current hash keeps its remembered hash) and feeds [RescanFile]s.
  */
 object FolderRescan {
 
@@ -25,7 +26,13 @@ object FolderRescan {
         val fileName: String,
         /** Same grouping key as the import: full relative folder path or null for root files. */
         val parentFolder: String?,
-        val contentHash: String
+        val contentHash: String,
+        /**
+         * SAF metadata observed at scan time (ADR-0061 §3). Null when the
+         * provider reports none — compare metadata only when both sides know it.
+         */
+        val sizeBytes: Long? = null,
+        val lastModifiedMs: Long? = null
     )
 
     /** One stored track of a book: its chapter title + the track's hash. */

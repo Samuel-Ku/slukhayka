@@ -107,23 +107,24 @@ class WindowLayoutTest {
             showsWideExploreDetailPane(
                 layout = WindowLayout.EXPANDED,
                 tab = SelectedTab.EXPLORE,
-                hasParentList = true
+                detailOpenFromParentList = true
             )
         )
         assertFalse(
             showsWideExploreDetailPane(
                 layout = WindowLayout.COMPACT,
                 tab = SelectedTab.EXPLORE,
-                hasParentList = true
+                detailOpenFromParentList = true
             )
         )
-        // No genre/series under the work (rating, person lists): the phone
-        // route stays, deliberately, until the owner answers on #900.
+        // No explicitly selected work from a list (a rating or person list at
+        // rest, the wide window's idle state): no pane, the list keeps all of
+        // it. This is the owner's «no empty right pane» rule on #1208.
         assertFalse(
             showsWideExploreDetailPane(
                 layout = WindowLayout.EXPANDED,
                 tab = SelectedTab.EXPLORE,
-                hasParentList = false
+                detailOpenFromParentList = false
             )
         )
         // Only «Огляд» owns that parent list.
@@ -134,7 +135,7 @@ class WindowLayoutTest {
                     showsWideExploreDetailPane(
                         layout = WindowLayout.EXPANDED,
                         tab = tab,
-                        hasParentList = true
+                        detailOpenFromParentList = true
                     )
                 )
             }
@@ -146,16 +147,44 @@ class WindowLayoutTest {
             showsWideExploreDetailPane(
                 layout = windowLayoutFor(599),
                 tab = SelectedTab.EXPLORE,
-                hasParentList = true
+                detailOpenFromParentList = true
             )
         )
         assertTrue(
             showsWideExploreDetailPane(
                 layout = windowLayoutFor(600),
                 tab = SelectedTab.EXPLORE,
-                hasParentList = true
+                detailOpenFromParentList = true
             )
         )
+    }
+
+    @Test
+    fun theExploreListDetailContractSurvivesBothWidthLines() {
+        // #1235 — the 600 dp line turns the list-detail pane on; the 840 dp
+        // player line changes only what may sit in the detail pane, never
+        // whether the list keeps it.
+        listOf(599, 600).forEach { widthDp ->
+            assertEquals(
+                "width=$widthDp",
+                widthDp >= ExpandedMinWidthDp,
+                showsWideExploreDetailPane(
+                    layout = windowLayoutFor(widthDp),
+                    tab = SelectedTab.EXPLORE,
+                    detailOpenFromParentList = true
+                )
+            )
+        }
+        listOf(839, 840).forEach { widthDp ->
+            assertTrue(
+                "width=$widthDp keeps the Explore list beside an explicitly selected work",
+                showsWideExploreDetailPane(
+                    layout = windowLayoutFor(widthDp),
+                    tab = SelectedTab.EXPLORE,
+                    detailOpenFromParentList = true
+                )
+            )
+        }
     }
 
     // ---------------------------------------------------------------- #1205

@@ -7,7 +7,6 @@ for one layer up (`web/src/ui/adaptiveLayout.test.tsx` reads the same file for
 the same reason).
 """
 
-import os
 import re
 import stat
 import subprocess
@@ -50,6 +49,23 @@ def width_line(name: str) -> int:
     return int(match.group(1))
 
 
+def tool_environment(**overrides) -> dict:
+    """Оточення `scripts/wide-window.sh` — своє, а не успадковане (#1265).
+
+    CI-раннер приносить у процес власні змінні, і серед них може бути
+    експортована функція (`BASH_FUNC_printf%%`, `BASH_FUNC_cat%%`), яка затіняє
+    команду ВСЕРЕДИНІ скрипта: він тоді друкує порожньо й виходить із кодом 2 —
+    при незмінному файлі. Саме так фікстура #1260 і почервоніла в CI, хоч
+    локально була зелена.
+
+    `scripts/tests/test_mutate.py` задає оточення так само — свіжим словником, а
+    не `os.environ`.
+    """
+    base = {"PATH": "/usr/bin:/bin", "HOME": str(REPO_ROOT), "LC_ALL": "C"}
+    base.update(overrides)
+    return base
+
+
 def density_for(width_px: int, target_dp: int) -> int:
     """The script's own pure answer — not a second implementation of it."""
     result = subprocess.run(
@@ -57,6 +73,7 @@ def density_for(width_px: int, target_dp: int) -> int:
         check=False,
         capture_output=True,
         text=True,
+        env=tool_environment(),
     )
     if result.returncode != 0:
         raise AssertionError(result.stderr)
@@ -146,6 +163,7 @@ class DensityArithmeticTest(unittest.TestCase):
                     check=False,
                     capture_output=True,
                     text=True,
+                    env=tool_environment(),
                 )
                 self.assertEqual(2, result.returncode)
                 self.assertIn("positive", result.stderr)
@@ -170,27 +188,27 @@ class DeviceRunTest(unittest.TestCase):
         self.adb = self.root / "adb"
         self.adb.write_text(
             "#!/usr/bin/env bash\n"
-            'printf \'%s\\n\' "$*" >> "$ADB_LOG"\n'
+            'printf \'%s\\n\' "$*" >> "$FAKE_ADB_LOG"\n'
             'args=("$@")\n'
             'if [[ ${args[0]:-} == -s ]]; then args=("${args[@]:2}"); fi\n'
             'case "${args[*]}" in\n'
-            "  devices) cat \"$ADB_FIXTURES/devices\" ;;\n"
-            "  'shell wm size') cat \"$ADB_FIXTURES/size\" ;;\n"
+            "  devices) cat \"$FAKE_ADB_FIXTURES/devices\" ;;\n"
+            "  'shell wm size') cat \"$FAKE_ADB_FIXTURES/size\" ;;\n"
             "  'shell wm density')\n"
-            "    printf 'Physical density: %s\\n' \"$(cat \"$ADB_FIXTURES/density\")\"\n"
-            "    if [[ -f \"$ADB_STATE/override\" ]]; then\n"
-            "      printf 'Override density: %s\\n' \"$(cat \"$ADB_STATE/override\")\"\n"
+            "    printf 'Physical density: %s\\n' \"$(cat \"$FAKE_ADB_FIXTURES/density\")\"\n"
+            "    if [[ -f \"$FAKE_ADB_STATE/override\" ]]; then\n"
+            "      printf 'Override density: %s\\n' \"$(cat \"$FAKE_ADB_STATE/override\")\"\n"
             "    fi\n"
             "    ;;\n"
             "  'shell wm density '*)\n"
             "    requested=${args[3]}\n"
-            "    if [[ -f \"$ADB_FIXTURES/applied\" ]]; then\n"
-            "      applied=$(cat \"$ADB_FIXTURES/applied\")\n"
+            "    if [[ -f \"$FAKE_ADB_FIXTURES/applied\" ]]; then\n"
+            "      applied=$(cat \"$FAKE_ADB_FIXTURES/applied\")\n"
             "    else\n"
             "      applied=$requested\n"
             "    fi\n"
-            "    printf '%s' \"$applied\" > \"$ADB_STATE/override\"\n"
-            "    printf 'Physical density: %s\\n' \"$(cat \"$ADB_FIXTURES/density\")\"\n"
+            "    printf '%s' \"$applied\" > \"$FAKE_ADB_STATE/override\"\n"
+            "    printf 'Physical density: %s\\n' \"$(cat \"$FAKE_ADB_FIXTURES/density\")\"\n"
             "    printf 'Override density: %s\\n' \"$applied\"\n"
             "    ;;\n"
             "  *) printf 'unexpected adb call: %s\\n' \"$*\" >&2; exit 2 ;;\n"
@@ -211,22 +229,34 @@ class DeviceRunTest(unittest.TestCase):
     def devices(self, content: str) -> None:
         self.write_fixture("devices", "List of devices attached\n" + content)
 
-    def run_script(self, *arguments: str, adb: str | None = None):
-        environment = os.environ.copy()
-        environment.update(
-            {
-                "SLUKHAYKA_ADB": adb if adb is not None else str(self.adb),
-                "ADB_LOG": str(self.log),
-                "ADB_FIXTURES": str(self.fixtures),
-                "ADB_STATE": str(self.state),
-            }
+    def environment(self, adb: str | None = None) -> dict:
+        """Оточення підставного adb — своє, а не успадковане (#1265).
+
+        CI-раннер приносить у процес власні змінні, і серед них може бути
+        експортована функція (`BASH_FUNC_cat%%`, `BASH_FUNC_printf%%`), яка
+        затіняє команду ВСЕРЕДИНІ підставного adb: він тоді не віддає фікстуру
+        й виходить із кодом 2 — при незмінних файлах фікстури. Саме так фікстура
+        #1260 і почервоніла в CI, хоч локально була зелена.
+
+        `scripts/tests/test_mutate.py` задає оточення так само — свіжим
+        словником, а не `os.environ`. Імена тут — лише свої, з префіксом
+        `FAKE_ADB_`: `ADB_LOG` міг би прочитати й справжній adb, а `SLUKHAYKA_ADB`
+        — це вже вхід самого `scripts/wide-window.sh`.
+        """
+        return tool_environment(
+            SLUKHAYKA_ADB=adb if adb is not None else str(self.adb),
+            FAKE_ADB_LOG=str(self.log),
+            FAKE_ADB_FIXTURES=str(self.fixtures),
+            FAKE_ADB_STATE=str(self.state),
         )
+
+    def run_script(self, *arguments: str, adb: str | None = None):
         return subprocess.run(
             ["bash", str(WIDE_WINDOW), *arguments],
             check=False,
             capture_output=True,
             text=True,
-            env=environment,
+            env=self.environment(adb),
         )
 
     def invocations(self) -> list[str]:

@@ -8,11 +8,22 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 
+internal sealed interface IdleBookAdmission<out T> {
+    data class Admitted<T>(val value: T) : IdleBookAdmission<T>
+    data object ActiveParticipants : IdleBookAdmission<Nothing>
+}
+
+internal sealed interface ManualWorkMergeResource {
+    val id: String
+    data class Work(override val id: String) : ManualWorkMergeResource
+    data class Book(override val id: String) : ManualWorkMergeResource
+}
+
 /** One lock/activity registry per live Room instance, shared by every gate wrapper. */
 class ManualWorkMergeGate(private val database: AudiobookDatabase) {
     private class State {
-        val locks = mutableMapOf<String, Mutex>()
-        val active = mutableMapOf<String, Int>()
+        val locks = mutableMapOf<ManualWorkMergeResource, Mutex>()
+        val active = mutableMapOf<ManualWorkMergeResource, Int>()
     }
 
     private val state = synchronized(registries) {
@@ -29,14 +40,43 @@ class ManualWorkMergeGate(private val database: AudiobookDatabase) {
 
     /** Writers and activity admission acquire the same sorted participant locks as commands. */
     suspend fun <T> withBookWrite(bookIds: Collection<String>, block: suspend () -> T): T =
-        locked(bookIds, requireIdle = false, block)
+        locked(bookIds.map { ManualWorkMergeResource.Book(it) }, block)
 
-    internal suspend fun <T> withIdleBooks(bookIds: Collection<String>, block: suspend () -> T): T =
-        locked(bookIds, requireIdle = true, block)
+    internal suspend fun <T> withIdleBooks(
+        bookIds: Collection<String>, block: suspend () -> T,
+    ): IdleBookAdmission<T> {
+        return idle(bookIds.map { ManualWorkMergeResource.Book(it) }, block)
+    }
 
-    suspend fun registerActivity(bookIds: Collection<String>): AutoCloseable {
-        val ids = ordered(bookIds)
-        return locked(ids, requireIdle = false) {
+    internal suspend fun <T> withIdentityWrite(
+        workIds: Collection<String>, bookIds: Collection<String>, block: suspend () -> T,
+    ): T = locked(resources(workIds, bookIds), block)
+
+    internal suspend fun <T> withIdleIdentities(
+        workIds: Collection<String>, bookIds: Collection<String>, block: suspend () -> T,
+    ): IdleBookAdmission<T> = idle(resources(workIds, bookIds), block)
+
+    private suspend fun <T> idle(
+        resources: Collection<ManualWorkMergeResource>, block: suspend () -> T,
+    ): IdleBookAdmission<T> {
+        val ids = ordered(resources)
+        return locked(ids) {
+            if (synchronized(state) { ids.any { (state.active[it] ?: 0) > 0 } }) {
+                IdleBookAdmission.ActiveParticipants
+            } else IdleBookAdmission.Admitted(block())
+        }
+    }
+
+    suspend fun registerActivity(bookIds: Collection<String>): AutoCloseable =
+        register(resources(emptyList(), bookIds))
+
+    internal suspend fun registerIdentityActivity(
+        workIds: Collection<String>, bookIds: Collection<String>,
+    ): AutoCloseable = register(resources(workIds, bookIds))
+
+    private suspend fun register(resources: Collection<ManualWorkMergeResource>): AutoCloseable {
+        val ids = ordered(resources)
+        return locked(ids) {
             synchronized(state) { ids.forEach { state.active[it] = (state.active[it] ?: 0) + 1 } }
             val closed = AtomicBoolean(false)
             AutoCloseable {
@@ -62,14 +102,15 @@ class ManualWorkMergeGate(private val database: AudiobookDatabase) {
     }
 
     suspend fun autoMergeExcluded(bookId: String, editionId: String): Boolean =
-        database.workIdentityDao().autoMergeExcluded(bookId, editionId)
+        database.workIdentityDao().bookAutoMergeExcluded(bookId) ||
+            database.workIdentityDao().autoMergeExcluded(bookId, editionId)
 
     private suspend fun <T> locked(
-        bookIds: Collection<String>, requireIdle: Boolean, block: suspend () -> T,
+        resources: Collection<ManualWorkMergeResource>, block: suspend () -> T,
     ): T {
         val context = currentCoroutineContext()
         context.ensureActive()
-        val ids = ordered(bookIds)
+        val ids = ordered(resources)
         val locks = synchronized(state) { ids.map { state.locks.getOrPut(it) { Mutex() } } }
         val acquired = mutableListOf<Mutex>()
         try {
@@ -79,9 +120,6 @@ class ManualWorkMergeGate(private val database: AudiobookDatabase) {
                 acquired += lock
                 context.ensureActive()
             }
-            if (requireIdle) check(synchronized(state) { ids.none { (state.active[it] ?: 0) > 0 } }) {
-                "A participant has active work"
-            }
             context.ensureActive()
             return block()
         } finally {
@@ -89,9 +127,16 @@ class ManualWorkMergeGate(private val database: AudiobookDatabase) {
         }
     }
 
-    private fun ordered(ids: Collection<String>): List<String> {
-        require(ids.none(String::isBlank)) { "Blank participant identity" }
-        return ids.distinct().sortedWith(::compareMergeUtf8)
+    private fun resources(workIds: Collection<String>, bookIds: Collection<String>): List<ManualWorkMergeResource> =
+        workIds.map { ManualWorkMergeResource.Work(it) } + bookIds.map { ManualWorkMergeResource.Book(it) }
+
+    private fun ordered(ids: Collection<ManualWorkMergeResource>): List<ManualWorkMergeResource> {
+        require(ids.none { it.id.isBlank() }) { "Blank participant identity" }
+        return ids.distinct().sortedWith { first, second ->
+            val firstKind = if (first is ManualWorkMergeResource.Work) 0 else 1
+            val secondKind = if (second is ManualWorkMergeResource.Work) 0 else 1
+            firstKind.compareTo(secondKind).takeIf { it != 0 } ?: compareMergeUtf8(first.id, second.id)
+        }
     }
 
     private companion object {

@@ -15,10 +15,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudDone
-import androidx.compose.material.icons.filled.CloudDownload
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +36,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.ui.displayAuthor
@@ -122,7 +119,20 @@ fun PosterCard(
     if (onPreflight != null) {
         LaunchedEffect(preflightKey) { onPreflight() }
     }
-    Column(modifier = modifier.width(PosterWidth)) {
+    val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
+    val dense = com.slukhayka.audiobooks.ui.theme.LocalContentDensity.current ==
+        com.slukhayka.audiobooks.ui.theme.ContentDensity.COMPACT
+    val posterWidth = when {
+        paperInk && dense -> 104.dp
+        paperInk -> 132.dp
+        else -> PosterWidth
+    }
+    val posterHeight = when {
+        paperInk && dense -> 156.dp
+        paperInk -> 198.dp
+        else -> PosterHeight
+    }
+    Column(modifier = modifier.width(posterWidth)) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -155,8 +165,8 @@ fun PosterCard(
                     // poster sat outside the written design. `RadiusCardLg`
                     // stays for the larger list rows it was named for.
                     modifier = Modifier
-                        .width(PosterWidth)
-                        .height(PosterHeight)
+                        .width(posterWidth)
+                        .height(posterHeight)
                         // #885 (wave 3) — no ring. The prototype defines a
                         // poster's edge with an INSET highlight, not a border
                         // (`box-shadow: inset 3px 0 0 #FFFFFF12`): a ring around
@@ -200,11 +210,17 @@ fun PosterCard(
                             modifier = Modifier
                                 .fillMaxWidth(progress.coerceIn(0f, 1f))
                                 .fillMaxHeight()
-                                .background(MaterialTheme.colorScheme.primary)
+                                .background(
+                                    if (paperInk) {
+                                        MaterialTheme.colorScheme.tertiary
+                                    } else {
+                                        MaterialTheme.colorScheme.primary
+                                    }
+                                )
                         )
                     }
                 }
-                if (onDownload != null && downloadIcon != null) {
+                if (!paperInk && onDownload != null && downloadIcon != null) {
                     val downloading = downloadProgress
                     if (downloading != null) {
                         // Downloading: a thin track along the cover's bottom edge,
@@ -251,7 +267,7 @@ fun PosterCard(
                     }
                 }
                 if (overlay != null) overlay()
-                if (onDismiss != null && dismissContentDescription != null) {
+                if (!paperInk && onDismiss != null && dismissContentDescription != null) {
                     // #372: the 48 dp touch target stays at the top-right corner
                     // while the visible «Не цікаво» indicator does not dominate
                     // the cover.
@@ -285,7 +301,7 @@ fun PosterCard(
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Close,
+                                imageVector = PaperInkIcons.Close,
                                 contentDescription = dismissContentDescription,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(12.dp)
@@ -305,7 +321,7 @@ fun PosterCard(
             caption?.let {
                 Text(
                     text = it,
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.secondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -316,7 +332,13 @@ fun PosterCard(
             }
             Text(
                 text = title,
-                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                style = if (paperInk) {
+                    com.slukhayka.audiobooks.ui.theme.PaperInkType.Meta.copy(
+                        fontWeight = FontWeight.SemiBold
+                    )
+                } else {
+                    MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
+                },
                 color = MaterialTheme.colorScheme.onSurface,
                 // UI: minLines = 2 — назва завжди займає два рядки. Без цього
                 // картка з короткою назвою нижча за сусідню, ряд виходить
@@ -332,7 +354,11 @@ fun PosterCard(
             // рваним, і відстані між поличками виглядають різними.
             Text(
                 text = author.orEmpty(),
-                style = MaterialTheme.typography.labelSmall,
+                style = if (paperInk) {
+                    com.slukhayka.audiobooks.ui.theme.PaperInkType.Micro
+                } else {
+                    MaterialTheme.typography.labelSmall
+                },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 minLines = 1,
                 maxLines = 1,
@@ -343,7 +369,11 @@ fun PosterCard(
             if (duration != null) {
                 Text(
                     text = duration,
-                    style = MaterialTheme.typography.labelSmall,
+                    style = if (paperInk) {
+                        com.slukhayka.audiobooks.ui.theme.PaperInkType.Micro
+                    } else {
+                        MaterialTheme.typography.labelSmall
+                    },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     textAlign = TextAlign.Center,
@@ -433,7 +463,7 @@ fun PosterCard(
         testTag = testTag,
         overlayDescription = stringResource(R.string.a11y_open_work, result.title),
         downloadIcon = if (onDownload != null && downloadAllowed) {
-            if (isDownloaded) Icons.Default.CloudDone else Icons.Default.CloudDownload
+            if (isDownloaded) PaperInkIcons.Downloaded else PaperInkIcons.Download
         } else {
             null
         },

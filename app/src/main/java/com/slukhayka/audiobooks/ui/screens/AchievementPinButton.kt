@@ -3,9 +3,6 @@ package com.slukhayka.audiobooks.ui.screens
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -20,6 +17,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 
 /**
  * #704 (T6) — the showcase pin toggle on an earned award.
@@ -66,7 +64,7 @@ fun AchievementPinButton(
         contentAlignment = Alignment.Center
     ) {
         Icon(
-            imageVector = if (isPinned) Icons.Default.Star else Icons.Default.StarBorder,
+            imageVector = if (isPinned) PaperInkIcons.Star else PaperInkIcons.StarOutline,
             contentDescription = null,
             tint = if (isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.size(24.dp)

@@ -22,6 +22,7 @@ class InMemorySharedCollections(
     ): PublishResult {
         if (!online) return PublishResult.Refused("offline")
         if (!CuratorIdentity.isPublishable(authorId)) return PublishResult.Refused("no-identity")
+        if (collection.items.isEmpty()) return PublishResult.Refused("no-books")
         val document = PublishedCollectionFactory.of(
             collection, authorId, pseudonym, clock(), itemSnapshots
         ) ?: return PublishResult.Refused("no-pseudonym")

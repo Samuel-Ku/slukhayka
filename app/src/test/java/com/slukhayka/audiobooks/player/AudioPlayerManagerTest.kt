@@ -548,6 +548,65 @@ class AudioPlayerManagerTest {
         assertEquals("no chapter after the last one", 1, factory.engines.size)
     }
 
+    // ---------------------------------------------------------------------
+    // #1187 — where a load starts is judged against a KNOWN book total, never
+    // against the sum of the chapters that happened to be listened to. The old
+    // rule compared the in-chapter position with that partial sum: a local book
+    // with one played 45-second chapter was "45 seconds long", so a listener
+    // 60 s into its third chapter was sent back to the beginning.
+    // ---------------------------------------------------------------------
+
+    /** A local import's chapters: measured ones carry seconds, the rest 0. */
+    private fun fixtureChapters(id: String, durations: List<Long>): List<ChapterEntity> =
+        durations.mapIndexed { index, duration ->
+            ChapterEntity(
+                id = "$id-ch$index",
+                bookId = id,
+                chapterIndex = index,
+                title = "Розділ ${index + 1}",
+                durationSeconds = duration
+            )
+        }
+
+    @Test
+    fun `a position in a later chapter of a partly measured local book is not a relisten`() =
+        playerTest { manager, _ ->
+            val local = book.copy(id = "local-1187", sourceUrl = "", totalDurationSeconds = 0L)
+            val fixture = fixtureChapters(local.id, listOf(45L, 0L, 0L))
+
+            manager.loadAndPlayBook(
+                local,
+                fixture,
+                playable = fixture.map { SourceCatalog.PlayableChapter(it, null) },
+                initialChapterIndex = 2,
+                initialPositionSeconds = 60L,
+                autoPlay = true
+            )
+
+            val state = manager.playerState.value
+            assertEquals("the load starts where it was asked to", 2, state.currentChapterIndex)
+            assertEquals(60L * MILLIS_PER_SECOND, state.currentPositionMs)
+        }
+
+    @Test
+    fun `starting a fully measured local book at its end is a relisten`() = playerTest { manager, _ ->
+        val local = book.copy(id = "local-1187-complete", sourceUrl = "", totalDurationSeconds = 0L)
+        val fixture = fixtureChapters(local.id, listOf(45L, 45L, 45L))
+
+        manager.loadAndPlayBook(
+            local,
+            fixture,
+            playable = fixture.map { SourceCatalog.PlayableChapter(it, null) },
+            initialChapterIndex = 2,
+            initialPositionSeconds = 45L,
+            autoPlay = true
+        )
+
+        val state = manager.playerState.value
+        assertEquals("a finished book starts from the beginning", 0, state.currentChapterIndex)
+        assertEquals(0L, state.currentPositionMs)
+    }
+
     @Test
     fun `stopAndClear stops playback and resets the state`() = playerTest { manager, factory ->
         // Arrange -- a playing book

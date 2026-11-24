@@ -146,13 +146,41 @@ object MetadataAssertions {
     )
 
     /**
+     * #1589 — [SEO_TITLE_PHRASES] as PRE-COMPILED patterns. The scrub used to
+     * build `Regex(Regex.escape(phrase) + …)` for every phrase on every call —
+     * the per-title `Pattern.compile` the #1570 blocked stack showed. The
+     * phrases are static, so the patterns are static too; the list order
+     * (longest phrase first) is preserved exactly.
+     */
+    private val SEO_TITLE_PATTERNS: List<Regex> = SEO_TITLE_PHRASES.map { phrase ->
+        Regex(Regex.escape(phrase) + """\s*\)?\s*$""", RegexOption.IGNORE_CASE)
+    }
+
+    /**
+     * #1589 — one bounded memo for the whole title rule: the achievements pass
+     * normalizes the same titles over and over, and the rule is pure, so a
+     * repeat must answer identically. See [NormalizationMemo].
+     */
+    private val titleMemo = NormalizationMemo()
+
+    /**
      * Strips the curated [SEO_TITLE_PHRASES] from the END of a claimed title,
      * case-insensitive and across separators (a phrase in parentheses ends
      * with the closing `)`, which is cut with it); trims. If nothing is left
      * after the cut the ORIGINAL title is kept — the scrub never produces a
      * blank title. Idempotent: a second application matches nothing.
+     *
+     * #1589 — memoized: the cache key names BOTH arguments the rule reads (the
+     * author participates only in the Soundbooks wrapper path, but a key of
+     * the title alone would let two different authors share one answer).
      */
-    fun normalizeTitle(claimed: String?, author: String? = null): String {
+    fun normalizeTitle(claimed: String?, author: String? = null): String =
+        titleMemo.normalized(claimed.orEmpty() + '\u0000' + author.orEmpty()) {
+            normalizeTitleUncached(claimed, author)
+        }
+
+    /** The rule itself, without the memo — the one computation the key guards. */
+    private fun normalizeTitleUncached(claimed: String?, author: String?): String {
         // #964 — the source's rendered entity is part of the CLAIM, not chrome:
         // it must become text here, at the ONE write-path seam. A stored row
         // written before this rule existed is repaired by StoredMetadataScrub,
@@ -175,14 +203,11 @@ object MetadataAssertions {
         var changed = true
         while (changed) {
             changed = false
-            for (phrase in SEO_TITLE_PHRASES) {
+            for (pattern in SEO_TITLE_PATTERNS) {
                 // The phrase, tolerating a closing paren after it (the ` (`
                 // separator case: «Пасажир (аудіокнига онлайн)») — matched
                 // with the source's own casing so the cut length is exact.
-                val match = Regex(
-                    Regex.escape(phrase) + """\s*\)?\s*$""",
-                    RegexOption.IGNORE_CASE
-                ).find(title)
+                val match = pattern.find(title)
                 if (match != null) {
                     title = TRAILING_SEPARATOR.replace(title.dropLast(match.value.length), "").trim()
                     changed = true

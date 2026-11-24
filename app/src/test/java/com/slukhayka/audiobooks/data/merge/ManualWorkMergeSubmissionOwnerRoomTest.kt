@@ -154,9 +154,9 @@ class ManualWorkMergeSubmissionOwnerRoomTest {
                     totalDurationSeconds = 0L, totalChapters = 0, rating = 4.25f, sourceTreeUri = null,
                 ),
             ))
-            dao.upsertLibraryEntry("inverse-book-A", "inverse-work-A", false, 11L, 0f, "IDLE")
-            dao.upsertLibraryEntry("inverse-book-B", "inverse-work-B", false, 21L, 0f, "IDLE")
-            dao.upsertLibraryEntry("inverse-book-C", "inverse-work-C", true, 31L, 0.25f, "DOWNLOADING")
+            dao.upsertLibraryEntry("inverse-book-A", "inverse-work-A", false, 11L, 0f, "IDLE", origin = entryA.origin)
+            dao.upsertLibraryEntry("inverse-book-B", "inverse-work-B", false, 21L, 0f, "IDLE", origin = entryB.origin)
+            dao.upsertLibraryEntry("inverse-book-C", "inverse-work-C", true, 31L, 0.25f, "DOWNLOADING", origin = entryC.origin)
             dao.insertSources(listOf(sourceA))
             dao.upsertSubmissionState(submissionC)
         }

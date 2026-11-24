@@ -307,7 +307,9 @@ class ListenAccessibilityTest {
             .assertHeightIsAtLeast(24.dp)
         compose.onNodeWithContentDescription("Відкрити книгу: ${book.title}")
             .assertHeightIsAtLeast(24.dp)
-        compose.onNodeWithText("ПРОДОВЖИТИ СЛУХАТИ")
+        // F29 (audit 2026-10-28): the eyebrow is sentence case; the direction
+        // forbids caps on the smallest size (§3.2).
+        compose.onNodeWithText("Продовжити слухати")
             .assert(SemanticsMatcher.expectValue(SemanticsProperties.Heading, Unit))
         compose.onNodeWithContentDescription(book.title, useUnmergedTree = true)
             .assertDoesNotExist()
@@ -338,7 +340,6 @@ class ListenAccessibilityTest {
     @Test
     fun miniPlayerHasASeparateSummaryAndContextualControls() {
         val chapters = TestDataFactory.dataChapters(listOf(book))
-        var previous = 0
         var closes = 0
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
@@ -351,8 +352,6 @@ class ListenAccessibilityTest {
                         isOfflineMode = true
                     ),
                     onPlayPauseClick = {},
-                    onPreviousClick = { previous++ },
-                    onSkipNextClick = {},
                     onCloseClick = { closes++ },
                     onBarClick = {}
                 )
@@ -368,14 +367,14 @@ class ListenAccessibilityTest {
                     "Відтворюється. Доступно офлайн"
                 )
             )
+        // The direction's bar has ONE visible control: the ring play target.
+        // Previous/next live in the full player, not here.
         compose.onNodeWithContentDescription("Пауза: ${book.title}")
             .assertHeightIsAtLeast(24.dp)
-        compose.onNodeWithContentDescription("Попередній розділ: ${book.title}")
-            .assertHeightIsAtLeast(24.dp)
-            .performClick()
-        compose.onNodeWithContentDescription("Наступний розділ: ${book.title}")
-            .assertHeightIsAtLeast(24.dp)
-        assertEquals(1, previous)
+        compose.onNodeWithTag("mini_player_play_pause")
+            .assertHeightIsAtLeast(48.dp)
+        compose.onNodeWithTag("mini_player_previous").assertDoesNotExist()
+        compose.onNodeWithTag("mini_player_next").assertDoesNotExist()
         compose.onNodeWithContentDescription(book.title, useUnmergedTree = true)
             .assertDoesNotExist()
     }
@@ -393,8 +392,6 @@ class ListenAccessibilityTest {
                 MiniPlayerBar(
                     playerState = PlayerState(currentBook = book, isPlaying = true),
                     onPlayPauseClick = {},
-                    onPreviousClick = {},
-                    onSkipNextClick = {},
                     onCloseClick = { closes++ },
                     onBarClick = {}
                 )
@@ -424,7 +421,6 @@ class ListenAccessibilityTest {
                 MiniPlayerBar(
                     playerState = PlayerState(currentBook = book, isPlaying = true),
                     onPlayPauseClick = {},
-                    onSkipNextClick = {},
                     onCloseClick = { closes++ },
                     onBarClick = {}
                 )
@@ -446,7 +442,7 @@ class ListenAccessibilityTest {
                 MiniPlayerBar(
                     playerState = PlayerState(currentBook = book),
                     viewedBookId = "another-book",
-                    onPlayPauseClick = { toggles++ }, onPreviousClick = {}, onSkipNextClick = {}, onCloseClick = {}, onBarClick = {}
+                    onPlayPauseClick = { toggles++ }, onCloseClick = {}, onBarClick = {}
                 )
             }
         }

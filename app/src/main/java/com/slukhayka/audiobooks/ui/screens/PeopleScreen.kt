@@ -11,11 +11,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,12 +23,12 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.annotation.StringRes
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.EmptyState
@@ -147,7 +142,7 @@ fun PeopleContent(
                 item {
                     val loadingLabel = stringResource(R.string.secondary_loading)
                     EmptyState(
-                        icon = Icons.Filled.Info,
+                        icon = PaperInkIcons.Info,
                         title = loadingLabel,
                         body = "",
                         iconContent = {
@@ -168,7 +163,7 @@ fun PeopleContent(
             loadFailed -> {
                 item {
                     EmptyState(
-                        icon = Icons.Filled.Warning,
+                        icon = PaperInkIcons.Alert,
                         title = stringResource(R.string.secondary_people_error),
                         body = "",
                         stateDescription = stringResource(R.string.secondary_state_error),
@@ -182,7 +177,7 @@ fun PeopleContent(
             people.isEmpty() -> {
                 item {
                     EmptyState(
-                        icon = Icons.Filled.Info,
+                        icon = PaperInkIcons.Info,
                         title = stringResource(R.string.secondary_people_empty),
                         body = "",
                         modifier = Modifier
@@ -202,7 +197,7 @@ fun PeopleContent(
                             // v1.4 E6 (#575): index chrome comes from the
                             // resources — the English run reads it in English.
                             text = stringResource(R.string.people_index_backfill),
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.secondary,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                         )
@@ -230,7 +225,7 @@ fun PeopleContent(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Person,
+                                    imageVector = PaperInkIcons.Person,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(20.dp)
@@ -251,7 +246,7 @@ fun PeopleContent(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Icon(
-                                imageVector = Icons.Default.ChevronRight,
+                                imageVector = PaperInkIcons.ChevronRight,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(20.dp)

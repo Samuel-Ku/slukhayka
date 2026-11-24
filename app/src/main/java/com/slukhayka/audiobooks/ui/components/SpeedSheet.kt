@@ -13,8 +13,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -47,7 +45,9 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.theme.PaperInkType
 import com.slukhayka.audiobooks.player.AudioPlayerManager
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 
 /**
  * Playback-speed bottom sheet (wayfinder #26): preset chips plus a precise
@@ -77,7 +77,7 @@ fun SpeedSheet(
     // the component default.
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        containerColor = MaterialTheme.colorScheme.surface,
         modifier = Modifier
             .accessibilityPane(paneTitle)
             .testTag("speed_sheet")
@@ -101,7 +101,7 @@ fun SpeedSheet(
             ) {
                 Text(
                     text = paneTitle,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    style = PaperInkType.SectionTitle,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier
                         .focusRequester(headingFocusRequester)
@@ -113,7 +113,7 @@ fun SpeedSheet(
                     onClick = onDismiss,
                     modifier = Modifier.heightIn(min = 48.dp)
                 ) {
-                    Icon(Icons.Default.Close, contentDescription = closeDescription)
+                    Icon(PaperInkIcons.Close, contentDescription = closeDescription)
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))
@@ -137,16 +137,20 @@ fun SpeedSheet(
                         label = {
                             Text(
                                 "${formatSpeed(preset)}x",
+                                style = PaperInkType.Label,
                                 modifier = Modifier.clearAndSetSemantics { }
                             )
                         },
+                        shape = androidx.compose.foundation.shape.CircleShape,
                         modifier = Modifier
                             .semantics { contentDescription = presetDescription }
                             .testTag("speed_preset_${formatSpeed(preset)}"),
                         // Unselected chips one tonal step above the sheet so
                         // they read as affordances (same as the timer rows).
                         colors = FilterChipDefaults.filterChipColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                     )
                 }
@@ -155,7 +159,7 @@ fun SpeedSheet(
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = "${formatSpeed(sliderSpeed)}x",
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                style = PaperInkType.TimerXL,
                 color = MaterialTheme.colorScheme.primary
             )
             Slider(
@@ -189,7 +193,8 @@ fun SpeedSheet(
                 // so only the global default remains an explicit action.
                 OutlinedButton(
                     onClick = onSetDefault,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)
                 ) {
                     Text(stringResource(R.string.speed_default_for_all))
                 }

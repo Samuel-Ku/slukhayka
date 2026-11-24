@@ -25,10 +25,10 @@ import org.robolectric.annotation.Config
 /**
  * Repository seam (spec-15 T3): the WebView catalogue hydration tool. Driven
  * by injected fake adapters — no network. Tests external behaviour: a crawl
- * imports every catalogue book into Room through the shared MergeKey path
- * (Work + chapters + source), re-hydration adds new books without duplicating
- * existing Works, a failing book never aborts the crawl, and an unknown source
- * is a no-op.
+ * writes every catalogue book into the MIRROR (Work + work source), never into
+ * the listener's library (ADR-0063), re-hydration adds new books without
+ * duplicating existing Works, a failing book never aborts the crawl, and an
+ * unknown source is a no-op.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -99,7 +99,9 @@ class HydrationRepositoryTest {
         repository.hydrateWebSourceCatalog("sluhay")
 
         assertTrue("кравл не пройшов через батч-шов", batches >= 2)
-        assertEquals(2, dao.getAllAudiobooks().first().size)
+        // ADR-0063 — hydration writes the mirror, so the library stays empty.
+        assertEquals(2, dao.countWorks())
+        assertTrue(dao.getAllAudiobooks().first().isEmpty())
     }
 
     private fun book(title: String, author: String, sourceId: String) =
@@ -115,7 +117,7 @@ class HydrationRepositoryTest {
     )
 
     @Test
-    fun `hydration imports every catalogued book into Room with chapters and sources`() = runBlocking {
+    fun `hydration writes every catalogued book into the mirror and never the library`() = runBlocking {
         val pasazhyr = book("Пасажир", "Жан-Крістоф Гранже", "sluhay")
         val kobzar = book("Кобзар", "Тарас Шевченко", "sluhay")
         val repository = repo(FakeAdapter("sluhay", listOf(pasazhyr, kobzar), ::detailOf))
@@ -125,12 +127,11 @@ class HydrationRepositoryTest {
         assertEquals(2, result.found)
         assertEquals(2, result.imported)
         assertEquals(0, result.failed)
-        val stored = dao.getAllAudiobooks().first()
-        assertEquals(2, stored.size)
-        assertEquals("Пасажир", stored.first { it.title == "Пасажир" }.title)
-        // Chapters imported per book; source rows attached.
-        assertEquals(2, dao.getChaptersForBook(stored.first { it.title == "Пасажир" }.id).first().size)
-        assertEquals(1, dao.getSourcesForBookSync(stored.first { it.title == "Пасажир" }.id).size)
+        // ADR-0063 — the mirror gets covered Works, the listener's shelf does
+        // not: opening a catalogue card is what materializes a book, later.
+        assertEquals(2, dao.countWorks())
+        assertEquals(listOf("Кобзар", "Пасажир"), dao.observeWorks().first().map { it.title }.sorted())
+        assertTrue("гідратація не пише особисту бібліотеку", dao.getAllAudiobooks().first().isEmpty())
     }
 
     @Test
@@ -151,10 +152,9 @@ class HydrationRepositoryTest {
         assertEquals(1, result.imported)
         assertEquals(2, result.merged)
         assertEquals(0, result.failed)
-        val stored = dao.getAllAudiobooks().first()
-        // No duplicate Works — still exactly three books.
-        assertEquals(3, stored.size)
-        assertEquals(3, stored.map { it.title }.toSet().size)
+        // No duplicate Works — still exactly three mirror rows.
+        assertEquals(3, dao.countWorks())
+        assertEquals(3, dao.observeWorks().first().map { it.title }.toSet().size)
     }
 
     @Test
@@ -175,7 +175,7 @@ class HydrationRepositoryTest {
         assertEquals(2, result.found)
         assertEquals(1, result.imported)
         assertEquals(1, result.failed)
-        assertEquals(1, dao.getAllAudiobooks().first().size)
+        assertEquals(1, dao.countWorks())
     }
 
     @Test
@@ -187,6 +187,7 @@ class HydrationRepositoryTest {
         assertEquals(0, result.found)
         assertEquals(0, result.imported)
         assertEquals(0, result.failed)
+        assertEquals(0, dao.countWorks())
         assertTrue(dao.getAllAudiobooks().first().isEmpty())
     }
 

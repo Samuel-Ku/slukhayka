@@ -103,6 +103,8 @@ class SourceParsingTest {
 
     @Test
     fun `stripTags removes tags or replaces them with the given string`() {
+        assertEquals("<> незакритий <tag", stripTags("<> незакритий <tag"))
+        assertEquals("<p>текст</p>", stripTags("<p>текст</p>", "$0"))
         assertEquals("текст", stripTags("<p>те<em>к</em>ст</p>"))
         assertEquals(" a   b ", stripTags("<i>a</i> <b>b</b>", " "))
     }

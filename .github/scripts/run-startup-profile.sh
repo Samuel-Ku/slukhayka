@@ -55,8 +55,39 @@ elif [[ "$mode" == guard ]]; then
     -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$component" > "$output/profile-launch.txt" 2>&1 || status=$?
   sleep 1
   adb shell am profile stop "$package" > "$output/profile-stop.txt" 2>&1 || status=$?
-  adb logcat -d -v threadtime Startup1742:I AndroidRuntime:E ActivityTaskManager:I '*:S' > "$output/probe-logcat.txt"
-  adb pull /data/local/tmp/startup-1742.trace "$output/startup.trace" || status=$?
+  # profile stop queues work on the app main thread; the shell command returning
+  # does not mean the trace fd has been flushed. Wait for positive, stable size.
+  python3 - "$output" <<'PYTRACE' || status=$?
+from pathlib import Path
+import json, subprocess, sys, time
+root = Path(sys.argv[1]); previous = None; observations = []
+for attempt in range(30):
+    try:
+        result = subprocess.run(['adb', 'shell', 'stat', '-c', '%s', '/data/local/tmp/startup-1742.trace'],
+                                capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        print(f'Infrastructure/trace stat failed: {error}', file=sys.stderr)
+        sys.exit(2)
+    raw = result.stdout.strip()
+    size = int(raw) if result.returncode == 0 and raw.isdecimal() else None
+    observations.append({'attempt': attempt + 1, 'size': size, 'status': result.returncode})
+    if size and size == previous:
+        break
+    previous = size
+    time.sleep(1)
+else:
+    (root / 'trace-flush.json').write_text(json.dumps(observations, indent=2) + '\n')
+    print('Infrastructure/trace flush incomplete after bounded wait', file=sys.stderr)
+    sys.exit(2)
+(root / 'trace-flush.json').write_text(json.dumps(observations, indent=2) + '\n')
+try:
+    result = subprocess.run(['adb', 'pull', '/data/local/tmp/startup-1742.trace', str(root / 'startup.trace')], timeout=30)
+except (OSError, subprocess.TimeoutExpired) as error:
+    print(f'Infrastructure/trace pull failed: {error}', file=sys.stderr)
+    sys.exit(2)
+sys.exit(0 if result.returncode == 0 else 2)
+PYTRACE
+  adb logcat -d -v threadtime Startup1742:I AndroidRuntime:E ActivityTaskManager:I ActivityThread:W '*:S' > "$output/probe-logcat.txt"
   if [[ "$status" -ne 0 ]]; then exit 2; fi
   python3 - "$output" "${GUARD_KIND:-BOTH}" <<'PYCODE'
 from pathlib import Path

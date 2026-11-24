@@ -1,4 +1,4 @@
-name: Android ART performance verification
+name: Android ART Edition memo verification
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: performance-art-verification
+  group: performance-art-edition-memo-verification
   cancel-in-progress: false
 
 jobs:
@@ -17,7 +17,7 @@ jobs:
     env:
       GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx3g
     steps:
-      - name: Checkout declared base for combined diagnostics
+      - name: Checkout declared base for standalone memo diagnostics
         uses: actions/checkout@v5
         with:
           ref: 85c4423b6c608b18162f440ff3044d47e76d6451
@@ -77,7 +77,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: android-art-perf-evidence
+          name: android-art-edition-memo-evidence
           path: .mutations/evidence/art-perf/
           retention-days: 7
           if-no-files-found: warn

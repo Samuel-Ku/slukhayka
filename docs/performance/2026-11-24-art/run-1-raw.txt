@@ -1,3 +1,6 @@
+--------- beginning of main
+11-24 13:03:48.060  2072  2285 I TestRunner: run started: 1 tests
+11-24 13:03:48.060  2072  2285 I TestRunner: started: compareCommittedReferenceAndCandidateHelpers(com.slukhayka.audiobooks.performance.PerformanceLoopBenchmarkTest)
 11-24 13:03:48.146  2072  2285 I PerfLoop: ENV sdk=35 abi=[x86_64] vm=2.1.0 fingerprint=google/sdk_gslim_x86_64/emu64x:15/AE3A.240806.019/12368160:userdebug/dev-keys
 11-24 13:03:48.146  2072  2285 I PerfLoop: BEGIN merge-key
 11-24 13:03:57.921  2072  2285 I System.out: keys=1000 referenceMs=4.70433334 optimizedMs=3.15219762 speedup=1.492397973449393
@@ -47,3 +50,5 @@
 11-24 13:08:15.539  2072  2285 I System.out: checksum=4396265383990000
 11-24 13:08:15.539  2072  2285 I PerfLoop: END claimed-text
 11-24 13:08:15.539  2072  2285 I PerfLoop: ALL_BENCHMARKS_DONE
+11-24 13:08:15.539  2072  2285 I TestRunner: finished: compareCommittedReferenceAndCandidateHelpers(com.slukhayka.audiobooks.performance.PerformanceLoopBenchmarkTest)
+11-24 13:08:15.541  2072  2285 I TestRunner: run finished: 1 tests, 0 failed, 0 ignored

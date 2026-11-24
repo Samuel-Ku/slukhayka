@@ -2,6 +2,8 @@ package com.slukhayka.audiobooks.data
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertNotSame
 import org.junit.Test
 import java.security.MessageDigest
 import kotlin.system.measureNanoTime
@@ -105,6 +107,16 @@ class EditionIdTest {
         } finally {
             workers.shutdownNow()
         }
+    }
+
+    @Test
+    fun `repeated identity is reused and an old value is released by a full cache`() {
+        val first = EditionId.forBook("cache-release-witness", "", "narrator", "uk")
+        assertSame(first, EditionId.forBook("cache-release-witness", "", "narrator", "uk"))
+        for (i in 0 until 6000) EditionId.forBook("cache-release-filler-$i", "", "narrator", "uk")
+        val recomputed = EditionId.forBook("cache-release-witness", "", "narrator", "uk")
+        assertEquals(first, recomputed)
+        assertNotSame(first, recomputed)
     }
 
     private fun reference(key: String, bookId: String, narrator: String, language: String): String =

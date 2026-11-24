@@ -1028,8 +1028,10 @@ fun RecommendedBookCard(
     var feedbackExpanded by remember { mutableStateOf(false) }
     val reasonLine = if (rec.isExploration && rec.sourceLabel != null) {
         stringResource(R.string.home_recommendation_source_badge, rec.sourceLabel)
-    } else {
+    } else if (rec.reasonTitle.isNotBlank()) {
         stringResource(R.string.home_cycle_similar, rec.reasonTitle)
+    } else {
+        null
     }
     com.slukhayka.audiobooks.ui.components.PosterCard(
         title = rec.candidate.title,

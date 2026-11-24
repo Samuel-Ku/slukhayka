@@ -736,3 +736,9 @@ _Avoid_: «1 книг у циклі» as a placeholder while resolution runs
 **Rare actions live in secondary menus**:
 Frequent actions are first-class buttons; rare or destructive ones hide in ⋮ / long-press / confirmation dialogs — reachable, never in the way.
 _Avoid_: delete/share icons at the same rank as play
+
+**Локальний змістовий підбір (пропозиція #1796)**:
+Розріджена схожість відомих описів і метаданих Творів у Дзеркалі каталогу,
+окремі позитивні й негативні інтереси та ротація відкриттів. Не потребує
+нейромережі на пристрої або серверного профілю. Межі й приймання — ADR-0064;
+задоволеність слухача не виводиться з успішних сценарних тестів.

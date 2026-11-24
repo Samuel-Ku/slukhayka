@@ -89,6 +89,14 @@ object RecommendationPersonalization {
                 recordedAt = behavior.progressRecordedAt,
                 nowEpochMs = nowEpochMs
             )
+            // Explicit negative feedback wins over completion and listening progress.
+            if (behavior.reduceSimilar || behavior.rating in listOf(1, 2)) {
+                weight = when {
+                    behavior.reduceSimilar -> -1.0
+                    behavior.rating == 1 -> -1.2
+                    else -> -.8
+                }
+            }
             weight = weight.coerceIn(-1.5, 1.5)
             return if (abs(weight) < 1e-9) null else RecommendationEngine.Signal(
                 id = behavior.workId,

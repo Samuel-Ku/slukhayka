@@ -33,23 +33,26 @@ fun ogMeta(html: String, property: String): String? =
  * missing it left «Ім&#x27;я тіні» as a Work title and, worse, as a merge key
  * distinct from the same book's JSON-LD title (#964).
  *
- * ONE pass over the input, so a replacement is never re-read: `&#x26;amp;`
+ * Replacements are never re-read: `&#x26;amp;`
  * stays the literal `&amp;`, and `&lt;` / `&gt;` / `&apos;` are deliberately
  * NOT in the set (already-stripped markup boundaries). Anything unrecognised —
  * an unknown name, malformed hex, an empty numeric or an out-of-range code
  * point — stays byte-for-byte literal: a decoder never fabricates a
  * character.
  */
-fun decodeEntities(input: String): String = HTML_ENTITY.replace(input) { match ->
-    val hex = match.groupValues[1]
-    val decimal = match.groupValues[2]
-    val named = match.groupValues[3]
-    when {
-        hex.isNotEmpty() -> decodeCodePoint(hex.toIntOrNull(16), match.value)
-        decimal.isNotEmpty() -> decodeCodePoint(decimal.toIntOrNull(), match.value)
-        named == "quot" -> "\""
-        named == "amp" -> "&"
-        else -> match.value
+fun decodeEntities(input: String): String {
+    if ('&' !in input) return input
+    return HTML_ENTITY.replace(input) { match ->
+        val hex = match.groupValues[1]
+        val decimal = match.groupValues[2]
+        val named = match.groupValues[3]
+        when {
+            hex.isNotEmpty() -> decodeCodePoint(hex.toIntOrNull(16), match.value)
+            decimal.isNotEmpty() -> decodeCodePoint(decimal.toIntOrNull(), match.value)
+            named == "quot" -> "\""
+            named == "amp" -> "&"
+            else -> match.value
+        }
     }
 }
 

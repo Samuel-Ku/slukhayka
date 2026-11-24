@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.data.source
 import com.slukhayka.audiobooks.data.EditionId
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
+import java.util.IdentityHashMap
 
 /**
  * Spec-10 T4 — the global-search result model (pure JVM).
@@ -164,11 +165,13 @@ fun sourceDisplayName(sourceId: String): String =
  */
 fun mergeGlobalSearchResults(results: List<SourceBook>): List<GlobalSearchResult> {
     val usable = results.filter { it.title.isNotBlank() && it.url.isNotBlank() }
+    val mergeKeys = IdentityHashMap<SourceBook, String>(usable.size)
     val grouped = usable.groupBy { book ->
         // ADR-0010: cards merge on the bibliographic Work key — the narrator
         // distinguishes Editions of one card, not separate cards.
-        MergeKey.keyFor(book.title, book.author)
-            .ifBlank { "${book.sourceId}|${book.url}" }
+        val mergeKey = MergeKey.keyFor(book.title, book.author)
+        mergeKeys[book] = mergeKey
+        mergeKey.ifBlank { "${book.sourceId}|${book.url}" }
     }
     return grouped.values
         .map { books ->
@@ -181,7 +184,7 @@ fun mergeGlobalSearchResults(results: List<SourceBook>): List<GlobalSearchResult
                 // card renders the source's HTML entity as a name.
                 author = MetadataAssertions.normalizeClaimedText(first.author).orEmpty(),
                 narrator = MetadataAssertions.normalizeClaimedText(first.narrator).orEmpty(),
-                mergeKey = MergeKey.keyFor(first.title, first.author),
+                mergeKey = mergeKeys.getValue(first),
                 coverImageUrl = first.coverImageUrl,
                 // One Work language: known only when every member source
                 // agrees on the same claim; "" (unknown) when any member is
@@ -208,7 +211,7 @@ fun mergeGlobalSearchResults(results: List<SourceBook>): List<GlobalSearchResult
                         // local row and two languages of one Work would collapse
                         // into one rendition identity.
                         editionId = EditionId.forBook(
-                            MergeKey.keyFor(book.title, book.author), "", narrator, book.language
+                            mergeKeys.getValue(book), "", narrator, book.language
                         ),
                         // R5 (#512): the member's effective language rides the
                         // source so cached cards keep filtering correctly.

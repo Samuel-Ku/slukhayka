@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'exit 2' ERR
 
-mode=${1:?measure or guard}
+mode=${1:-}
 output=.mutations/evidence/startup-profile
 package=com.slukhayka.audiobooks.debug
 component="$package/com.slukhayka.audiobooks.MainActivity"
@@ -14,12 +15,12 @@ if [[ "$mode" == measure ]]; then
   adb install -r -t .mutations/apks/plain.apk
   adb shell pm grant "$package" android.permission.POST_NOTIFICATIONS
   adb shell am force-stop "$package"
-  timeout 90 adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$component" > "$output/initial-launch.txt" 2>&1
+  timeout 90 adb shell am start -S -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$component" > "$output/initial-launch.txt" 2>&1
   # Let the one-time seed settle; it is not one of the measured process-cold runs.
   sleep 10
   for iteration in 1 2 3 4 5 6 7 8 9; do
     adb shell am force-stop "$package"
-    timeout 90 adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$component" > "$output/cold-$iteration.txt" 2>&1
+    timeout 90 adb shell am start -S -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$component" > "$output/cold-$iteration.txt" 2>&1
     sleep 1
   done
   python3 - "$output" <<'PYCODE'
@@ -51,7 +52,7 @@ elif [[ "$mode" == guard ]]; then
   adb shell am force-stop "$package"
   adb logcat -c
   status=0
-  timeout 90 adb shell am start -W --start-profiler /data/local/tmp/startup-1742.trace --sampling 1000 \
+  timeout 90 adb shell am start -S -W --start-profiler /data/local/tmp/startup-1742.trace --sampling 1000 \
     -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$component" > "$output/profile-launch.txt" 2>&1 || status=$?
   sleep 1
   adb shell am profile stop "$package" > "$output/profile-stop.txt" 2>&1 || status=$?
@@ -89,7 +90,9 @@ sys.exit(0 if result.returncode == 0 else 2)
 PYTRACE
   adb logcat -d -v threadtime Startup1742:I AndroidRuntime:E ActivityTaskManager:I ActivityThread:W '*:S' > "$output/probe-logcat.txt" || status=2
   if [[ "$status" -ne 0 ]]; then exit 2; fi
-  python3 - "$output" "${GUARD_KIND:-BOTH}" <<'PYCODE'
+  rm -f "$output/guard-verdict.json"
+  verdict=0
+  python3 - "$output" "${GUARD_KIND:-BOTH}" <<'PYCODE' || verdict=$?
 from pathlib import Path
 import json, re, sys
 root = Path(sys.argv[1]); focus = sys.argv[2]
@@ -104,6 +107,7 @@ except OSError as error:
     print(f'Infrastructure/trace incomplete: {error}', file=sys.stderr)
     sys.exit(2)
 if (not re.search(r'^Status: ok\s*$', launch, re.M)
+        or not re.search(r'^LaunchState: COLD\s*$', launch, re.M)
         or not re.search(r'^Activity: com\.slukhayka\.audiobooks\.debug/com\.slukhayka\.audiobooks\.MainActivity\s*$', launch, re.M)
         or 'event=FIRST_DRAW_END' not in log or b'*end\nSLOW' not in trace):
     print('Infrastructure/trace incomplete; no performance verdict', file=sys.stderr)
@@ -126,6 +130,11 @@ report = {'guardKind': focus, 'allConstructors': records, 'allViolations': viola
 print(json.dumps(report))
 sys.exit(1 if failing else 0)
 PYCODE
+  if [[ "$verdict" -eq 1 ]]; then
+    # Only a freshly written resource verdict may represent the symptom.
+    python3 -c 'import json,sys; r=json.load(open(sys.argv[1])); assert r["outcome"] == "red-resource-init-on-main-before-draw" and r["failingViolations"]' "$output/guard-verdict.json"
+  fi
+  exit "$verdict"
 else
   printf '%s\n' 'expected measure or guard' >&2
   exit 2

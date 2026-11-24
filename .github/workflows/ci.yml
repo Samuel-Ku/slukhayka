@@ -97,8 +97,15 @@ jobs:
           emulator-boot-timeout: 900
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -no-metrics -camera-back none
           script: |
-            bash "$RUNNER_TEMP/run-startup-profile.sh" measure
-            bash "$RUNNER_TEMP/run-startup-profile.sh" guard
+            bash -c 'measure_status=0; guard_status=0; bash "$RUNNER_TEMP/run-startup-profile.sh" measure || measure_status=$?; bash "$RUNNER_TEMP/run-startup-profile.sh" guard || guard_status=$?; printf "measure=%s guard=%s\n" "$measure_status" "$guard_status" > .mutations/evidence/startup-profile/step-status.txt; if [ "$measure_status" -ne 0 ] || [ "$guard_status" -eq 2 ]; then exit 2; fi; exit "$guard_status"'
+      - name: Preserve built APKs for diagnostic replay
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: startup-profile-apks
+          path: .mutations/apks/
+          retention-days: 1
+          if-no-files-found: warn
       - name: Upload actual timings, guard, source hashes and raw trace
         if: always()
         uses: actions/upload-artifact@v7

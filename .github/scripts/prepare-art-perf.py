@@ -17,14 +17,17 @@ def main():
               'scope':'standalone PR1805 debug APK; isolated ART operations, not UI or physical ARM','production':[],'probes':[]}
     production=blob(CANDIDATE,MAIN)
     assert blob(BASE,MAIN)!=production
-    probe=blob(CANDIDATE,TEST)
-    assert probe.count('object RunEditionMemoBenchmark')==1
+    origin=blob(CANDIDATE,TEST)
+    assert origin.count('object RunEditionMemoBenchmark')==1
+    body=origin[origin.index('object RunEditionMemoBenchmark'):]
+    assert '@Test' not in body and 'class EditionIdTest' not in body
+    probe='package com.slukhayka.audiobooks.data\nimport java.security.MessageDigest\nimport kotlin.system.measureNanoTime\n\n'+body
     destination='app/src/androidTest/java/com/slukhayka/audiobooks/data/RunEditionMemoBenchmark.kt'
     harness='app/src/androidTest/java/com/slukhayka/audiobooks/performance/PerformanceLoopBenchmarkTest.kt'
     for path,text in [(MAIN,production),(destination,probe),(harness,HARNESS)]:
         output=root/path;output.parent.mkdir(parents=True,exist_ok=True);output.write_text(text)
     manifest['production'].append({'path':MAIN,'commits':[CANDIDATE],'sha256':sha(production)})
-    manifest['probes'].append({'commit':CANDIDATE,'origin':TEST,'destination':destination,'sha256':sha(probe)})
+    manifest['probes'].append({'commit':CANDIDATE,'origin':TEST,'destination':destination,'originSha256':sha(origin),'manualBodySha256':sha(body),'sha256':sha(probe),'extraction':'manual object and reference only; JVM JUnit class excluded for DEX compatibility'})
     manifest['harness']={'path':harness,'sha256':sha(HARNESS)}
     if root.resolve()==Path.cwd().resolve():
         changed=subprocess.check_output(['git','diff','--name-only',BASE,'--','app/src/main'],text=True).splitlines()

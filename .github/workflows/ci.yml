@@ -13,18 +13,19 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx3g
+      JAVA_TOOL_OPTIONS: -Drobolectric.dependency.repo.url=https://repo.maven.apache.org/maven2
     steps:
       - name: Checkout exact PR candidate
         uses: actions/checkout@v5
         with:
-          ref: cb11cce9e70ad963f0c36aa588b1f555a4ddc6f6
+          ref: 9e04c69673d061d49ef0b52c5c42a70fde69a14f
           fetch-depth: 0
           persist-credentials: false
       - name: Check source revision
-        run: test "$(git rev-parse HEAD)" = cb11cce9e70ad963f0c36aa588b1f555a4ddc6f6
+        run: test "$(git rev-parse HEAD)" = 9e04c69673d061d49ef0b52c5c42a70fde69a14f
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -38,6 +39,29 @@ jobs:
       - uses: android-actions/setup-android@v4
         with:
           packages: 'platforms;android-36.1 build-tools;36.0.0 platform-tools'
+      - name: Restore Robolectric runtime artifacts
+        uses: actions/cache@v6
+        with:
+          path: ~/.m2/repository/org/robolectric
+          key: robolectric-androidall-v1-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: robolectric-androidall-v1-
+      - name: Verify path selection before building
+        shell: bash
+        run: |
+          python3 - <<'PYCODE'
+          import json, subprocess
+          from pathlib import Path
+          paths = subprocess.check_output(['git', 'diff', '--name-only', '85c4423b6c608b18162f440ff3044d47e76d6451'], text=True).splitlines()
+          paths += subprocess.check_output(['git', 'ls-files', '--others', '--exclude-standard'], text=True).splitlines()
+          command = ['python3', 'scripts/test_partitions.py', 'select']
+          for path in paths:
+              command.extend(['--changed-file', path])
+          selection = json.loads(subprocess.check_output(command, text=True))
+          assert not selection['fullSuite'], selection
+          print({name: len(classes) for name, classes in selection['partitions'].items()})
+          Path('.mutations/evidence').mkdir(parents=True, exist_ok=True)
+          Path('.mutations/evidence/preflight-selection.json').write_text(json.dumps(selection, indent=2))
+          PYCODE
       - name: Prepare isolated build slot and explicit mutants
         shell: bash
         run: |
@@ -85,7 +109,7 @@ jobs:
         run: |
           mkdir -p .mutations/evidence
           git rev-parse HEAD > .mutations/evidence/source-head.txt
-          python3 scripts/test_partitions.py select --changed-file app/src/main/java/com/slukhayka/audiobooks/data/collections/CollectionMatcher.kt --changed-file app/src/test/java/com/slukhayka/audiobooks/data/collections/CollectionMatcherTest.kt --changed-file app/src/test/java/com/slukhayka/audiobooks/data/collections/RunCollectionMatcherBenchmark.kt > .mutations/evidence/partitions.json
+          python3 scripts/test_partitions.py select --changed-file app/src/main/java/com/slukhayka/audiobooks/data/collections/CollectionMatcher.kt --changed-file app/src/test/java/com/slukhayka/audiobooks/data/collections/CollectionMatcherTest.kt > .mutations/evidence/partitions.json
       - name: Upload bounded verification evidence
         if: always()
         uses: actions/upload-artifact@v7

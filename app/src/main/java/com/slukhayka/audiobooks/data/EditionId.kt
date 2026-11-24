@@ -1,5 +1,7 @@
 package com.slukhayka.audiobooks.data
 
+import java.util.concurrent.ConcurrentHashMap
+
 /**
  * ADR-0007 + ADR-0010 — the deterministic domain-Edition id.
  *
@@ -13,6 +15,19 @@ package com.slukhayka.audiobooks.data
  * migration share one implementation.
  */
 object EditionId {
+    // Repeated local/settled search cards share the same pure identity input.
+    // Clearing this bounded process cache only makes the next call recompute.
+    private val recentIds = ConcurrentHashMap<String, String>()
+
+    private fun currentId(input: String): String {
+        recentIds[input]?.let { return it }
+        val id = sha256Hex(input.toByteArray(Charsets.UTF_8)).take(24)
+        if (recentIds.size >= MAX_RECENT_IDS) recentIds.clear()
+        recentIds[input] = id
+        return id
+    }
+
+    private const val MAX_RECENT_IDS = 4096
 
     /**
      * The edition id of a book's rendition. [mergeKey] is the Work-level
@@ -22,7 +37,7 @@ object EditionId {
      * differ in [narrator] and therefore in id.
      */
     fun forBook(mergeKey: String, bookId: String, narrator: String = "", language: String = ""): String =
-        sha256Hex("${mergeKey.ifBlank { bookId }}\u0000$narrator\u0000$language".toByteArray(Charsets.UTF_8)).take(24)
+        currentId("${mergeKey.ifBlank { bookId }}\u0000$narrator\u0000$language")
 
     /**
      * The v13→v14-era formula — narrator inside the mergeKey, no separate

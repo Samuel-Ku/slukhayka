@@ -87,7 +87,7 @@ except (OSError, subprocess.TimeoutExpired) as error:
     sys.exit(2)
 sys.exit(0 if result.returncode == 0 else 2)
 PYTRACE
-  adb logcat -d -v threadtime Startup1742:I AndroidRuntime:E ActivityTaskManager:I ActivityThread:W '*:S' > "$output/probe-logcat.txt"
+  adb logcat -d -v threadtime Startup1742:I AndroidRuntime:E ActivityTaskManager:I ActivityThread:W '*:S' > "$output/probe-logcat.txt" || status=2
   if [[ "$status" -ne 0 ]]; then exit 2; fi
   python3 - "$output" "${GUARD_KIND:-BOTH}" <<'PYCODE'
 from pathlib import Path

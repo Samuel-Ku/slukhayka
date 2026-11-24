@@ -22,21 +22,26 @@ class LocalRecommendationRanker {
         popularityByWorkId: Map<String, Double> = emptyMap(),
         sourceLabelsByWorkId: Map<String, String> = emptyMap(),
         nowEpochMs: Long = System.currentTimeMillis(),
-        topN: Int = 10
+        topN: Int = 10,
+        contentGraph: PrecomputedRecommendationGraph? = null
     ): List<RecommendationEngine.Recommendation> {
         if (topN <= 0) return emptyList()
-        index(candidates)
+        val graph = contentGraph?.takeIf { it.isFresh(nowEpochMs) }
+        if (graph == null) index(candidates)
         val hidden = excludedAuthors.map(::key).toSet()
         val ordered = signals.sortedWith(compareByDescending<RecommendationEngine.Signal> { kotlin.math.abs(it.weight) }
             .thenBy { it.id })
         val positive = ordered.filter { it.weight > 0 }.take(64)
         val negative = ordered.filter { it.weight < 0 }.take(64)
         val active = positive + negative
-        val signalVectors = active.associate { it.id to (documents[it.id] ?: vector(tokens(it.text))) }
+        val signalVectors = if (graph == null) active.associate {
+            it.id to (documents[it.id] ?: vector(tokens(it.text)))
+        } else emptyMap()
         val features = candidates.associate { it.id to Features(key(it.author), key(it.series), tokens(it.genre).keys) }
         val signalFeatures = active.associate { it.id to Features(key(it.author), key(it.series), tokens(it.genre).keys) }
         fun similarity(candidate: RecommendationEngine.Candidate, signal: RecommendationEngine.Signal): Double {
-            val lexical = dot(documents[candidate.id].orEmpty(), signalVectors[signal.id].orEmpty())
+            val lexical = graph?.similarity(candidate.id, signal.id)
+                ?: dot(documents[candidate.id].orEmpty(), signalVectors[signal.id].orEmpty())
             val a = features.getValue(candidate.id)
             val b = signalFeatures.getValue(signal.id)
             val author = if (a.author.isNotEmpty() && a.author == b.author) 1.0 else 0.0

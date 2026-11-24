@@ -77,6 +77,11 @@ android {
 
   defaultConfig {
     applicationId = "com.slukhayka.audiobooks"
+    // Empty until a reviewed public graph is published. Never points at a listener endpoint.
+    val graphUrl = providers.gradleProperty("recommendation.graphUrl").orElse("").get()
+    require(graphUrl.isEmpty() || graphUrl.startsWith("https://"))
+    require(graphUrl.none { it == '"' || it == '\\' || it.isISOControl() })
+    buildConfigField("String", "RECOMMENDATION_GRAPH_URL", "\"$graphUrl\"")
     minSdk = 24
     // #779 — Chaquopy ships native CPython per ABI, so an explicit list is required.
     ndk { abiFilters += listOf("arm64-v8a", "x86_64") }

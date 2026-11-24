@@ -4247,6 +4247,20 @@ class MainViewModel @JvmOverloads constructor(
     val recommendationsReady: StateFlow<Boolean> = MutableStateFlow(true)
     private val localRecommendationRanker =
         com.slukhayka.audiobooks.data.recommend.LocalRecommendationRanker()
+    private val recommendationContentGraph = MutableStateFlow<
+        com.slukhayka.audiobooks.data.recommend.PrecomputedRecommendationGraph?>(null)
+    private val recommendationGraphStore = com.slukhayka.audiobooks.data.recommend.RecommendationGraphStore(
+        File(application.filesDir, "recommendations"),
+        com.slukhayka.audiobooks.BuildConfig.RECOMMENDATION_GRAPH_URL,
+        fetch = { url, limit -> com.slukhayka.audiobooks.data.source.HttpFetcher().getTextBounded(url, limit) }
+    )
+
+    fun refreshRecommendationGraph() {
+        viewModelScope.launch(Dispatchers.IO) {
+            recommendationContentGraph.value = recommendationGraphStore.refresh()
+        }
+    }
+
     // ADR-0041: recommendations are a discovery surface of the Mirror, so the
     // pool is the CLAIMED Works only — a Work whose every Source was removed
     // can never be opened and must not be offered (the ghost behind the
@@ -4332,7 +4346,9 @@ class MainViewModel @JvmOverloads constructor(
         recommendationFacts
     ) { library, works, preferences, settings, facts ->
         Triple(library, works, facts) to (preferences to settings)
-    }.debounce(1_000L).mapLatest { (catalog, controls) ->
+    }.combine(recommendationContentGraph) { inputs, graph -> inputs to graph }
+        .debounce(1_000L).mapLatest { (inputs, graph) ->
+        val (catalog, controls) = inputs
         val (library, works, facts) = catalog
         val (preferences, settings) = controls
         if (!settings.localPersonalizationEnabled) return@mapLatest emptyList()
@@ -4416,7 +4432,8 @@ class MainViewModel @JvmOverloads constructor(
             excludedAuthors = hiddenAuthors,
             topN = 10,
             popularityByWorkId = popularityByWorkId,
-            sourceLabelsByWorkId = sourceLabelsByWorkId
+            sourceLabelsByWorkId = sourceLabelsByWorkId,
+            contentGraph = graph
         )
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

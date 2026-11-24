@@ -247,6 +247,7 @@ fun HomeScreen(
         // #522 — one bounded cursor delta of the collective catalogue: cards
         // other installs verified land in the local mirror, no source request.
         launch { App.instance.collectiveDeltaSync.syncOnce() }
+        viewModel.refreshRecommendationGraph()
         // #523 — collective blocks: instant from the persisted snapshot, then
         // one leased stale-while-revalidate pass per source.
         launch { viewModel.refreshCollectiveBlocks() }
@@ -259,7 +260,6 @@ fun HomeScreen(
         sourceCatalog.refreshUnifiedCatalog()
         com.slukhayka.audiobooks.data.personbookmarks.PeopleNewArrivalWorker.notifyIfNeeded(App.instance)
         sourceCatalog.refreshSourceFeeds()
-        viewModel.refreshEmbeddingVectors()
         // spec-18 T2: one throttled, bounded duration-enrichment pass is
         // detached so it never delays browsing or catalogue completion. The
         // module's own atomic throttle collapses overlapping triggers.

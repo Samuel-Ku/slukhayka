@@ -1,0 +1,21 @@
+# Передача циклу оптимізації
+
+Користувач поставив оптимізацію на паузу. Перенесення не поновлює її автоматично.
+
+Вісім окремих PR: #1798, #1799, #1800, #1801, #1802, #1803, #1804 та #1805. Перші сім пройшли перевірки й незалежний огляд; нічого автоматично не зливали. #1805 — draft, HEAD `aacca018c7171b808db9e5ddd6b62e8887842960`.
+
+Для #1805 канонічний [прогін 45421208466](https://github.com/Samuel-Ku/slukhayka/actions/runs/45421208466) та [ART 45423157488](https://github.com/Samuel-Ku/slukhayka/actions/runs/45423157488) завершилися SUCCESS. Потрібно перечитати первинні канонічні артефакти й окремо звірити фактичні ART-результати незалежним оглядом перед ready. Не зараховувати старі скасовані прогони. Публічний [архів сирих ART-даних](https://github.com/Samuel-Ku/slukhayka/tree/46759215a80628e577480ebf0919aa7e6f3c1c5e/docs/performance/2026-11-24-edition-memo-art) містить усі 15 порівнянь і 30 масивів. На API35/x86_64 повторні входи дали 5,32–5,51×; модель local→settled — приблизно на 16–17% менше часу. Неповторювані входи та переповнення стали на 13–17% дорожчими. Реальний hit rate каталогу не виміряний. Не називати ці числа прискоренням UI або всього застосунку.
+
+#1742 зарезервовано чатом `01a20c90-49c5-7d70-8143-44c72568c3df`, reservation `android-startup-performance-loop`; GitHub-коментар [7132471298](https://github.com/Samuel-Ku/slukhayka/issues/1742#issuecomment-7132471298). Product-смуга `codex/issue-1742-startup-measured` залишилася на базі `85c4423b6c608b18162f440ff3044d47e76d6451`, без продуктових змін. Перед продовженням звірити чинне резервування й останні коментарі.
+
+[Replay 45424727600](https://github.com/Samuel-Ku/slukhayka/actions/runs/45424727600) завершився FAILURE навмисно через справжній resource RED у трьох COLD-процесах. Coil будувався на main до першого CPU draw; Room — у фоні. Незалежна retro підтвердила PID/thread/source binding. Цей маркер не є GPU presentation. Незмінений debug APK раніше дав дев’ять COLD-замірів з медіаною 2009 ms на іншому CI-прогоні; не порівнювати різні runner-и як строгий before/after.
+
+Replay використовує готові APK producer `45418466008` без Gradle, source85, workflow22b209de. Допоміжна гілка `codex/perf-startup-replay`, commit `5c220ed18746bb6e2c404afb8f20ccbe290ce767`. Отримано startup method trace 1,46 MB, idle trace 149 KB і Perfetto 2,24 MB; crash buffers порожні. Попередня причина нульових трас та force-finish не встановлена. Resource guard відокремлений від профайлера.
+
+Перед аналізом користувачу показано чотири гіпотези: Coil створюється в Activity; ViewModel рано будує граф; перша композиція активує модулі; main чекає фонову ініціалізацію. Початковий аналіз method trace: onCreate wall ~819 ms, один вкладений MainViewModel constructor ~591 ms, App.getLibraryImport ~125,5 ms, App.getSourceCatalog ~119,7 ms, sourceAdapters ~93,2 ms. Три overload-конструктори VM мають той самий вкладений інтервал — не додавати їхні тривалості. Це профільоване діагностичне виконання, не latency незміненого APK. Perfetto importer не заповнив thread_dur; CPU/очікування ще потребують аналізу. PaperInkIcons.<clinit> також з’явився ~50,5 ms, але окремої оптимізації чи issue для нього ще немає.
+
+Приватний JFR для перспективної композиції восьми кандидатів пройшов 500 повних порівнянь результатів. 215 merge samples: NormalizationMemo 65, MergeKey.keyFor 41, leaf ConcurrentHashMap.get 74; старі comparator/Character frames у цьому записі не виділилися. Не починати сортувальну оптимізацію лише зі старого профілю. Попередні per-row carriers і per-group wrapper відхилено через нестабільні малі набори; новий варіант повторного використання вже наявного group-map key ще не реалізовано.
+
+У локальній папці передачі `optimization-evidence` збережені сирі trace/JFR, source manifests, CSV/SQL та джерело відтворення профілю. Бінарні QA-дані не додані в Git. CI-артефакти мають обмежений строк життя; для продовження поза цим строком перенести папку зі старого комп’ютера. Для коду достатньо GitHub. Локальні SDK, ключі та старі build grants не переносилися як чинні повноваження.
+
+fast-anything встановлено на попередньому host, але Java scan вимагав JDK22+, коли проєкт використовував JDK21. Використано прямий JFR21; Rust/FFM-порт для Android не валідували. Не повторювати той самий несумісний scan і не заявляти прискорення через Rust.

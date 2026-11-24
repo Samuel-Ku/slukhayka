@@ -1,0 +1,136 @@
+{
+  "repository": "https://github.com/Samuel-Ku/slukhayka",
+  "optimizationGoal": "paused by user",
+  "archiveFirstParent": "1290eaba31beacb17dd68bf54c1b06c9b133ddfb",
+  "workingCopies": [
+    {
+      "label": "main-wip",
+      "originalBranch": "codex/handoff-local-work-20261124",
+      "originalHead": "1290eaba31beacb17dd68bf54c1b06c9b133ddfb",
+      "indexTree": "780e39bf686e6e2aa814776374201ee136937d04",
+      "indexCommit": "d802bc4bf692e7fb1b4f422404010ef4e4fcafa9",
+      "worktreeTree": "780e39bf686e6e2aa814776374201ee136937d04",
+      "worktreeCommit": "1ff2ef468a71107afc9b93ea4644760c6c08d4e8"
+    },
+    {
+      "label": "recommendation-runtime",
+      "originalBranch": "codex/recommendation-runtime",
+      "originalHead": "dbb7dc40ea5278ab50156b2b561072c0a2cdcd47",
+      "indexTree": "f8ed9b448a166efde2acab16ed669ac508676901",
+      "indexCommit": "c6cae21df23eca2b134fd6fdf4d1ce98e485aa8b",
+      "worktreeTree": "f8ed9b448a166efde2acab16ed669ac508676901",
+      "worktreeCommit": "4f98f89acff77a261d116ae2df448ebed9bc91eb"
+    },
+    {
+      "label": "sdk-provenance",
+      "originalBranch": "codex/issue-620-sdk-provenance",
+      "originalHead": "f4ae7f29045e6e3b00a1b5b44dc554c0a7b00274",
+      "indexTree": "1911ca5942c08944e7e8fa2f7442f239be4f8167",
+      "indexCommit": "6e9a40e544f366ca2fe95e7dc587a278d20b870a",
+      "worktreeTree": "1911ca5942c08944e7e8fa2f7442f239be4f8167",
+      "worktreeCommit": "1ab391e6dc28e9c2f149f06bbc1026df05f6ca2a"
+    },
+    {
+      "label": "sources-524-525",
+      "originalBranch": "codex/sources-524-525",
+      "originalHead": "651dbfec99db318173d34061cc589d7db080d84c",
+      "indexTree": "49447efa0f4190b640289bc4ce14f465597b966f",
+      "indexCommit": "dffe360911ba5c31a50fc0e7d2ceb6ef8d1e4871",
+      "worktreeTree": "49447efa0f4190b640289bc4ce14f465597b966f",
+      "worktreeCommit": "6880e1049df6dae9b3cf1bdba7cdfd905af754d6"
+    }
+  ],
+  "stashes": [
+    {
+      "position": 0,
+      "sha": "1d97fa33bbef55f0f23d8d192cc003ce8a888f43",
+      "message": "On codex/sources-524-525: ROOT #525 main54 integration preserved WIP"
+    },
+    {
+      "position": 1,
+      "sha": "e3b29eeee54a7289062089004de0ceb5e2adc706",
+      "message": "On fix/507-cancel-stuck: spec-45 WIP part2 (theirs)"
+    },
+    {
+      "position": 2,
+      "sha": "1ed8bc4335b5e2104ae3e9e19d3ebeaa1e220f29",
+      "message": "On fix/507-cancel-stuck: spec-45 WIP (theirs, stashed on fix/507 branch)"
+    },
+    {
+      "position": 3,
+      "sha": "778fbf04ede21735e63422741b57fe9ae1c957e7",
+      "message": "WIP on fix/388-fk-sni: ea7c012 Merge branch 'main' into fix/388-fk-sni"
+    },
+    {
+      "position": 4,
+      "sha": "d8048d71a58f4cccd9b215f59cfa116237808409",
+      "message": "WIP on fix/388-fk-sni: 34402d5 fix(db): #388 FK crash when tapping Сни — transactional work+source, safe upsert, graceful degrade"
+    },
+    {
+      "position": 5,
+      "sha": "3f6242b15b40e016d32182fe0ab883ceb6cb4306",
+      "message": "WIP on feat/392-downloads-foundation: 8736b0b fix(player): #292/#293 — remove stop indicator + swap Book/Chapter order on main"
+    },
+    {
+      "position": 6,
+      "sha": "78458063d223aa3e52b2c07aeee733c021f6b922",
+      "message": "WIP on feat/392-downloads-foundation: d2a5d83 Merge branch 'main' into fix/388-fk-sni"
+    },
+    {
+      "position": 7,
+      "sha": "5eb542a0f436f95183735e6d0ceafcf929849f29",
+      "message": "On main: codex: робочі зміни перед синхронізацією main 2026-08-26"
+    }
+  ],
+  "otherSavedTips": [
+    {
+      "ref": "refs/heads/codex/issue-487-recommendation-eval",
+      "head": "fcf9d074ceb3c7d6155e6a156915658552b4ad97",
+      "unpublishedCommits": 1
+    },
+    {
+      "ref": "refs/heads/codex/issue-702-genre-awards",
+      "head": "4a229680298964dcaf6fbf7b608f66c5d014da55",
+      "unpublishedCommits": 8
+    },
+    {
+      "ref": "refs/heads/codex/media-library-ux",
+      "head": "bda64e6f21c5f42ac9188d851e88141d406b18c0",
+      "unpublishedCommits": 5
+    },
+    {
+      "ref": "refs/heads/codex/perf-completed-collection-index",
+      "head": "3dacef07fd10ca95bf974691ab6ff989b8bc77e0",
+      "unpublishedCommits": 1
+    },
+    {
+      "ref": "refs/heads/main",
+      "head": "2e44ee99e522bfe8195ba7a86d35b8a7b522f3a8",
+      "unpublishedCommits": 807
+    }
+  ],
+  "reachableSnapshots": [
+    "d802bc4bf692e7fb1b4f422404010ef4e4fcafa9",
+    "1ff2ef468a71107afc9b93ea4644760c6c08d4e8",
+    "c6cae21df23eca2b134fd6fdf4d1ce98e485aa8b",
+    "4f98f89acff77a261d116ae2df448ebed9bc91eb",
+    "6e9a40e544f366ca2fe95e7dc587a278d20b870a",
+    "1ab391e6dc28e9c2f149f06bbc1026df05f6ca2a",
+    "dffe360911ba5c31a50fc0e7d2ceb6ef8d1e4871",
+    "6880e1049df6dae9b3cf1bdba7cdfd905af754d6",
+    "1d97fa33bbef55f0f23d8d192cc003ce8a888f43",
+    "e3b29eeee54a7289062089004de0ceb5e2adc706",
+    "1ed8bc4335b5e2104ae3e9e19d3ebeaa1e220f29",
+    "778fbf04ede21735e63422741b57fe9ae1c957e7",
+    "d8048d71a58f4cccd9b215f59cfa116237808409",
+    "3f6242b15b40e016d32182fe0ab883ceb6cb4306",
+    "78458063d223aa3e52b2c07aeee733c021f6b922",
+    "5eb542a0f436f95183735e6d0ceafcf929849f29",
+    "fcf9d074ceb3c7d6155e6a156915658552b4ad97",
+    "4a229680298964dcaf6fbf7b608f66c5d014da55",
+    "bda64e6f21c5f42ac9188d851e88141d406b18c0",
+    "3dacef07fd10ca95bf974691ab6ff989b8bc77e0",
+    "2e44ee99e522bfe8195ba7a86d35b8a7b522f3a8"
+  ],
+  "notice": "The archive commit preserves separate histories as parents. It does not merge their source trees or imply readiness for main."
+}

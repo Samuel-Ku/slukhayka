@@ -1,0 +1,30 @@
+{
+  "base": "85c4423b6c608b18162f440ff3044d47e76d6451",
+  "candidate": "aacca018c7171b808db9e5ddd6b62e8887842960",
+  "workflowCommit": "a0c466c32581cbb6a12fe90eae55a649e4e3a427",
+  "scope": "standalone PR1805 debug APK; isolated ART operations, not UI or physical ARM",
+  "production": [
+    {
+      "path": "app/src/main/java/com/slukhayka/audiobooks/data/EditionId.kt",
+      "commits": [
+        "aacca018c7171b808db9e5ddd6b62e8887842960"
+      ],
+      "sha256": "0f7f6f8d49751a5dcc15f0e09d676affee0c4af9e7a028446787b6a56d96479d"
+    }
+  ],
+  "probes": [
+    {
+      "commit": "aacca018c7171b808db9e5ddd6b62e8887842960",
+      "origin": "app/src/test/java/com/slukhayka/audiobooks/data/EditionIdTest.kt",
+      "destination": "app/src/androidTest/java/com/slukhayka/audiobooks/data/RunEditionMemoBenchmark.kt",
+      "originSha256": "36cb614ef181bcdc1e46d8c40a2da885a5e5bd394ee4de9599c297bcf0517668",
+      "manualBodySha256": "1621c4203221badea76cd293c9e5250dea2cb480bd464cd60bf8c3a2b36c2bc4",
+      "sha256": "3cdbe80de9cd929b1561ce05c7825dca126de8e3c72d05d1a98650f68d728b9c",
+      "extraction": "manual object and reference only; JVM JUnit class excluded for DEX compatibility"
+    }
+  ],
+  "harness": {
+    "path": "app/src/androidTest/java/com/slukhayka/audiobooks/performance/PerformanceLoopBenchmarkTest.kt",
+    "sha256": "fb3d744e1ad54155c58935f62a71b428ee43fe998f54103d764d23ff824c480f"
+  }
+}

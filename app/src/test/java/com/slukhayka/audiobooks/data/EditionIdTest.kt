@@ -67,4 +67,25 @@ class EditionIdTest {
             EditionId.forBookLegacy("кобзар|тарас шевченко|валерій завалко", "b1")
         )
     }
+    @Test
+    fun `both formulas retain the published SHA256 prefix`() {
+        val values = listOf("", " ", "кобзар|тарас шевченко", "narrator 🎧", "a\u0000b", "ї", "\uD800")
+        for (key in values) for (id in values) for (narrator in values) for (language in values) {
+            fun reference(text: String): String = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(text.toByteArray(Charsets.UTF_8))
+                .take(12).joinToString("") { "%02x".format(it.toInt() and 255) }
+            assertEquals(reference("${key.ifBlank { id }}\u0000$narrator\u0000$language"),
+                EditionId.forBook(key, id, narrator, language))
+            assertEquals(reference("${key.ifBlank { id }}\u0000$language"),
+                EditionId.forBookLegacy(key, id, language))
+        }
+    }
+
+    @Test
+    fun `full digest and content hashing keep all bytes`() {
+        val bytes = "abc".toByteArray()
+        assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", sha256Hex(bytes))
+        val firstDigest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+        assertEquals(sha256Hex(firstDigest), contentHashOf(bytes.inputStream()))
+    }
 }

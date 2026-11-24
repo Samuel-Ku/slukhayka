@@ -12,6 +12,7 @@ adb shell am help > "$output/am-help.txt"
 
 if [[ "$mode" == measure ]]; then
   adb install -r -t .mutations/apks/plain.apk
+  adb shell pm grant "$package" android.permission.POST_NOTIFICATIONS
   adb shell am force-stop "$package"
   timeout 90 adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$component" > "$output/initial-launch.txt" 2>&1
   # Let the one-time seed settle; it is not one of the measured process-cold runs.
@@ -24,22 +25,29 @@ if [[ "$mode" == measure ]]; then
   python3 - "$output" <<'PYCODE'
 from pathlib import Path
 import json, re, statistics, sys
-root = Path(sys.argv[1]); records = []
-for file in sorted(root.glob('cold-*.txt')):
-    text = file.read_text()
-    assert re.search(r'^Status: ok\s*$', text, re.M), text
-    assert re.search(r'^LaunchState: COLD\s*$', text, re.M), text
-    match = re.search(r'^TotalTime: (\d+)\s*$', text, re.M)
-    assert match and int(match[1]) > 0, text
-    records.append({'file': file.name, 'totalTimeMs': int(match[1])})
-assert len(records) == 9
-report = {'scope': 'unmodified debug APK, API35x86_64, process-cold with warmed installation/data',
-          'records': records, 'medianTotalTimeMs': statistics.median(r['totalTimeMs'] for r in records)}
-(root / 'plain-timings.json').write_text(json.dumps(report, indent=2) + '\n')
-print(json.dumps(report))
+try:
+    root = Path(sys.argv[1]); records = []
+    for file in sorted(root.glob('cold-*.txt')):
+        text = file.read_text()
+        assert re.search(r'^Status: ok\s*$', text, re.M), text
+        assert re.search(r'^LaunchState: COLD\s*$', text, re.M), text
+        assert re.search(r'^Activity: com\.slukhayka\.audiobooks\.debug/com\.slukhayka\.audiobooks\.MainActivity\s*$', text, re.M), text
+        match = re.search(r'^TotalTime: (\d+)\s*$', text, re.M)
+        assert match and int(match[1]) > 0, text
+        records.append({'file': file.name, 'totalTimeMs': int(match[1])})
+    assert len(records) == 9
+    report = {'scope': 'unmodified debug APK, API35x86_64, process-cold with warmed installation/data',
+              'notificationPermission': 'granted', 'activity': 'com.slukhayka.audiobooks.MainActivity',
+              'records': records, 'medianTotalTimeMs': statistics.median(r['totalTimeMs'] for r in records)}
+    (root / 'plain-timings.json').write_text(json.dumps(report, indent=2) + '\n')
+    print(json.dumps(report))
+except (AssertionError, OSError, ValueError) as error:
+    print(f'Infrastructure/startup measurements incomplete: {error}', file=sys.stderr)
+    sys.exit(2)
 PYCODE
 elif [[ "$mode" == guard ]]; then
   adb install -r -t .mutations/apks/probe.apk
+  adb shell pm grant "$package" android.permission.POST_NOTIFICATIONS
   adb shell am force-stop "$package"
   adb logcat -c
   status=0
@@ -64,7 +72,9 @@ try:
 except OSError as error:
     print(f'Infrastructure/trace incomplete: {error}', file=sys.stderr)
     sys.exit(2)
-if not re.search(r'^Status: ok\s*$', launch, re.M) or 'event=FIRST_DRAW_END' not in log or b'*end\nSLOW' not in trace:
+if (not re.search(r'^Status: ok\s*$', launch, re.M)
+        or not re.search(r'^Activity: com\.slukhayka\.audiobooks\.debug/com\.slukhayka\.audiobooks\.MainActivity\s*$', launch, re.M)
+        or 'event=FIRST_DRAW_END' not in log or b'*end\nSLOW' not in trace):
     print('Infrastructure/trace incomplete; no performance verdict', file=sys.stderr)
     sys.exit(2)
 records = []

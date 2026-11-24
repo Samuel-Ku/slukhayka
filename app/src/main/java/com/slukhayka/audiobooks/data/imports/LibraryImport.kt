@@ -242,8 +242,9 @@ class LibraryImport(
         }
         val prospectiveBookId = admission?.scope?.source?.bookId
             ?: if (workIdentityAccess != null) adapterBookId(sourceId, detail.url) else null
-        val rows: suspend (SourceWorkIdentity?) -> CommittedSourceImport = { identity ->
-            writeSourceImportRows(sourceId, detail, origin, mergeKey, narrator, language, prospectiveBookId, identity)
+        val rows: suspend (WorkIdentityAccess.AdmittedSourceImport?) -> CommittedSourceImport = { admitted ->
+            writeSourceImportRows(sourceId, detail, origin, mergeKey, narrator, language, prospectiveBookId,
+                admitted?.identity, admitted?.creationWorkId)
         }
         val publish: suspend (CommittedSourceImport) -> Unit = { committed ->
             publishSourceImport(committed, sourceId, detail, writeBackProfile, onNewBookImported)
@@ -268,7 +269,7 @@ class LibraryImport(
         sourceId: String, detail: SourceBookDetail,
         origin: com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin,
         mergeKey: String, narrator: String, language: String, prospectiveBookId: String?,
-        identity: SourceWorkIdentity?,
+        identity: SourceWorkIdentity?, creationWorkId: String?,
     ): CommittedSourceImport {
         val writesEntry = com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy.writesLibraryEntry(origin)
         val existing = if (identity != null) {
@@ -281,6 +282,14 @@ class LibraryImport(
                     dao.findBookByEditionId(EditionId.forBook(mergeKey, "", narrator, ""))
                 } else null
         } else null
+        val createsWork = identity != null && existing == null && identity.work == null && mergeKey.isNotBlank()
+        val admittedCreationWorkId = if (createsWork) {
+            if (creationWorkId != mergeKey) throw WorkIdentityWriteRefused(IdentityWriteRefusal.StaleAdmission)
+            checkNotNull(creationWorkId)
+        } else {
+            if (identity != null && creationWorkId != null) throw WorkIdentityWriteRefused(IdentityWriteRefusal.StaleAdmission)
+            null
+        }
         val admittedEdition = identity?.existingSource?.edition ?: identity?.importEdition
         if (identity != null && existing != null && admittedEdition == null) {
             throw WorkIdentityWriteRefused(IdentityWriteRefusal.DanglingSource)
@@ -362,8 +371,8 @@ class LibraryImport(
             // join through the entry, so the card keeps its series and the
             // merge key stays the dedup identity.
             val workId = identity?.work?.id ?: if (mergeKey.isNotBlank()) {
-                (dao.findWorkByMergeKey(mergeKey) ?: WorkEntity(
-                    id = mergeKey,
+                ((if (identity == null) dao.findWorkByMergeKey(mergeKey) else null) ?: WorkEntity(
+                    id = if (identity == null) mergeKey else checkNotNull(admittedCreationWorkId),
                     mergeKey = mergeKey,
                     title = book.title,
                     author = book.author,

@@ -135,13 +135,26 @@ class WorkIdentityAccess(
         }
     }
 
+    /** Existing owner evidence stays nullable; a new Work target is a separate write role. */
+    internal data class AdmittedSourceImport(
+        val identity: SourceWorkIdentity,
+        val creationWorkId: String?,
+    )
+
+    private data class SourceImportWriteScope(
+        val source: SourceImportScope,
+        val creationWorkId: String?,
+    ) {
+        val workIds: List<String> get() = listOfNotNull(source.workId, creationWorkId).distinct()
+    }
+
     /** Rows and permitted observed-old deletion restore are one transaction; publish only afterwards. */
     internal suspend fun <T> writeSourceImport(
         admission: SourceImportAdmission?,
         mergeKey: String, sourceId: String, sourceUrl: String,
         narrator: String, language: String, fetchedChapterTitles: List<String>,
         prospectiveBookId: String, fallbackEditionIds: List<String>, restoreObservedTombstones: Boolean,
-        rows: suspend (SourceWorkIdentity) -> T,
+        rows: suspend (AdmittedSourceImport) -> T,
         afterCommit: suspend (T) -> Unit,
     ): T {
         val attempt = admission ?: throw WorkIdentityWriteRefused(IdentityWriteRefusal.StaleAdmission)
@@ -149,20 +162,26 @@ class WorkIdentityAccess(
             throw WorkIdentityWriteRefused(IdentityWriteRefusal.StaleAdmission)
         }
         val discoveredAfterFetch = attempt.scope == null
-        val scoped = if (!discoveredAfterFetch) attempt else database.withTransaction {
+        val (scoped, writeScope) = database.withTransaction {
             val identity = resolveImportSourceStored(mergeKey, sourceId, sourceUrl, narrator, language, fetchedChapterTitles, fallbackEditionIds)
-            SourceImportAdmission(this@WorkIdentityAccess, sourceId, sourceUrl,
-                importScope(identity, prospectiveBookId), attempt.startTombstones, attempt.activityScope)
+            val scoped = if (!discoveredAfterFetch) attempt else SourceImportAdmission(
+                this@WorkIdentityAccess, sourceId, sourceUrl, importScope(identity, prospectiveBookId),
+                attempt.startTombstones, attempt.activityScope)
+            requireImportScope(scoped, identity, if (discoveredAfterFetch) prospectiveBookId else null)
+            scoped to SourceImportWriteScope(checkNotNull(scoped.scope), importCreationWorkId(identity, mergeKey))
         }
-        val scope = checkNotNull(scoped.scope)
-        // Unknown identity has no invented prefetch Book lease; its original start snapshot still travels here.
+        // Unknown identity gets no prefetch lease; its actual creation role is known only after detail.
         val activity = if (discoveredAfterFetch)
-            gate.registerIdentityActivity(listOfNotNull(scope.workId), scope.bookIds) else null
+            gate.registerIdentityActivity(writeScope.workIds, writeScope.source.bookIds) else null
         try {
-            val committed = gate.withIdentityWrite(listOfNotNull(scope.workId), scope.bookIds) {
+            val committed = gate.withIdentityWrite(writeScope.workIds, writeScope.source.bookIds) {
                 database.withTransaction {
                     val identity = resolveImportSourceStored(mergeKey, sourceId, sourceUrl, narrator, language, fetchedChapterTitles, fallbackEditionIds)
                     requireImportScope(scoped, identity, if (discoveredAfterFetch) prospectiveBookId else null)
+                    val current = SourceImportWriteScope(
+                        importScope(identity, if (discoveredAfterFetch) prospectiveBookId else null),
+                        importCreationWorkId(identity, mergeKey))
+                    if (current != writeScope) throw WorkIdentityWriteRefused(IdentityWriteRefusal.StaleAdmission)
                     if (scoped.activityScope != null) {
                         requireActivityScope(scoped, resolveExactSourceStored(sourceId, sourceUrl))
                         if (identity.work?.id != scoped.activityScope.workId) {
@@ -170,7 +189,7 @@ class WorkIdentityAccess(
                         }
                     }
                     admitTombstones(scoped, identity, mergeKey, prospectiveBookId, restoreObservedTombstones)
-                    val result = rows(identity)
+                    val result = rows(AdmittedSourceImport(identity, writeScope.creationWorkId))
                     currentCoroutineContext().ensureActive()
                     result
                 }
@@ -179,6 +198,20 @@ class WorkIdentityAccess(
             return committed
         } finally {
             activity?.close()
+        }
+    }
+
+    private suspend fun importCreationWorkId(identity: SourceWorkIdentity, mergeKey: String): String? {
+        val selectedBook = identity.existingSource?.book ?: identity.importBook
+        if (selectedBook != null || identity.work != null || mergeKey.isBlank()) return null
+        // An unoccupied raw PK is mandatory even if its MergeKey namespace resolves Missing.
+        if (database.audiobookDao().getWorkById(mergeKey) != null) {
+            throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+        }
+        when (val target = resolveStored(WorkIdentityInput.WorkId(mergeKey))) {
+            is WorkResolution.Missing -> return mergeKey
+            is WorkResolution.Resolved -> throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+            is WorkResolution.Refused -> throw WorkIdentityWriteRefused(IdentityWriteRefusal.Alias(target.reason))
         }
     }
 

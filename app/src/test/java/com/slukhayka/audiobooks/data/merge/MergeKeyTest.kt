@@ -70,6 +70,8 @@ class MergeKeyTest {
     fun `unusable input yields a blank key that never merges`() {
         assertTrue(MergeKey.keyFor("", "").isBlank())
         assertTrue(MergeKey.keyFor("!!!", "???").isBlank())
+        assertTrue(MergeKey.keyFor("!!!", "Тарас Шевченко").isBlank())
+        assertTrue(MergeKey.keyFor("Кобзар", "???").isBlank())
     }
 
     @Test

@@ -35,7 +35,7 @@ python3 -m venv .venv-recommend
 Модель — `minishlab/potion-multilingual-128M`, ваги близько 512 МБ. Потрібні
 Hugging Face і його CDN для першого завантаження; далі працює локальний кеш.
 Взяти повний 40-символьний commit SHA моделі, перевірити й зафіксувати його
-в параметрах запуску. Плаваючий `main` генератор відхиляє. Python завантажує
+в параметрах запуску. Плаваючий `main` генератор відхиляє. Для пробного CI припінано [73908c3438cf03b6a01bcb9611d62b23d0726f08](https://huggingface.co/minishlab/potion-multilingual-128M/commit/73908c3438cf03b6a01bcb9611d62b23d0726f08). Python завантажує
 саме snapshot цієї ревізії, а не поточну модель за назвою.
 
 ```sh
@@ -43,7 +43,7 @@ nice -n 10 taskset -c 0-5 .venv-recommend/bin/python scripts/recommend/build_gra
   --catalog /srv/slukhayka/catalog.json \
   --cache /srv/slukhayka/cache/vectors.sqlite \
   --output /srv/slukhayka/output/graph.json \
-  --revision REPLACE_WITH_VERIFIED_40_CHARACTER_MODEL_COMMIT
+  --revision 73908c3438cf03b6a01bcb9611d62b23d0726f08
 ```
 
 Той самий каталог удруге не завантажує модель і не обчислює вектори.

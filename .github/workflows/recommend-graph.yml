@@ -31,7 +31,7 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface/hub
-          key: content-graph-potion-38ebd7f10f71e67fa8db898290f92b82e9cfff2a
+          key: content-graph-potion-73908c3438cf03b6a01bcb9611d62b23d0726f08
       - run: python -m pip install -r scripts/recommend/requirements.txt
       - name: Build using real pinned Model2Vec weights, then verify a warm run
         env:
@@ -41,11 +41,11 @@ jobs:
           python scripts/recommend/build_graph.py \
             --catalog scripts/recommend/smoke-catalog.json \
             --cache /tmp/content-vectors.sqlite --output /tmp/content-graph.json \
-            --revision 38ebd7f10f71e67fa8db898290f92b82e9cfff2a > /tmp/cold.json
+            --revision 73908c3438cf03b6a01bcb9611d62b23d0726f08 > /tmp/cold.json
           python scripts/recommend/build_graph.py \
             --catalog scripts/recommend/smoke-catalog.json \
             --cache /tmp/content-vectors.sqlite --output /tmp/content-graph.json \
-            --revision 38ebd7f10f71e67fa8db898290f92b82e9cfff2a > /tmp/warm.json
+            --revision 73908c3438cf03b6a01bcb9611d62b23d0726f08 > /tmp/warm.json
           python - <<'PY'
           import json
           cold = json.load(open('/tmp/cold.json'))

@@ -6,6 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.random.Random
 
 /**
  * Pure JVM fixture tests for the spec-16 T1 matcher: exact matches,
@@ -44,6 +45,18 @@ class CollectionMatcherTest {
 
         // Author agrees but the title does not — no match, nothing fabricated.
         assertTrue(matched.books.isEmpty())
+    }
+
+    @Test
+    fun `matching cannot combine the title of one book with the author of another`() {
+        val collection = CollectionList("shev", "Шевченко", entries = listOf(entry("Тарас Шевченко", "Кобзар")))
+        val catalog = listOf(
+            book("Кобзар", "Інший автор"),
+            book("Інша книга", "Тарас Шевченко")
+        )
+
+        assertTrue(CollectionMatcher.match(collection, catalog).books.isEmpty())
+        assertTrue(CollectionMatcher.matchAll(listOf(collection), catalog).isEmpty())
     }
 
     @Test
@@ -127,6 +140,60 @@ class CollectionMatcherTest {
 
         assertEquals(listOf("nobel"), matched.map { it.id })
         assertEquals(1, matched.single().books.size)
+    }
+
+    @Test
+    fun `matching preserves catalog order repetitions and overlapping entry membership`() {
+        val first = book("Кобзар", "Тарас Шевченко")
+        val second = book("Гайдамаки", "Тарас Шевченко")
+        val catalog = listOf(second, first, second)
+        val collection = CollectionList("shev", "Шевченко", "Джерело списку", listOf(
+            entry("Тарас Шевченко", "Кобзар"),
+            entry("Тарас Шевченко"),
+            entry("Тарас Шевченко", "Гайдамаки")
+        ))
+
+        assertEquals(catalog, CollectionMatcher.match(collection, catalog).books)
+        assertEquals(listOf(collection.id, collection.id),
+            CollectionMatcher.matchAll(listOf(collection, collection), catalog).map { it.id })
+    }
+
+    @Test
+    fun `batch matching agrees with individual entry rules over varied claims`() {
+        val random = Random(20261124)
+        val authors = listOf("Тарас Шевченко", "  ТАРАС ШЕВЧЕНКО ", "Gabriel García", "Gabriel Garcia", "Їжак Йосип", "Дев&#x27;ятко", "Дев'ятко", "", "  ", "!!!")
+        val titles = listOf("Кобзар", "КОБЗАР!", "Кобзар (повне видання)", "Кобзар: поезії", "Cien años", "Cien anos", "Енеїда", "Енеіда", "", "  ", "!!!")
+        repeat(100) {
+            val catalog = List(random.nextInt(0, 14)) { book(titles.random(random), authors.random(random)) }
+            val collections = List(random.nextInt(0, 5)) { index ->
+                CollectionList("$index", "Добірка $index", "Джерело $index", List(random.nextInt(0, 7)) {
+                    entry(authors.random(random), if (random.nextBoolean()) null else titles.random(random))
+                })
+            }
+            val expected = collections.map { collection ->
+                CollectionMatcher.MatchedCollection(collection.id, collection.name, collection.sourceNote,
+                    catalog.filter { candidate -> collection.entries.any { CollectionMatcher.entryMatches(it, candidate) } })
+            }
+            assertEquals(expected.filter { it.books.isNotEmpty() }, CollectionMatcher.matchAll(collections, catalog))
+            collections.zip(expected).forEach { (collection, result) ->
+                assertEquals(result, CollectionMatcher.match(collection, catalog))
+            }
+        }
+    }
+
+    @Test
+    fun `matching rereads changed catalog and collection inputs`() {
+        val entries = mutableListOf(entry("Тарас Шевченко", "Кобзар"))
+        val collection = CollectionList("shev", "Шевченко", entries = entries)
+        val catalog = mutableListOf(book("Кобзар", "Тарас Шевченко"))
+        val before = CollectionMatcher.match(collection, catalog)
+        entries.clear()
+        catalog.add(book("Гайдамаки", "Тарас Шевченко"))
+
+        assertTrue(CollectionMatcher.matchAll(listOf(collection), catalog).isEmpty())
+        assertEquals(1, before.books.size)
+        entries.add(entry("Тарас Шевченко"))
+        assertEquals(catalog, CollectionMatcher.match(collection, catalog).books)
     }
 
     // --- normalization unit pins --------------------------------------------

@@ -16,7 +16,6 @@ jobs:
     timeout-minutes: 60
     env:
       GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx3g
-      GRADLE_USER_HOME: ${{ runner.temp }}/perf-gradle-home
     steps:
       - name: Checkout exact PR candidate
         uses: actions/checkout@v5
@@ -30,6 +29,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: Set isolated Gradle home
+        run: echo "GRADLE_USER_HOME=$RUNNER_TEMP/perf-gradle-home" >> "$GITHUB_ENV"
       - uses: gradle/actions/setup-gradle@v6
         with:
           gradle-version: wrapper

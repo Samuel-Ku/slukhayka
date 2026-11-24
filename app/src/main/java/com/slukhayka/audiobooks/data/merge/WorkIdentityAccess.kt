@@ -6,6 +6,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.db.BookRow
+import com.slukhayka.audiobooks.data.db.LibraryEntryEntity
 import com.slukhayka.audiobooks.data.db.EditionEntity
 import com.slukhayka.audiobooks.data.db.SourceEntity
 import com.slukhayka.audiobooks.data.db.TombstoneEntity
@@ -243,6 +244,156 @@ class WorkIdentityAccess(
         if (admission.owner !== this || admission.activityScope !=
             sourceActivityScope(admission.sourceId, admission.sourceUrl, exact)) {
             throw WorkIdentityWriteRefused(IdentityWriteRefusal.StaleAdmission)
+        }
+    }
+
+    internal sealed interface CatalogPosterTarget {
+        data class ExistingWork(val work: WorkEntity) : CatalogPosterTarget
+        data class CreateWork(val id: String, val mergeKey: String) : CatalogPosterTarget
+        data class BookOnly(val bookId: String) : CatalogPosterTarget
+
+        val entryWorkId: String get() = when (this) {
+            is ExistingWork -> work.id
+            is CreateWork -> id
+            is BookOnly -> bookId
+        }
+
+        /** A different stored URL may carry an owner the incoming exact pair has not resolved. */
+        fun requireRepairSourceUrl(book: BookRow, sourceUrl: String) {
+            if (book.sourceUrl.isNotBlank() && book.sourceUrl != sourceUrl) {
+                throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+            }
+        }
+
+        /** Only a metadata partial write with no actual Entry may use this repair. */
+        suspend fun requireMetadataOnlyRepair(dao: AudiobookDao, book: BookRow, mergeKey: String, sourceUrl: String) {
+            requireRepairSourceUrl(book, sourceUrl)
+            val books = listOf(book.id)
+            if (MergeKey.keyFor(book.title, book.author) != mergeKey || !book.sourceTreeUri.isNullOrBlank() ||
+                dao.manualMergeEditions(books, emptyList()).isNotEmpty() ||
+                dao.manualMergeSources(books, emptyList()).isNotEmpty() ||
+                dao.manualMergeChapters(books, emptyList()).isNotEmpty() ||
+                dao.manualMergeProgress(books, emptyList()).isNotEmpty() ||
+                dao.manualMergeBookmarks(books, emptyList()).isNotEmpty() ||
+                dao.manualMergeReadthroughs(emptyList(), books, emptyList()).isNotEmpty() ||
+                dao.manualMergeEvents(books).isNotEmpty() || dao.manualMergeFailures(books).isNotEmpty() ||
+                dao.manualMergeSubmissions(books, emptyList()).isNotEmpty()) {
+                throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+            }
+        }
+
+        /** Raw legacy metadata, not the nullable joined Work projection, establishes this repair. */
+        fun matchesLegacySelfAnchor(book: BookRow, entry: LibraryEntryEntity, mergeKey: String): Boolean {
+            if (entry.id != book.id || entry.workId != book.id ||
+                MergeKey.keyFor(book.title, book.author) != mergeKey) return false
+            return when (this) {
+                is ExistingWork -> mergeKey.isNotBlank() && work.mergeKey == mergeKey
+                is CreateWork -> mergeKey.isNotBlank() && this.mergeKey == mergeKey
+                is BookOnly -> bookId == book.id && mergeKey.isBlank()
+            }
+        }
+    }
+
+    private data class CatalogPosterScope(
+        val target: CatalogPosterTarget,
+        val identity: SourceWorkIdentity,
+        val source: SourceImportScope,
+        val posterBookId: String,
+        val posterBook: BookRow?,
+        val posterEntry: LibraryEntryEntity?,
+    ) {
+        val workIds: List<String> get() = when (val owner = target) {
+            is CatalogPosterTarget.ExistingWork -> listOf(owner.work.id)
+            is CatalogPosterTarget.CreateWork -> listOf(owner.id)
+            is CatalogPosterTarget.BookOnly -> emptyList()
+        }
+        val bookIds: List<String> get() = (source.bookIds + posterBookId).distinct()
+    }
+
+    /** A poster owns metadata rows only; a blank key never invents a Work or audio topology. */
+    internal suspend fun <T> writeCatalogPoster(
+        mergeKey: String, sourceId: String, sourceUrl: String, posterBookId: String,
+        rows: suspend (CatalogPosterTarget) -> T,
+    ): T {
+        val discovered = database.withTransaction {
+            catalogPosterScope(mergeKey, sourceId, sourceUrl, posterBookId)
+        }
+        return gate.withIdentityWrite(discovered.workIds, discovered.bookIds) {
+            database.withTransaction {
+                val current = catalogPosterScope(mergeKey, sourceId, sourceUrl, posterBookId)
+                if (current != discovered) throw WorkIdentityWriteRefused(IdentityWriteRefusal.StaleAdmission)
+                val keys = relevantTombstoneKeys(current.identity, mergeKey, posterBookId) + posterBookId
+                if (keys.toList().chunked(128).any { database.audiobookDao().manualMergeTombstones(it).isNotEmpty() }) {
+                    throw WorkIdentityWriteRefused(IdentityWriteRefusal.Tombstoned)
+                }
+                val result = rows(current.target)
+                currentCoroutineContext().ensureActive()
+                result
+            }
+        }
+    }
+
+    private suspend fun catalogPosterScope(
+        mergeKey: String, sourceId: String, sourceUrl: String, posterBookId: String,
+    ): CatalogPosterScope {
+        val dao = database.audiobookDao()
+        // The old physical deletion marker remains a nullable no-op even when ownership also conflicts.
+        if (dao.isBookTombstoned(posterBookId)) throw WorkIdentityWriteRefused(IdentityWriteRefusal.Tombstoned)
+        val identity = if (sourceUrl.isBlank()) {
+            SourceWorkIdentity(mergeKey.takeIf(String::isNotBlank)?.let {
+                resolvedWork(WorkIdentityInput.MergeKey(it))
+            }, null)
+        } else {
+            val exact = resolveSourceStored(mergeKey, sourceId, sourceUrl, "", "", null)
+            val owner = sourceActivityScope(sourceId, sourceUrl, exact)?.workId?.let { id ->
+                resolvedWork(WorkIdentityInput.WorkId(id))
+                    ?: throw WorkIdentityWriteRefused(IdentityWriteRefusal.DanglingSource)
+            }
+            if (owner == null) exact else exact.copy(work = owner)
+        }
+        val target = identity.work?.let(CatalogPosterTarget::ExistingWork) ?: if (mergeKey.isNotBlank()) {
+            val id = importCreationWorkId(identity, mergeKey)
+                ?: throw WorkIdentityWriteRefused(IdentityWriteRefusal.StaleAdmission)
+            CatalogPosterTarget.CreateWork(id, mergeKey)
+        } else {
+            requireMissingPosterWorkId(posterBookId)
+            CatalogPosterTarget.BookOnly(posterBookId)
+        }
+        val posterBook = dao.getAudiobookById(posterBookId)
+        val posterEntry = dao.libraryEntryById(posterBookId)
+        val legacySelfAnchor = posterBook != null && posterEntry != null &&
+            target.matchesLegacySelfAnchor(posterBook, posterEntry, mergeKey) && dao.getWorkById(posterBookId) == null
+        val source = if (legacySelfAnchor) {
+            target.requireRepairSourceUrl(checkNotNull(posterBook), sourceUrl)
+            requireMissingPosterWorkId(posterBookId)
+            importScope(identity)
+        } else if (posterBook != null && posterEntry == null) {
+            target.requireMetadataOnlyRepair(dao, posterBook, mergeKey, sourceUrl)
+            if (database.workIdentityDao().bookAutoMergeExcluded(posterBookId)) {
+                throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+            }
+            importScope(identity)
+        } else {
+            if (posterEntry != null) {
+                val owner = resolvedWork(WorkIdentityInput.WorkId(posterEntry.workId))
+                    ?: throw WorkIdentityWriteRefused(IdentityWriteRefusal.DanglingSource)
+                if (target !is CatalogPosterTarget.ExistingWork || owner.id != target.work.id) {
+                    throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+                }
+            }
+            importScope(identity, posterBookId)
+        }
+        return CatalogPosterScope(target, identity, source, posterBookId, posterBook, posterEntry)
+    }
+
+    private suspend fun requireMissingPosterWorkId(id: String) {
+        if (database.audiobookDao().getWorkById(id) != null) {
+            throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+        }
+        when (val resolution = resolveStored(WorkIdentityInput.WorkId(id))) {
+            is WorkResolution.Missing -> Unit
+            is WorkResolution.Resolved -> throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+            is WorkResolution.Refused -> throw WorkIdentityWriteRefused(IdentityWriteRefusal.Alias(resolution.reason))
         }
     }
 

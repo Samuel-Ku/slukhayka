@@ -1739,21 +1739,73 @@ class LibraryImport(
         SubmittedImport(SubmittedImportResult.IMPORTED, bookId, null)
     }
 
-    /**
-     * Spec-14 T1 — catalogue upsert on import (and on catalogue sync). Inserts
-     * or updates a catalogue book row; a known row is enriched with real
-     * duration/series data this source carries, never clobbered with 0.
-     */
-    /**
-     * ADR-0005 — the catalog write path enforces tombstones at the
-     * persistence layer: a tombstoned Work is a no-op here. The guard is an
-     * insert-unless-tombstoned statement ([AudiobookDao.insertCatalogBookIfNotTombstoned])
-     * plus a single-row [AudiobookDao.isBookTombstoned] check for an existing
-     * row — no call site consults a tombstone set anymore. Returns null for a
-     * tombstoned Work (nothing landed), the stored row otherwise. Explicit
-     * imports remain the resurrection door (they clear the marker, unchanged).
-     */
+    /** Catalog posters commit metadata atomically and return null when a deletion marker blocks them. */
     internal suspend fun upsertCatalogBook(book: com.slukhayka.audiobooks.data.catalog.CatalogBook): AudiobookEntity? {
+        return try {
+            val access = workIdentityAccess
+            if (access != null) {
+                access.writeCatalogPoster(MergeKey.keyFor(book.title, book.author), sourceIdForUrl(book.url), book.url, book.id) { target ->
+                    upsertCatalogBookRows(book, target)
+                }
+            } else {
+                var result: AudiobookEntity? = null
+                dao.runCatalogRowTransaction {
+                    if (dao.isBookTombstoned(book.id)) throw WorkIdentityWriteRefused(IdentityWriteRefusal.Tombstoned)
+                    val target = legacyCatalogPosterTarget(book)
+                    val workId = target.entryWorkId
+                    if (dao.isBookTombstoned(workId)) throw WorkIdentityWriteRefused(IdentityWriteRefusal.Tombstoned)
+                    requireLegacyPosterOwnership(book, target)
+                    writeBatchRunner { result = upsertCatalogBookRows(book, target) }
+                    currentCoroutineContext().ensureActive()
+                }
+                result
+            }
+        } catch (failure: WorkIdentityWriteRefused) {
+            if (failure.refusal != IdentityWriteRefusal.Tombstoned) throw failure
+            null
+        }
+    }
+
+    /** The nullable-access compatibility branch has raw ownership checks, not alias resolution. */
+    private suspend fun legacyCatalogPosterTarget(
+        book: com.slukhayka.audiobooks.data.catalog.CatalogBook,
+    ): WorkIdentityAccess.CatalogPosterTarget {
+        val mergeKey = MergeKey.keyFor(book.title, book.author)
+        if (mergeKey.isBlank()) {
+            if (dao.getWorkById(book.id) != null) throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+            return WorkIdentityAccess.CatalogPosterTarget.BookOnly(book.id)
+        }
+        dao.findWorkByMergeKey(mergeKey)?.let { return WorkIdentityAccess.CatalogPosterTarget.ExistingWork(it) }
+        if (dao.getWorkById(mergeKey) != null) throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+        return WorkIdentityAccess.CatalogPosterTarget.CreateWork(mergeKey, mergeKey)
+    }
+
+    private suspend fun requireLegacyPosterOwnership(
+        book: com.slukhayka.audiobooks.data.catalog.CatalogBook,
+        target: WorkIdentityAccess.CatalogPosterTarget,
+    ) {
+        val stored = dao.getAudiobookById(book.id)
+        val entry = dao.libraryEntryById(book.id)
+        if (stored == null && entry == null) return
+        if (stored != null && entry == null) {
+            target.requireMetadataOnlyRepair(dao, stored, MergeKey.keyFor(book.title, book.author), book.url)
+            return
+        }
+        if (stored != null && entry != null &&
+            target.matchesLegacySelfAnchor(stored, entry, MergeKey.keyFor(book.title, book.author)) &&
+            dao.getWorkById(book.id) == null) {
+            target.requireRepairSourceUrl(stored, book.url)
+            return
+        }
+        if (entry == null || target !is WorkIdentityAccess.CatalogPosterTarget.ExistingWork || entry.workId != target.work.id) {
+            throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+        }
+    }
+
+    private suspend fun upsertCatalogBookRows(
+        book: com.slukhayka.audiobooks.data.catalog.CatalogBook,
+        target: WorkIdentityAccess.CatalogPosterTarget,
+    ): AudiobookEntity? {
         val existing = dao.getAudiobookById(book.id)
         if (existing != null) {
             // Even an existing row is not enriched while its Work is
@@ -1787,7 +1839,7 @@ class LibraryImport(
             // ADR-0009: make sure the Works row and the Library Entry row
             // exist before the series delta — series now persists on the
             // Work, and reads join through the entry.
-            ensureWorkAndEntry(book, book.id)
+            ensureWorkAndEntry(book, book.id, target)
             // Series applies only when its URL changed (the membership signal).
             val series = MetadataAssertions.seriesDelta(
                 existingSeriesUrl = updated.seriesUrl,
@@ -1803,9 +1855,7 @@ class LibraryImport(
                     seriesIndex = series.index
                 )
             }
-            // Return the known updated shape instead of re-querying: the
-            // row may be deleted concurrently and `!!` on a re-query would
-            // crash the whole catalogue sync.
+            // Return the enriched shape, including this pass's series delta.
             return updated.toAudiobookEntity()
         }
         // ADR-0009: the audiobooks row carries only the persisted metadata —
@@ -1869,7 +1919,7 @@ class LibraryImport(
         // Entry rows are written alongside (ADR-0009), so a tombstoned Work
         // gains nothing — not even a browse-row that could resurrect it.
         return if (dao.hasAudiobookRow(book.id)) {
-            ensureWorkAndEntry(book, book.id)
+            ensureWorkAndEntry(book, book.id, target)
             // The JOINed projection carries the series the Works row now holds
             // (and the entry's createdAt/favorite), so callers get a fully
             // shaped row without a second read by them.
@@ -1879,23 +1929,17 @@ class LibraryImport(
         }
     }
 
-    /**
-     * ADR-0009 — links a library row to its Work and writes its Library Entry
-     * alongside. The Works row is found-or-created by the same identity the
-     * browse layer uses (normalized title|author, narrator '' for the
-     * catalogue), so one Work per identity and the entry anchors to it; a
-     * blank identity anchors the entry to the book itself (no Works row). The
-     * Work also gets a work_source for the book's own URL under the
-     * deterministic (work, source, url) id [SourceCatalog.writeWorkEdition]
-     * uses, so a later crawl no-ops on the same row and the merged feed card
-     * can open the Work. Idempotent by construction.
-     */
-    private suspend fun ensureWorkAndEntry(book: com.slukhayka.audiobooks.data.catalog.CatalogBook, bookId: String) {
+    /** Links the physical row to its admitted Work, or retains a blank-key Book-only anchor. */
+    private suspend fun ensureWorkAndEntry(
+        book: com.slukhayka.audiobooks.data.catalog.CatalogBook, bookId: String,
+        target: WorkIdentityAccess.CatalogPosterTarget,
+    ) {
         val mergeKey = MergeKey.keyFor(book.title, book.author)
-        val work = if (mergeKey.isNotBlank()) {
-            dao.findWorkByMergeKey(mergeKey) ?: WorkEntity(
-                id = mergeKey,
-                mergeKey = mergeKey,
+        val work = when (target) {
+            is WorkIdentityAccess.CatalogPosterTarget.ExistingWork -> target.work
+            is WorkIdentityAccess.CatalogPosterTarget.CreateWork -> WorkEntity(
+                id = target.id,
+                mergeKey = target.mergeKey,
                 // Spec-24 T1: the Work row stores the scrubbed title too.
                 title = MetadataAssertions.normalizeTitle(book.title, book.author),
                 author = MetadataAssertions.normalizeClaimedText(book.author).orEmpty(),
@@ -1905,11 +1949,10 @@ class LibraryImport(
                 coverImageUrl = book.coverImageUrl,
                 addedAt = System.currentTimeMillis()
             ).also { dao.upsertWork(it) }
-        } else {
-            null
+            is WorkIdentityAccess.CatalogPosterTarget.BookOnly -> null
         }
-        val workId = work?.id ?: bookId
-        dao.getWorkById(workId)?.let { work ->
+        val workId = target.entryWorkId
+        work?.let { work ->
             authorIndex.indexWorks(
                 listOf(work),
                 sourceId = book.url.takeIf(String::isNotBlank)?.let(::sourceIdForUrl) ?: "catalog-union"

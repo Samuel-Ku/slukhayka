@@ -1,0 +1,1322 @@
+{
+  "captured_at": "2026-10-13T11:35:11+02:00",
+  "timezone": "Europe/Warsaw",
+  "verified_main": "37832cb7b8715c231083b0d4345cbcc52bda528f",
+  "release_baseline": {
+    "tag": "v1.5",
+    "published_at": "2026-10-04T12:24:00Z"
+  },
+  "user_priorities": [
+    "local_books_search_stability",
+    "recommendations_discovery",
+    "maximum_parallel_work"
+  ],
+  "source_commands": [
+    "gh issue list --state open --limit 500 --json number,title,body,labels,milestone,url,comments,updatedAt",
+    "gh pr list --state open --limit 100 --json number,title,body,isDraft,headRefOid,headRefName,url,updatedAt",
+    "gh issue list --state closed --label bug --search closed:>=2026-10-04 --limit 100 --json number,title,closedAt,url,body",
+    "gh api repos/Samuel-Ku/slukhayka/commits/main"
+  ],
+  "open_issues": [
+    {
+      "number": 1281,
+      "title": "Межа ґарда премиси: main/ резолвиться в теку",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1281",
+      "updated_at": "2026-10-12T19:57:39Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R0",
+      "body_sha256": "541da50e135c2279df6c16fe4c7d5aed358a29c6e1b33744afade54b89053bee",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1280,
+      "title": "test-changed.sh тече: 17 порожніх тек",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1280",
+      "updated_at": "2026-10-12T19:57:38Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R0",
+      "body_sha256": "a7572a5318f2b4352634e7d86f8accb761852d17e1167a1f685d27cb43bfa6fa",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1279,
+      "title": "Виведення свідка з AST — закрити або відмовитись",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1279",
+      "updated_at": "2026-10-12T19:57:36Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R0",
+      "body_sha256": "7df47564e719b11151df8b1308dd8b5a361d75f207140d3e70a9b5983b276968",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1278,
+      "title": "Межа, названа лише у звіті, не існує",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1278",
+      "updated_at": "2026-10-12T19:57:35Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R0",
+      "body_sha256": "df29d922ae9b7f4d1447044132750e9fa15ad6ca3011721d8d7bb8b05a1de6ef",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1277,
+      "title": "Кожне число в доках мусить мати команду, яка його відтворює",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1277",
+      "updated_at": "2026-10-12T19:57:33Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R0",
+      "body_sha256": "908dfbe8e638251ee76cca0d281d069bcf0fddc321ee4f8ca989ee3a33f8e89f",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1276,
+      "title": "Кожне оголошене поле мусить бути виведеним або пінованим",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1276",
+      "updated_at": "2026-10-12T19:57:31Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R0",
+      "body_sha256": "83de431f4e23999263e92615ded9c2dd71180cdc54a8cefd1886662c8a53759e",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1273,
+      "title": "Обгортка слота мусить не дати одній збірці вичерпати пам'ять",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1273",
+      "updated_at": "2026-10-12T18:54:15Z",
+      "labels": [],
+      "milestone": null,
+      "task": "R0",
+      "body_sha256": "4db2540179a93488bec9b24f9859d81500ad511803bae8873a3f8d4ecf28418f",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1271,
+      "title": "Механізми мутацій не сміють вичерпувати tmpfs",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1271",
+      "updated_at": "2026-10-12T17:53:35Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R0",
+      "body_sha256": "d65f0053fb1bfb6908df582979f91e3bada8c0c9de235c92e95fafc73bb4eb80",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1270,
+      "title": "Кожен сторож мусить мати мутацію, яка доводить, що він червоніє",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1270",
+      "updated_at": "2026-10-12T15:28:11Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R0",
+      "body_sha256": "6a3b6f4d2bf9d64c26629bbfcfc8341d5fac79a023f6a8ef32d049dc8134196c",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1265,
+      "title": "Фікстури: та сама форма й конструктивне оточення",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1265",
+      "updated_at": "2026-10-12T05:33:52Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R0",
+      "body_sha256": "5a32fa68380dcbd5441439a08ad019369a94eb07b6201273082f8cff12c59433",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1243,
+      "title": "Старий результат не перезаписує поточне прев’ю ImportPlan",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1243",
+      "updated_at": "2026-10-11T09:58:47Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R3",
+      "body_sha256": "bbb2e2aa249c005f38eaf0cb3ab266e2f64917a229edaf5c0d46bb4508740d83",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1242,
+      "title": "Одне підтвердження ImportPlan запускає один запис",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1242",
+      "updated_at": "2026-10-11T09:58:46Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R3",
+      "body_sha256": "98c08401bdb10a815e43c6885b96b47f5093789f54dabef7dac9d0c1ca652fac",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1241,
+      "title": "Пізня підготовка не замінює новішу спробу відтворення",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1241",
+      "updated_at": "2026-10-11T09:58:43Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R3",
+      "body_sha256": "ab7d4d2556ec5b8cd6eb3daea249b3f7f22a4c7db68957bb6f76bdb7eddd0b5f",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1240,
+      "title": "Єдиний початок явної спроби відтворення Edition",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1240",
+      "updated_at": "2026-10-11T09:58:41Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R3",
+      "body_sha256": "2e4a1f8493dabb59de8690c5019a898c6162cb7297876285ee5b0da5d2bb8e73",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1238,
+      "title": "Колективний каталог: серверний lease, ідентичність добірок і порядок delta",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1238",
+      "updated_at": "2026-10-11T09:43:11Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R5",
+      "body_sha256": "c864bd42ce1ee41e2ffa807ad23920881bf31a3a9408dce43ace290947320fec",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1237,
+      "title": "Ліцензії: фактичний склад GPL-випуску й потрібні notices",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1237",
+      "updated_at": "2026-10-11T09:43:09Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R1",
+      "body_sha256": "65af9ae4a88fbb64d80cf0b4a4e560ee2459f953ad7f11a08dd597636f91a2a6",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1236,
+      "title": "spec-900: Web — рейл і список із деталями за спільною картою",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1236",
+      "updated_at": "2026-10-11T09:43:08Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "later",
+      "body_sha256": "98e41cb75424cbfda091d5bbf75e6662c3b041128f98f8a8b41bb3e7396518ab",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1235,
+      "title": "spec-900: однакові двопанельні книжкові списки без порожньої панелі",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1235",
+      "updated_at": "2026-10-11T09:43:06Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R8",
+      "body_sha256": "8118461fecaddb054690d0be1a3b01a5b879df5d958747d7036aa8be096a2874",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1230,
+      "title": "Локальна книга з нечитабельним файлом: двері до файлів пристрою мають бути першими, а не пошук у мережі",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1230",
+      "updated_at": "2026-10-11T09:45:36Z",
+      "labels": [
+        "enhancement",
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R2",
+      "body_sha256": "3e09a80925382ae7bbfd399aa64e5818b6a1ab84f69bb0cf53c7ff9377b5e9f7",
+      "comments_count": 1,
+      "latest_comment_at": "2026-10-11T09:44:34Z"
+    },
+    {
+      "number": 1229,
+      "title": "docs(agents): однозначно спрямовувати до релевантних ADR",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1229",
+      "updated_at": "2026-10-11T08:59:17Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R0",
+      "body_sha256": "1888d6a3f1f392c99f28868246f87baa9c5ea4a31f904c4fe1b4193ee633f303",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1228,
+      "title": "chore(agents): компактний read-only знімок PR і резервувань",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1228",
+      "updated_at": "2026-10-11T08:59:16Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R0",
+      "body_sha256": "4df39614ffd8e5b378ba872d572f63e2f150d822ee5a0d2929454502d5e471d4",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1227,
+      "title": "ci(docs): виявляти повторні номери ADR до злиття",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1227",
+      "updated_at": "2026-10-11T08:59:14Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R0",
+      "body_sha256": "8998461c4516e9332cf0ad38f7a4200997c08913c5fd2f7d53d69e832e9cff8f",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1226,
+      "title": "fix(reviews): видалений відгук не повертається після refresh до ACK",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1226",
+      "updated_at": "2026-10-11T08:59:13Z",
+      "labels": [
+        "needs-triage"
+      ],
+      "milestone": null,
+      "task": "R4",
+      "body_sha256": "8feb853302cdea7c07ae06a5733ecca5cb10dbfd4b000519e8443c541b3058a5",
+      "comments_count": 0,
+      "latest_comment_at": null
+    },
+    {
+      "number": 1198,
+      "title": "spec-52: «Археолог» — факт живого хіта поза локальним індексом",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1198",
+      "updated_at": "2026-10-11T09:44:16Z",
+      "labels": [
+        "ready-for-agent",
+        "spec-52"
+      ],
+      "milestone": "v1.14 — Нагороди (spec-52)",
+      "task": "R8",
+      "body_sha256": "83463f70274cb5d76475abb027c723d138ba6ee4f66ad93c8bd1353635ba47c6",
+      "comments_count": 1,
+      "latest_comment_at": "2026-10-11T09:44:14Z"
+    },
+    {
+      "number": 1188,
+      "title": "Прев'ю імпорту: drag-and-drop для порядку розділів замість стрілок (перегляд рішення #1049)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1188",
+      "updated_at": "2026-10-11T09:45:32Z",
+      "labels": [
+        "enhancement",
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R8",
+      "body_sha256": "4e8ad5cbc6dca8ac0216096ac45eea273033e4d2c70eb47af1bc01847884641d",
+      "comments_count": 1,
+      "latest_comment_at": "2026-10-11T09:44:11Z"
+    },
+    {
+      "number": 1187,
+      "title": "Локальна тека: час книги збирається лише з прослуханих глав — і часткова сума годує правило «завершено»",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1187",
+      "updated_at": "2026-10-11T09:45:37Z",
+      "labels": [
+        "bug",
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R2",
+      "body_sha256": "5a69bf71c496dc506c13a58b691522b00030bea196270542062dc03cd74e78c0",
+      "comments_count": 1,
+      "latest_comment_at": "2026-10-11T09:44:41Z"
+    },
+    {
+      "number": 1185,
+      "title": "Спека: локальна тека — джерело за посиланням (без приватної копії, ADR-0061)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1185",
+      "updated_at": "2026-10-09T13:44:02Z",
+      "labels": [
+        "enhancement",
+        "needs-triage"
+      ],
+      "milestone": null,
+      "task": "R2",
+      "body_sha256": "a8d31a63010f7bdc937618c1812fea4f0ba92c2bf3f01cf5052421c5daced4eb",
+      "comments_count": 1,
+      "latest_comment_at": "2026-10-09T13:44:02Z"
+    },
+    {
+      "number": 1163,
+      "title": "Сховище: «Audio on device» = 0 МБ, хоч приватні копії локальної теки займають 3,23 ГБ",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1163",
+      "updated_at": "2026-10-11T09:45:34Z",
+      "labels": [
+        "bug",
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "R2",
+      "body_sha256": "b6905f632a57e7ee4e6ee39dd52b6f7e054badeac84e4dffdc27f84cc8f5fbc8",
+      "comments_count": 1,
+      "latest_comment_at": "2026-10-11T09:44:32Z"
+    },
+    {
+      "number": 1005,
+      "title": "[Idea] Narrative GPS: spoiler-safe пам’ять аудіокниги",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1005",
+      "updated_at": "2026-10-11T09:45:39Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": null,
+      "task": "later",
+      "body_sha256": "4a4854750e101d33bbba678acc24187d90f6f3f8368fc41cd66da2fa5ab8ee75",
+      "comments_count": 1,
+      "latest_comment_at": "2026-10-11T09:44:38Z"
+    },
+    {
+      "number": 968,
+      "title": "Наявні дублі творів (різні mergeKey) не зливаються — рішення про ідентичність",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/968",
+      "updated_at": "2026-10-12T21:12:21Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": "v1.12 — Трековані твори",
+      "task": "R7",
+      "body_sha256": "722e195c6cb99c129f7bc1883b1133664cf1666c16aa7801dafaac74b323a7d6",
+      "comments_count": 21,
+      "latest_comment_at": "2026-10-12T21:12:21Z"
+    },
+    {
+      "number": 842,
+      "title": "Модерація T9 — Telegram-бот: черга, схвалити/відхилити/прибрати (поза репо)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/842",
+      "updated_at": "2026-09-19T10:35:20Z",
+      "labels": [
+        "ready-for-human"
+      ],
+      "milestone": "v1.7 — модерація надсилань",
+      "task": "later",
+      "body_sha256": "ed6733469ba9517b862b5a789e64ecbf8bb6dac1ceec0f47d6e313d0a14185f7",
+      "comments_count": 1,
+      "latest_comment_at": "2026-09-19T10:35:20Z"
+    },
+    {
+      "number": 831,
+      "title": "Спільна бібліотека T4: ознаки походження й рейка «Від слухачів»",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/831",
+      "updated_at": "2026-10-11T09:44:10Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": "v1.6",
+      "task": "R8",
+      "body_sha256": "6c89ad08198e638af27e36c21ebea296407fcaff0e0e7d8b9e9b2ec51f4a04f4",
+      "comments_count": 7,
+      "latest_comment_at": "2026-10-11T09:44:08Z"
+    },
+    {
+      "number": 817,
+      "title": "spec: реліз web-паритету більше не v1.5 — перенести на пізніший реліз",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/817",
+      "updated_at": "2026-10-11T09:44:04Z",
+      "labels": [
+        "documentation"
+      ],
+      "milestone": "v1.15 — Web-паритет",
+      "task": "R9",
+      "body_sha256": "9bf423a86c59f677c592718f7819ddafa73d45074a3fb19018199cf0f719eba9",
+      "comments_count": 2,
+      "latest_comment_at": "2026-10-11T09:44:02Z"
+    },
+    {
+      "number": 753,
+      "title": "Спека: Спільна бібліотека — Telegram як джерело з модерацією спільноти",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/753",
+      "updated_at": "2026-09-19T10:35:16Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": "v1.6",
+      "task": "R8",
+      "body_sha256": "aef9831becadf0c2dd89ecf7d31af2f7d64b43303d8df9368d09bbe7ad3722e0",
+      "comments_count": 2,
+      "latest_comment_at": "2026-09-19T10:35:16Z"
+    },
+    {
+      "number": 698,
+      "title": "Спека 52: нагороди слухача — локальні досягнення з реальних даних",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/698",
+      "updated_at": "2026-09-18T13:33:48Z",
+      "labels": [
+        "ready-for-agent",
+        "spec-52"
+      ],
+      "milestone": "v1.14 — Нагороди (spec-52)",
+      "task": "R8",
+      "body_sha256": "6549c7e2e4ea9a219eda658c9d246809f8f7f016c7812c5554adbe51f6240003",
+      "comments_count": 1,
+      "latest_comment_at": "2026-09-18T13:33:47Z"
+    },
+    {
+      "number": 697,
+      "title": "spec-51 T9: web — читання, голос, скарга",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/697",
+      "updated_at": "2026-09-19T10:59:02Z",
+      "labels": [
+        "ready-for-agent",
+        "spec-51"
+      ],
+      "milestone": "v1.15 — Web-паритет",
+      "task": "later",
+      "body_sha256": "8400fdb4b486531ecec09a504ab436d42a655099f94dd186448588f946d2f50a",
+      "comments_count": 3,
+      "latest_comment_at": "2026-09-19T10:59:02Z"
+    },
+    {
+      "number": 620,
+      "title": "Спека: поглибити Source Catalog, Feed Snapshot і Listener Review",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/620",
+      "updated_at": "2026-10-12T19:48:52Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": "v1.6",
+      "task": "R4",
+      "body_sha256": "04f17537cf8ef001645f9d0d25e5a70d891008c59c1b3f0feee8db5aa3623303",
+      "comments_count": 4,
+      "latest_comment_at": "2026-10-12T19:48:52Z"
+    },
+    {
+      "number": 557,
+      "title": "Спека: Web Client 1:1 з Android (web parity)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/557",
+      "updated_at": "2026-10-11T09:44:07Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": "v1.15 — Web-паритет",
+      "task": "later",
+      "body_sha256": "70895b2c913362f30bffb59a7d3d4235adbb823c94dba9e13a021256401f1721",
+      "comments_count": 2,
+      "latest_comment_at": "2026-10-11T09:44:05Z"
+    },
+    {
+      "number": 533,
+      "title": "acceptance: дві установки, request budget, звук і fallback",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/533",
+      "updated_at": "2026-10-11T09:44:31Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": "v1.5",
+      "task": "R5",
+      "body_sha256": "d5359befab4c60afde699bd3fdc3a6c93914d0ee9fc4e83f5396690e140d0e2e",
+      "comments_count": 44,
+      "latest_comment_at": "2026-10-11T09:44:29Z"
+    },
+    {
+      "number": 525,
+      "title": "sluhayua: новинки, рекомендації й добірки на Огляді",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/525",
+      "updated_at": "2026-10-11T12:37:42Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": "v1.5",
+      "task": "R5",
+      "body_sha256": "3b24aaf404f5e24227e6a8504975a92cebd69b7ceb687fe212a29cbf00345b69",
+      "comments_count": 10,
+      "latest_comment_at": "2026-10-11T12:37:42Z"
+    },
+    {
+      "number": 524,
+      "title": "sluhayua: пошук за попитом → звук → shared delta",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/524",
+      "updated_at": "2026-10-11T12:37:45Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": "v1.5",
+      "task": "R5",
+      "body_sha256": "174660e77e9739095e56764d9efd7b8ba0c385a9a45772a10285de99337417ce",
+      "comments_count": 7,
+      "latest_comment_at": "2026-10-11T12:37:45Z"
+    },
+    {
+      "number": 521,
+      "title": "Spec: колективний каталог і живий «Огляд» із прямих джерел",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/521",
+      "updated_at": "2026-10-11T09:44:28Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": "v1.5",
+      "task": "R5",
+      "body_sha256": "07e525fff32c32c6494108d5f60864fbaaba212fd693cf6b8db0a47b38d0b382",
+      "comments_count": 2,
+      "latest_comment_at": "2026-10-11T09:44:26Z"
+    },
+    {
+      "number": 487,
+      "title": "Рекомендації: eval-gate на реальному масштабі + перевірка відсутності fallback-а",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/487",
+      "updated_at": "2026-10-13T05:28:58Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": "v1.6",
+      "task": "R6",
+      "body_sha256": "14bd8577913d47a006f8b063c4c4b2095fdcc65921a3a7999b0f7241845a02e7",
+      "comments_count": 25,
+      "latest_comment_at": "2026-10-13T05:28:58Z"
+    },
+    {
+      "number": 480,
+      "title": "Рекомендації: подієвість, стабільний кеш, повний пул і чесна модель (spec)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/480",
+      "updated_at": "2026-09-19T10:35:10Z",
+      "labels": [
+        "ready-for-agent"
+      ],
+      "milestone": "v1.6",
+      "task": "R6",
+      "body_sha256": "af7091a64b04261fb7847a88efb39fccdf3bcda3a79d114725725eaf2bfcb63a",
+      "comments_count": 1,
+      "latest_comment_at": "2026-09-19T10:35:10Z"
+    }
+  ],
+  "open_prs": [
+    {
+      "number": 1282,
+      "title": "Runtime рекомендацій: backend, cancellation і черга векторів (#487)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1282",
+      "isDraft": true,
+      "headRefOid": "4080cbe2f712a38d9fdf0dfd70c5f1d684d8bbd3",
+      "headRefName": "codex/recommendation-runtime",
+      "updatedAt": "2026-10-13T05:28:43Z"
+    },
+    {
+      "number": 1275,
+      "title": "fix(scripts): гейти мутацій не заповнюють tmpfs — відмова з числами замість убитого середовища (#1271)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1275",
+      "isDraft": false,
+      "headRefOid": "e1ee2df5e08af5d58e9c6a86a562ba2aa4be8d12",
+      "headRefName": "t1271-tmpfs",
+      "updatedAt": "2026-10-12T19:54:54Z"
+    },
+    {
+      "number": 1267,
+      "title": "test(scripts): усі фікстури мають конструктивне оточення й пін форми (#1265)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1267",
+      "isDraft": false,
+      "headRefOid": "a65254ad16bee82ebf184f588c36d522ea4e71c2",
+      "headRefName": "t1265-proof",
+      "updatedAt": "2026-10-12T19:45:08Z"
+    },
+    {
+      "number": 1186,
+      "title": "feat(import): #1185 — локальна тека за посиланням: ADR-0061 + крок 1 T1",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1186",
+      "isDraft": false,
+      "headRefOid": "dbd3bd1e151257e5559179fb8c53a1505c811153",
+      "headRefName": "docs/issue-1185-local-source-by-reference",
+      "updatedAt": "2026-10-09T13:52:46Z"
+    },
+    {
+      "number": 1181,
+      "title": "fix(persistence): confirmed кеш відгуків і межі Feed Snapshot (#620)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1181",
+      "isDraft": true,
+      "headRefOid": "4d0660c994540f6da52fee5c7362ad3204d4a20f",
+      "headRefName": "codex/acceptance-620-533",
+      "updatedAt": "2026-10-10T21:24:09Z"
+    },
+    {
+      "number": 1162,
+      "title": "feat(sources): пошук і збережені добірки SluhayUA (#524, #525)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1162",
+      "isDraft": true,
+      "headRefOid": "0d547abbbd6fbaf6530a51fedb82ccf1b3846d38",
+      "headRefName": "codex/sources-524-525",
+      "updatedAt": "2026-10-11T12:37:34Z"
+    },
+    {
+      "number": 1161,
+      "title": "feat(identity): preview ручного злиття творів #968",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1161",
+      "isDraft": true,
+      "headRefOid": "0e7dca8067e8fd5b59e7fd9ff1bb3d076e04f435",
+      "headRefName": "codex/identity-968-design",
+      "updatedAt": "2026-10-12T21:12:19Z"
+    },
+    {
+      "number": 1139,
+      "title": "Рекомендації: реальний eval і явний результат backend (#487, NO-GO)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1139",
+      "isDraft": true,
+      "headRefOid": "7614108f91f2f81eafdcd8da4e4e8955594b558c",
+      "headRefName": "codex/issue-487-recommendation-eval",
+      "updatedAt": "2026-10-10T22:13:47Z"
+    }
+  ],
+  "closed_bug_issues": [
+    {
+      "number": 1206,
+      "title": "Великі екрани: на рівно 600 dp сітка Бібліотеки не вміщується в панель (240 проти 284 dp)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1206",
+      "closedAt": "2026-10-10T22:15:57Z"
+    },
+    {
+      "number": 1168,
+      "title": "Картка статистики: «днів підряд» рахуються по рядках, а не по датах",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1168",
+      "closedAt": "2026-10-08T19:35:53Z"
+    },
+    {
+      "number": 1165,
+      "title": "Регрес #390: чіп «Завантажені» знову обрізається на v1.5 (темна тема)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1165",
+      "closedAt": "2026-10-10T16:51:20Z"
+    },
+    {
+      "number": 1154,
+      "title": "Добірку слухача неможливо опублікувати: аркуш згоди існує, але його ніхто не відкриває (#691)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1154",
+      "closedAt": "2026-10-06T10:46:08Z"
+    },
+    {
+      "number": 1121,
+      "title": "Манифест: enableOnBackInvokedCallback не задекларовано при targetSdk 36 — попередження в логах, вплив не з'ясовано",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1121",
+      "closedAt": "2026-10-04T11:01:46Z"
+    },
+    {
+      "number": 1115,
+      "title": "CI: ніжка Room Robolectric-only гине від таймауту 40 хв — «cancelled» виглядає як провал тестів",
+      "url": "https://github.com/Samuel-Ku/slukhayka/issues/1115",
+      "closedAt": "2026-10-04T10:58:12Z"
+    }
+  ],
+  "merged_after_baseline": [
+    {
+      "mergedAt": "2026-10-12T19:41:04Z",
+      "number": 1274,
+      "title": "docs(agents): #1272 — виміряна межа одного build-слота й ADR-0062",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1274"
+    },
+    {
+      "mergedAt": "2026-10-12T12:55:08Z",
+      "number": 1269,
+      "title": "perf(scripts): джоба script-tests −21% — замок на ключ і паралельні набори чутливості (#1266)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1269"
+    },
+    {
+      "mergedAt": "2026-10-12T18:25:00Z",
+      "number": 1268,
+      "title": "feat(scripts): ґард премиси тікета проти origin/main (#1264)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1268"
+    },
+    {
+      "mergedAt": "2026-10-11T22:32:49Z",
+      "number": 1263,
+      "title": "feat(scripts): механізм, що вимагає мутації-свідка для кожного поля вердикту (#1260)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1263"
+    },
+    {
+      "mergedAt": "2026-10-11T20:09:05Z",
+      "number": 1262,
+      "title": "feat(scripts): review-pass.sh — вердикт перепроставляється однією операцією й перевіряється (#1259)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1262"
+    },
+    {
+      "mergedAt": "2026-10-11T16:18:10Z",
+      "number": 1258,
+      "title": "test(scripts): машинна мутація порожньої форми — механізм, що ловить «літерал замість умови» (#1256)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1258"
+    },
+    {
+      "mergedAt": "2026-10-11T16:48:50Z",
+      "number": 1257,
+      "title": "feat(scripts): режим --python для мутацій scripts/** — той самий слід і той самий status (#1255)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1257"
+    },
+    {
+      "mergedAt": "2026-10-11T13:51:44Z",
+      "number": 1254,
+      "title": "feat(scripts): мердж-гейт відмовляє, якщо гілка не містить усього, що рецензували (#1247)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1254"
+    },
+    {
+      "mergedAt": "2026-10-11T12:43:30Z",
+      "number": 1253,
+      "title": "docs(agents): покажчики на mutate.sh і merge-pr.sh (#1250)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1253"
+    },
+    {
+      "mergedAt": "2026-10-11T13:04:43Z",
+      "number": 1252,
+      "title": "docs: мутаційна перевірка нової логіки — обов'язок, а не побажання (#1249)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1252"
+    },
+    {
+      "mergedAt": "2026-10-11T12:43:24Z",
+      "number": 1251,
+      "title": "docs(agents): ребаз гілки робить автор, не координатор (#1248)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1251"
+    },
+    {
+      "mergedAt": "2026-10-11T11:18:33Z",
+      "number": 1246,
+      "title": "feat(scripts): облік мутацій — машиночитний слід замість здогаду за XML (#1221)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1246"
+    },
+    {
+      "mergedAt": "2026-10-11T11:11:00Z",
+      "number": 1245,
+      "title": "fix(scripts): довести веб-щуп і документацію до стану огляду — відновлення неповного мерджу #1239 (#1224)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1245"
+    },
+    {
+      "mergedAt": "2026-10-11T10:42:05Z",
+      "number": 1244,
+      "title": "docs(agents): три прогалини середовища — wide-window.sh, web без слота, когорти Room native SDK (#1225)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1244"
+    },
+    {
+      "mergedAt": "2026-10-11T10:17:31Z",
+      "number": 1239,
+      "title": "feat(scripts): web-щуп розкладки — браузерні виміри замість одноразових скриптів (#1224)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1239"
+    },
+    {
+      "mergedAt": "2026-10-11T10:01:07Z",
+      "number": 1234,
+      "title": "feat(scripts): ґард зростання lint-baseline і генератор записів (#1222)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1234"
+    },
+    {
+      "mergedAt": "2026-10-11T10:17:16Z",
+      "number": 1233,
+      "title": "feat(scripts): мердж-гейт відмовляє без вердикту огляду (#1220)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1233"
+    },
+    {
+      "mergedAt": "2026-10-11T09:41:52Z",
+      "number": 1232,
+      "title": "fix(scripts): мапа партицій покриває пакети-предки й web-перевірку (#1219)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1232"
+    },
+    {
+      "mergedAt": "2026-10-11T09:48:57Z",
+      "number": 1231,
+      "title": "test(web): ґард спільної межі 600 читає обидва джерела (#1223)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1231"
+    },
+    {
+      "mergedAt": "2026-10-11T06:34:27Z",
+      "number": 1218,
+      "title": "feat(ui): web — адаптивна ширина й сітка від тієї самої межі 600 px (#1207)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1218"
+    },
+    {
+      "mergedAt": "2026-10-10T21:41:24Z",
+      "number": 1217,
+      "title": "fix(ui): сітка Медіатеки адаптивна, ландшафтний телефон під тестом, один гейт смуги (#1205)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1217"
+    },
+    {
+      "mergedAt": "2026-10-10T22:15:35Z",
+      "number": 1216,
+      "title": "fix(ui): на 600 dp сітка Бібліотеки свідомо деградує до списку (#1206)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1216"
+    },
+    {
+      "mergedAt": "2026-10-10T19:45:17Z",
+      "number": 1215,
+      "title": "feat(ui): плеєр бічною панеллю від 840 dp і міні-плеєр у провідній колонці (#1205)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1215"
+    },
+    {
+      "mergedAt": "2026-10-10T16:06:55Z",
+      "number": 1214,
+      "title": "ci: ретрай інструментованої джоби і мапа golden на compose-roborazzi",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1214"
+    },
+    {
+      "mergedAt": "2026-10-10T16:42:15Z",
+      "number": 1213,
+      "title": "fix(ui): індикація взаємодії рядка покриває весь рядок (#1165)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1213"
+    },
+    {
+      "mergedAt": "2026-10-10T14:08:15Z",
+      "number": 1212,
+      "title": "fix(scripts): проба JDK 21 не з'їдається notice від JAVA_TOOL_OPTIONS",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1212"
+    },
+    {
+      "mergedAt": "2026-10-10T15:38:06Z",
+      "number": 1211,
+      "title": "fix(ui): ряд статусів показує вибраний чип замість сліпого скролу (#1165)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1211"
+    },
+    {
+      "mergedAt": "2026-10-10T15:24:21Z",
+      "number": 1210,
+      "title": "feat(facets): «Попаданці» — канонічна ідентичність (джерело заявляє, адаптер ще не читає) (#1053)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1210"
+    },
+    {
+      "mergedAt": "2026-10-10T14:13:43Z",
+      "number": 1209,
+      "title": "docs(audit): #900 — великі екрани: що вже вирішено й збудовано, і що лишилось",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1209"
+    },
+    {
+      "mergedAt": "2026-10-10T11:20:20Z",
+      "number": 1204,
+      "title": "docs: коментар не сильніший за код; OOM — вирок машині (ретро кола 2)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1204"
+    },
+    {
+      "mergedAt": "2026-10-10T10:45:58Z",
+      "number": 1203,
+      "title": "fix(android): 30 записів NewApi закрито — baseline без NewApi (goal-d371ed0f)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1203"
+    },
+    {
+      "mergedAt": "2026-10-10T09:12:02Z",
+      "number": 1202,
+      "title": "ci(lint): ґард ловить і кеш Gradle; скрипти біжать через слот (ретро кола 1)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1202"
+    },
+    {
+      "mergedAt": "2026-10-10T08:27:22Z",
+      "number": 1201,
+      "title": "build(android): core library desugaring + 59 записів NewApi з baseline (goal-d371ed0f)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1201"
+    },
+    {
+      "mergedAt": "2026-10-10T04:59:29Z",
+      "number": 1200,
+      "title": "docs(agents): головна копія — не main (ретро раунду 6)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1200"
+    },
+    {
+      "mergedAt": "2026-10-10T04:11:37Z",
+      "number": 1199,
+      "title": "docs(achievements): сусідні формулювання називають строгий бік межі (#1182)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1199"
+    },
+    {
+      "mergedAt": "2026-10-10T03:31:09Z",
+      "number": 1197,
+      "title": "docs+test(achievements): «Старовинна» — строгий рік у коментарі й межа в тесті (#1182)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1197"
+    },
+    {
+      "mergedAt": "2026-10-10T02:41:43Z",
+      "number": 1196,
+      "title": "ci(lint): baseline без машинних шляхів + ґард (ретро раунду 4)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1196"
+    },
+    {
+      "mergedAt": "2026-10-10T01:18:46Z",
+      "number": 1195,
+      "title": "docs(agents): звужувати прогін за шляхом; оновлювати хеш після ребейзу (ретро раунду 3)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1195"
+    },
+    {
+      "mergedAt": "2026-10-10T01:55:40Z",
+      "number": 1194,
+      "title": "feat(achievements): дев'ять нагород за серіями, всесвітами, колекціями й дверима (#701)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1194"
+    },
+    {
+      "mergedAt": "2026-10-09T23:11:15Z",
+      "number": 1193,
+      "title": "docs(agents): комітувати по кроках і читати чергу за слотом (ретро раунду 2)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1193"
+    },
+    {
+      "mergedAt": "2026-10-09T22:01:44Z",
+      "number": 1192,
+      "title": "docs(agents)+ci(lint): ретроспектива раунду 1 — партиції як одиниця доказу, навігація середовищем, підключений lint",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1192"
+    },
+    {
+      "mergedAt": "2026-10-09T21:01:18Z",
+      "number": 1191,
+      "title": "feat(achievements): «Не кидаю», другий шлях «Другого дихання» і зняття позначки при завершенні (#1174)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1191"
+    },
+    {
+      "mergedAt": "2026-10-09T15:32:42Z",
+      "number": 1190,
+      "title": "ci(recommend): ручна Linux-діагностика одного твору #487",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1190"
+    },
+    {
+      "mergedAt": "2026-10-09T16:10:41Z",
+      "number": 1189,
+      "title": "feat(achievements): «Слухацький рік» і «Нова хвиля» на наявних даних (#1166, #1175)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1189"
+    },
+    {
+      "mergedAt": "2026-10-09T14:29:11Z",
+      "number": 1184,
+      "title": "feat(achievements): вісім нагород на шарі вимірів (#1183, T9b)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1184"
+    },
+    {
+      "mergedAt": "2026-10-08T21:03:02Z",
+      "number": 1180,
+      "title": "feat(measurements): шар вимірів — сеанси, офлайн/каст/ніч за днями, лічильник arm (#1173)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1180"
+    },
+    {
+      "mergedAt": "2026-10-08T19:35:52Z",
+      "number": 1179,
+      "title": "fix(library): картка статистики рахує стрік і тиждень за датами (#1168)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1179"
+    },
+    {
+      "mergedAt": "2026-10-08T18:15:04Z",
+      "number": 1178,
+      "title": "feat(entries): дія «покинути книгу» — стан, бейдж і скасування (#1174)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1178"
+    },
+    {
+      "mergedAt": "2026-10-08T16:03:36Z",
+      "number": 1177,
+      "title": "feat(sources): дата появи джерела в реєстрі — порожня в наявних (#1175)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1177"
+    },
+    {
+      "mergedAt": "2026-10-08T12:41:02Z",
+      "number": 1176,
+      "title": "docs(spec-52): рішення 2026-10-07 — зняте, уточнене й новий шар вимірів",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1176"
+    },
+    {
+      "mergedAt": "2026-10-07T15:38:15Z",
+      "number": 1172,
+      "title": "test(achievements): табличні межі прихованих нагород (#703, AC3)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1172"
+    },
+    {
+      "mergedAt": "2026-10-07T16:35:22Z",
+      "number": 1171,
+      "title": "feat(achievements): #701 «П'ять поспіль» і «Англомовний старт» на наявних даних",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1171"
+    },
+    {
+      "mergedAt": "2026-10-07T14:56:25Z",
+      "number": 1170,
+      "title": "feat(achievements): нагороди за регулярність — марафон, тиждень, місяць, понеділки (#1166, T8)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1170"
+    },
+    {
+      "mergedAt": "2026-10-07T15:38:23Z",
+      "number": 1169,
+      "title": "feat(achievements): «Друге дихання» — книга, завершена вдруге (#700, T2 зріз 7)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1169"
+    },
+    {
+      "mergedAt": "2026-10-07T12:38:54Z",
+      "number": 1167,
+      "title": "docs(plans): ціль групи spec52-tail — залишок spec-52 (#700, #701, #703, #1166)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1167"
+    },
+    {
+      "mergedAt": "2026-10-08T16:43:28Z",
+      "number": 1160,
+      "title": "feat(achievements): жанрові нагороди на живому словнику (#702, T4 зріз 2)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1160"
+    },
+    {
+      "mergedAt": "2026-10-06T10:45:31Z",
+      "number": 1159,
+      "title": "feat(collections): псевдонім можна змінити після публікації (#691, #1154)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1159"
+    },
+    {
+      "mergedAt": "2026-10-06T10:02:10Z",
+      "number": 1158,
+      "title": "fix(bookdetail): hero більше не малює назву й автора двічі (#995)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1158"
+    },
+    {
+      "mergedAt": "2026-10-06T05:36:43Z",
+      "number": 1157,
+      "title": "feat(achievements): вітрина нагород виходить у профіль (#705, T7 зріз 5)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1157"
+    },
+    {
+      "mergedAt": "2026-10-06T04:37:28Z",
+      "number": 1156,
+      "title": "feat(collections): псевдонім і публікація добірки (#1154, зріз 2)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1156"
+    },
+    {
+      "mergedAt": "2026-10-06T04:03:41Z",
+      "number": 1155,
+      "title": "fix(collections): власну добірку знову можна відкрити (#1154)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1155"
+    },
+    {
+      "mergedAt": "2026-10-06T00:51:47Z",
+      "number": 1153,
+      "title": "feat(ui): вітрина нагород у профілі куратора (#705, T7 зріз 4)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1153"
+    },
+    {
+      "mergedAt": "2026-10-06T00:09:33Z",
+      "number": 1152,
+      "title": "feat(collections): вітрина нагород у публічному документі добірки (#705, T7 зріз 3)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1152"
+    },
+    {
+      "mergedAt": "2026-10-05T22:52:46Z",
+      "number": 1151,
+      "title": "fix(collections): зміна псевдоніма більше не стирає добірки (#1150)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1151"
+    },
+    {
+      "mergedAt": "2026-10-05T22:52:42Z",
+      "number": 1149,
+      "title": "feat(achievements): модель публікації вітрини (#705, T7 зріз 1)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1149"
+    },
+    {
+      "mergedAt": "2026-10-05T21:56:47Z",
+      "number": 1148,
+      "title": "feat(achievements): вибір вітрини з екрана (#704, T6 зріз 5)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1148"
+    },
+    {
+      "mergedAt": "2026-10-05T18:57:07Z",
+      "number": 1147,
+      "title": "feat(achievements): екран «Досягнення» (#704, T6 зріз 4)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1147"
+    },
+    {
+      "mergedAt": "2026-10-05T15:54:34Z",
+      "number": 1146,
+      "title": "feat(achievements): модель екрана «Досягнення» (#704, T6 зріз 3)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1146"
+    },
+    {
+      "mergedAt": "2026-10-05T18:15:56Z",
+      "number": 1145,
+      "title": "feat(achievements): вітрина до 3 обраних, зі збереженням локально (#704, T6 зріз 2)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1145"
+    },
+    {
+      "mergedAt": "2026-10-05T14:44:33Z",
+      "number": 1144,
+      "title": "feat(achievements): «Ніколи не пізно» (#703, T5 зріз 3)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1144"
+    },
+    {
+      "mergedAt": "2026-10-05T13:52:00Z",
+      "number": 1143,
+      "title": "feat(achievements): «Старовинна» й «Перерва» (#703, T5 зріз 2)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1143"
+    },
+    {
+      "mergedAt": "2026-10-05T13:07:26Z",
+      "number": 1142,
+      "title": "feat(achievements): приховані нагороди з реального часу + назви для всіх (#703)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1142"
+    },
+    {
+      "mergedAt": "2026-10-05T12:10:58Z",
+      "number": 1141,
+      "title": "feat(achievements): титул слухача за синергією (#704, T6 зріз 1)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1141"
+    },
+    {
+      "mergedAt": "2026-10-05T11:28:28Z",
+      "number": 1140,
+      "title": "feat(achievements): широта й глибина жанру (#702, T4 зріз 1)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1140"
+    },
+    {
+      "mergedAt": "2026-10-05T10:24:37Z",
+      "number": 1138,
+      "title": "feat(achievements): драбина книг і форма читання (#700, зрізи 1–2)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1138"
+    },
+    {
+      "mergedAt": "2026-10-04T22:08:20Z",
+      "number": 1137,
+      "title": "test(a11y): не тиснути на вузли, яких ще немає (#1066)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1137"
+    },
+    {
+      "mergedAt": "2026-10-04T21:15:58Z",
+      "number": 1136,
+      "title": "fix(ui): «порожньо» і «ще не прочитано» — різні стани (#1066)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1136"
+    },
+    {
+      "mergedAt": "2026-10-04T20:09:11Z",
+      "number": 1135,
+      "title": "fix(release): гейт перевіряє передумови release-збірки (#487)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1135"
+    },
+    {
+      "mergedAt": "2026-10-04T22:25:53Z",
+      "number": 1134,
+      "title": "feat(achievements): #699 локальні нагороди за підтверджений поступ",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1134"
+    },
+    {
+      "mergedAt": "2026-10-04T16:27:36Z",
+      "number": 1133,
+      "title": "fix(test): бар'єр кадру навколо a11y-перевірки (#1066)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1133"
+    },
+    {
+      "mergedAt": "2026-10-04T13:00:20Z",
+      "number": 1132,
+      "title": "fix(release): E5-модель перед release-збіркою — тепер і в main (#487)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1132"
+    },
+    {
+      "mergedAt": "2026-10-05T09:02:54Z",
+      "number": 1131,
+      "title": "fix(player): фактична позиція й завершення розділу вебплеєра (#934)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1131"
+    },
+    {
+      "mergedAt": "2026-10-04T12:48:07Z",
+      "number": 1130,
+      "title": "fix(test): бюджет очікування відтворення 3 с → 15 с (#1066)",
+      "url": "https://github.com/Samuel-Ku/slukhayka/pull/1130"
+    }
+  ],
+  "local_claims": [
+    {
+      "issue": 487,
+      "ownerThread": "01a101d5-3f85-73c2-b975-be7591970e00",
+      "reservation": "parallel-699-487-934-2026-10-04",
+      "status": "implementing",
+      "branch": "codex/issue-487-recommendation-eval",
+      "head": "fcf9d074ceb3c7d6155e6a156915658552b4ad97",
+      "updatedAt": "2026-10-13T09:14:23.665854+00:00"
+    },
+    {
+      "issue": 524,
+      "ownerThread": "01a101d5-3f85-73c2-b975-be7591970e00",
+      "reservation": "next-work-2026-10-07",
+      "status": "implementing",
+      "branch": "codex/sources-524-525",
+      "head": "0d547abbbd6fbaf6530a51fedb82ccf1b3846d38",
+      "updatedAt": "2026-10-11T12:41:32.292354+00:00"
+    },
+    {
+      "issue": 525,
+      "ownerThread": "01a101d5-3f85-73c2-b975-be7591970e00",
+      "reservation": "next-work-2026-10-07",
+      "status": "implementing",
+      "branch": "codex/sources-524-525",
+      "head": "0d547abbbd6fbaf6530a51fedb82ccf1b3846d38",
+      "updatedAt": "2026-10-11T12:41:32.292354+00:00"
+    },
+    {
+      "issue": 533,
+      "ownerThread": "01a101d5-3f85-73c2-b975-be7591970e00",
+      "reservation": "next-work-2026-10-07",
+      "status": "implementing",
+      "branch": "codex/collective-real-app-trace",
+      "updatedAt": "2026-10-08T11:39:35.967436+00:00"
+    },
+    {
+      "issue": 620,
+      "ownerThread": "01a101d5-3f85-73c2-b975-be7591970e00",
+      "reservation": "next-work-2026-10-07",
+      "status": "implementing",
+      "branch": "codex/acceptance-620-533",
+      "head": "4d0660c994540f6da52fee5c7362ad3204d4a20f",
+      "updatedAt": "2026-10-13T09:14:23.665854+00:00"
+    },
+    {
+      "issue": 968,
+      "ownerThread": "01a101d5-3f85-73c2-b975-be7591970e00",
+      "reservation": "next-work-2026-10-07",
+      "status": "implementing",
+      "branch": "codex/identity-968-design",
+      "head": "0e7dca8067e8fd5b59e7fd9ff1bb3d076e04f435",
+      "updatedAt": "2026-10-13T09:14:23.665854+00:00"
+    }
+  ],
+  "build_slot": {
+    "state": "CLOSED_INTERRUPTED_SDK_INPUTS_MISSING_RECOVERY_REQUIRED",
+    "ownerThread": "01a101d5-3f85-73c2-b975-be7591970e00",
+    "issue": 620,
+    "updatedAt": "2026-10-13T09:14:23.665854+00:00",
+    "activeSession": null,
+    "pendingLaunch": false,
+    "rootFinalActualAccepted": false
+  },
+  "freshness_rule": "Перед запуском reread issues/comments/PR heads/claims; ця вибірка не є live станом.",
+  "execution_evidence": "planning_only; builds/tests/deploys not run"
+}

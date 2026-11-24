@@ -75,7 +75,8 @@ object PlaybackResume {
                 playable = playable,
                 initialChapterIndex = latest.currentChapterIndex,
                 initialPositionSeconds = latest.currentPositionSeconds,
-                autoPlay = autoPlay
+                autoPlay = autoPlay,
+                resumePausedAtEpochMs = latest.lastPausedAtEpochMs
             )
         }
         return true

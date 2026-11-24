@@ -6,6 +6,7 @@ import com.google.firebase.FirebaseApp
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.QuerySnapshot
+import com.google.firebase.firestore.SetOptions
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -48,17 +49,17 @@ class FirestoreListenerCollectionsSharedStore(
         val mine = queryByAuthor(authorId)
         if (mine.isEmpty()) return PublishResult.Refused("unknown-author")
         // ALL of the author's collections carry the same public name.
-        mine.forEach { document ->
-            write(document.documentId, mapOf("pseudonym" to clean))
-        }
-        return PublishResult.Published
+        return if (mine.all { document -> write(document.documentId, mapOf("pseudonym" to clean)) }) {
+            PublishResult.Published
+        } else PublishResult.Refused("write-failed")
     }
 
     override suspend fun deleteAuthorProfile(authorId: String): PublishResult {
         val mine = queryByAuthor(authorId)
         if (mine.isEmpty()) return PublishResult.Refused("unknown-author")
-        mine.forEach { document -> delete(document.documentId) }
-        return PublishResult.Published
+        return if (mine.all { document -> delete(document.documentId) }) {
+            PublishResult.Published
+        } else PublishResult.Refused("delete-failed")
     }
 
     override suspend fun publishedBy(authorId: String): List<PublishedCollection> =
@@ -221,9 +222,18 @@ class FirestoreListenerCollectionsSharedStore(
     }
 
     private suspend fun write(documentId: String, fields: Map<String, Any?>): Boolean = try {
-        firestore.collection(COLLECTION).document(documentId)
-            .set(fields.filterValues { it != null })
-            .awaitWrite()
+        firestore.runTransaction<Void> { transaction ->
+            val reference = firestore.collection(COLLECTION).document(documentId)
+            val exists = transaction.get(reference).exists()
+            val safeFields = fields.filter { (key, value) -> value != null &&
+                (!exists || key !in setOf(FIELD_RATING_SUM, FIELD_RATING_COUNT, FIELD_HIDDEN, FIELD_REPORT_COUNT))
+            }
+            // New rows carry their zero-valued counters so orderBy can find
+            // them. Existing rows preserve counters, even during a concurrent
+            // vote or report; a content publish cannot reset moderation.
+            transaction.set(reference, safeFields, SetOptions.merge())
+            null
+        }.awaitWrite()
     } catch (_: Exception) {
         false
     }

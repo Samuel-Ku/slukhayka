@@ -13,15 +13,11 @@ import android.content.Context
  *
  * Security: the password is NEVER stored nor backed up as plaintext. It is
  * sealed at rest with [DeviceBindingCipher] under a key derived from this
- * device's ANDROID_ID — the same key derivation as the `device_bindings`
- * payload, so the same phone re-opens it after reinstall (ANDROID_ID
- * survives uninstall) while a Google-cloud backup restored anywhere else —
- * or read by anyone else — yields only opaque ciphertext. A sealed blob
- * that does not open on this device loads as a null password, which every
- * caller already treats as "no credentials" (backup/device-binding sign-in
- * is skipped, the recovery code stays the cross-device path). The email,
- * uid and nickname ride plaintext: without the password they cannot
- * authenticate anything (the `.local` address delivers nowhere).
+ * device's ANDROID_ID. This protects the backup only while that id remains
+ * unavailable to its reader; the id is not a cryptographic secret. Cloud
+ * device bindings are retired (ADR-0055). A blob restored to another device
+ * loads a null password; the recovery code is the cross-device path. Email,
+ * uid and nickname are plaintext. Encryption failure never writes plaintext.
  */
 data class StoredCredentials(
     val uid: String,
@@ -72,9 +68,9 @@ class SharedPreferencesLocalCredentialStore(
         when {
             password == null -> editor.remove(KEY_PASSWORD).remove(KEY_PASSWORD_SEALED)
             sealed != null -> editor.putString(KEY_PASSWORD_SEALED, sealed).remove(KEY_PASSWORD)
-            // No device id (or a seal failure): degrade-never keeps
-            // the legacy plaintext so sign-in still works on-device.
-            else -> editor.putString(KEY_PASSWORD, password).remove(KEY_PASSWORD_SEALED)
+            // Never persist a plaintext fallback. Keep any previous sealed
+            // value on failure; the live Firebase session remains usable.
+            else -> editor.remove(KEY_PASSWORD)
         }
         editor.apply()
     }
@@ -93,18 +89,21 @@ class SharedPreferencesLocalCredentialStore(
     private fun readPassword(): String? {
         val deviceId = deviceIdProvider()
         prefs.getString(KEY_PASSWORD_SEALED, null)?.let { sealed ->
+            // Older failed saves could leave BOTH keys. The sealed value
+            // wins, but the abandoned plaintext must not ride another backup.
+            if (prefs.contains(KEY_PASSWORD)) prefs.edit().remove(KEY_PASSWORD).apply()
             if (deviceId == null) return null
             return DeviceBindingCipher.open(deviceId, sealed)
         }
         val legacy = prefs.getString(KEY_PASSWORD, null) ?: return null
-        if (deviceId != null) {
-            runCatching {
-                prefs.edit()
-                    .putString(KEY_PASSWORD_SEALED, DeviceBindingCipher.seal(deviceId, legacy))
-                    .remove(KEY_PASSWORD)
-                    .apply()
-            }
+        val sealed = deviceId?.let { id ->
+            runCatching { DeviceBindingCipher.seal(id, legacy) }.getOrNull()
         }
+        // Return a legacy credential once for sign-in, but remove it from
+        // backup storage even when encryption is unavailable.
+        val editor = prefs.edit().remove(KEY_PASSWORD)
+        if (sealed != null) editor.putString(KEY_PASSWORD_SEALED, sealed)
+        editor.apply()
         return legacy
     }
 

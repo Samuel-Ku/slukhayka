@@ -31,6 +31,9 @@ import java.util.Locale
  */
 object MergeKey {
 
+    private val NON_LETTER_DIGIT_SPACE = Regex("[^\\p{L}\\p{N} ]")
+    private val WHITESPACE = Regex("\\s+")
+
     /** Normalizes a title for comparison: lowercases, strips a subtitle. */
     fun normalizeTitle(title: String): String {
         // Spec-27 BUG-002: the SEO scrub first — a raw page title with a
@@ -72,8 +75,8 @@ object MergeKey {
             .trim()
             .lowercase(Locale.ROOT)
             // Keep letters, digits and spaces; drop everything else (incl. ' і ' variants).
-            .replace(Regex("[^\\p{L}\\p{N} ]"), "")
-            .replace(Regex("\\s+"), " ")
+            .replace(NON_LETTER_DIGIT_SPACE, "")
+            .replace(WHITESPACE, " ")
             .trim()
         return cleaned
     }

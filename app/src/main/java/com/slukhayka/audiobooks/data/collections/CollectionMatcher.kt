@@ -66,10 +66,7 @@ object CollectionMatcher {
 
     /** Matches one collection against the catalog union. */
     fun match(collection: CollectionList, catalog: List<GlobalSearchResult>): MatchedCollection {
-        val books = catalog.filter { book ->
-            collection.entries.any { entryMatches(it, book) }
-        }
-        return MatchedCollection(collection.id, collection.name, collection.sourceNote, books)
+        return matchCollections(listOf(collection), catalog).single()
     }
 
     /** Matches every collection and drops the empty ones (block hiding). */
@@ -77,7 +74,58 @@ object CollectionMatcher {
         collections: List<CollectionList>,
         catalog: List<GlobalSearchResult>
     ): List<MatchedCollection> =
-        collections.map { match(it, catalog) }.filter { it.books.isNotEmpty() }
+        matchCollections(collections, catalog).filter { it.books.isNotEmpty() }
+
+    private class CollectionMatch(val collection: CollectionList) {
+        val authors = mutableSetOf<String>()
+        val titlesByAuthor = mutableMapOf<String, MutableSet<String>>()
+        val books = mutableListOf<GlobalSearchResult>()
+
+        init {
+            for (entry in collection.entries) {
+                if (entry.author.isBlank()) continue
+                val author = normalizeAuthor(entry.author)
+                val title = entry.title?.takeIf { it.isNotBlank() }
+                if (title == null) {
+                    authors.add(author)
+                } else {
+                    titlesByAuthor.getOrPut(author) { mutableSetOf() }.add(normalizeTitle(title))
+                }
+            }
+        }
+
+        fun result() = MatchedCollection(collection.id, collection.name, collection.sourceNote, books)
+    }
+
+    private fun matchCollections(
+        collections: List<CollectionList>,
+        catalog: List<GlobalSearchResult>
+    ): List<MatchedCollection> {
+        if (collections.isEmpty()) return emptyList()
+        if (catalog.isEmpty()) return collections.map {
+            MatchedCollection(it.id, it.name, it.sourceNote, emptyList())
+        }
+        val matches = collections.map(::CollectionMatch)
+        if (matches.all { it.authors.isEmpty() && it.titlesByAuthor.isEmpty() }) {
+            return matches.map { it.result() }
+        }
+        for (book in catalog) {
+            val author = normalizeAuthor(book.author)
+            // Fold a title only when a collection claims this author, and
+            // reuse that fold across every collection in this invocation.
+            var title: String? = null
+            for (match in matches) {
+                if (author in match.authors) {
+                    match.books.add(book)
+                } else {
+                    val titles = match.titlesByAuthor[author] ?: continue
+                    val normalizedTitle = title ?: normalizeTitle(book.title).also { title = it }
+                    if (normalizedTitle in titles) match.books.add(book)
+                }
+            }
+        }
+        return matches.map { it.result() }
+    }
 
     private fun dropDiacritics(value: String): String {
         // NFKD only on NON-Cyrillic characters: Ukrainian ї/й/ё decompose

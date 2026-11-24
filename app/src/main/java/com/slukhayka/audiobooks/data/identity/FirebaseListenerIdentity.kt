@@ -5,7 +5,6 @@ import com.google.android.gms.tasks.Task
 import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.EmailAuthProvider
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlin.random.Random
@@ -26,16 +25,13 @@ import kotlinx.coroutines.suspendCancellableCoroutine
  * Firebase is unreachable/not configured. The real account bootstrap simply
  * retries on a later launch.
  *
- * The Firestore-backed [FirestoreDeviceBindings] (spec-40 #276) gives the
- * silent same-phone restore: after every successful bootstrap/sign-in the
- * device's binding is refreshed; a fresh install looks its ANDROID_ID up
- * before bootstrapping a new account.
+ * Credentials never enter the public device_bindings collection. Reinstall
+ * recovery uses the local backup or an explicitly supplied recovery code.
  */
 class FirebaseListenerIdentity(
     private val auth: FirebaseAuth,
     private val local: LocalCredentialStore,
     private val fallback: LocalOnlyIdentity,
-    private val bindings: FirestoreDeviceBindings? = null,
     private val random: Random = Random.Default
 ) : ListenerIdentity {
 
@@ -54,20 +50,9 @@ class FirebaseListenerIdentity(
             return profileFor(user.uid)
         }
 
-        // 2. Credentials persisted by an earlier install — Android Auto
-        //    Backup restore first, then the same-phone device binding.
-        if (signInFromLocalStore()) {
-            refreshBinding()
-            return currentOrBootstrap()
-        }
-        bindings?.restoreCredentials()?.let { restored ->
-            if (signInWith(restored.email!!, restored.password!!)) {
-                // Adopt the restored account and persist its credentials.
-                runCatching { local.save(restored) }
-                refreshBinding()
-                return currentOrBootstrap()
-            }
-        }
+        // 2. Restore from the device's local backup. Public device-id-based
+        // cloud recovery cannot authenticate the caller and is retired.
+        if (signInFromLocalStore()) return currentOrBootstrap()
 
         // 3. Fresh install: anonymous auth immediately elevated to a
         //    permanent generated email/password pair.
@@ -142,7 +127,6 @@ class FirebaseListenerIdentity(
                 StoredCredentials(uid = uid, email = email, password = password, nickname = nickname)
             )
         }
-        refreshBinding()
         return ListenerProfile(uid, nickname)
     }
 
@@ -171,16 +155,6 @@ class FirebaseListenerIdentity(
     }
 
     /**
-     * Spec-40 #276 (t2): after a successful bootstrap/sign-in, refresh this
-     * device's binding so a future reinstall can silently sign back in.
-     */
-    private suspend fun refreshBinding() {
-        val code = recoveryCode() ?: return
-        val uid = runCatching { auth.currentUser?.uid }.getOrNull() ?: return
-        bindings?.bind(uid, code)
-    }
-
-    /**
      * Elevates the current (anonymous) session with fresh generated
      * credentials, retrying with a new pair up to [LINK_ATTEMPTS] times
      * (an email collision is astronomically unlikely but free to absorb).
@@ -191,7 +165,7 @@ class FirebaseListenerIdentity(
     private suspend fun linkGenerated(freshNickname: String?): ListenerProfile? {
         val anonUser = auth.currentUser ?: return null
         repeat(LINK_ATTEMPTS) {
-            val generated = GeneratedCredentials.generate(random)
+            val generated = GeneratedCredentials.generate()
             try {
                 val credential = EmailAuthProvider.getCredential(generated.email, generated.password)
                 val linked = anonUser.linkWithCredential(credential).await().user
@@ -210,9 +184,6 @@ class FirebaseListenerIdentity(
                         nickname = nickname
                     )
                 )
-                // Spec-40 #276: the fresh account is immediately bound to
-                // this device for a silent same-phone restore later.
-                refreshBinding()
                 return ListenerProfile(linked.uid, nickname)
             } catch (e: Exception) {
                 // Collision or transient failure → another pair.
@@ -261,14 +232,10 @@ class FirebaseListenerIdentity(
                 ?: FirebaseApp.initializeApp(context)
                 ?: return null
             val local = SharedPreferencesLocalCredentialStore(context)
-            val firestore = runCatching { FirebaseFirestore.getInstance(app) }.getOrNull()
             val firebase = FirebaseListenerIdentity(
                 auth = FirebaseAuth.getInstance(app),
                 local = local,
                 fallback = LocalOnlyIdentity(local, random),
-                // Spec-40 #276: the silent same-phone restore rides Firestore
-                // when it exists; without it only Auto Backup covers reinstall.
-                bindings = firestore?.let { FirestoreDeviceBindings(it) { DeviceIds.androidId(context) } },
                 random = random
             )
             return firebase

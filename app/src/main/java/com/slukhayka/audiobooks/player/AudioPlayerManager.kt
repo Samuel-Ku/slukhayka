@@ -1112,7 +1112,8 @@ class AudioPlayerManager(
         // RELISTEN even when the stored end position alone would not trip the
         // position-based rule (e.g. a multi-chapter book whose saved position
         // is the last chapter's in-chapter seconds, below the book total).
-        forceRelisten: Boolean = false
+        forceRelisten: Boolean = false,
+        resumePausedAtEpochMs: Long? = null
     ) {
         // 2026-08-26 device bug («грає попередня книга»): a book whose
         // chapters never resolved — the source page carries no playerjs audio
@@ -1147,6 +1148,10 @@ class AudioPlayerManager(
         if (relisten) {
             chapterIdx = 0
             positionSeconds = 0L
+        } else if (resumePausedAtEpochMs != null) {
+            positionSeconds = SmartRewind.rewoundPositionMs(
+                positionSeconds * 1000L, now() - resumePausedAtEpochMs
+            ) / 1000L
         }
         // ADR-0007: no source-switch detection — listening identity is the
         // Edition, not the source that happens to play it. (The old code
@@ -1166,8 +1171,6 @@ class AudioPlayerManager(
             canUndoSeek = false,
             undoFromPositionMs = 0L
         )
-        // The caller already chose this load's start (including any resume
-        // rewind). A pause from the previous item must not shift it again.
         // Clear the incoming book's marker; another book keeps its own history.
         pausedAtEpochMs = null
         persistPausedAt(null)

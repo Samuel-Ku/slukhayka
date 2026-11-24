@@ -107,6 +107,10 @@ object MetadataAssertions {
         "слухати онлайн"
     ).sortedByDescending { it.length }
 
+    private val SEO_TITLE_SUFFIXES = SEO_TITLE_PHRASES.map { phrase ->
+        Regex(Regex.escape(phrase) + """\s*\)?\s*$""", RegexOption.IGNORE_CASE)
+    }
+
     /**
      * The separators an SEO suffix can sit behind: ` - `, ` — `, ` ( `, `, `,
      * `|`. Stripped (with surrounding whitespace) once a phrase has been cut,
@@ -175,14 +179,11 @@ object MetadataAssertions {
         var changed = true
         while (changed) {
             changed = false
-            for (phrase in SEO_TITLE_PHRASES) {
+            for (suffix in SEO_TITLE_SUFFIXES) {
                 // The phrase, tolerating a closing paren after it (the ` (`
                 // separator case: «Пасажир (аудіокнига онлайн)») — matched
                 // with the source's own casing so the cut length is exact.
-                val match = Regex(
-                    Regex.escape(phrase) + """\s*\)?\s*$""",
-                    RegexOption.IGNORE_CASE
-                ).find(title)
+                val match = suffix.find(title)
                 if (match != null) {
                     title = TRAILING_SEPARATOR.replace(title.dropLast(match.value.length), "").trim()
                     changed = true

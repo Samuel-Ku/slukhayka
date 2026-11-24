@@ -16,6 +16,8 @@
  * Запуск усього: ./run-all.sh [шлях-до-звіту.md]
  */
 import { readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+const sha256 = (value) => createHash("sha256").update(value).digest("hex");
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { initializeApp, deleteApp } from "firebase/app";
@@ -128,7 +130,7 @@ const BLOCKLIST_ENTRY = {
 // #691 — one published listener collection. authorId is sha256(uid): a 64-char
 // hex string, never the raw uid.
 const VALID_COLLECTION = {
-  authorId: "a".repeat(64),
+  authorId: sha256("uid-alice"),
   collectionId: "c1",
   pseudonym: "Слухач",
   title: "Магія",
@@ -334,8 +336,8 @@ const MATRIX = [
   ["R8", "book_reviews/qa_r8", "delete", "uid-alice", null, "ALLOW", "свій uid, документ існує"],
   ["R9", "book_reviews/qa_r9", "delete", "uid-bob", null, "DENY", "чужий uid, документ існує"],
   ["R10", "book_reviews/qa_r10", "create", "uid-alice", MALFORMED_BODY, "DENY", "rating поза 1..5"],
-  ["D1", "device_bindings/qa_d1", "get", null, null, "ALLOW", "читання публічне (до auth)"],
-  ["D2", "device_bindings/qa_d2", "create", "uid-alice", { uid: "uid-alice", cred: "sealed-bytes" }, "ALLOW", "свій uid"],
+  ["D1", "device_bindings/qa_d1", "get", null, null, "DENY", "ADR-0055 — публічне відновлення скасовано"],
+  ["D2", "device_bindings/qa_d2", "create", "uid-alice", { uid: "uid-alice", cred: "sealed-bytes" }, "DENY", "ADR-0055 — credentials не публікуються"],
   ["D3", "device_bindings/qa_d3", "create", "uid-bob", { uid: "uid-alice", cred: "sealed-bytes" }, "DENY", "чужий uid"],
   ["D4", "device_bindings/qa_d4", "create", "uid-alice", { uid: "uid-alice", cred: "sealed-bytes" }, "DENY", "нема AppCheck-токена"],
   ["T1", "book_durations/qa_t1", "get", null, null, "ALLOW", "канонічне читання публічне"],
@@ -419,12 +421,33 @@ const MATRIX = [
   ["M6", "curator_collections/qa_m6", "create", null, VALID_COLLECTION, "DENY", "нема auth"],
   ["M7", "curator_collections/qa_m7", "create", "uid-alice", VALID_COLLECTION, "DENY", "нема AppCheck-токена"],
   ["M8", "curator_collections/qa_m8", "create", "uid-alice", COLLECTION_BAD_REASONS, "DENY", "reasons не список"],
-  ["M9", "curator_collections/qa_m9", "create", "uid-alice", COLLECTION_WITH_RATINGS, "ALLOW", "#694 — агрегат оцінок дозволений"],
-  ["M10", "curator_collection_votes/qa_m10", "create", "uid-alice", VALID_COLLECTION_VOTE, "ALLOW", "#694 — один анонімний голос"],
+  ["M9", "curator_collections/qa_m9", "create", "uid-alice", COLLECTION_WITH_RATINGS, "DENY", "ADR-0055 — створення не фабрикує голоси"],
+  ["M10", "curator_collection_votes/qa_m10", "create", "uid-alice", VALID_COLLECTION_VOTE, "DENY", "ADR-0055 — голос потребує атомарного агрегату"],
   ["M11", "curator_collection_votes/qa_m11", "create", "uid-alice", VOTE_WITH_BAD_STARS, "DENY", "#694 — зірки поза 1..5"],
   ["M12", "curator_collection_votes/qa_m12", "create", "uid-alice", VOTE_WITH_EXTRA_FIELD, "DENY", "#694 — сирий uid у документі голосу (hasOnly)"],
   ["M13", "curator_collection_votes/qa_m13", "create", null, VALID_COLLECTION_VOTE, "DENY", "#694 — нема auth"],
 ];
+
+// ADR-0055: keys are verified server-side. Keep each independent create
+// scenario under its own canonical key, not a path the production client
+// could never use. Positive voting/report transactions live in
+// web/scripts/test-security-rules.mjs.
+for (const row of MATRIX) {
+  const [id, path, , , body] = row;
+  if (path.startsWith("book_reviews/") && body) {
+    row[4] = { ...body, workId: id };
+    row[1] = `book_reviews/${id}_${body.uid}`;
+  }
+  if (path.startsWith("curator_collections/") && body) {
+    row[4] = { ...body, collectionId: id };
+    row[1] = `curator_collections/${body.authorId}-${id}`;
+  }
+  if (path.startsWith("pending_submissions/") && body) {
+    const canonicalUrl = `https://youtu.be/${id.toLowerCase()}`;
+    row[4] = { ...body, canonicalUrl, submitterHash: sha256("uid-alice") };
+    row[1] = `pending_submissions/${sha256(canonicalUrl)}`;
+  }
+}
 
 // Який прогін є доказом кожного рядка.
 const EVIDENCE = {
@@ -536,8 +559,9 @@ async function runPass(gateLabel) {
   if (gateLabel === "open") {
     await testEnv.withSecurityRulesDisabled(async (context) => {
       const seedDb = context.firestore();
-      for (const id of ["qa_r6", "qa_r7", "qa_r8", "qa_r9"]) {
-        await setDoc(doc(collection(seedDb, "book_reviews"), id), VALID_BODY);
+      for (const id of ["R6", "R7", "R8", "R9"]) {
+        const row = MATRIX.find((candidate) => candidate[0] === id);
+        await setDoc(doc(seedDb, row[1]), row[4] ?? VALID_BODY);
       }
       for (const id of ["qa_t5", "qa_t6"]) {
         await setDoc(doc(collection(seedDb, "book_durations"), id), VALID_DURATION);

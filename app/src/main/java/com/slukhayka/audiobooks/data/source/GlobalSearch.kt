@@ -153,16 +153,17 @@ fun sourceDisplayName(sourceId: String): String = SourceRegistry.displayName(sou
  * Junk rows (blank title or url) are dropped.
  */
 fun mergeGlobalSearchResults(results: List<SourceBook>): List<GlobalSearchResult> {
-    val usable = results.filter { it.title.isNotBlank() && it.url.isNotBlank() }
-    val grouped = usable.groupBy { book ->
-        // ADR-0010: cards merge on the bibliographic Work key — the narrator
-        // distinguishes Editions of one card, not separate cards.
-        MergeKey.keyFor(book.title, book.author)
-            .ifBlank { "${book.sourceId}|${book.url}" }
-    }
+    val grouped = results.asSequence()
+        .filter { it.title.isNotBlank() && it.url.isNotBlank() }
+        .map { book -> book to MergeKey.keyFor(book.title, book.author) }
+        .groupBy { (book, mergeKey) ->
+            // ADR-0010: cards merge on the bibliographic Work key — the narrator
+            // distinguishes Editions of one card, not separate cards.
+            mergeKey.ifBlank { "${book.sourceId}|${book.url}" }
+        }
     return grouped.values
-        .map { books ->
-            val first = books.first()
+        .map { matches ->
+            val (first, mergeKey) = matches.first()
             GlobalSearchResult(
                 title = MetadataAssertions.normalizeTitle(first.title, first.author),
                 // #964 follow-up — the SAME card normalizes its title above and
@@ -171,21 +172,21 @@ fun mergeGlobalSearchResults(results: List<SourceBook>): List<GlobalSearchResult
                 // card renders the source's HTML entity as a name.
                 author = MetadataAssertions.normalizeClaimedText(first.author).orEmpty(),
                 narrator = MetadataAssertions.normalizeClaimedText(first.narrator).orEmpty(),
-                mergeKey = MergeKey.keyFor(first.title, first.author),
+                mergeKey = mergeKey,
                 coverImageUrl = first.coverImageUrl,
                 // One Work language: known only when every member source
                 // agrees on the same claim; "" (unknown) when any member is
                 // unclaimed or the sources disagree — unknown never hides.
-                language = books.mapNotNull { it.language.ifBlank { null } }.distinct().singleOrNull().orEmpty(),
+                language = matches.mapNotNull { (book, _) -> book.language.ifBlank { null } }.distinct().singleOrNull().orEmpty(),
                 // One badge per source, whatever urls it returned. The first
                 // source is the default playback/download choice and follows
                 // the shared capability policy (direct before browser).
                 sources = SourceAccessPolicy.order(
-                    books
-                        .map { SourceAccessCandidate(it.sourceId, sourceDisplayName(it.sourceId), it.url) }
+                    matches
+                        .map { (book, _) -> SourceAccessCandidate(book.sourceId, sourceDisplayName(book.sourceId), book.url) }
                         .distinctBy { it.sourceId }
                 ).map { candidate ->
-                    val book = books.first { it.sourceId == candidate.sourceId && it.url == candidate.url }
+                    val (book, bookMergeKey) = matches.first { (book, _) -> book.sourceId == candidate.sourceId && book.url == candidate.url }
                     val narrator = MetadataAssertions.normalizeClaimedText(book.narrator)
                         ?: "${book.sourceId} narrator"
                     GlobalSearchSource(
@@ -198,7 +199,7 @@ fun mergeGlobalSearchResults(results: List<SourceBook>): List<GlobalSearchResult
                         // local row and two languages of one Work would collapse
                         // into one rendition identity.
                         editionId = EditionId.forBook(
-                            MergeKey.keyFor(book.title, book.author), "", narrator, book.language
+                            bookMergeKey, "", narrator, book.language
                         ),
                         // R5 (#512): the member's effective language rides the
                         // source so cached cards keep filtering correctly.

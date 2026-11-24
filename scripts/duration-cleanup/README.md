@@ -32,8 +32,8 @@
 node scripts/duration-cleanup/inventory.mjs
 node scripts/duration-cleanup/inventory.mjs --json /tmp/inv.json
 
-# 2. Сухий прогін прибирання — потрібен сервісний акаунт:
-cd scripts/duration-cleanup && npm install
+# 2. Сухий прогін прибирання — Node.js 22+ і сервісний акаунт:
+cd scripts/duration-cleanup && npm ci --ignore-scripts
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
 node purge.mjs                 # нічого не пише, лише показує
 
@@ -43,6 +43,9 @@ node purge.mjs --apply
 
 `inventory.mjs` виходить із кодом 1, якщо знайшов порушників, тож його можна
 повісити в CI як гейт.
+
+Залежності зафіксовано в `package-lock.json`. Перед застосуванням перевір
+їх командою `npm audit`; встановлення саме по собі не запускає прибирання.
 
 ## Ключ сервісного акаунта
 

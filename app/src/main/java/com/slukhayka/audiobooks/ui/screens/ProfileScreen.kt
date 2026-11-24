@@ -267,8 +267,7 @@ fun ProfileScreen(
 
             // spec-40 #276 (t2): «Код відновлення профілю» — the encoded
             // credential pair. Shown ONLY behind BiometricPrompt, copyable,
-            // and the one way onto a phone where neither Auto Backup nor the
-            // device binding reached.
+            // and the way onto a phone without a usable local backup.
             RecoverySection(
                 identity = identity,
                 scope = scope,

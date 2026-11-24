@@ -2,6 +2,13 @@
 status: accepted
 ---
 
+> **Зміна 2026-10-03.** Публічне відновлення через `device_bindings`
+> скасовано [ADR-0055](0055-credential-and-shared-write-boundaries.md): id
+> документа розкриває вхід ключа шифрування. Відновлення працює через
+> резервну копію на тому самому пристрої або явний код. Помилка шифрування
+> більше не зберігає пароль відкритим текстом. Опис старого механізму нижче
+> лишився як історія рішення, а не чинний контракт.
+
 # Identity that survives reinstall (spec-40 #275/#276)
 
 The app had no listener concept at all: every cloud feature so far is an

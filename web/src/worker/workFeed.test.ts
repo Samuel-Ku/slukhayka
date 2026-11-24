@@ -2,6 +2,25 @@ import { describe, expect, it } from 'vitest'
 import { mergeWorkFeed, rankEditionsForPlayback } from './workFeed'
 
 describe('mergeWorkFeed', () => {
+  it('merges Ukrainian case and whitespace variants into the same Work and Edition', () => {
+    const page = mergeWorkFeed([{
+      sourceId: 'librivox',
+      cards: [
+        { url: 'https://archive.org/details/a', title: '  Їжак\tІ\nЛИС  ', author: ' ЛЕСЯ   УКРАЇНКА ', narrator: '  ҐОЛОС ', language: 'English' },
+        { url: 'https://archive.org/details/b', title: 'їжак і лис', author: 'леся українка', narrator: 'ґолос', language: 'en-US' },
+      ],
+    }])
+
+    expect(page.works).toHaveLength(1)
+    expect(page.works[0].mergeKey).toBe('їжак і лис|леся українка')
+    expect(page.works[0].editions).toHaveLength(1)
+    expect(page.works[0].editions[0].id).toBe('їжак і лис|леся українка|ґолос|en')
+    expect(page.works[0].editions[0].sources.map(source => source.url)).toEqual([
+      'https://archive.org/details/a',
+      'https://archive.org/details/b',
+    ])
+  })
+
   it('merges a Work while preserving narrator Editions and stable source order', () => {
     const page = mergeWorkFeed([
       { sourceId: 'fourread', cards: [{ url: 'https://4read.org/a', title: 'Книга', author: 'Автор', narrator: 'Читець А' }] },

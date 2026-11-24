@@ -450,6 +450,24 @@ jobs:
         working-directory: web
         run: npm ci
 
+      - name: Audit web dependency vulnerabilities
+        working-directory: web
+        run: npm audit
+
+      - name: Setup Java for isolated Firestore security checks
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Verify Firestore authorization on the emulator
+        env:
+          JAVA_TOOL_OPTIONS: '-Duser.language=en -Duser.country=US'
+        run: >-
+          npx --yes --ignore-scripts --package=firebase-tools@15.32.1 -- firebase emulators:exec
+          --only firestore --project demo-slukhayka-security
+          --config firebase.security-tests.json 'npm --prefix web run test:security-rules'
+
       - name: Typecheck (tsc --noEmit)
         working-directory: web
         run: npx tsc --noEmit
@@ -599,6 +617,7 @@ jobs:
 
       - name: Build signed release APK
         env:
+          APP_CHECK_RECAPTCHA_SITE_KEY: "${{ vars.ANDROID_APP_CHECK_RECAPTCHA_SITE_KEY }}"
           KEYSTORE_PATH: "${{ runner.temp }}/upload.jks"
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}

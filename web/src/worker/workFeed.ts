@@ -47,12 +47,12 @@ export function mergeKeyOf(card: Pick<CatalogCard, 'title' | 'author'>): string 
   return `${normalize(card.title)}|${normalize(card.author)}`
 }
 
-function editionKeyOf(card: CatalogCard, language: string): string {
+function editionKeyOf(card: CatalogCard, language: string, mergeKey: string): string {
   // Spec-45 (#405) — the language is rendition identity (Android ADR-0010 +
   // #405): an en and a uk narration of one Work are two Editions, so the key
   // mirrors the Android EditionId formula mergeKey|narrator|language.
   const narrator = card.narrator?.toLocaleLowerCase('uk-UA').trim() || 'unknown-narrator'
-  return language ? `${mergeKeyOf(card)}|${narrator}|${language}` : `${mergeKeyOf(card)}|${narrator}`
+  return language ? `${mergeKey}|${narrator}|${language}` : `${mergeKey}|${narrator}`
 }
 
 /**
@@ -90,7 +90,7 @@ export function mergeWorkFeed(inputs: SourceCards[], offset = 0, limit = 30): Un
         for (const genre of card.genres) existing.add(genre)
         if (existing.size > 0) work.genres = [...existing]
       }
-      const editionKey = editionKeyOf(card, language)
+      const editionKey = editionKeyOf(card, language, mergeKey)
       let edition = work.editions.find((candidate) => candidate.id === editionKey)
       if (!edition) {
         edition = {

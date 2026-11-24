@@ -14,6 +14,21 @@ import org.junit.Test
 class GlobalSearchMergeTest {
 
     @Test
+    fun `fallback grouping identity does not replace each sources bibliographic key`() {
+        val narrator = "Читець"
+        val merged = mergeGlobalSearchResults(listOf(
+            book("Інша назва", "", "work", "author").copy(narrator = narrator),
+            book("work", "author", "soundbooks", "https://sound-books.net/work").copy(narrator = narrator)
+        ))
+
+        val result = merged.single()
+        assertEquals("", result.mergeKey)
+        val editions = result.sources.associate { it.sourceId to it.editionId }
+        assertEquals(com.slukhayka.audiobooks.data.EditionId.forBook("", "", narrator), editions["work"])
+        assertEquals(com.slukhayka.audiobooks.data.EditionId.forBook("work|author", "", narrator), editions["soundbooks"])
+    }
+
+    @Test
     fun `sources expose shared Edition only when narrator identity matches`() {
         val merged = mergeGlobalSearchResults(
             listOf(

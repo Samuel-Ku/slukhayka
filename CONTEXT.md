@@ -82,7 +82,7 @@ _Avoid_: факти джерела в політиках (SourceAccessPolicy/Dow
 другий список порядку на web, браузерні факти поза реєстром
 
 **Source Binding**:
-A device's locator, permission, and availability relationship to a Source. Bindings are device-specific even when the Source identity is shared. No Binding rows exist yet — with a single device, locator and permission stay on the Source row; the Binding table arrives with device sync, not before. NOTE (spec-40): the Firestore collection `device_bindings` is NOT this domain concept — it is the reinstall-recovery anchor mapping a device id to the listener's own uid.
+A device's locator, permission, and availability relationship to a Source. Bindings are device-specific even when the Source identity is shared. No Binding rows exist yet — with a single device, locator and permission stay on the Source row; the Binding table arrives with device sync, not before. NOTE (spec-40): the legacy Firestore collection `device_bindings` is NOT this domain concept. Its public credential recovery is retired by ADR-0055; clients can neither read nor write it.
 _Avoid_: Source, download
 
 **Source Catalog**:
@@ -455,7 +455,7 @@ A local listener relationship with one canonical Author or Narrator, keyed by `(
 _Avoid_: Work bookmark, raw display name as identity, mandatory cloud relationship
 
 **Recovery Code**:
-The encoded credential pair of the silent anonymous profile («Код відновлення профілю»), shown in ⚙️ Профіль only behind BiometricPrompt and accepted on a fresh install — or in the Web Client — to restore or link the same uid. Surviving reinstall also rides Android Auto Backup of the generated credentials and the Firestore `device_bindings/{ANDROID_ID} → uid` silent restore — the binding exists ONLY for recovery of one's own profile, written solely for the caller's own uid.
+The encoded credential pair of the silent anonymous profile («Код відновлення профілю»), shown in ⚙️ Профіль only behind BiometricPrompt and accepted on a fresh install — or in the Web Client — to restore or link the same uid. Surviving reinstall rides Android Auto Backup of the sealed generated credentials or an explicitly supplied Recovery Code. Public device-id-based Firestore recovery is retired (ADR-0055): its document id disclosed the encryption-key input. Reinstall without a usable backup or Recovery Code creates a new profile; credentials never travel through `device_bindings`.
 _Avoid_: login screen, hardware identifiers (IMEI), password reset
 
 ## Playback

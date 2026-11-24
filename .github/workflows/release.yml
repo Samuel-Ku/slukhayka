@@ -54,10 +54,16 @@ jobs:
 
       - name: Build release APK
         env:
+          APP_CHECK_RECAPTCHA_SITE_KEY: "${{ vars.ANDROID_APP_CHECK_RECAPTCHA_SITE_KEY }}"
           KEYSTORE_PATH: "${{ runner.temp }}/upload.jks"
           STORE_PASSWORD: "${{ secrets.STORE_PASSWORD }}"
           KEY_PASSWORD: "${{ secrets.KEY_PASSWORD }}"
-        run: ./gradlew :app:assembleRelease --no-daemon
+        run: |
+          test -n "$APP_CHECK_RECAPTCHA_SITE_KEY" || {
+            echo "Missing ANDROID_APP_CHECK_RECAPTCHA_SITE_KEY repository variable" >&2
+            exit 1
+          }
+          ./gradlew :app:assembleRelease --no-daemon
 
       # assembleRelease emits app/build/outputs/renamed_apks/release/slukhayka-v1.1.apk
       # (the versioned copy produced by the renameReleaseApk task).

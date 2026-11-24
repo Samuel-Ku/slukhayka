@@ -17,8 +17,9 @@ import { mayFetch, SERVED_REGISTRY, sourceEntry, type SourceEntry } from './regi
 import type { CatalogCard, SourceId } from './types'
 import { mergeWorkFeed } from './workFeed'
 import { decodeWorkFeedCursor, encodeWorkFeedCursor } from './workFeedCursor'
+import { readBoundedText, withTextDeadline } from './boundedText'
 
-const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' }
+const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8', 'x-content-type-options': 'nosniff' }
 const MAX_REDIRECTS = 3
 
 function json(body: unknown, status = 200): Response {
@@ -50,17 +51,29 @@ async function guardedFetchText(
   if (!mayFetch(entry, url)) return null
   if (depth > MAX_REDIRECTS) return null
   try {
-    const response = await fetch(url, {
-      headers: { referer, 'user-agent': DEFAULT_UA, ...extraHeaders },
-      redirect: 'manual',
+    return await withTextDeadline(async (signal) => {
+      let target = url
+      for (let hop = depth; hop <= MAX_REDIRECTS; hop++) {
+        if (signal.aborted || !mayFetch(entry, target)) return null
+        const response = await fetch(target, {
+          headers: { referer, 'user-agent': DEFAULT_UA, ...extraHeaders },
+          redirect: 'manual', signal,
+        })
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get('location')
+          void response.body?.cancel().catch(() => {})
+          if (!location) return null
+          target = new URL(location, target).toString()
+          continue
+        }
+        if (!response.ok) {
+          void response.body?.cancel().catch(() => {})
+          return null
+        }
+        return readBoundedText(response, signal)
+      }
+      return null
     })
-    if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get('location')
-      if (!location) return null
-      return guardedFetchText(entry, new URL(location, url).toString(), referer, depth + 1, extraHeaders)
-    }
-    if (!response.ok) return null
-    return await response.text()
   } catch {
     return null
   }
@@ -88,6 +101,7 @@ interface ExportedHandler<E> {
 
 export default {
   async fetch(request: Request, env: WorkerEnv): Promise<Response> {
+    if (request.method !== 'GET' && request.method !== 'HEAD') return fail('method not allowed', 405)
     const url = new URL(request.url)
     const { pathname, searchParams } = url
 
@@ -221,35 +235,50 @@ export default {
       const raw = searchParams.get('u') ?? ''
       let target: string
       try {
-        target = decodeURIComponent(raw)
+        // URLSearchParams already decoded the query. A second decode corrupts
+        // signed URLs and encoded path delimiters.
+        target = raw
         new URL(target)
       } catch {
         return fail('bad audio url')
       }
-      const allHosts = [...new Set(Object.values(SERVED_REGISTRY).flatMap((entry) => entry.allowedHosts))]
-      let host: string
-      try {
-        host = new URL(target).hostname
-      } catch {
-        return fail('bad audio url')
-      }
-      if (!allHosts.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))) {
+      const entry = Object.values(SERVED_REGISTRY).find((candidate) => mayFetch(candidate, target))
+      if (!entry) {
         return fail('audio host not allowlisted', 403)
       }
       const range = request.headers.get('range') ?? undefined
       try {
-        const upstream = await fetch(target, {
-          headers: {
-            referer: 'https://4read.org/',
-            'user-agent': DEFAULT_UA,
-            ...(range ? { range } : {}),
-          },
-        })
+        let upstream: Response | undefined
+        for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+          // Keep every redirect within the ORIGINAL source's infrastructure.
+          if (!mayFetch(entry, target)) return fail('audio redirect not allowlisted', 403)
+          upstream = await fetch(target, {
+            headers: {
+              referer: entry.adapter.baseUrl,
+              'user-agent': DEFAULT_UA,
+              ...(range ? { range } : {}),
+            },
+            redirect: 'manual',
+          })
+          if (upstream.status < 300 || upstream.status >= 400) break
+          const location = upstream.headers.get('location')
+          await upstream.body?.cancel()
+          if (!location || hop === MAX_REDIRECTS) return fail('audio redirect failed', 502)
+          target = new URL(location, target).toString()
+        }
+        if (!upstream) return fail('audio relay failed', 502)
         const headers = new Headers()
-        for (const hop of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'cache-control']) {
+        for (const hop of ['content-length', 'content-range', 'accept-ranges']) {
           const value = upstream.headers.get(hop)
           if (value) headers.set(hop, value)
         }
+        const mime = upstream.headers.get('content-type')?.split(';')[0].trim().toLowerCase() ?? ''
+        // Third-party HTML/SVG/script must never become active content on our
+        // origin, even when the endpoint is visited as a document.
+        headers.set('content-type', /^(audio\/[a-z0-9.+-]+|video\/mp4)$/.test(mime) ? mime : 'application/octet-stream')
+        headers.set('x-content-type-options', 'nosniff')
+        headers.set('content-security-policy', "sandbox; default-src 'none'; frame-ancestors 'none'")
+        headers.set('cache-control', 'no-store')
         headers.set('access-control-allow-origin', '*')
         return new Response(upstream.body, { status: upstream.status, headers })
       } catch {
@@ -297,12 +326,17 @@ export default {
       if (!key) return fail('bibliography is not configured', 503)
       const target = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&key=${encodeURIComponent(key)}`
       try {
-        const upstream = await fetch(target, {
-          headers: { 'user-agent': DEFAULT_UA },
-          redirect: 'manual',
+        return await withTextDeadline(async (signal) => {
+          const upstream = await fetch(target, {
+            headers: { 'user-agent': DEFAULT_UA },
+            redirect: 'manual', signal,
+          })
+          if (upstream.status >= 300 && upstream.status < 400) {
+            void upstream.body?.cancel().catch(() => {})
+            return fail('google books redirected', 502)
+          }
+          return new Response(await readBoundedText(upstream, signal), { status: upstream.status, headers: JSON_HEADERS })
         })
-        if (upstream.status >= 300 && upstream.status < 400) return fail('google books redirected', 502)
-        return new Response(await upstream.text(), { status: upstream.status, headers: JSON_HEADERS })
       } catch {
         return fail('google books did not answer', 502)
       }

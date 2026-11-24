@@ -140,7 +140,7 @@ class SharedPreferencesLocalCredentialStoreTest {
     }
 
     @Test
-    fun `no device id keeps the legacy round-trip so sign-in still works`() {
+    fun `no device id never writes a plaintext password`() {
         val legacy = SharedPreferencesLocalCredentialStore(context) { null }
         val record = StoredCredentials(
             uid = "abc123",
@@ -151,9 +151,40 @@ class SharedPreferencesLocalCredentialStoreTest {
 
         legacy.save(record)
 
-        assertEquals(record, legacy.load())
-        // Degrade-never fallback: plaintext, exactly like before the seal.
-        assertEquals("hunter2-but-longer", raw.getString("password", null))
+        assertEquals(record.copy(password = null), legacy.load())
+        assertNull(raw.getString("password", null))
+        assertNull(raw.getString("password_sealed", null))
+    }
+
+    @Test
+    fun `missing device id preserves previously sealed password without plaintext`() {
+        val record = StoredCredentials("abc123", "a@slukhayka.local", "original", "Нік")
+        store.save(record)
+        SharedPreferencesLocalCredentialStore(context) { null }.save(record.copy(password = "replacement"))
+        assertNull(raw.getString("password", null))
+        assertEquals("original", store.load()?.password)
+    }
+
+    @Test
+    fun `legacy plaintext is removed even without device id`() {
+        raw.edit().putString("uid", "abc123").putString("password", "legacy").commit()
+        val unavailable = SharedPreferencesLocalCredentialStore(context) { null }
+        assertEquals("legacy", unavailable.load()?.password)
+        assertNull(raw.getString("password", null))
+        assertNull(unavailable.load()?.password)
+    }
+
+    @Test
+    fun `sealed value removes abandoned plaintext even when key is unavailable`() {
+        val record = StoredCredentials("abc123", "a@slukhayka.local", "sealed-original", "Нік")
+        store.save(record)
+        raw.edit().putString("password", "abandoned-open-secret").commit()
+        assertEquals("sealed-original", store.load()?.password)
+        assertNull(raw.getString("password", null))
+
+        raw.edit().putString("password", "another-open-secret").commit()
+        assertNull(SharedPreferencesLocalCredentialStore(context) { null }.load()?.password)
+        assertNull(raw.getString("password", null))
     }
 
     @Test

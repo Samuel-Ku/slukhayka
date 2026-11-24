@@ -16,6 +16,7 @@ jobs:
     timeout-minutes: 60
     env:
       GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx3g
+      GRADLE_USER_HOME: ${{ runner.temp }}/perf-gradle-home
     steps:
       - name: Checkout exact PR candidate
         uses: actions/checkout@v5

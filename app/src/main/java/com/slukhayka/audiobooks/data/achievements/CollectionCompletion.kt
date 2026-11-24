@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.achievements
 
+import com.slukhayka.audiobooks.data.collections.CollectionEntry
 import com.slukhayka.audiobooks.data.collections.CollectionList
 import com.slukhayka.audiobooks.data.collections.CollectionMatcher
 
@@ -30,13 +31,32 @@ import com.slukhayka.audiobooks.data.collections.CollectionMatcher
  */
 object CollectionCompletion {
 
-    fun passed(books: List<OwnLibraryBook>, collections: List<CollectionList>): Long =
-        collections.count { collection ->
-            collection.entries.isNotEmpty() && collection.entries.all { entry ->
-                books.any { book ->
-                    book.completedAt != null &&
-                        CollectionMatcher.entryMatches(entry, book.title, book.author)
+    fun passed(books: List<OwnLibraryBook>, collections: List<CollectionList>): Long {
+        val byAuthor = HashMap<String, MutableList<OwnLibraryBook>>()
+        val remaining = books.iterator()
+
+        fun covered(entry: CollectionEntry): Boolean {
+            if (entry.author.isBlank()) return false
+            val author = CollectionMatcher.normalizeAuthor(entry.author)
+            if (byAuthor[author]?.any { CollectionMatcher.entryMatches(entry, it.title, it.author) } == true) {
+                return true
+            }
+            // Retain the early witness: scan only until this entry is covered,
+            // keeping earlier books for the next entry or collection.
+            while (remaining.hasNext()) {
+                val book = remaining.next()
+                if (book.completedAt == null) continue
+                val bookAuthor = CollectionMatcher.normalizeAuthor(book.author)
+                byAuthor.getOrPut(bookAuthor) { mutableListOf() }.add(book)
+                if (bookAuthor == author && CollectionMatcher.entryMatches(entry, book.title, book.author)) {
+                    return true
                 }
             }
+            return false
+        }
+
+        return collections.count { collection ->
+            collection.entries.isNotEmpty() && collection.entries.all(::covered)
         }.toLong()
+    }
 }

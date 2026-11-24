@@ -744,9 +744,10 @@ class LibraryImport(
      * (a Missing/stale profile is exactly why the page is tried) and issues
      * a single [SourceAdapter.fetchBookPage]: challenge/403/empty playlist →
      * null and the caller opens the explicit browser. A resolved non-empty
-     * page imports through [importBookFromSource] — the same MergeKey/upsert
-     * door (idempotent, contributes its profile back). Never a hidden
-     * WebView; never a background crawl (one call per tap).
+     * page uses [importBookFromSourceAdmitted] under the same pre-fetch
+     * identity admission, including profile publication. Cancellation and
+     * identity refusal propagate; ordinary fetch/import failures return null.
+     * Never a hidden WebView; never a background crawl (one call per tap).
      */
     suspend fun importBrowserSourceDirectPage(
         sourceId: String,
@@ -761,18 +762,34 @@ class LibraryImport(
             if (SourceRegistry.isScam(sourceId)) return@withContext null
             val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
                 ?: return@withContext null
-            val detail = try {
-                adapter.fetchBookPage(url)
-            } catch (_: Exception) {
-                return@withContext null
+            suspend fun importAdmitted(admission: WorkIdentityAccess.SourceImportAdmission?): AudiobookEntity? {
+                val detail = try {
+                    adapter.fetchBookPage(url)
+                } catch (failure: Exception) {
+                    rethrowImportCancellationOrIdentityRefusal(failure)
+                    return null
+                }
+                if (detail.chapters.isEmpty()) return null
+                // The card's cover survives a page that carries none (see
+                // KnownBookIdentity.coverImageUrl).
+                val withCover = if (detail.coverImageUrl == null && known?.coverImageUrl != null) {
+                    detail.copy(coverImageUrl = known.coverImageUrl)
+                } else detail
+                return runCatching {
+                    importBookFromSourceAdmitted(sourceId, withCover, true, origin, onNewBookImported, admission)
+                }.getOrElse { failure ->
+                    rethrowImportCancellationOrIdentityRefusal(failure)
+                    null
+                }
             }
-            if (detail.chapters.isEmpty()) return@withContext null
-            // The card's cover survives a page that carries none (see
-            // KnownBookIdentity.coverImageUrl).
-            val withCover = if (detail.coverImageUrl == null && known?.coverImageUrl != null) {
-                detail.copy(coverImageUrl = known.coverImageUrl)
-            } else detail
-            runCatching { importBookFromSource(sourceId, withCover, origin = origin, onNewBookImported = onNewBookImported) }.getOrNull()
+            try {
+                val access = workIdentityAccess
+                if (access == null) importAdmitted(null)
+                else access.withKnownSourceImport(sourceId, url) { admission -> importAdmitted(admission) }
+            } catch (failure: Exception) {
+                rethrowImportCancellationOrIdentityRefusal(failure)
+                null
+            }
         }
 
     /**

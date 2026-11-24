@@ -1,0 +1,134 @@
+{
+  "base": "85c4423b6c608b18162f440ff3044d47e76d6451",
+  "workflowCommit": "01adc1039df00283d2e04a6d54ce1c7b223ecd1f",
+  "scope": "combined production candidates; comparative helper timings on Android ART, not UI or physical ARM",
+  "production": [
+    {
+      "path": "app/src/main/java/com/slukhayka/audiobooks/data/merge/MergeKey.kt",
+      "commits": [
+        "d24345f1dcf4e0996035954d0aab39181b4d0ff2"
+      ],
+      "sha256": "ca8330f1c8fef17cabc8f7e35bea593742314e850579472a56125b018342a67c"
+    },
+    {
+      "path": "app/src/main/java/com/slukhayka/audiobooks/data/source/GlobalSearch.kt",
+      "commits": [
+        "af2d6e1dde852ba347adfd8efd7032a9648d0b80"
+      ],
+      "sha256": "2edee0475f3cca8de426470eb5aa93ea1233ed238a590994ec335655a9d697dd"
+    },
+    {
+      "path": "app/src/main/java/com/slukhayka/audiobooks/data/collections/CollectionMatcher.kt",
+      "commits": [
+        "9e04c69673d061d49ef0b52c5c42a70fde69a14f"
+      ],
+      "sha256": "db2781455e50e97ffacac88b3ea12e17689fe6a007f4d75704076bd0dbf5da92"
+    },
+    {
+      "path": "app/src/main/java/com/slukhayka/audiobooks/data/EditionId.kt",
+      "commits": [
+        "0171e50d07c0f0d1e4fded0def3c90b84d9758de"
+      ],
+      "sha256": "34b7ec577c848c2bcf7d638f0db581b2313150c49f1adc81317bd5ad3b443bf1"
+    },
+    {
+      "path": "app/src/main/java/com/slukhayka/audiobooks/data/Hashing.kt",
+      "commits": [
+        "0171e50d07c0f0d1e4fded0def3c90b84d9758de"
+      ],
+      "sha256": "a173e4f9d79c2769f30eef0350f24a1c0e698d8f2310fb18959d8b69d2d39337"
+    },
+    {
+      "path": "app/src/main/java/com/slukhayka/audiobooks/data/source/SourceParsing.kt",
+      "commits": [
+        "6ecdc3af6edcfa5a00b4636d00346232ecdf239f",
+        "533488984dcd06f6f881ba579281823c9bfab305"
+      ],
+      "sha256": "463325d701acde050ac4adb0abb485ccca67326caa0dd38ff9bdbbc2231a08e6"
+    },
+    {
+      "path": "app/src/main/java/com/slukhayka/audiobooks/data/metadata/MetadataAssertions.kt",
+      "commits": [
+        "947d721b96cbd178937cd7c969f35137253e8be2"
+      ],
+      "sha256": "29a6f64125f2edfacc0c97b1f81a93459fbb223eae3ac77545427e4961ac997f"
+    }
+  ],
+  "probes": [
+    {
+      "commit": "50f70313e436dbc090a5ff5efb50676f2d2660c9",
+      "origin": "app/src/test/java/com/slukhayka/audiobooks/data/merge/RunMergeKeyBenchmark.kt",
+      "destination": "app/src/androidTest/java/com/slukhayka/audiobooks/data/merge/RunMergeKeyBenchmark.kt",
+      "sha256": "c8f6bf16076e25defde7c8e5f69bb491b57a6817f5f9efb6482a3a7dcd4f4b62"
+    },
+    {
+      "commit": "f1fe6afb6315cfcb72f5d3d147ffb48590df88af",
+      "origin": "app/src/test/java/com/slukhayka/audiobooks/data/source/RunSourceIdBenchmark.kt",
+      "destination": "app/src/androidTest/java/com/slukhayka/audiobooks/data/source/RunSourceIdBenchmark.kt",
+      "sha256": "7707b8c4f96ca671a04603efd9e41219ac305bbad06a80f9414e51602f722ad9"
+    },
+    {
+      "commit": "cb11cce9e70ad963f0c36aa588b1f555a4ddc6f6",
+      "origin": "app/src/test/java/com/slukhayka/audiobooks/data/collections/RunCollectionMatcherBenchmark.kt",
+      "destination": "app/src/androidTest/java/com/slukhayka/audiobooks/data/collections/RunCollectionMatcherBenchmark.kt",
+      "sha256": "2f3e4b28cd08a37c4bce40c9099e4df65241b67384ee1f7579d9b6700b79f80b"
+    },
+    {
+      "commit": "564e38b6558c715d07d9f956102716c7e017bbf0",
+      "origin": "app/src/test/java/com/slukhayka/audiobooks/data/RunEditionIdBenchmark.kt",
+      "destination": "app/src/androidTest/java/com/slukhayka/audiobooks/data/RunEditionIdBenchmark.kt",
+      "sha256": "053e03a93b629e7d3898c7db43210ad440f644c702452f43355a6f655e0cadda"
+    },
+    {
+      "commit": "4cbf4cf78d823ca0ecd433c6e58dee9a796d2d62",
+      "origin": "app/src/test/java/com/slukhayka/audiobooks/data/source/RunStripTagsBenchmark.kt",
+      "destination": "app/src/androidTest/java/com/slukhayka/audiobooks/data/source/RunStripTagsBenchmark.kt",
+      "sha256": "ab6593670bcf400ee15e07ebb090ed4c2ec0485e66df8045b3aaf9c266abda5b"
+    },
+    {
+      "commit": "6ecdc3af6edcfa5a00b4636d00346232ecdf239f",
+      "origin": "app/src/test/java/com/slukhayka/audiobooks/data/source/SourceParsingTest.kt",
+      "destination": "app/src/androidTest/java/com/slukhayka/audiobooks/data/source/RunEntityDecoderBenchmark.kt",
+      "sha256": "418994022e9e77a128a9e6c3d404db727aea102d4781c6e324d24cb160ff38a2"
+    },
+    {
+      "commit": "947d721b96cbd178937cd7c969f35137253e8be2",
+      "origin": "app/src/test/java/com/slukhayka/audiobooks/data/metadata/MetadataAssertionsTest.kt",
+      "destination": "app/src/androidTest/java/com/slukhayka/audiobooks/data/metadata/RunClaimedTextBenchmark.kt",
+      "sha256": "1ba5bdfd503b436531902b1fac6eba019ec5806d4eda5d4adbbe3ac159b23bcb"
+    }
+  ],
+  "fixtures": [
+    {
+      "origin": "app/src/test/resources/fixtures/4read-book-7589-2026-09-03.html",
+      "destination": "app/src/androidTest/assets/perf-fixtures/4read-book-7589-2026-09-03.html",
+      "sha256": "461c770cb7376ae1fc944f4678230cde00a3ef894d4c5b6b87523a4d8a6559cf"
+    },
+    {
+      "origin": "app/src/test/resources/fixtures/4read-book-7810-2026-09-03.html",
+      "destination": "app/src/androidTest/assets/perf-fixtures/4read-book-7810-2026-09-03.html",
+      "sha256": "af8c957f582a99c1a272652e1624d88a21d8af84461cc58c3500cfabbda93b6d"
+    },
+    {
+      "origin": "app/src/test/resources/fixtures/4read-book-7832-2026-09-03.html",
+      "destination": "app/src/androidTest/assets/perf-fixtures/4read-book-7832-2026-09-03.html",
+      "sha256": "3e675bf011e1cd89ddea41a49a32dbb747dc1555871a438d4cf3d0449bca38d5"
+    },
+    {
+      "origin": "app/src/test/resources/fixtures/4read-search-sny-2026-08-30.html",
+      "destination": "app/src/androidTest/assets/perf-fixtures/4read-search-sny-2026-08-30.html",
+      "sha256": "a4529acff79d72a3157ac1cc651de4cd7d0010443926ffd9d55c8b66a622cb21"
+    },
+    {
+      "origin": "app/src/test/resources/fixtures/chitaka-zhanryi-2026-10-10.html",
+      "destination": "app/src/androidTest/assets/perf-fixtures/chitaka-zhanryi-2026-10-10.html",
+      "sha256": "a7e7f132604b62eb2958b4e2700fdd534b1f66ed39a9d1920ec43efaed8dd91e"
+    },
+    {
+      "origin": "app/src/test/resources/fixtures/ukrainianaudiobooks-cloudflare-challenge.html",
+      "destination": "app/src/androidTest/assets/perf-fixtures/ukrainianaudiobooks-cloudflare-challenge.html",
+      "sha256": "cb0d880963cd61a0a505134aae2efe9f8bbb8f95cbc1c590e90a490319d2d3fc"
+    }
+  ],
+  "harnessSha256": "b9bfae20f5652964881e91ee86b207a2050da9df50c10961aeefe8364324ba15"
+}

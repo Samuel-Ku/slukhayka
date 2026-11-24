@@ -1,0 +1,429 @@
+{
+  "ciRun": 45397823404,
+  "workflowCommit": "01adc1039df00283d2e04a6d54ce1c7b223ecd1f",
+  "sourceManifestSHA256": "fa41a995a8cd8db34a7d27fe872962b122ef2101e65e950121238143e52f1521",
+  "runtime": "Android15 API35 x86_64 google_atd debug ART2.1.0",
+  "scope": "isolated operations in combinedAPK, shared optimized utilities; not UI/ARM, not additive",
+  "records": [
+    {
+      "run": "run-1",
+      "pid": 2072,
+      "probe": "merge-key",
+      "case": "batch",
+      "referenceMs": 4.70433334,
+      "candidateMs": 3.15219762,
+      "speedup": 1.492397973449393,
+      "timeChangePercent": -32.99374444413839
+    },
+    {
+      "run": "run-1",
+      "pid": 2072,
+      "probe": "source-hosts",
+      "case": "batch",
+      "referenceMs": 6.39700902,
+      "candidateMs": 1.94889796,
+      "speedup": 3.282372474749781,
+      "timeChangePercent": -69.53423148370048
+    },
+    {
+      "run": "run-1",
+      "pid": 2072,
+      "probe": "collection-membership",
+      "case": "1",
+      "referenceMs": 0.056554,
+      "candidateMs": 0.0620311,
+      "speedup": 0.9117039678483857,
+      "timeChangePercent": 9.684726102486119
+    },
+    {
+      "run": "run-1",
+      "pid": 2072,
+      "probe": "collection-membership",
+      "case": "100",
+      "referenceMs": 2.4048331,
+      "candidateMs": 0.1269736,
+      "speedup": 18.93963075788983,
+      "timeChangePercent": -94.72006602038205
+    },
+    {
+      "run": "run-1",
+      "pid": 2072,
+      "probe": "collection-membership",
+      "case": "1000",
+      "referenceMs": 21.2662706,
+      "candidateMs": 0.4981589,
+      "speedup": 42.68973333609015,
+      "timeChangePercent": -97.65751640534471
+    },
+    {
+      "run": "run-1",
+      "pid": 2072,
+      "probe": "edition-id",
+      "case": "batch",
+      "referenceMs": 14.4692345,
+      "candidateMs": 9.37739544,
+      "speedup": 1.5429907582099363,
+      "timeChangePercent": -35.19079782693411
+    },
+    {
+      "run": "run-1",
+      "pid": 2072,
+      "probe": "strip-tags",
+      "case": "batch",
+      "referenceMs": 21.65405418,
+      "candidateMs": 13.43595976,
+      "speedup": 1.6116492283987014,
+      "timeChangePercent": -37.95175883318124
+    },
+    {
+      "run": "run-1",
+      "pid": 2072,
+      "probe": "entity-decoder",
+      "case": "plain",
+      "referenceMs": 2.93806276,
+      "candidateMs": 0.13791064,
+      "speedup": 21.304105034970473,
+      "timeChangePercent": -95.30606895545009
+    },
+    {
+      "run": "run-1",
+      "pid": 2072,
+      "probe": "entity-decoder",
+      "case": "entities",
+      "referenceMs": 11.78605682,
+      "candidateMs": 11.8133021,
+      "speedup": 0.997693677875215,
+      "timeChangePercent": 0.23116535424949625
+    },
+    {
+      "run": "run-1",
+      "pid": 2072,
+      "probe": "entity-decoder",
+      "case": "mixed",
+      "referenceMs": 4.07235682,
+      "candidateMs": 1.44776128,
+      "speedup": 2.812864852968026,
+      "timeChangePercent": -64.44905630838116
+    },
+    {
+      "run": "run-1",
+      "pid": 2072,
+      "probe": "claimed-text",
+      "case": "plain",
+      "referenceMs": 0.91528094,
+      "candidateMs": 0.28128342,
+      "speedup": 3.253945575604847,
+      "timeChangePercent": -69.2680784983898
+    },
+    {
+      "run": "run-1",
+      "pid": 2072,
+      "probe": "claimed-text",
+      "case": "digits",
+      "referenceMs": 1.61535402,
+      "candidateMs": 1.7305215,
+      "speedup": 0.9334492637046116,
+      "timeChangePercent": 7.129550462257184
+    },
+    {
+      "run": "run-1",
+      "pid": 2072,
+      "probe": "claimed-text",
+      "case": "branded",
+      "referenceMs": 2.50468242,
+      "candidateMs": 2.6004018,
+      "speedup": 0.9631905423231132,
+      "timeChangePercent": 3.821617432840063
+    },
+    {
+      "run": "run-1",
+      "pid": 2072,
+      "probe": "claimed-text",
+      "case": "mixed",
+      "referenceMs": 0.85051554,
+      "candidateMs": 0.2880731,
+      "speedup": 2.952429574299023,
+      "timeChangePercent": -66.12959006016514
+    },
+    {
+      "run": "run-2",
+      "pid": 2701,
+      "probe": "merge-key",
+      "case": "batch",
+      "referenceMs": 3.58497386,
+      "candidateMs": 2.08685018,
+      "speedup": 1.7178875102572049,
+      "timeChangePercent": -41.78897081274674
+    },
+    {
+      "run": "run-2",
+      "pid": 2701,
+      "probe": "source-hosts",
+      "case": "batch",
+      "referenceMs": 5.05289724,
+      "candidateMs": 1.60272987,
+      "speedup": 3.1526817678889336,
+      "timeChangePercent": -68.28097240307227
+    },
+    {
+      "run": "run-2",
+      "pid": 2701,
+      "probe": "collection-membership",
+      "case": "1",
+      "referenceMs": 0.0534434,
+      "candidateMs": 0.0633011,
+      "speedup": 0.8442728483391284,
+      "timeChangePercent": 18.44512138075047
+    },
+    {
+      "run": "run-2",
+      "pid": 2701,
+      "probe": "collection-membership",
+      "case": "100",
+      "referenceMs": 2.0341385,
+      "candidateMs": 0.1166022,
+      "speedup": 17.445112527893986,
+      "timeChangePercent": -94.26773545655814
+    },
+    {
+      "run": "run-2",
+      "pid": 2701,
+      "probe": "collection-membership",
+      "case": "1000",
+      "referenceMs": 21.2226788,
+      "candidateMs": 0.5155748,
+      "speedup": 41.163142186158055,
+      "timeChangePercent": -97.5706422131781
+    },
+    {
+      "run": "run-2",
+      "pid": 2701,
+      "probe": "edition-id",
+      "case": "batch",
+      "referenceMs": 14.08999666,
+      "candidateMs": 9.24716,
+      "speedup": 1.5237107025292091,
+      "timeChangePercent": -34.370743846578044
+    },
+    {
+      "run": "run-2",
+      "pid": 2701,
+      "probe": "strip-tags",
+      "case": "batch",
+      "referenceMs": 21.5558394,
+      "candidateMs": 13.63368476,
+      "speedup": 1.5810721591013228,
+      "timeChangePercent": -36.7517798448619
+    },
+    {
+      "run": "run-2",
+      "pid": 2701,
+      "probe": "entity-decoder",
+      "case": "plain",
+      "referenceMs": 2.9477311,
+      "candidateMs": 0.13508406,
+      "speedup": 21.821457690863006,
+      "timeChangePercent": -95.41735472411307
+    },
+    {
+      "run": "run-2",
+      "pid": 2701,
+      "probe": "entity-decoder",
+      "case": "entities",
+      "referenceMs": 11.84229316,
+      "candidateMs": 11.76750006,
+      "speedup": 1.006355903940399,
+      "timeChangePercent": -0.6315761566571543
+    },
+    {
+      "run": "run-2",
+      "pid": 2701,
+      "probe": "entity-decoder",
+      "case": "mixed",
+      "referenceMs": 4.01257682,
+      "candidateMs": 1.42706916,
+      "speedup": 2.8117605876928904,
+      "timeChangePercent": -64.43509435415619
+    },
+    {
+      "run": "run-2",
+      "pid": 2701,
+      "probe": "claimed-text",
+      "case": "plain",
+      "referenceMs": 0.90798852,
+      "candidateMs": 0.27500068,
+      "speedup": 3.301768271991182,
+      "timeChangePercent": -69.71319857656351
+    },
+    {
+      "run": "run-2",
+      "pid": 2701,
+      "probe": "claimed-text",
+      "case": "digits",
+      "referenceMs": 1.56129854,
+      "candidateMs": 1.67394846,
+      "speedup": 0.9327040690368685,
+      "timeChangePercent": 7.21514285153948
+    },
+    {
+      "run": "run-2",
+      "pid": 2701,
+      "probe": "claimed-text",
+      "case": "branded",
+      "referenceMs": 2.54847726,
+      "candidateMs": 2.60755142,
+      "speedup": 0.9773449683304807,
+      "timeChangePercent": 2.318017936718819
+    },
+    {
+      "run": "run-2",
+      "pid": 2701,
+      "probe": "claimed-text",
+      "case": "mixed",
+      "referenceMs": 0.81475562,
+      "candidateMs": 0.27393972,
+      "speedup": 2.9742149842308376,
+      "timeChangePercent": -66.37768267250492
+    },
+    {
+      "run": "run-3",
+      "pid": 2833,
+      "probe": "merge-key",
+      "case": "batch",
+      "referenceMs": 3.57317502,
+      "candidateMs": 2.10264504,
+      "speedup": 1.699371483072578,
+      "timeChangePercent": -41.15471455411664
+    },
+    {
+      "run": "run-3",
+      "pid": 2833,
+      "probe": "source-hosts",
+      "case": "batch",
+      "referenceMs": 4.97440486,
+      "candidateMs": 1.63906834,
+      "speedup": 3.034897776135436,
+      "timeChangePercent": -67.04996102790074
+    },
+    {
+      "run": "run-3",
+      "pid": 2833,
+      "probe": "collection-membership",
+      "case": "1",
+      "referenceMs": 0.0547313,
+      "candidateMs": 0.0640962,
+      "speedup": 0.8538930545024509,
+      "timeChangePercent": 17.1106843798704
+    },
+    {
+      "run": "run-3",
+      "pid": 2833,
+      "probe": "collection-membership",
+      "case": "100",
+      "referenceMs": 1.9689006,
+      "candidateMs": 0.1128456,
+      "speedup": 17.447739211807992,
+      "timeChangePercent": -94.2685984249281
+    },
+    {
+      "run": "run-3",
+      "pid": 2833,
+      "probe": "collection-membership",
+      "case": "1000",
+      "referenceMs": 20.5409402,
+      "candidateMs": 0.4976452,
+      "speedup": 41.2762751454249,
+      "timeChangePercent": -97.57730077029288
+    },
+    {
+      "run": "run-3",
+      "pid": 2833,
+      "probe": "edition-id",
+      "case": "batch",
+      "referenceMs": 13.92556662,
+      "candidateMs": 9.1162984,
+      "speedup": 1.5275461606215084,
+      "timeChangePercent": -34.53552987275141
+    },
+    {
+      "run": "run-3",
+      "pid": 2833,
+      "probe": "strip-tags",
+      "case": "batch",
+      "referenceMs": 21.7088532,
+      "candidateMs": 13.45845678,
+      "speedup": 1.6130269283370244,
+      "timeChangePercent": -38.00475476060614
+    },
+    {
+      "run": "run-3",
+      "pid": 2833,
+      "probe": "entity-decoder",
+      "case": "plain",
+      "referenceMs": 3.06942888,
+      "candidateMs": 0.1355107,
+      "speedup": 22.650822997741134,
+      "timeChangePercent": -95.58514937801719
+    },
+    {
+      "run": "run-3",
+      "pid": 2833,
+      "probe": "entity-decoder",
+      "case": "entities",
+      "referenceMs": 11.80195524,
+      "candidateMs": 11.79199184,
+      "speedup": 1.000844929349951,
+      "timeChangePercent": -0.08442160470353288
+    },
+    {
+      "run": "run-3",
+      "pid": 2833,
+      "probe": "entity-decoder",
+      "case": "mixed",
+      "referenceMs": 4.03851816,
+      "candidateMs": 1.44340482,
+      "speedup": 2.797910956123868,
+      "timeChangePercent": -64.25904842285021
+    },
+    {
+      "run": "run-3",
+      "pid": 2833,
+      "probe": "claimed-text",
+      "case": "plain",
+      "referenceMs": 0.89661062,
+      "candidateMs": 0.28148852,
+      "speedup": 3.185247554678251,
+      "timeChangePercent": -68.6052659068437
+    },
+    {
+      "run": "run-3",
+      "pid": 2833,
+      "probe": "claimed-text",
+      "case": "digits",
+      "referenceMs": 1.56094822,
+      "candidateMs": 1.66419736,
+      "speedup": 0.9379585964491616,
+      "timeChangePercent": 6.614514093234947
+    },
+    {
+      "run": "run-3",
+      "pid": 2833,
+      "probe": "claimed-text",
+      "case": "branded",
+      "referenceMs": 2.50861486,
+      "candidateMs": 2.55081454,
+      "speedup": 0.9834563903654083,
+      "timeChangePercent": 1.6821904658573361
+    },
+    {
+      "run": "run-3",
+      "pid": 2833,
+      "probe": "claimed-text",
+      "case": "mixed",
+      "referenceMs": 0.82794782,
+      "candidateMs": 0.2843001,
+      "speedup": 2.9122318986169895,
+      "timeChangePercent": -65.6620751776362
+    }
+  ]
+}

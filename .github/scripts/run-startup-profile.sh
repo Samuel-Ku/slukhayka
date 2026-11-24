@@ -54,10 +54,16 @@ elif [[ "$mode" == guard ]]; then
 from pathlib import Path
 import json, re, sys
 root = Path(sys.argv[1]); focus = sys.argv[2]
-assert focus in ['BOTH', 'ROOM', 'COIL']
-launch = (root / 'profile-launch.txt').read_text()
-log = (root / 'probe-logcat.txt').read_text()
-trace = (root / 'startup.trace').read_bytes()
+if focus not in ['BOTH', 'ROOM', 'COIL']:
+    print('Infrastructure/config invalid: unknown guard focus', file=sys.stderr)
+    sys.exit(2)
+try:
+    launch = (root / 'profile-launch.txt').read_text()
+    log = (root / 'probe-logcat.txt').read_text()
+    trace = (root / 'startup.trace').read_bytes()
+except OSError as error:
+    print(f'Infrastructure/trace incomplete: {error}', file=sys.stderr)
+    sys.exit(2)
 if not re.search(r'^Status: ok\s*$', launch, re.M) or 'event=FIRST_DRAW_END' not in log or b'*end\nSLOW' not in trace:
     print('Infrastructure/trace incomplete; no performance verdict', file=sys.stderr)
     sys.exit(2)
@@ -67,7 +73,9 @@ for line in log.splitlines():
     if m:
         records.append({'kind': m[1], 'main': m[2] == 'true', 'beforeFirstDraw': m[3] == 'true',
                         'wallMs': int(m[4]) / 1e6, 'cpuMs': int(m[5]) / 1e6})
-assert records, 'no actual resource constructor observed'
+if not records:
+    print('Infrastructure/trace incomplete: no actual resource constructor observed', file=sys.stderr)
+    sys.exit(2)
 violations = [r for r in records if r['main'] and r['beforeFirstDraw']]
 failing = [r for r in violations if focus == 'BOTH' or r['kind'] == focus]
 report = {'guardKind': focus, 'allConstructors': records, 'allViolations': violations,

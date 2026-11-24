@@ -18,7 +18,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -92,7 +91,15 @@ fun BookCoverImage(
      * genre colour still says "that genre's book", and the identity is stated
      * once, by the summary.
      */
-    typographicFallback: Boolean = true
+    typographicFallback: Boolean = true,
+    /**
+     * A neutral ground for surfaces that are NOT a shelf tile, where the genre
+     * tint would fight the screen's own palette (the player is always ink).
+     * Null keeps the genre colour.
+     */
+    placeholderAccentOverride: Color? = null,
+    /** Text on [placeholderAccentOverride]; the caller must supply a readable pair. */
+    placeholderContentColorOverride: Color? = null,
 ) {
     val context = LocalContext.current
     var isError by remember(book.coverImageUrl) { mutableStateOf(false) }
@@ -135,11 +142,13 @@ fun BookCoverImage(
         // spec-54 T11 (#862) — a FLAT fill with large typography, not a wash.
         // A known genre carries its own colour; an unknown one gets the brand
         // accent rather than a dead grey rectangle.
-        val fallbackAccent = genreAccentColor(book.genre) ?: MaterialTheme.colorScheme.primary
+        val fallbackAccent = placeholderAccentOverride
+            ?: genreAccentColor(book.genre)
+            ?: MaterialTheme.colorScheme.primary
         // The text colour is PICKED BY MEASUREMENT, not by taste: white while it
         // clears the 4.5:1 floor on this fill, otherwise near-black. Both
         // candidates are checked, so no genre can produce unreadable type.
-        val onAccent = if (
+        val onAccent = placeholderContentColorOverride ?: if (
             com.slukhayka.audiobooks.ui.theme.ColorContrast.meetsTextFloor(Color.White, fallbackAccent)
         ) {
             Color.White
@@ -172,7 +181,10 @@ fun BookCoverImage(
                     Text(
                         text = initials,
                         color = onAccent,
-                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                        // U7 — the serif family has ONE face; a Bold override
+                        // is a synthetic weight, not a heavier cut. In the
+                        // paper scheme this slot is Literata SemiBold.
+                        style = MaterialTheme.typography.headlineMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Clip
                     )
@@ -181,7 +193,7 @@ fun BookCoverImage(
                 Text(
                     text = book.title,
                     color = onAccent,
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                    style = MaterialTheme.typography.labelMedium,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center

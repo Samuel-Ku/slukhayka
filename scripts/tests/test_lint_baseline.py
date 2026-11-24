@@ -23,6 +23,29 @@ EN_STRINGS = "src/main/res/values-en/strings.xml"
 DEFAULT_STRINGS = "src/main/res/values/strings.xml"
 
 
+def clean_git_env() -> dict[str, str]:
+    """Оточення без `GIT_*` для тимчасового репозиторію.
+
+    Хук pre-commit експортує абсолютні `GIT_DIR` і `GIT_INDEX_FILE` свого
+    дерева. `git init` у `TemporaryDirectory` їх не перебиває: усі наступні
+    команди бачать справжній репозиторій, а не тимчасовий (#1445). Той самий
+    ґард уже стоїть у `test_pr_snapshot.py`.
+    """
+    return {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+
+
+def git(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    """git у тимчасовому репозиторії — без успадкованого `GIT_DIR` хука."""
+    return subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=clean_git_env(),
+    )
+
+
 def entry(issue_id, file=DEFAULT_STRINGS, line=10, column=13, message="msg", error_line=None):
     error_lines = (error_line,) if error_line else ()
     return lb.Entry(
@@ -498,18 +521,16 @@ class CheckGrowthCommandTest(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.root = Path(self.temp_dir.name)
-        subprocess.run(["git", "init", "-q"], cwd=self.root, check=True)
-        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=self.root, check=True)
-        subprocess.run(["git", "config", "user.name", "test"], cwd=self.root, check=True)
+        git("init", "-q", cwd=self.root)
+        git("config", "user.email", "test@example.com", cwd=self.root)
+        git("config", "user.name", "test", cwd=self.root)
         self.app = self.root / "app"
         self.app.mkdir()
         self.baseline = self.app / "lint-baseline.xml"
         self.write([entry("MissingTranslation", line=1), entry("UseKtx", file="src/main/java/App.kt", line=5)])
-        subprocess.run(["git", "add", "-A"], cwd=self.root, check=True)
-        subprocess.run(["git", "commit", "-qm", "base"], cwd=self.root, check=True)
-        self.base = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=self.root, check=True, capture_output=True, text=True
-        ).stdout.strip()
+        git("add", "-A", cwd=self.root)
+        git("commit", "-qm", "base", cwd=self.root)
+        self.base = git("rev-parse", "HEAD", cwd=self.root).stdout.strip()
 
     def tearDown(self):
         self.temp_dir.cleanup()
@@ -518,11 +539,11 @@ class CheckGrowthCommandTest(unittest.TestCase):
         self.baseline.write_text(synthetic_baseline([raw_entry(e.issue_id, e.file, e.line) for e in entries]), encoding="utf-8")
 
     def commit(self, message: str) -> None:
-        subprocess.run(["git", "add", "-A"], cwd=self.root, check=True)
-        subprocess.run(["git", "commit", "-qm", message], cwd=self.root, check=True)
+        git("add", "-A", cwd=self.root)
+        git("commit", "-qm", message, cwd=self.root)
 
     def run_guard(self, *refs, allowance=None, summary_path=None):
-        environment = dict(os.environ)
+        environment = clean_git_env()
         if allowance is None:
             environment.pop("LINT_BASELINE_GROWTH_ALLOWANCE", None)
         else:
@@ -639,6 +660,57 @@ class CheckGrowthCommandTest(unittest.TestCase):
         code, output = self.run_guard("no-such-ref", "HEAD")
         self.assertEqual(code, 2)
         self.assertIn("не вдався", output)
+
+
+class HookEnvironmentIsolationTest(unittest.TestCase):
+    """#1445: pre-commit експортує абсолютні `GIT_DIR`/`GIT_INDEX_FILE`.
+
+    Прогін класу, що керує git, у такому оточенні — це точний сценарій хука:
+    тимчасовий репозиторій мусить лишитися тимчасовим, а «зовнішній» —
+    недоторканим (HEAD, індекс, файли, конфіг).
+    """
+
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp_dir.cleanup)
+        self.outer = Path(self.temp_dir.name) / "outer"
+        (self.outer / "app").mkdir(parents=True)
+        (self.outer / "app" / "lint-baseline.xml").write_text(
+            synthetic_baseline([raw_entry("UseKtx")]), encoding="utf-8"
+        )
+        (self.outer / "keep.txt").write_text("keep\n", encoding="utf-8")
+        git("init", "-q", cwd=self.outer)
+        git("config", "user.email", "outer@example.com", cwd=self.outer)
+        git("config", "user.name", "outer", cwd=self.outer)
+        git("add", "-A", cwd=self.outer)
+        git("commit", "-qm", "outer base", cwd=self.outer)
+
+    def snapshot(self):
+        return {
+            "head": git("rev-parse", "HEAD", cwd=self.outer).stdout.strip(),
+            "index": (self.outer / ".git" / "index").read_bytes(),
+            "config": (self.outer / ".git" / "config").read_bytes(),
+            "files": git("ls-files", cwd=self.outer).stdout.splitlines(),
+            "status": git("status", "--porcelain", cwd=self.outer).stdout,
+        }
+
+    def test_a_class_run_under_hook_environment_leaves_the_outer_repo_alone(self):
+        before = self.snapshot()
+        environment = clean_git_env()
+        environment.update(
+            GIT_DIR=str(self.outer / ".git"),
+            GIT_WORK_TREE=str(self.outer),
+            GIT_INDEX_FILE=str(self.outer / ".git" / "index"),
+        )
+        completed = subprocess.run(
+            [sys.executable, "-m", "unittest", "scripts.tests.test_lint_baseline.CheckGrowthCommandTest"],
+            cwd=REPO_ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(0, completed.returncode, completed.stdout + completed.stderr)
+        self.assertEqual(before, self.snapshot())
 
 
 class MachinePathGuardTest(unittest.TestCase):

@@ -8,6 +8,10 @@ import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.source.*
+import kotlinx.coroutines.async
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
@@ -29,7 +33,7 @@ class SourceDetailCollectiveObservationTest {
     @After fun tearDown() = db.close()
 
     private val pageUrl = "https://sluhay.com.ua/100:tyhrolovy"
-    private val key = "sluhayua|RECOMMENDATIONS"
+    private val key = "sluhayua|RECOMMENDATIONS|sluhay.com.ua/100:tyhrolovy"
     private fun detail() = SourceBookDetail("Тигролови", "Іван Багряний", url = pageUrl,
         chapters = listOf(SourceChapter("Розділ 1", "https://mp3.sluhay.com.ua/100/1.mp3")),
         related = listOf(RelatedBook("Місто", "Валер’ян Підмогильний", "https://sluhay.com.ua/102:misto")))
@@ -43,6 +47,56 @@ class SourceDetailCollectiveObservationTest {
     }
 
     @Test
+    fun `two observed pages from one source retain canonical identities and both reach the overview`() = runBlocking {
+        val adapter = Adapter(detail())
+        val local = RoomCollectiveFeedBlockStore(db.audiobookDao())
+        val published = mutableListOf<CollectiveFeedBlock>()
+        val refresh = CollectiveFeedRefresh(local, InMemoryCollectiveRefreshLease(),
+            fetch = { error("no implicit source fetch") }, clock = { 1_000L }, onActivated = { published += it })
+        lateinit var catalog: SourceCatalog
+        val observe: suspend (String, SourceBookDetail) -> Unit = { sourceId, received ->
+            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS, received.url)) {
+                catalog.collectiveRelatedBlock(sourceId, received)
+            }
+        }
+        val imports = LibraryImport(db.audiobookDao(), null, listOf(adapter), onSourceDetailObserved = observe)
+        catalog = SourceCatalog(db.audiobookDao(), listOf(adapter), imports, onSourceDetailObserved = observe)
+        val overview = CollectiveOverviewBlocks(local)
+        val bothVisible = async(start = CoroutineStart.UNDISPATCHED) {
+            withTimeout(15_000L) { overview.observe(listOf("sluhayua")).first { it.size == 2 } }
+        }
+        val expectedA = CollectiveFeedBlock(
+            blockKey = "sluhayua|RECOMMENDATIONS|sluhay.com.ua/100:tyhrolovy",
+            sourceId = "sluhayua", kind = CollectiveBlockKind.RECOMMENDATIONS,
+            name = "До «Тигролови»", provenanceUrl = "https://sluhay.com.ua/100:tyhrolovy",
+            cards = listOf(CollectiveBlockCard("sluhayua", "https://sluhay.com.ua/102:misto", "Місто", "Валер’ян Підмогильний")),
+            fetchedAt = 1_000L, staleAfter = 86_401_000L, version = 1L,
+            lastAttempt = CollectiveAttempt(1_000L, CollectiveAttemptStatus.SUCCESS)
+        )
+        val expectedB = CollectiveFeedBlock(
+            blockKey = "sluhayua|RECOMMENDATIONS|sluhay.com.ua/200:sad",
+            sourceId = "sluhayua", kind = CollectiveBlockKind.RECOMMENDATIONS,
+            name = "До «Сад Гетсиманський»", provenanceUrl = "https://sluhay.com.ua/200:sad",
+            cards = listOf(CollectiveBlockCard("sluhayua", "https://sluhay.com.ua/201:zemlia", "Земля", "Ольга Кобилянська")),
+            fetchedAt = 1_000L, staleAfter = 86_401_000L, version = 1L,
+            lastAttempt = CollectiveAttempt(1_000L, CollectiveAttemptStatus.SUCCESS)
+        )
+        assertNotNull(imports.importFromSourceUrl("sluhayua", pageUrl))
+        assertEquals(expectedA, local.active(expectedA.blockKey))
+        adapter.detail = detail().copy(title = "Сад Гетсиманський", url = "https://sluhay.com.ua/200:sad",
+            related = listOf(RelatedBook("Земля", "Ольга Кобилянська", "https://sluhay.com.ua/201:zemlia")))
+        assertNotNull(imports.importFromSourceUrl("sluhayua", "https://sluhay.com.ua/200:sad"))
+        assertEquals("page B cannot overwrite page A", expectedA, local.active(expectedA.blockKey))
+        assertEquals(expectedB, local.active(expectedB.blockKey))
+        assertEquals(listOf(expectedA, expectedB), bothVisible.await())
+        assertEquals(listOf(expectedA, expectedB), overview.read(listOf("sluhayua")))
+        assertEquals(listOf(expectedA, expectedB), published)
+        assertEquals("only the two deliberate detail requests", listOf(pageUrl, "https://sluhay.com.ua/200:sad"), adapter.requests)
+        assertNull(db.audiobookDao().findByMergeKey(MergeKey.keyFor("Місто", "Валер’ян Підмогильний")))
+        assertNull(db.audiobookDao().findByMergeKey(MergeKey.keyFor("Земля", "Ольга Кобилянська")))
+    }
+
+    @Test
     fun `live import persists observed recommendations without fetching or materializing their links`() = runBlocking {
         val adapter = Adapter(detail())
         val local = RoomCollectiveFeedBlockStore(db.audiobookDao())
@@ -51,7 +105,7 @@ class SourceDetailCollectiveObservationTest {
             fetch = { error("no implicit source fetch") }, clock = { 1_000L }, onActivated = { published += it })
         lateinit var catalog: SourceCatalog
         val observe: suspend (String, SourceBookDetail) -> Unit = { sourceId, received ->
-            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS)) {
+            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS, received.url)) {
                 catalog.collectiveRelatedBlock(sourceId, received)
             }
         }
@@ -79,7 +133,7 @@ class SourceDetailCollectiveObservationTest {
             fetch = { error("no implicit source fetch") }, clock = { 1_000L }, onActivated = { published += it })
         lateinit var catalog: SourceCatalog
         val observe: suspend (String, SourceBookDetail) -> Unit = { sourceId, received ->
-            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS)) {
+            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS, received.url)) {
                 catalog.collectiveRelatedBlock(sourceId, received)
             }
         }
@@ -116,7 +170,7 @@ class SourceDetailCollectiveObservationTest {
             fetch = { error("no implicit source fetch") }, clock = { 1_000L }, onActivated = { published += it })
         lateinit var catalog: SourceCatalog
         val observe: suspend (String, SourceBookDetail) -> Unit = { sourceId, received ->
-            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS)) {
+            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS, received.url)) {
                 catalog.collectiveRelatedBlock(sourceId, received)
             }
         }
@@ -155,7 +209,7 @@ class SourceDetailCollectiveObservationTest {
             fetch = { error("no implicit source fetch") }, clock = { 1_000L }, onActivated = { published += it })
         lateinit var catalog: SourceCatalog
         val observe: suspend (String, SourceBookDetail) -> Unit = { sourceId, received ->
-            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS)) {
+            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS, received.url)) {
                 catalog.collectiveRelatedBlock(sourceId, received)
             }
         }
@@ -224,7 +278,7 @@ class SourceDetailCollectiveObservationTest {
             fetch = { error("no implicit source fetch") }, clock = { 1_000L }, onActivated = { published += it })
         lateinit var catalog: SourceCatalog
         val observe: suspend (String, SourceBookDetail) -> Unit = { sourceId, received ->
-            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS)) {
+            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS, received.url)) {
                 catalog.collectiveRelatedBlock(sourceId, received)
             }
         }
@@ -295,7 +349,7 @@ class SourceDetailCollectiveObservationTest {
             fetch = { error("no implicit source fetch") }, clock = { 1_000L }, onActivated = { published += it })
         lateinit var catalog: SourceCatalog
         val observe: suspend (String, SourceBookDetail) -> Unit = { sourceId, received ->
-            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS)) {
+            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS, received.url)) {
                 catalog.collectiveRelatedBlock(sourceId, received)
             }
         }
@@ -337,7 +391,7 @@ class SourceDetailCollectiveObservationTest {
             fetch = { error("no implicit source fetch") }, clock = { 1_000L }, onActivated = { published += it })
         lateinit var catalog: SourceCatalog
         val observe: suspend (String, SourceBookDetail) -> Unit = { sourceId, received ->
-            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS)) {
+            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS, received.url)) {
                 catalog.collectiveRelatedBlock(sourceId, received)
             }
         }
@@ -352,7 +406,7 @@ class SourceDetailCollectiveObservationTest {
         assertNull(db.audiobookDao().findByMergeKey(MergeKey.keyFor("Місто", "Валер’ян Підмогильний")))
         val visible = CollectiveOverviewBlocks(local).read(listOf("sluhayua"))
         assertEquals("verification contributes the already received recommendations", 1, visible.size)
-        assertEquals("sluhayua|RECOMMENDATIONS", visible.single().blockKey)
+        assertEquals("sluhayua|RECOMMENDATIONS|sluhay.com.ua/100:tyhrolovy", visible.single().blockKey)
         assertEquals("sluhayua", visible.single().sourceId)
         assertEquals(CollectiveBlockKind.RECOMMENDATIONS, visible.single().kind)
         assertEquals("До «Тигролови»", visible.single().name)
@@ -374,7 +428,7 @@ class SourceDetailCollectiveObservationTest {
             fetch = { error("no implicit source fetch") }, clock = { 1_000L }, onActivated = { published += it })
         lateinit var catalog: SourceCatalog
         val observe: suspend (String, SourceBookDetail) -> Unit = { sourceId, received ->
-            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS)) {
+            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS, received.url)) {
                 catalog.collectiveRelatedBlock(sourceId, received)
             }
         }
@@ -452,7 +506,7 @@ class SourceDetailCollectiveObservationTest {
         lateinit var catalog: SourceCatalog
         val observe: suspend (String, SourceBookDetail) -> Unit = { sourceId, resolved ->
             received += sourceId to resolved
-            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS)) {
+            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS, resolved.url)) {
                 catalog.collectiveRelatedBlock(sourceId, resolved)
             }
         }
@@ -565,7 +619,7 @@ class SourceDetailCollectiveObservationTest {
         lateinit var catalog: SourceCatalog
         val observe: suspend (String, SourceBookDetail) -> Unit = { sourceId, resolved ->
             received += sourceId to resolved
-            refresh.observeExplicit(key) { catalog.collectiveRelatedBlock(sourceId, resolved) }
+            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS, resolved.url)) { catalog.collectiveRelatedBlock(sourceId, resolved) }
         }
         val imports = LibraryImport(db.audiobookDao(), null, listOf(adapter), onSourceDetailObserved = observe)
         catalog = SourceCatalog(db.audiobookDao(), listOf(adapter), imports, onSourceDetailObserved = observe)
@@ -576,8 +630,10 @@ class SourceDetailCollectiveObservationTest {
             catalog.hydrateWebSourceCatalog("sluhayua", limit = 1))
         assertEquals(listOf(1), catalogLimits)
         assertEquals(listOf(pageUrl), base.requests)
-        assertNotNull(db.audiobookDao().findByMergeKey(MergeKey.keyFor("Тигролови", "Іван Багряний")))
-        assertNull(db.audiobookDao().findByMergeKey(MergeKey.keyFor("Місто", "Валер’ян Підмогильний")))
+        assertNotNull(db.audiobookDao().findWorkByMergeKey(MergeKey.keyFor("Тигролови", "Іван Багряний")))
+        assertNull(db.audiobookDao().findWorkByMergeKey(MergeKey.keyFor("Місто", "Валер’ян Підмогильний")))
+        assertTrue("catalogue hydration never creates a library Book", db.audiobookDao().getAllAudiobooksOnce().isEmpty())
+        assertEquals("catalogue hydration never creates a personal or technical Entry", 0, db.audiobookDao().countLibraryEntries())
         assertEquals("one explicit hydration observation, generic import adds none", listOf("sluhayua" to detail()), received)
         val block = local.active(key)!!
         assertEquals(listOf(CollectiveBlockCard(sourceId = "sluhayua",
@@ -657,7 +713,7 @@ class SourceDetailCollectiveObservationTest {
         lateinit var catalog: SourceCatalog
         val observe: suspend (String, SourceBookDetail) -> Unit = { sourceId, resolved ->
             received += sourceId to resolved
-            refresh.observeExplicit(key) { catalog.collectiveRelatedBlock(sourceId, resolved) }
+            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS, resolved.url)) { catalog.collectiveRelatedBlock(sourceId, resolved) }
         }
         val imports = LibraryImport(db.audiobookDao(), null, listOf(adapter), onSourceDetailObserved = observe)
         catalog = SourceCatalog(db.audiobookDao(), listOf(adapter), imports, onSourceDetailObserved = observe)
@@ -714,7 +770,7 @@ class SourceDetailCollectiveObservationTest {
         assertNull(db.audiobookDao().findByMergeKey(MergeKey.keyFor("Місто", "Валер’ян Підмогильний")))
         assertEquals("only actual own-page detail contributes once", listOf("sluhayua" to adapter.detail), received)
         val block = local.active(key)!!
-        assertEquals("sluhayua|RECOMMENDATIONS", block.blockKey)
+        assertEquals("sluhayua|RECOMMENDATIONS|sluhay.com.ua/100:tyhrolovy", block.blockKey)
         assertEquals("sluhayua", block.sourceId)
         assertEquals(CollectiveBlockKind.RECOMMENDATIONS, block.kind)
         assertEquals("До «Тигролови»", block.name)

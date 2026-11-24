@@ -54,8 +54,8 @@ object SmartRetryPolicy {
      * re-resolve memo already spent its window; a re-resolve runs only while
      * the memo allows it ([SmartRetryMemo.canAttempt]).
      */
-    fun decide(localFileReady: Boolean, canReResolve: Boolean): Decision = when {
-        localFileReady -> Decision.PlayLocal
+    fun decide(localAddressReady: Boolean, canReResolve: Boolean): Decision = when {
+        localAddressReady -> Decision.PlayLocal
         canReResolve -> Decision.ReResolve
         else -> Decision.Unavailable
     }
@@ -69,6 +69,26 @@ object SmartRetryPolicy {
         val file = File(localFilePath)
         return file.exists() && file.length() > LOCAL_MIN_BYTES
     }
+
+    /**
+     * ADR-0061 — whether a track's [url] is a SAF document URI, i.e. a local
+     * address with no private copy behind it. The check is the scheme only:
+     * whether the grant still resolves is the engine's verdict, and a dead
+     * document surfaces as the honest playback failure (T2's «відновити
+     * доступ»), never as a silent network switch.
+     */
+    fun isLocalDocumentAddress(url: String?): Boolean = url?.startsWith("content://") == true
+
+    /**
+     * Whether a track's address is a LOCAL one: a real copied file (legacy
+     * imports and downloads) or a by-reference document URI. One shared
+     * verdict for the catalogue pairing, the player's local branch and the
+     * retry policy. The document branch is still only a scheme check — whether
+     * the grant resolves is the engine's verdict at playback, and a dead
+     * document surfaces as the honest failure, never as a network switch.
+     */
+    fun localAddressReady(localFilePath: String?, url: String?): Boolean =
+        localFileReady(localFilePath) || isLocalDocumentAddress(url)
 
     /**
      * The distinct BROWSER-mode source ids of a book, in the given order —

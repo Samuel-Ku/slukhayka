@@ -3,8 +3,14 @@
 #
 # `dependency-licenses.sh` sweeps the whole Gradle cache, which is wider than
 # the app (build tooling, plugins, CI). This one asks Gradle what actually
-# resolves for the app, then reads those artifacts' declared licenses from the
-# cache POMs. For AC1 the numbers below are the ones that matter.
+# resolves for the app, then reads those artifacts' declared licenses from POMs:
+# the cache first, then Google Maven / Maven Central / JitPack (#1355). Gradle 9
+# keeps jars and aars in `modules-2/files-2.1`, not the POMs, so a cache-only
+# reader found no license at all and still printed `GPL-family: none`. The
+# reader now names every unchecked artifact UNKNOWN and prints `none` only when
+# all coordinates were checked and none is copyleft. `APP_LICENSE_OFFLINE=1`
+# keeps it to cached POMs; unresolved coordinates stay UNKNOWN there too.
+# For AC1 the numbers below are the ones that matter.
 set -euo pipefail
 
 CONFIG="${CONFIG:-debugRuntimeClasspath}"
@@ -16,73 +22,11 @@ if [ ! -s "$TREE" ]; then
   ./gradlew :app:dependencies --configuration "$CONFIG" > "$TREE"
 fi
 
-python3 - "$TREE" "$CACHE" <<'PY'
-import os, re, sys, collections
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-tree, cache = sys.argv[1], sys.argv[2]
-COORD = re.compile(r"[|+\\\- ]*([A-Za-z0-9_.\-]+):([A-Za-z0-9_.\-]+):([A-Za-z0-9_.\-]+)(?: -> ([A-Za-z0-9_.\-]+))?")
+arguments=(--tree "$TREE" --cache "$CACHE")
+if [ "${APP_LICENSE_OFFLINE:-0}" = "1" ]; then
+  arguments+=(--offline)
+fi
 
-resolved = set()
-for line in open(tree, encoding="utf-8", errors="replace"):
-    if "---" not in line and "+" not in line:
-        continue
-    m = COORD.search(line)
-    if m:
-        version = m.group(4) or m.group(3)
-        resolved.add(f"{m.group(1)}:{m.group(2)}:{version}")
-
-ENTRY = re.compile(r"<license>(.*?)</license>", re.S)
-NAME = re.compile(r"<name>(.*?)</name>", re.S)
-COPYLEFT = re.compile(
-    r"\b(A?GPL|LGPL|GPL)\b|General Public License|Affero", re.I
-)
-
-def licenses_for(group, artifact, version):
-    base = os.path.join(cache, group, artifact, version)
-    if not os.path.isdir(base):
-        return None
-    names = set()
-    for root, _d, files in os.walk(base):
-        for f in files:
-            if not f.endswith(".pom"):
-                continue
-            try:
-                text = open(os.path.join(root, f), encoding="utf-8", errors="replace").read()
-            except OSError:
-                continue
-            if "<licenses>" not in text:
-                continue
-            block = text.split("<licenses>", 1)[1].split("</licenses>", 1)[0]
-            for entry in ENTRY.findall(block):
-                m = NAME.search(entry)
-                if m:
-                    names.add(" ".join(m.group(1).split()))
-    return names or None
-
-by_license = collections.defaultdict(list)
-unknown = []
-copyleft = []
-for coord in sorted(resolved):
-    group, artifact, version = coord.split(":")
-    names = licenses_for(group, artifact, version)
-    if names is None:
-        unknown.append(coord)
-        continue
-    for n in names:
-        by_license[n].append(coord)
-        if COPYLEFT.search(n):
-            copyleft.append(coord)
-
-print(f"розвʼязано артефактів у :app:{os.path.basename(tree)}: {len(resolved)}")
-print(f"з них із відомою ліцензією: {len(resolved) - len(unknown)}")
-print(f"без POM у кеші: {len(unknown)}\n")
-for name in sorted(by_license, key=lambda k: (-len(by_license[k]), k)):
-    flag = "  ← GPL-family" if COPYLEFT.search(name) else ""
-    print(f"{name}  ({len(by_license[name])}){flag}")
-
-print("\n--- GPL-family in the SHIPPED graph ---")
-for coord in sorted(set(copyleft)):
-    print("  " + coord)
-if not copyleft:
-    print("  none")
-PY
+exec python3 "$SCRIPT_DIR/app_dependency_licenses.py" "${arguments[@]}"

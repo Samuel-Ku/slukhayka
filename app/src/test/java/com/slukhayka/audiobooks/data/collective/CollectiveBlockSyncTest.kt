@@ -17,7 +17,12 @@ class CollectiveBlockSyncTest {
 
     private val key = collectiveBlockKey("audiobookmp3", CollectiveBlockKind.NEW_ARRIVALS)
 
-    private fun block(fetchedAt: Long, title: String = "Книга", version: Long = 1L) = CollectiveFeedBlock(
+    private fun block(
+        fetchedAt: Long,
+        title: String = "Книга",
+        version: Long = 1L,
+        revision: Long = 0L
+    ) = CollectiveFeedBlock(
         blockKey = key,
         sourceId = "audiobookmp3",
         kind = CollectiveBlockKind.NEW_ARRIVALS,
@@ -29,7 +34,8 @@ class CollectiveBlockSyncTest {
         fetchedAt = fetchedAt,
         staleAfter = fetchedAt + CollectiveBlockPolicy.NEW_ARRIVALS_TTL_MS,
         version = version,
-        lastAttempt = CollectiveAttempt(fetchedAt, CollectiveAttemptStatus.SUCCESS)
+        lastAttempt = CollectiveAttempt(fetchedAt, CollectiveAttemptStatus.SUCCESS),
+        revision = revision
     )
 
     private class FakeStore(private val pages: List<CollectiveBlockPage>, var failing: Boolean = false) :
@@ -144,6 +150,80 @@ class CollectiveBlockSyncTest {
         cancelAdmission = false
         assertEquals(1, sync.syncOnce())
         assertEquals(listOf("Нова"), local.active(key)!!.cards.map { it.title })
+    }
+
+    @Test
+    fun `the server revision orders the delta, not the device clock`() = runBlocking {
+        val local = InMemoryCollectiveFeedBlockStore()
+        local.activate(block(1_000L, "Локальна", version = 1L, revision = 5L))
+        // A newer SERVER row observed earlier on its own device still wins: the
+        // fetchedAt is the observation time, never the order of the lane.
+        val remote = block(10L, "Спільна", version = 1L, revision = 6L)
+        val store = FakeStore(
+            listOf(CollectiveBlockPage(listOf(remote), CollectiveBlockCursor(6L, "doc-6")))
+        )
+
+        val applied = CollectiveBlockSync(store, local, InMemoryCollectiveBlockSyncCursorStore())
+            .syncOnce(pageSize = 50)
+
+        assertEquals(1, applied)
+        assertEquals(listOf("Спільна"), local.active(key)!!.cards.map { it.title })
+        assertEquals(6L, local.active(key)!!.revision)
+    }
+
+    @Test
+    fun `a lower server revision never overwrites a newer activation`() = runBlocking {
+        val local = InMemoryCollectiveFeedBlockStore()
+        local.activate(block(1_000L, "Новіша", version = 3L, revision = 9L))
+        val store = FakeStore(
+            listOf(
+                CollectiveBlockPage(
+                    listOf(block(9_999L, "Стара", version = 1L, revision = 8L)),
+                    CollectiveBlockCursor(8L, "doc-8")
+                )
+            )
+        )
+
+        val applied = CollectiveBlockSync(store, local, InMemoryCollectiveBlockSyncCursorStore())
+            .syncOnce(pageSize = 50)
+
+        assertEquals(0, applied)
+        assertEquals(listOf("Новіша"), local.active(key)!!.cards.map { it.title })
+        assertEquals(9L, local.active(key)!!.revision)
+    }
+
+    @Test
+    fun `a legacy row without a revision still mirrors by observation time`() = runBlocking {
+        val local = InMemoryCollectiveFeedBlockStore()
+        local.activate(block(10L, "Стара", revision = 0L))
+        val store = FakeStore(
+            listOf(
+                CollectiveBlockPage(
+                    listOf(block(20L, "Легасі-новіша", revision = 0L)),
+                    CollectiveBlockCursor(0L, "legacy-doc")
+                )
+            )
+        )
+
+        val applied = CollectiveBlockSync(store, local, InMemoryCollectiveBlockSyncCursorStore())
+            .syncOnce(pageSize = 50)
+
+        assertEquals(1, applied)
+        assertEquals(listOf("Легасі-новіша"), local.active(key)!!.cards.map { it.title })
+    }
+
+    @Test
+    fun `the cursor records the server revision, not fetchedAt`() = runBlocking {
+        val local = InMemoryCollectiveFeedBlockStore()
+        val cursorStore = InMemoryCollectiveBlockSyncCursorStore()
+        val remote = block(123L, "Книга", revision = 42L)
+        val store = FakeStore(
+            listOf(CollectiveBlockPage(listOf(remote), CollectiveBlockCursor(42L, "doc-42")))
+        )
+
+        CollectiveBlockSync(store, local, cursorStore).syncOnce(pageSize = 50)
+
+        assertEquals(CollectiveBlockCursor(42L, "doc-42"), cursorStore.load())
     }
 
     @Test

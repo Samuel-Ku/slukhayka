@@ -114,7 +114,7 @@ class ControlledAttachedAppArrivalsCompositionTest {
                 assertEquals(0, dao.countLibraryEntries())
                 val blocks = RoomCollectiveFeedBlockStore(dao)
                 val snapshots = FeedSnapshotStore(dao)
-                assertNull(blocks.active("sluhayua|NEW_ARRIVALS"))
+                assertNull(blocks.active("sluhayua|NEW_ARRIVALS|sluhay.com.ua"))
                 assertNull(snapshots.snapshot("sluhayua", FeedSnapshotPolicy.FEED_NEW_ARRIVALS))
 
                 // Public file-backed nonempty index avoids startup consuming
@@ -137,7 +137,7 @@ class ControlledAttachedAppArrivalsCompositionTest {
                 pumpMainLooper()
                 assertEquals("startup never consumes the arrivals endpoint", 0, requests.count { it == feedUrl })
                 assertEquals(0, arrivalsResponses.get())
-                assertNull("startup does not seed this target block", blocks.active("sluhayua|NEW_ARRIVALS"))
+                assertNull("startup does not seed this target block", blocks.active("sluhayua|NEW_ARRIVALS|sluhay.com.ua"))
                 assertNull(snapshots.snapshot("sluhayua", FeedSnapshotPolicy.FEED_NEW_ARRIVALS))
                 assertTrue(collectiveBlockSources().any { it.id == "sluhayua" })
                 assertTrue(FirebaseApp.getApps(actualApp).isEmpty())
@@ -185,11 +185,11 @@ class ControlledAttachedAppArrivalsCompositionTest {
                     rawBooks.any { it.url == target || it.coverImageUrl == target } ||
                         target.startsWith("https://sluhay.com.ua/play?") || target.contains("/stream/") })
                 println("S2_APP_ARRIVALS_STAGE=EXPLICIT_LIVE_FEED_AND_MIRROR_CONTROLS")
-                val active = blocks.active("sluhayua|NEW_ARRIVALS")
+                val active = blocks.active("sluhayua|NEW_ARRIVALS|sluhay.com.ua")
                     ?: throw AssertionError("S2_ACTUAL_APP_ARRIVALS_MISSING_BLOCK_AFTER_EXPLICIT_LIVE_FEED")
                 assertTrue("activation belongs to this explicit action", active.fetchedAt in started..ended)
                 val expected = CollectiveFeedBlock(
-                    "sluhayua|NEW_ARRIVALS", "sluhayua", CollectiveBlockKind.NEW_ARRIVALS,
+                    "sluhayua|NEW_ARRIVALS|sluhay.com.ua", "sluhayua", CollectiveBlockKind.NEW_ARRIVALS,
                     "Sluhay UA", "https://sluhay.com.ua",
                     listOf(
                         CollectiveBlockCard("sluhayua", "https://sluhay.com.ua/901001:live-arrivals-first", "Свіжа перша", "Перший автор", "https://sluhay.com.ua/covers/live-first.jpg"),

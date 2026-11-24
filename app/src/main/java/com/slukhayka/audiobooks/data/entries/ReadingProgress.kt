@@ -36,6 +36,17 @@ data class YearlyReadingGoal(
     val totalFinished: Int get() = finishedByFormat.values.sum()
 }
 
+/**
+ * #1286 — the TWO surfaces of reading progress, derived from ONE snapshot of
+ * the passes. The active list and the yearly goal are computed together so a
+ * screen can never show a pass that the year already accounts for differently;
+ * a read that only refreshes one of them is the defect this type rules out.
+ */
+data class ReadingProgressProjection(
+    val active: List<Readthrough>,
+    val year: YearlyReadingGoal
+)
+
 object ReadingProgressPolicy {
 
     /**
@@ -60,6 +71,26 @@ object ReadingProgressPolicy {
                 )
             }
             .sortedBy { it.format.ordinal }
+
+    /**
+     * #1286 — the passes the listener can still move (in progress or planned),
+     * newest first. This is the active-state rule, and it lives here so the
+     * screen and the ViewModel never restate it.
+     */
+    fun active(readthroughs: List<Readthrough>): List<Readthrough> =
+        readthroughs
+            .filter { it.state == ReadingState.IN_PROGRESS || it.state == ReadingState.PLANNED }
+            .sortedByDescending { it.startedAt }
+
+    /**
+     * #1286 — both projections from ONE list: the caller reads the passes once
+     * and gets the active list and the year that belong together.
+     */
+    fun projection(readthroughs: List<Readthrough>, year: Int): ReadingProgressProjection =
+        ReadingProgressProjection(
+            active = active(readthroughs),
+            year = yearlyGoal(readthroughs, year)
+        )
 
     /**
      * @param year the calendar year; a pass counts when it was FINISHED in it

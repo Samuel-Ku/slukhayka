@@ -128,6 +128,31 @@ class FriendsScreenSnapshotTest {
         )
     }
 
+    /**
+     * F17 — the same empty state in the «Папір» material. Both materials are
+     * recorded because the direction's empty state is now type-only (no glyph),
+     * so the title/body pair is the whole of its structure and the contrast of
+     * those two roles must hold in both.
+     */
+    @Test
+    fun the_no_friends_state_pins_the_empty_feed_in_paper() {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = false) {
+                ScreenSurface {
+                    FriendsScreen(
+                        feed = FriendsFeedState(),
+                        viewerPseudonym = "Слухач-0042",
+                        onOpenBook = {}
+                    )
+                }
+            }
+        }
+
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/friends_feed_empty_light.png"
+        )
+    }
+
     /** A painted background — an unpainted surface invents defects (#1080). */
     @Composable
     private fun ScreenSurface(content: @Composable () -> Unit) {

@@ -1,7 +1,12 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -10,8 +15,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Group
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -19,21 +24,28 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.social.Audience
 import com.slukhayka.audiobooks.data.social.BlockState
 import com.slukhayka.audiobooks.data.social.FriendsFeedPolicy
-import com.slukhayka.audiobooks.ui.components.AppSettingsGear
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkCoverFlat
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
 import com.slukhayka.audiobooks.ui.components.AppTabHeader
-import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.EmptyStatePanel
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.theme.AppDimens
+import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
+import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
+import com.slukhayka.audiobooks.ui.theme.PaperInkType
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -94,6 +106,12 @@ data class FriendsFeedState(
  * (find a reader by name, share one's own profile) need a data source this
  * version does not have, so they are described in the copy rather than offered
  * as buttons that would do nothing.
+ *
+ * F17: in the 2026 direction an empty state is Literata 20 + a 12.5
+ * description, with NO placeholder glyph (§4); the old M3 `Group` icon made an
+ * absence look like a decorated feature. The single next action §4 asks for is
+ * deliberately absent until the friend-search/profile data source exists —
+ * «одна дія, яка нічого не робить» would be worse than none (ADR-0014).
  */
 @Composable
 fun FriendsScreen(
@@ -115,57 +133,88 @@ fun FriendsScreen(
         audienceOf = { it.audience }
     )
 
-    LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .testTag("friends_screen")
-            .accessibilityPane(stringResource(R.string.a11y_friends_pane)),
-        contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
-    ) {
-        item {
-            AppTabHeader(
-                // The root's name is the ONE resource the bottom bar also uses
-                // (spec-54 T06 / #873): a literal here could drift from the tab.
-                title = stringResource(R.string.nav_friends),
-                showBrandMark = true,
-                headingTestTag = "friends_heading",
-                actions = { AppSettingsGear(onClick = onOpenSettings) }
-            )
-        }
-
-        when {
-            // Visible content wins over any empty state: if the listener can
-            // actually see a post (their own, or a public one), the feed is not
-            // empty and must not claim to be.
-            visiblePosts.isNotEmpty() -> items(visiblePosts, key = { it.id }) { post ->
-                FriendsPostCard(
-                    post = post,
-                    bookTitle = post.sourceId?.let { feed.bookTitles[it] },
-                    onOpenBook = onOpenBook
-                )
+    PaperInkThemedContent {
+        if (visiblePosts.isEmpty()) {
+            // #1766 — the empty feed is a PAGE, not a one-item scroll. The header
+            // and the empty state share a Column, so the panel centres in the
+            // height BELOW the header (half a header under the window's geometric
+            // centre) instead of a viewport-sized lazy item that starts under the
+            // header and therefore ends one whole header past the bottom. The
+            // same shape the Медіатека and «Досягнення» empty states use.
+            Column(
+                modifier = modifier
+                    .fillMaxSize()
+                    .testTag("friends_screen")
+                    .accessibilityPane(stringResource(R.string.a11y_friends_pane))
+            ) {
+                FriendsTabHeader(onOpenSettings = onOpenSettings)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        // The non-empty feed reserves this space below its last
+                        // row; the empty page keeps the same reserve so the
+                        // panel does not move when a first post arrives.
+                        .padding(bottom = AppDimens.SpaceAboveMiniPlayer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    // §6.4 — no friends is a different fact from no posts, and
+                    // the two states must not be merged into one vague "nothing
+                    // here". F17 — no placeholder glyph either: the absence is
+                    // stated in type, on a screen that has no friends to show.
+                    if (feed.friendsNow.isEmpty()) {
+                        EmptyStatePanel(
+                            title = stringResource(R.string.friends_empty_no_friends_title),
+                            body = stringResource(R.string.friends_empty_no_friends_body),
+                            modifier = Modifier.testTag("friends_empty_no_friends")
+                        )
+                    } else {
+                        EmptyStatePanel(
+                            title = stringResource(R.string.friends_empty_no_posts_title),
+                            body = stringResource(R.string.friends_empty_no_posts_body),
+                            modifier = Modifier.testTag("friends_empty_no_posts")
+                        )
+                    }
+                }
             }
-
-            // §6.4 — no friends is a different fact from no posts, and the two
-            // states must not be merged into one vague "nothing here".
-            feed.friendsNow.isEmpty() -> item {
-                EmptyState(
-                    icon = Icons.Default.Group,
-                    title = stringResource(R.string.friends_empty_no_friends_title),
-                    body = stringResource(R.string.friends_empty_no_friends_body),
-                    modifier = Modifier.testTag("friends_empty_no_friends")
-                )
-            }
-
-            else -> item {
-                EmptyState(
-                    icon = Icons.Default.Group,
-                    title = stringResource(R.string.friends_empty_no_posts_title),
-                    body = stringResource(R.string.friends_empty_no_posts_body),
-                    modifier = Modifier.testTag("friends_empty_no_posts")
-                )
+        } else {
+            LazyColumn(
+                modifier = modifier
+                    .fillMaxSize()
+                    .testTag("friends_screen")
+                    .accessibilityPane(stringResource(R.string.a11y_friends_pane)),
+                contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
+            ) {
+                // Visible content wins over any empty state: if the listener can
+                // actually see a post (their own, or a public one), the feed is
+                // not empty and must not claim to be.
+                item { FriendsTabHeader(onOpenSettings = onOpenSettings) }
+                items(visiblePosts, key = { it.id }) { post ->
+                    FriendsPostCard(
+                        post = post,
+                        bookTitle = post.sourceId?.let { feed.bookTitles[it] },
+                        onOpenBook = onOpenBook
+                    )
+                }
             }
         }
     }
+}
+
+/**
+ * #1766 — the root header, in ONE place: the empty page and the ordinary feed
+ * render the same composable with the same parameters, so their titles, test
+ * tags and gear cannot drift while their anchoring differs.
+ */
+@Composable
+private fun FriendsTabHeader(onOpenSettings: () -> Unit) {
+    PaperInkTabHeader(
+        // The root's name is the ONE resource the bottom bar also uses
+        // (spec-54 T06 / #873): a literal here could drift from the tab.
+        title = stringResource(R.string.nav_friends),
+        headingTestTag = "friends_heading",
+        onSettingsClick = onOpenSettings,
+    )
 }
 
 /**
@@ -185,17 +234,15 @@ private fun FriendsPostCard(
     val time = formatFriendsPostTime(post.postedAtMs)
     val sourceId = post.sourceId
     val openable = sourceId != null && bookTitle != null
+    val colorScheme = MaterialTheme.colorScheme
+    val initial = post.authorPseudonym.trim().take(1).uppercase()
 
-    // #885 (wave 3) — a post is a FLAT block with a bottom rule, not an
-    // elevated card: `.sl-social-post { padding:20px 0; border-bottom:1px
-    // solid var(--sl-line) }` (`:1259`). A feed of raised cards reads as a
-    // stack of separate objects; a rule-separated list reads as one stream,
-    // which is what a feed is. Same "less elevation, more structure" line as
-    // the chips (#1088, #1090).
+    // A post is a FLAT block with a bottom rule, not an elevated card: a feed
+    // reads as one stream, not as a stack of separate objects.
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = AppDimens.SpaceLg)
+            .padding(horizontal = PaperInkDimens.SpacePage)
             .testTag("friends_post_${post.id}")
             .then(
                 if (openable) {
@@ -209,51 +256,80 @@ private fun FriendsPostCard(
                 }
             )
     ) {
-        // The prototype's `padding:20px 0` — the horizontal inset comes from
-        // the block itself, so the rule below spans the full post width.
         Column(modifier = Modifier.padding(vertical = 20.dp)) {
-            Text(
-                text = post.authorPseudonym,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.testTag("friends_post_author_${post.id}")
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // The pseudonym's avatar: 36 dp paper disc with the initial.
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = initial,
+                        style = PaperInkType.Meta,
+                        color = colorScheme.onSurfaceVariant,
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = post.authorPseudonym,
+                    style = PaperInkType.RowTitle,
+                    color = colorScheme.onSurface,
+                    modifier = Modifier.testTag("friends_post_author_${post.id}")
+                )
+            }
 
             if (post.text.isNotBlank()) {
-                Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
                     text = post.text,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface
+                    style = PaperInkType.Body,
+                    color = colorScheme.onSurface,
                 )
             }
 
             if (bookTitle != null) {
-                Spacer(modifier = Modifier.height(AppDimens.SpaceSm))
-                Surface(
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shape = MaterialTheme.shapes.small,
-                    modifier = Modifier.testTag("friends_post_book_${post.id}")
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(PaperInkDimens.RadiusMedium))
+                        .background(colorScheme.surfaceVariant)
+                        .padding(10.dp)
+                        .testTag("friends_post_book_${post.id}"),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    PaperInkCoverFlat(
+                        title = bookTitle,
+                        modifier = Modifier
+                            .width(44.dp)
+                            .height(66.dp)
+                            .clearAndSetSemantics { },
+                        radius = PaperInkDimens.RadiusMicro,
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
                     Text(
                         text = bookTitle,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        style = PaperInkType.RowTitle,
+                        color = colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
 
             if (time.isNotBlank()) {
-                Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
+                Spacer(modifier = Modifier.height(10.dp))
                 Text(
                     text = time,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    style = PaperInkType.Micro,
+                    color = colorScheme.onSurfaceVariant,
                 )
             }
         }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        HorizontalDivider(color = colorScheme.outlineVariant)
     }
 }
 

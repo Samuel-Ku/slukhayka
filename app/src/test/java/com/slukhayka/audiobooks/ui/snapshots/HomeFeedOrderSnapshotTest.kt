@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -32,7 +33,7 @@ import com.slukhayka.audiobooks.data.recommend.RecommendationEngine
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
 import com.slukhayka.audiobooks.ui.screens.homeFeedContent
-import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import com.github.takahirom.roborazzi.captureRoboImage
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Assert.assertEquals
@@ -184,7 +185,7 @@ class HomeFeedOrderSnapshotTest {
     @Test
     fun curated_content_sits_above_the_endless_feed() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     val feedFlow = remember { MutableStateFlow(PagingData.from(feedRows)) }
                     val feedItems = feedFlow.collectAsLazyPagingItems()
@@ -226,17 +227,21 @@ class HomeFeedOrderSnapshotTest {
         }
         composeTestRule.waitForIdle()
 
-        // Every block composes on the tall viewport — assert the spec-42
-        // hierarchy: quick transitions → «Для вас» → «Відкрити нове» →
-        // compact feed toolbar → endless feed. Genre navigation and the
-        // redundant «Весь каталог» label have no second home on this screen.
+        // Every block composes on the tall viewport — assert the migrated
+        // hierarchy: navigation chips (no group caption above them) → the first
+        // curated shelf → «Новинки» → duration shelves → catalogue sections →
+        // collections → compact feed toolbar → endless feed. Genre navigation
+        // and the redundant «Весь каталог» label have no second home here.
         fun topOf(text: String): Dp =
             composeTestRule.onNodeWithText(text, ignoreCase = true).getBoundsInRoot().top
 
-        assertTrue(topOf("Швидкі переходи") < topOf("Для вас"))
-        assertTrue(topOf("Для вас") < topOf("Рекомендовано для вас"))
-        assertTrue(topOf("Рекомендовано для вас") < topOf("Відкрити нове"))
-        assertTrue(topOf("Відкрити нове") < topOf("Новинки"))
+        val chipsTop = composeTestRule.onNodeWithTag("navigation_chip_Рейтинг")
+            .getBoundsInRoot().top
+        // F19: screen → section → card, so the two GROUP captions are gone.
+        composeTestRule.onNodeWithText("Швидкі переходи").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Для вас").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Відкрити нове").assertDoesNotExist()
+        assertTrue(chipsTop < topOf("Рекомендовано для вас"))
         assertTrue(topOf("Рекомендовано для вас") < topOf("Новинки"))
         // spec-28 (#195): «За тривалістю» headers are human-named shelves
         // stating the real bucket bounds (US-15, ADR-0014).
@@ -297,7 +302,7 @@ class HomeFeedOrderSnapshotTest {
             )
         )
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     val feedFlow = remember { MutableStateFlow(PagingData.from(feedRows)) }
                     val feedItems = feedFlow.collectAsLazyPagingItems()
@@ -342,7 +347,6 @@ class HomeFeedOrderSnapshotTest {
         fun topOf(text: String): Dp =
             composeTestRule.onNodeWithText(text, ignoreCase = true).getBoundsInRoot().top
 
-        assertTrue(topOf("Для вас") < topOf("Ваші цикли"))
         assertTrue(topOf("Ваші цикли") < topOf("Рекомендовано для вас"))
         // The rest of the order is unchanged behind the new shelf.
         assertTrue(topOf("Рекомендовано для вас") < topOf("Новинки"))
@@ -365,5 +369,64 @@ class HomeFeedOrderSnapshotTest {
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/home_feed_personal_cycles.png"
         )
+    }
+
+    /** #1507: the public-collections rail is curated content and must precede
+     * the endless feed; before the fix HomeScreen emitted it AFTER the whole
+     * feed, so it was unreachable until the listener scrolled the catalogue. */
+    @Test
+    fun public_collections_rail_sits_above_the_feed() {
+        composeTestRule.setContent {
+            PaperInkTheme(darkTheme = true) {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                    val feedFlow = remember { MutableStateFlow(PagingData.from(feedRows)) }
+                    val feedItems = feedFlow.collectAsLazyPagingItems()
+                    LazyColumn(modifier = Modifier.fillMaxSize().testTag("home_feed")) {
+                        homeFeedContent(
+                            isCatalogLoading = false,
+                            hasLibraryBooks = true,
+                            sections = sections,
+                            genreFacetOptions = emptyList(),
+                            collections = emptyList(),
+                            newArrivals = libraryArrivals,
+                            recommendedBooks = recommendations,
+                            personalCycles = emptyList(),
+                            shortBooks = books,
+                            longBooks = books,
+                            workFeedItems = feedItems,
+                            feedGenreFilters = emptySet(),
+                            feedSortByTitle = false,
+                            onRefreshCatalog = {},
+                            onGoToLibrary = {},
+                            onOpenTop100 = {},
+                            onOpenPeople = {},
+                            onOpenSeriesIndex = {},
+                            onOpenCollectionsIndex = {},
+                            onOpenSeries = { _, _ -> },
+                            onOpenRecommendedBook = {},
+                            onOpenWorkFeedRow = {},
+                            onBookClick = {},
+                            onSetFeedGenreFilters = {},
+                            onSetFeedSortByTitle = {},
+                            onOpenWebSource = {},
+                            publicCollectionsRail = {
+                                Text("rail-marker", modifier = Modifier.testTag("public_collections_rail_test"))
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+
+        fun topOf(text: String): Dp =
+            composeTestRule.onNodeWithText(text, ignoreCase = true).getBoundsInRoot().top
+
+        val railTop = composeTestRule.onNodeWithTag("public_collections_rail_test")
+            .getBoundsInRoot().top
+        val sortTop = composeTestRule.onNodeWithTag("feed_sort").getBoundsInRoot().top
+        assertTrue("rail must sit after the curated exit CTA", topOf("Більше книг на Sluhay") < railTop)
+        assertTrue("rail must sit before the feed controls", railTop < sortTop)
+        assertTrue("rail must sit before the first feed row", railTop < topOf("Місто"))
     }
 }

@@ -253,6 +253,34 @@ open class HttpFetcher(
     }
 
     /**
+     * #1487 (slice 2) — a bounded TEXT request: the body is read with a hard
+     * byte cap BEFORE the caller parses it, and the charset comes from
+     * Content-Type exactly as [getText] does. Null on any failure or when the
+     * body would exceed [maxBytes]; never throws.
+     */
+    open fun getTextBounded(
+        url: String,
+        maxBytes: Int,
+        extraHeaders: Map<String, String> = emptyMap()
+    ): String? {
+        val response = executeRequest(url, extraHeaders) ?: return null
+        return response.use { resp ->
+            if (resp.code != HTTP_OK) return null
+            val body = resp.body ?: return null
+            val stream = runCatching { body.byteStream() }.getOrNull() ?: return null
+            val charset = resp.header("Content-Type")
+                ?.substringAfter("charset=", "")
+                ?.substringBefore(';')
+                ?.trim()
+                ?.trim('"')
+                ?.takeIf { it.isNotBlank() }
+                ?.let { name -> runCatching { java.nio.charset.Charset.forName(name) }.getOrNull() }
+                ?: Charsets.UTF_8
+            com.slukhayka.audiobooks.data.source.BoundedBodyReader.read(stream, charset, maxBytes)
+        }
+    }
+
+    /**
      * #392 — lightweight HEAD for size estimation. Returns Content-Length
      * without fetching the body. Null when the header is missing or the
      * request fails. Never throws. Uses the same privacy route, UA and

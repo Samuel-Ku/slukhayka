@@ -29,7 +29,7 @@ class SourceDetailObservationGuardTest {
     @After fun tearDown() = db.close()
 
     private val pageUrl = "https://sluhay.com.ua/100:tyhrolovy"
-    private val key = "sluhayua|RECOMMENDATIONS"
+    private val key = "sluhayua|RECOMMENDATIONS|sluhay.com.ua/100:tyhrolovy"
     private fun detail() = SourceBookDetail("Тигролови", "Іван Багряний", url = pageUrl,
         chapters = listOf(SourceChapter("Розділ 1", "https://mp3.sluhay.com.ua/100/1.mp3")),
         related = listOf(RelatedBook("Місто", "Валер’ян Підмогильний", "https://sluhay.com.ua/102:misto")))
@@ -505,7 +505,7 @@ class SourceDetailObservationGuardTest {
         lateinit var catalog: SourceCatalog
         val observe: suspend (String, SourceBookDetail) -> Unit = { sourceId, resolved ->
             received += sourceId to resolved
-            refresh.observeExplicit(key) { catalog.collectiveRelatedBlock(sourceId, resolved) }
+            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS, resolved.url)) { catalog.collectiveRelatedBlock(sourceId, resolved) }
         }
         val imports = LibraryImport(db.audiobookDao(), null, listOf(adapter), profileStore = store,
             onSourceDetailObserved = observe)
@@ -557,7 +557,7 @@ class SourceDetailObservationGuardTest {
         lateinit var catalog: SourceCatalog
         val observe: suspend (String, SourceBookDetail) -> Unit = { sourceId, resolved ->
             received += sourceId to resolved
-            refresh.observeExplicit(key) { catalog.collectiveRelatedBlock(sourceId, resolved) }
+            refresh.observeExplicit(collectiveBlockKey(sourceId, CollectiveBlockKind.RECOMMENDATIONS, resolved.url)) { catalog.collectiveRelatedBlock(sourceId, resolved) }
         }
         val imports = LibraryImport(db.audiobookDao(), null, listOf(adapter), onSourceDetailObserved = observe)
         catalog = SourceCatalog(db.audiobookDao(), listOf(adapter), imports, onSourceDetailObserved = observe)
@@ -585,7 +585,7 @@ class SourceDetailObservationGuardTest {
         assertEquals(0L, db.audiobookDao().getAudiobookById(imported.id)!!.totalDurationSeconds)
         assertEquals("chapterless actual response must be observed once", listOf("sluhayua" to live), received)
         val block = local.active(key)!!
-        assertEquals("sluhayua|RECOMMENDATIONS", block.blockKey)
+        assertEquals("sluhayua|RECOMMENDATIONS|sluhay.com.ua/100:tyhrolovy", block.blockKey)
         assertEquals("sluhayua", block.sourceId)
         assertEquals(CollectiveBlockKind.RECOMMENDATIONS, block.kind)
         assertEquals("До «Жива сторінка без розділів»", block.name)

@@ -102,7 +102,7 @@ class RoomHomeSourceArrivalsDuplicatesTest {
             val dao = db.audiobookDao()
             val snapshots = FeedSnapshotStore(dao) { now }
             val blocks = RoomCollectiveFeedBlockStore(dao)
-            val key = "sluhayua|NEW_ARRIVALS"
+            val key = "sluhayua|NEW_ARRIVALS|sluhay.com.ua"
             assertNull(snapshots.snapshot("sluhayua", FeedSnapshotPolicy.FEED_NEW_ARRIVALS))
             assertNull(blocks.active(key))
             assertEquals(0, dao.countWorks())
@@ -139,7 +139,7 @@ class RoomHomeSourceArrivalsDuplicatesTest {
             assertEquals("existing browse admission remains enabled", 2, dao.countWorks())
             assertEquals("exact repeated URL is idempotent but alternative URL stays a browse Source", 3, dao.countWorkSources())
             val expected = CollectiveFeedBlock(
-                "sluhayua|NEW_ARRIVALS", "sluhayua", CollectiveBlockKind.NEW_ARRIVALS,
+                "sluhayua|NEW_ARRIVALS|sluhay.com.ua", "sluhayua", CollectiveBlockKind.NEW_ARRIVALS,
                 "Sluhay UA", "https://sluhay.com.ua",
                 listOf(
                     CollectiveBlockCard("sluhayua", "https://sluhay.com.ua/71:alpha-first", "Альфа", "Автор Альфи", "https://sluhay.com.ua/covers/alpha-first.jpg"),

@@ -88,6 +88,12 @@ class LibraryStorageSnapshotTest {
     // spec-28 #194: the destination with downloads + local books — the
     // storage card, the rescan action and the destructive delete, each in
     // its own section (a destructive action never sits next to neutral data).
+    //
+    // #1163 — the card carries THREE facts, not one: the source downloads
+    // («Завантаження»), the free space, and the private copies of local imports
+    // on their own line. The 3,23 ГБ the listener could only find in Android's
+    // settings now has a name here, and the downloads number no longer claims
+    // to be all the audio on the device.
     @Test
     fun storage_destination_populated() {
         composeTestRule.setContent {
@@ -96,6 +102,7 @@ class LibraryStorageSnapshotTest {
                     StorageDestinationContent(
                         occupiedBytes = 1_200_000_000L,
                         freeBytes = 42_600_000_000L,
+                        localCopyBytes = 512L * 1024 * 1024,
                         hasLocalBooks = true,
                         showDelete = true,
                         onRescan = {},
@@ -106,6 +113,9 @@ class LibraryStorageSnapshotTest {
         }
 
         composeTestRule.onNodeWithText("Пам'ять пристрою").assertExists()
+        composeTestRule.onNodeWithText("Завантаження").assertExists()
+        composeTestRule.onNodeWithText("Локальні копії").assertExists()
+        composeTestRule.onNodeWithText("512 МБ").assertExists()
         composeTestRule.onNodeWithText("Видалити завантажені файли").assertExists()
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/storage_destination.png"
@@ -115,6 +125,9 @@ class LibraryStorageSnapshotTest {
     // spec-28 #194 AC: nothing downloaded → no destructive button at all,
     // just the storage line (the delete button only appears when there IS
     // something to delete).
+    //
+    // #1163 — and no local copies means no third line: the row is drawn only
+    // when there is a figure behind it, never as a permanent «0 МБ».
     @Test
     fun storage_destination_nothing_to_delete() {
         composeTestRule.setContent {
@@ -134,6 +147,7 @@ class LibraryStorageSnapshotTest {
 
         composeTestRule.onNodeWithText("Видалити завантажені файли").assertDoesNotExist()
         composeTestRule.onNodeWithText("Пам'ять пристрою").assertExists()
+        composeTestRule.onNodeWithText("Локальні копії").assertDoesNotExist()
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/storage_destination_empty.png"
         )

@@ -11,16 +11,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.theme.AppDimens
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.MenuBook
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -184,7 +179,7 @@ fun AuthorsIndexContent(
 ) {
     if (authors.isEmpty()) {
         EmptyState(
-            icon = Icons.AutoMirrored.Filled.MenuBook,
+            icon = PaperInkIcons.Book,
             title = stringResource(R.string.author_empty_catalog),
             body = "",
             modifier = modifier.testTag("authors_index")
@@ -234,7 +229,7 @@ fun CanonicalAuthorContent(
         // stays flavourless: nothing failed when the author simply has no
         // Works yet.
         EmptyState(
-            icon = Icons.Filled.Warning,
+            icon = PaperInkIcons.Alert,
             title = stringResource(R.string.author_load_failed),
             body = "",
             stateDescription = stringResource(R.string.secondary_state_error),
@@ -244,7 +239,7 @@ fun CanonicalAuthorContent(
     }
     if (works.isEmpty()) {
         EmptyState(
-            icon = Icons.AutoMirrored.Filled.MenuBook,
+            icon = PaperInkIcons.Book,
             title = stringResource(R.string.author_empty_works),
             body = "",
             modifier = modifier.testTag("canonical_author_page")
@@ -281,7 +276,7 @@ fun CanonicalAuthorContent(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Icon(PaperInkIcons.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Column(modifier = Modifier.weight(1f)) {
                     Text(work.title, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(work.author, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -289,7 +284,7 @@ fun CanonicalAuthorContent(
                 if (ownedWorkIds != null && work.id !in ownedWorkIds) {
                     MetadataChip(text = stringResource(R.string.author_mirror_neighbour))
                 }
-                Icon(Icons.Default.ChevronRight, contentDescription = null)
+                Icon(PaperInkIcons.ChevronRight, contentDescription = null)
             }
         }
     }
@@ -305,7 +300,7 @@ private fun AuthorRow(author: AuthorSummary, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Icon(Icons.Default.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Icon(PaperInkIcons.Person, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
         Text(
             author.displayName,
             modifier = Modifier.weight(1f),
@@ -320,6 +315,6 @@ private fun AuthorRow(author: AuthorSummary, onClick: () -> Unit) {
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Icon(Icons.Default.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Icon(PaperInkIcons.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

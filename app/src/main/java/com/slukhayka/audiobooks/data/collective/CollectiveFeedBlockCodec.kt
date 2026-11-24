@@ -27,6 +27,7 @@ object CollectiveFeedBlockCodec {
         "version" to block.version.toString(),
         "attemptAt" to block.lastAttempt.at.toString(),
         "attemptStatus" to str(block.lastAttempt.status.name),
+        "revision" to block.revision.toString(),
         "cards" to block.cards.joinToString(prefix = "[", separator = ",", postfix = "]") { card ->
             obj(
                 "sourceId" to str(card.sourceId),
@@ -60,6 +61,8 @@ object CollectiveFeedBlockCodec {
         val attemptStatus = (map["attemptStatus"] as? String)?.let { status ->
             CollectiveAttemptStatus.entries.firstOrNull { it.name == status }
         } ?: return null
+        val revision = (map["revision"] as? Number)?.toLong() ?: 0L
+        if (revision < 0L) return null
         val cardValues = map["cards"] as? List<*> ?: return null
         val cards = cardValues.map { item ->
             val card = item as? Map<*, *> ?: return null
@@ -83,7 +86,8 @@ object CollectiveFeedBlockCodec {
             fetchedAt = fetchedAt,
             staleAfter = staleAfter,
             version = version,
-            lastAttempt = CollectiveAttempt(attemptAt, attemptStatus)
+            lastAttempt = CollectiveAttempt(attemptAt, attemptStatus),
+            revision = revision
         )
     }
 

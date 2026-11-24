@@ -2,12 +2,21 @@ package com.slukhayka.audiobooks.data.diagnostics
 
 import android.content.Context
 
-/** Local-only watermark. It is intentionally separate from backed-up settings. */
+/**
+ * Local-only watermark. It is intentionally separate from backed-up settings.
+ *
+ * [save] uses `apply()`: the in-memory value is current at once, so [load] in
+ * this process still sees the cursor and [UnexpectedExitReporter] dedupes
+ * exactly as before, while the disk flush stays off the startup path (#1709).
+ * A process death before that flush can lose the watermark; the next launch
+ * then re-inspects the same newest exit and may report it once more. That is
+ * the accepted side of the trade — a duplicate report, never a missed one.
+ */
 class SharedPreferencesProcessExitCursorStore(context: Context) : ProcessExitCursorStore {
-    private val prefs = context.applicationContext.getSharedPreferences(
-        PREFS_NAME,
-        Context.MODE_PRIVATE
-    )
+    // The caller passes the application context (App.kt); do not re-wrap it,
+    // so a test context can intercept the store without Robolectric shadowing
+    // ContextWrapper.getApplicationContext().
+    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     override fun load(): ProcessExitCursor? {
         if (!prefs.contains(KEY_TIMESTAMP) || !prefs.contains(KEY_HASH)) return null
@@ -21,7 +30,7 @@ class SharedPreferencesProcessExitCursorStore(context: Context) : ProcessExitCur
         prefs.edit()
             .putLong(KEY_TIMESTAMP, cursor.timestampMillis)
             .putString(KEY_HASH, cursor.stableHash)
-            .commit()
+            .apply()
     }
 
     private companion object {

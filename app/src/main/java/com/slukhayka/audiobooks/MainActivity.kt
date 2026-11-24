@@ -17,12 +17,6 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.Headphones
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.getValue
@@ -61,13 +55,13 @@ import com.slukhayka.audiobooks.ui.adaptive.showsWideDetailPane
 import com.slukhayka.audiobooks.ui.adaptive.showsWideExploreDetailPane
 import com.slukhayka.audiobooks.ui.bookPersonPath
 import com.slukhayka.audiobooks.ui.components.AppNavigationRail
-import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
+import com.slukhayka.audiobooks.ui.components.MiniPlayerHost
 import com.slukhayka.audiobooks.ui.components.MiniPlayerColumnWidth
 import com.slukhayka.audiobooks.ui.components.PlayerPane
-import com.slukhayka.audiobooks.ui.components.miniPlayerHasBook
 import com.slukhayka.audiobooks.ui.components.WideDetailPane
 import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
+import com.slukhayka.audiobooks.ui.library.ListenDismissUndo
 import com.slukhayka.audiobooks.ui.screens.BookDetailScreen
 import com.slukhayka.audiobooks.ui.screens.AuthorsIndexScreen
 import com.slukhayka.audiobooks.ui.screens.SourceAudioRefusalScreen
@@ -98,7 +92,17 @@ import com.slukhayka.audiobooks.ui.screens.DownloadManagerScreen
 import com.slukhayka.audiobooks.ui.screens.LibraryRatingScreen
 import com.slukhayka.audiobooks.ui.screens.WebSourceBrowserScreen
 import com.slukhayka.audiobooks.ui.screens.SourceWebViewSession
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkNavItem
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkNavigationBar
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
+import com.slukhayka.audiobooks.ui.theme.AppThemeMode
+import com.slukhayka.audiobooks.ui.theme.AppearancePreferencesStore
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.isPaperInkInkTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkSystemBars
+import com.slukhayka.audiobooks.ui.theme.PaperInkThemedContent
+import com.slukhayka.audiobooks.ui.theme.systemBarAppearanceFor
+import com.slukhayka.audiobooks.ui.theme.systemBarsDarkTheme
 
 internal enum class SecondaryBookParent {
     SERIES,
@@ -106,6 +110,24 @@ internal enum class SecondaryBookParent {
     TOP_100,
     PERSON
 }
+
+/**
+ * #1235 — which «Огляд» parents keep their list beside the selected work.
+ *
+ * The owner's decision on #1208 (2026-10-11) makes this list exactly the four
+ * book lists «Огляду»: genre, series, the library rating and a person's works.
+ * It is a named predicate, not an inline pair of comparisons, so the phone and
+ * wide routes cannot disagree about which parents own the list-detail contract.
+ */
+internal fun exploreParentKeepsListBesideDetail(parent: SecondaryBookParent?): Boolean =
+    when (parent) {
+        SecondaryBookParent.SERIES,
+        SecondaryBookParent.GENRE,
+        SecondaryBookParent.TOP_100,
+        SecondaryBookParent.PERSON -> true
+
+        null -> false
+    }
 
 internal data class SecondaryBookRouteFrame(
     val parent: SecondaryBookParent? = null,
@@ -215,40 +237,21 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun handleDownloadIntent(intent: android.content.Intent) {
-        if (intent.getBooleanExtra(EXTRA_OPEN_PEOPLE_NEW, false)) {
+        // ADR-0052 §6/§7 — the extras contract lives in routeNotificationIntent,
+        // next to the builders the notification producers use. The tests exercise
+        // the same reader, so a one-sided key rename cannot ship silently.
+        val route = routeNotificationIntent(intent)
+        if (route.openPeopleNew) {
             pendingPeopleNew = true
             // ADR-0052 §6 — the notification names a person; carry that identity
             // so the tap opens their page instead of the general feed. An absent
             // or malformed role degrades to the EXPLORE fallback, never a crash.
-            pendingPeopleNewName = intent.getStringExtra(EXTRA_PEOPLE_NEW_NAME)
-                ?.takeIf { it.isNotBlank() }
-            pendingPeopleNewRole = intent.getStringExtra(EXTRA_PEOPLE_NEW_ROLE)
-                ?.let { raw -> runCatching { PersonRole.valueOf(raw) }.getOrNull() }
+            pendingPeopleNewName = route.peopleNewName
+            pendingPeopleNewRole = route.peopleNewRole
         }
-        if (intent.getBooleanExtra(EXTRA_OPEN_PLAYER, false)) pendingOpenPlayer = true
-        if (intent.getBooleanExtra("openBookDetail", false)) {
-            intent.getStringExtra("bookId")?.let { pendingBookId = it }
-        }
-        if (intent.getBooleanExtra(EXTRA_OPEN_SOURCE_WORK, false)) {
-            // ADR-0052 §7 — a watched Work with no Library Entry imports through
-            // the ordinary door. A target missing its URL is dropped silently.
-            val sourceId = intent.getStringExtra(EXTRA_SOURCE_ID).orEmpty()
-            val sourceUrl = intent.getStringExtra(EXTRA_SOURCE_URL).orEmpty()
-            if (sourceId.isNotBlank() && sourceUrl.isNotBlank()) {
-                val title = intent.getStringExtra(EXTRA_SOURCE_WORK_TITLE).orEmpty()
-                pendingSourceImport = PendingSourceImport(
-                    sourceId = sourceId,
-                    sourceUrl = sourceUrl,
-                    identity = title.takeIf { it.isNotBlank() }?.let {
-                        KnownBookIdentity(
-                            title = it,
-                            author = intent.getStringExtra(EXTRA_SOURCE_WORK_AUTHOR).orEmpty(),
-                            narrator = intent.getStringExtra(EXTRA_SOURCE_WORK_NARRATOR).orEmpty()
-                        )
-                    }
-                )
-            }
-        }
+        if (route.openPlayer) pendingOpenPlayer = true
+        route.bookId?.let { pendingBookId = it }
+        route.sourceImport?.let { pendingSourceImport = it }
         // Spec-53 T4 — a system share ("Поділитися → Слухайка") or a VIEW of
         // a supported link opens the submission door with the link prefilled.
         val shared = when (intent.action) {
@@ -270,12 +273,24 @@ class MainActivity : FragmentActivity() {
         // Spec-45 (#405) — the UI language is a stored preference (system | uk | en);
         // SYSTEM leaves the context unpinned, a concrete locale localizes the app
         // AND Material/embedded library resources together.
+        //
+        // #1723 — this is the ONE startup read that stays synchronous, on
+        // purpose: the locale must be known before the Activity context exists,
+        // and a value applied after the first frame would re-create the
+        // Activity (a visible language flash). The file is tiny and read once
+        // per process here; every other startup preference moved to
+        // StartupReads on IO.
         super.attachBaseContext(newBase.withAppLocale(AppLocalePrefs(newBase).locale))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         handleDownloadIntent(intent)
         super.onCreate(savedInstanceState)
+        // #1478 — the Listen shelves' copy follows the STORED UI language, and
+        // on API < 33 that choice is pinned on the Activity's context: rebuild
+        // it after every (re)create so a language switch is reflected.
+        androidx.lifecycle.ViewModelProvider(this)[com.slukhayka.audiobooks.ui.MainViewModel::class.java]
+            .onUiLocaleApplied()
         // #532 — the cold-start seed MUST run at APP startup, not from a
         // screen's composition: a clean install opens on Слухати, so a
         // HomeScreen-only trigger left the bundled seed unimported (measured
@@ -302,8 +317,30 @@ class MainActivity : FragmentActivity() {
         coil.Coil.setImageLoader(imageLoader)
 
         setContent {
-            AudiobookTheme {
-                AudiobookApp()
+            // Plan 2026-2027 — the visible theme follows the listener's choice;
+            // migrated screens resolve it to paper/ink, the rest to the legacy
+            // light/dark pair, so one switch moves the whole app.
+            //
+            // #1723 — theme and density are the second deliberate synchronous
+            // read: they decide the FIRST frame's colors and rhythm, and a
+            // post-frame correction is exactly the visible flash the issue
+            // forbids. The store reads one small prefs file once; every other
+            // startup preference goes through StartupReads on IO.
+            val appearance = remember { AppearancePreferencesStore(this) }
+            val themeMode by appearance.themeMode.collectAsState()
+            val density by appearance.density.collectAsState()
+            val systemDark = androidx.compose.foundation.isSystemInDarkTheme()
+            val darkTheme = when (themeMode) {
+                AppThemeMode.AUTO -> systemDark
+                AppThemeMode.PAPER -> false
+                AppThemeMode.INK -> true
+            }
+            androidx.compose.runtime.CompositionLocalProvider(
+                com.slukhayka.audiobooks.ui.theme.LocalContentDensity provides density
+            ) {
+                AudiobookTheme(darkTheme = darkTheme) {
+                    AudiobookApp(appearance = appearance)
+                }
             }
         }
     }
@@ -320,8 +357,15 @@ class MainActivity : FragmentActivity() {
 }
 
 @Composable
-fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
+fun AudiobookApp(
+    viewModel: MainViewModel = viewModel(),
+    // Optional for tests and previews: the app passes the one store it created
+    // before the theme, so the switch and the rendered scheme cannot drift.
+    appearance: AppearancePreferencesStore? = null,
+) {
     val context = LocalContext.current
+    val appearanceStore = appearance ?: remember { AppearancePreferencesStore(context) }
+    val playerAlwaysInk by appearanceStore.playerAlwaysInk.collectAsState()
     // #900 — the window's own width decides the navigation surface and (from
     // here on) which screens show a list with its detail beside it.
     val windowLayout = rememberWindowLayout()
@@ -367,14 +411,33 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         currentState = fullPlayerTransition.currentState,
         targetState = fullPlayerTransition.targetState
     )
+    // F2 of the 2026-10-28 device audit — the system bars are chrome of the
+    // CHOSEN theme, not of the system theme. `enableEdgeToEdge()` alone reads
+    // Configuration.uiMode, so a forced «Папір» over a dark system drew white
+    // icons on paper (1.05:1) and left the legacy window colour as a visible
+    // band above the new paper body. Resolved once here, where both inputs
+    // live: the outer legacy scheme states the app-wide choice, and the
+    // full-screen player is the product's known always-ink exception.
+    val appDarkTheme = isPaperInkInkTheme()
+    val systemBarsDark = systemBarsDarkTheme(
+        appDarkTheme = appDarkTheme,
+        fullPlayerOverlayVisible = fullPlayerOverlayVisible,
+        playerAlwaysInk = playerAlwaysInk,
+    )
+    PaperInkSystemBars(darkTheme = systemBarsDark)
+    val systemBarsGround = systemBarAppearanceFor(systemBarsDark).ground
     var fullPlayerContentPresent by remember { mutableStateOf(false) }
-    val playerState by viewModel.playerState.collectAsState()
     val miniPlayerDismissed by viewModel.miniPlayerDismissed.collectAsState()
+    // #1705 — the root reads only whether a book is present, never the 1 Hz
+    // PlayerState itself: the per-tick collection now lives inside
+    // [MiniPlayerHost]. A position tick therefore invalidates only the bar, not
+    // this composition (and the Scaffold's bottomBar slot that holds the
+    // navigation bar with it).
+    val barHasBook by viewModel.hasPlayerBook.collectAsState()
     // #1205 — the bar's own gate, asked in the bar's OWN words
     // ([miniPlayerHasBook]): the leading column must not widen for a bar that
     // will draw nothing.
     val miniPlayerVisible = !miniPlayerDismissed && selectedTab != SelectedTab.LISTEN
-    val barHasBook = miniPlayerHasBook(playerState)
     // The bar leaves the leading column while the full player is open — pane or
     // modal. That is what the modal does today by covering it, and it is what
     // keeps the player pane on a window with room at the width the audit
@@ -396,16 +459,41 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val firstChoiceLanguages by firstLanguageChoice.languages.collectAsState()
     var appVisibility by remember { mutableStateOf(AppVisibility.FOREGROUND) }
     val lifecycleOwner = LocalLifecycleOwner.current
-    val achievementSnackbar = remember { SnackbarHostState() }
+    // The ONE root host: achievement notices and the Listen «Повернути» offer
+    // both ride it.
+    val rootSnackbar = remember { SnackbarHostState() }
+    // #1703 — the Listen undo is created at the ROOT, not inside the tab: its
+    // scope must outlive a tab switch, because changing tabs leaves the tab's
+    // composition (and would cancel a tab-owned `showSnackbar`). The host is
+    // the same one, so the offer and its scope share one lifetime.
+    val rootScope = rememberCoroutineScope()
+    val listenDismissedMessage = stringResource(R.string.listen_dismissed_message)
+    val listenUndoLabel = stringResource(R.string.listen_dismiss_undo)
+    val listenDismissUndo = remember(rootSnackbar, rootScope, listenDismissedMessage, listenUndoLabel) {
+        ListenDismissUndo(
+            snackbarHostState = rootSnackbar,
+            scope = rootScope,
+            message = listenDismissedMessage,
+            actionLabel = listenUndoLabel,
+            onDismiss = viewModel::dismissListenBook,
+            onUndo = viewModel::undismissListenBook,
+        )
+    }
     val allowAchievementNotices = !crashReportingState.shouldShowPrompt && !firstChoiceVisible &&
         narrationSwitchPrompt == null && !fullPlayerModalActive && !fullPlayerContentPresent
     LaunchedEffect(lifecycleOwner, allowAchievementNotices) {
         if (allowAchievementNotices) lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             // collect, not collectLatest: committing seenAt must not cancel this snackbar.
             App.instance.achievements.earned.collect {
+                // ADR-0063 §7 — nothing is announced before the historical
+                // snapshot has been recorded and silenced. The gate is the
+                // engine's own fact, not a timing assumption: without it a
+                // legacy unseen award could be claimed while `silencePending`
+                // is still in flight, and §7 would hold by luck.
+                if (!App.instance.achievements.backfilled) return@collect
                 while (true) {
                     val earned = App.instance.achievements.takeNotice() ?: break
-                    achievementSnackbar.showSnackbar(
+                    rootSnackbar.showSnackbar(
                         com.slukhayka.audiobooks.ui.achievements.achievementNotice(context, earned.id),
                         duration = SnackbarDuration.Short)
                 }
@@ -419,7 +507,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val showcasePublishMessage by viewModel.publishMessage.collectAsState()
     LaunchedEffect(showcasePublishMessage) {
         showcasePublishMessage?.let { message ->
-            achievementSnackbar.showSnackbar(message, duration = SnackbarDuration.Short)
+            rootSnackbar.showSnackbar(message, duration = SnackbarDuration.Short)
             viewModel.consumePublishMessage()
         }
     }
@@ -545,6 +633,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val achievementsBoard by viewModel.achievementsBoard.collectAsState()
     val listenerTitle by viewModel.listenerTitle.collectAsState()
     val achievementShowcase by viewModel.achievementShowcase.collectAsState()
+    // F18 — the hero's ring inputs and the current-week strip.
+    val achievementProgress by viewModel.achievementProgress.collectAsState()
+    val achievementWeek by viewModel.achievementWeek.collectAsState()
     // #705 (T7) — the showcase's public life: whether it is published, whether
     // there is a profile for it, and the pending consent.
     val showcasePublished by viewModel.showcasePublished.collectAsState()
@@ -648,7 +739,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     BackHandler(enabled = showFullPlayer || selectedBookId != null ||
         selectedWebSource != null || selectedSeries != null || seriesIndexOpen || collectionsIndexOpen ||
         storageDestinationOpen || privacySettingsOpen || recommendationSettingsOpen || contentLanguagesOpen ||
-        sourceAudioRefusalOpen || appLocaleOpen || profileOpen || selectedGenre != null ||
+        sourceAudioRefusalOpen || appLocaleOpen || achievementsOpen || profileOpen || selectedGenre != null ||
         selectedTop100 || selectedPeopleKind != null || selectedPerson != null ||
         authorsIndexOpen) {
         if (showFullPlayer) {
@@ -684,6 +775,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             viewModel.closeSourceAudioRefusal()
         } else if (appLocaleOpen) {
             viewModel.closeAppLocale()
+        } else if (achievementsOpen) {
+            viewModel.closeAchievements()
         } else if (profileOpen) {
             viewModel.closeProfileSettings()
         } else if (selectedGenre != null) {
@@ -718,6 +811,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     // screens: the wide branch places them side by side, the phone branches
     // place them one at a time, and both get the identical callbacks.
     val libraryRootContent: @Composable () -> Unit = {
+        // Plan 2026-2027 — Медіатека is the direction's screen now: the whole
+        // root (list, chrome and the wide pane) lives in one paper/ink scheme.
+        PaperInkThemedContent {
         LibraryScreen(
             // #860 — the gear opens Settings from THIS root.
             onOpenSettings = {
@@ -731,6 +827,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             // module fields — the playerManager precedent).
             libraryEntries = viewModel.libraryEntries,
             listeningState = viewModel.listeningState,
+            // ADR-0046 / #1286 — reading progress: writes AND projections.
+            readingProgress = viewModel.readingProgress,
             // #401: person bookmarks module (ADR-0008).
             personBookmarks = App.instance.personBookmarks,
             onBookClick = { id ->
@@ -755,6 +853,43 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                 }
             }
         )
+        }
+    }
+
+    // #1230 — the book page's local-access recovery doors. The SAF launchers
+    // live here (the composition root), exactly like LibraryScreen's import
+    // pickers; the page only names the book. A persistable read grant is
+    // taken so the relinked document URI survives a process restart.
+    var recoveryTargetBookId by remember { mutableStateOf<String?>(null) }
+    val recoveryFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        val bookId = recoveryTargetBookId
+        recoveryTargetBookId = null
+        if (uri != null && bookId != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            viewModel.recoverLocalAccessWithFile(bookId, uri)
+        }
+    }
+    val recoveryFolderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        val bookId = recoveryTargetBookId
+        recoveryTargetBookId = null
+        if (uri != null && bookId != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            viewModel.recoverLocalAccessWithFolder(bookId, uri)
+        }
     }
 
     val bookDetailContent: @Composable () -> Unit = {
@@ -778,6 +913,15 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
             returnFocusOrigin = bookDetailChildFocusOrigin
                 ?.takeIf { bookDetailChildEditionId == selectedBookId },
             fullPlayerModalActive = fullPlayerModalActive,
+            // #1230 — local-access recovery opens the SAF picker for THIS book.
+            onRecoverAccessFile = { bookId ->
+                recoveryTargetBookId = bookId
+                recoveryFileLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg"))
+            },
+            onRecoverAccessFolder = { bookId ->
+                recoveryTargetBookId = bookId
+                recoveryFolderLauncher.launch(null)
+            },
             onChildRouteOpened = { origin ->
                 bookDetailChildRouteOpen = true
                 bookDetailChildOrigin = origin.name
@@ -800,6 +944,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     val playerContent: @Composable () -> Unit = {
         PlayerScreen(
             viewModel = viewModel,
+            alwaysInk = playerAlwaysInk,
             // ADR-0008 batch 4 (#159): the module comes in as a parameter from
             // the composition root.
             libraryEntries = viewModel.libraryEntries,
@@ -819,8 +964,8 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
     // UI: на «Слухати» міні-плеєр не потрібен — угорі вже стоїть hero-картка
     // «Продовжити слухати» з тим самим керуванням, тож панель лише дублювала її.
     val miniPlayerContent: @Composable () -> Unit = {
-        MiniPlayerBar(
-            playerState = playerState,
+        MiniPlayerHost(
+            playerState = viewModel.playerState,
             viewedBookId = selectedBookId,
             onPlayPauseClick = {
                 val current = viewModel.playerManager.playerState.value
@@ -832,32 +977,33 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     )
                 }
             },
-            onSkipNextClick = { viewModel.playerManager.nextChapter() },
-            // Issue #808: the bar carries the full transport —
-            // previous chapter sits where cast used to be.
-            onPreviousClick = { viewModel.playerManager.previousChapter() },
             onCloseClick = { viewModel.dismissMiniPlayer() },
             onBarClick = { viewModel.setShowFullPlayer(true) }
         )
     }
 
-    // #900 — «Огляд»: does the list the work was opened FROM stay beside the
-    // work's card? The answer lives in ui/adaptive (the one place that decides
-    // layouts); it is read into a val HERE, before the list lambdas, because
-    // those lists consult it to hold their focus-return marker back.
+    // #900 / #1208 / #1235 — «Огляд»: does the list the work was opened FROM
+    // stay beside the work's card? The answer lives in ui/adaptive (the one
+    // place that decides layouts); it is read into a val HERE, before the list
+    // lambdas, because those lists consult it to hold their focus-return marker
+    // back.
+    //
+    // All four book lists of «Огляду» — genre, series, the library rating and a
+    // person's works — go through the SAME predicate. Before an explicit tap
+    // `secondaryBookDetailOpen` is false, so the list keeps the whole window;
+    // there is no empty pane and no first-row auto-selection.
     val wideExploreParent = secondaryBookRoute.parent
     val wideExplorePaneOpen = showsWideExploreDetailPane(
         layout = windowLayout,
         tab = selectedTab,
-        hasParentList = secondaryBookDetailOpen &&
-            (wideExploreParent == SecondaryBookParent.SERIES ||
-                wideExploreParent == SecondaryBookParent.GENRE)
+        detailOpenFromParentList = secondaryBookDetailOpen &&
+            exploreParentKeepsListBesideDetail(wideExploreParent)
     )
 
-    // #900 — the two «Огляд» lists the owner named («добірка/жанр»), wired
-    // ONCE for the same reason the library is: the phone route pushes them
-    // full-screen, the wide route keeps them beside the work's card, and both
-    // get identical callbacks and the same scroll state.
+    // #900 — the «Огляд» book lists, wired ONCE for the same reason the library
+    // is: the phone route pushes them full-screen, the wide route keeps them
+    // beside the work's card, and both get identical callbacks and the same
+    // scroll state.
     //
     // While the pane is open the focus-return marker is HELD BACK (not
     // consumed): the list must not steal focus from the card beside it, and
@@ -923,14 +1069,77 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
         )
     }
 
-    // Null for a parent this slice deliberately leaves on the phone route (the
-    // rating, a person's books) — the question is recorded on issue #900, and
-    // [wideExplorePaneOpen] is false for exactly those, so the branch below
-    // never asks for this value when it is null.
+    val top100ListContent: @Composable () -> Unit = {
+        LibraryRatingScreen(
+            viewModel = viewModel,
+            onBackClick = {
+                secondaryBookRoute = SecondaryBookRouteFrame()
+                viewModel.closeTop100()
+            },
+            onBookClick = { id ->
+                secondaryBookRoute = SecondaryBookRouteFrame(
+                    parent = SecondaryBookParent.TOP_100,
+                    originBookId = id,
+                    detailBookId = id
+                )
+                viewModel.selectBook(id)
+            },
+            restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
+                !wideExplorePaneOpen && secondaryBookRoute.parent == SecondaryBookParent.TOP_100
+            },
+            onBookFocusRestored = { restoredId ->
+                if (secondaryBookRoute.parent == SecondaryBookParent.TOP_100 &&
+                    secondaryBookRoute.originBookId == restoredId
+                ) {
+                    secondaryBookRoute = SecondaryBookRouteFrame()
+                }
+            },
+            listState = top100BookListState
+        )
+    }
+
+    val personListContent: @Composable () -> Unit = {
+        PersonBooksScreen(
+            viewModel = viewModel,
+            personBookmarks = viewModel.personBookmarks,
+            onBackClick = {
+                secondaryBookRoute = SecondaryBookRouteFrame()
+                viewModel.closePersonBooks()
+            },
+            onBookClick = { id ->
+                secondaryBookRoute = SecondaryBookRouteFrame(
+                    parent = SecondaryBookParent.PERSON,
+                    originBookId = id,
+                    detailBookId = id,
+                    parentName = selectedPerson?.name.orEmpty(),
+                    parentPath = selectedPerson?.path.orEmpty(),
+                    parentRole = selectedPerson?.role
+                )
+                viewModel.selectBook(id)
+            },
+            restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
+                !wideExplorePaneOpen && secondaryBookRoute.parent == SecondaryBookParent.PERSON
+            },
+            onBookFocusRestored = { restoredId ->
+                if (secondaryBookRoute.parent == SecondaryBookParent.PERSON &&
+                    secondaryBookRoute.originBookId == restoredId
+                ) {
+                    secondaryBookRoute = SecondaryBookRouteFrame()
+                }
+            },
+            listState = personBookListState
+        )
+    }
+
+    // The same four lists the phone route pushes. Every parent that
+    // [exploreParentKeepsListBesideDetail] names has an entry here, so the wide
+    // branch below can always require a non-null content.
     val wideExploreListContent: (@Composable () -> Unit)? = when (wideExploreParent) {
         SecondaryBookParent.SERIES -> seriesListContent
         SecondaryBookParent.GENRE -> genreListContent
-        else -> null
+        SecondaryBookParent.TOP_100 -> top100ListContent
+        SecondaryBookParent.PERSON -> personListContent
+        null -> null
     }
 
     // #705 (T7) — the showcase's consent. Rendered at the top level so it is the
@@ -953,36 +1162,66 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         firstChoiceVisible || narrationSwitchPrompt != null ||
                         showcasePreview != null
                 ),
+            // F2 — the ground BEHIND the edge-to-edge bars comes from the same
+            // resolved palette as the bar glyphs, so the strip above the status
+            // bar cannot show legacy paper above a paper-ink body.
+            containerColor = systemBarsGround,
             snackbarHost = {
-                SnackbarHost(achievementSnackbar,
+                SnackbarHost(rootSnackbar,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp))
             },
             bottomBar = {
-                Column {
-                    // #1205 — the phone's slot for the bar. A window with room
-                    // draws the same [miniPlayerContent] in its leading column
-                    // instead (see AdaptiveNavigationLayout below), so this slot
-                    // stays empty there and the content rectangle keeps its
-                    // height.
-                    if (bottomMiniPlayer) {
-                        miniPlayerContent()
-                    }
-
-                    // Four primary destinations, including the settings home (#547).
-                    // #900 — on a wide window the rail leads instead, so this
-                    // slot draws nothing (see AdaptiveNavigationLayout).
-                    AppBottomBarSlot(
-                        layout = windowLayout,
-                        selectedTab = selectedTab,
-                        bookDetailOpen = selectedBookId != null,
-                        onSelect = { tab ->
-                            secondaryBookRoute = SecondaryBookRouteFrame()
-                            bookDetailChildRouteOpen = false
-                            bookDetailChildOrigin = null
-                            bookDetailChildEditionId = null
-                            viewModel.selectTab(tab)
+                // #1711 — only a bar that DRAWS something is emitted. An empty
+                // Column is still a bottomBar placeable, so M3 Scaffold reports
+                // bottomBarHeight = 0 and never falls back to
+                // contentWindowInsets.bottom. On EXPANDED the rail replaces the
+                // bar, so the Scaffold itself must hand the content the
+                // navigation-bar inset.
+                if (windowLayout == WindowLayout.COMPACT || bottomMiniPlayer) {
+                    Column {
+                        // #1205 — the phone's slot for the bar. A window with
+                        // room draws the same [miniPlayerContent] in its leading
+                        // column instead (see AdaptiveNavigationLayout below),
+                        // so this slot stays empty there and the content
+                        // rectangle keeps its height.
+                        if (bottomMiniPlayer) {
+                            // #1711 — in the 600–839 dp band there is no
+                            // AppBottomBar under the bar, so this line is the
+                            // LAST thing the Scaffold draws at the bottom: it
+                            // carries the navigation-bar inset itself. On a
+                            // phone the AppBottomBar below already does.
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .then(
+                                        if (windowLayout == WindowLayout.EXPANDED) {
+                                            Modifier.navigationBarsPadding()
+                                        } else {
+                                            Modifier
+                                        }
+                                    )
+                            ) {
+                                miniPlayerContent()
+                            }
                         }
-                    )
+
+                        // Four primary destinations, including the settings
+                        // home (#547). #900 — on a wide window the rail leads
+                        // instead, so this slot draws nothing (see
+                        // AdaptiveNavigationLayout).
+                        AppBottomBarSlot(
+                            layout = windowLayout,
+                            selectedTab = selectedTab,
+                            bookDetailOpen = selectedBookId != null,
+                            onSelect = { tab ->
+                                secondaryBookRoute = SecondaryBookRouteFrame()
+                                bookDetailChildRouteOpen = false
+                                bookDetailChildOrigin = null
+                                bookDetailChildEditionId = null
+                                viewModel.selectTab(tab)
+                            }
+                        )
+                    }
                 }
             }
         ) { innerPadding ->
@@ -998,13 +1237,27 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                     viewModel.selectTab(tab)
                 },
                 // #1205 — the second slot of the same bar: the leading column,
-                // under the rail, on a window with room for it.
+                // under the rail, on a window with room for it. #1711 — with no
+                // bottomBar on EXPANDED, this column sits outside the content
+                // Box that pays the navigation-bar inset, so the slot carries
+                // it itself (see AdaptiveNavigationLayout).
                 miniPlayer = miniPlayerContent.takeIf { leadingMiniPlayer }
             ) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
+                    // #1711 — the host has already paid these insets. Nested
+                    // Scaffolds (IndexScreenScaffold, SettingsDestinationScaffold)
+                    // and the player's own top bar must not add them a second
+                    // time.
+                    .consumeWindowInsets(innerPadding)
+                    // #1712 — the one IME padding for the whole window content.
+                    // It sits on the content container, below the Scaffold
+                    // whose contentWindowInsets carry the system bars, so one
+                    // keyboard inset is applied once and consumed for the
+                    // screens below.
+                    .imePadding()
             ) {
                 // #1205 — the Scaffold's content as ONE value: the phone
                 // route draws it alone, a window with room draws it beside the
@@ -1091,11 +1344,13 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             }
                         )
 
-                        // #900 — on a wide «Огляд», the genre/series the work was
-                        // opened from keeps the left pane and the work's card takes
-                        // the right: the same two screens the phone shows one at a
-                        // time. Any other parent list keeps the phone route below
-                        // (the question is on issue #900).
+                        // #900 / #1208 / #1235 — on a wide «Огляд», the book
+                        // list the work was opened from (genre, series, rating
+                        // or a person's works) keeps the left pane and the
+                        // work's card takes the right: the same two screens the
+                        // phone shows one at a time. The branch requires an
+                        // EXPLICITLY opened book, so an idle wide window has no
+                        // empty pane and no auto-selected first row.
                         wideExplorePaneOpen && !playerPaneOpen -> WideDetailPane(
                             list = requireNotNull(wideExploreListContent),
                             detail = bookDetailContent
@@ -1212,7 +1467,12 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             showcasePublished = showcasePublished,
                             showcasePublishable = showcasePublishable,
                             onPublishShowcase = { viewModel.requestPublishShowcase() },
-                            onWithdrawShowcase = { viewModel.withdrawShowcase() }
+                            onWithdrawShowcase = { viewModel.withdrawShowcase() },
+                            // F18 — the hero ring and the registry statuses read
+                            // the same snapshot the evaluator does; the strip reads
+                            // the same day sequence the rhythm awards read.
+                            progress = achievementProgress,
+                            week = achievementWeek
                         )
                         appLocaleOpen -> AppLocaleScreen(
                             localePrefs = App.instance.appLocalePrefs,
@@ -1246,33 +1506,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         // Genre (category) page ("Аудіокниги жанру:").
                         selectedGenre != null -> genreListContent()
 
-                        // #738 — the library rating (local, offline).
-                        selectedTop100 -> LibraryRatingScreen(
-                            viewModel = viewModel,
-                            onBackClick = {
-                                secondaryBookRoute = SecondaryBookRouteFrame()
-                                viewModel.closeTop100()
-                            },
-                            onBookClick = { id ->
-                                secondaryBookRoute = SecondaryBookRouteFrame(
-                                    parent = SecondaryBookParent.TOP_100,
-                                    originBookId = id,
-                                    detailBookId = id
-                                )
-                                viewModel.selectBook(id)
-                            },
-                            restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
-                                secondaryBookRoute.parent == SecondaryBookParent.TOP_100
-                            },
-                            onBookFocusRestored = { restoredId ->
-                                if (secondaryBookRoute.parent == SecondaryBookParent.TOP_100 &&
-                                    secondaryBookRoute.originBookId == restoredId
-                                ) {
-                                    secondaryBookRoute = SecondaryBookRouteFrame()
-                                }
-                            },
-                            listState = top100BookListState
-                        )
+                        // #738 — the library rating (local, offline). The same
+                        // content the wide branch keeps beside the work (#1235).
+                        selectedTop100 -> top100ListContent()
 
                         authorsIndexOpen -> {
                             // The full 10k-capable alphabetical projection is cold:
@@ -1294,36 +1530,9 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                         }
 
                         // One person's books (opened from Виконавці/Автори index).
-                        selectedPerson != null -> PersonBooksScreen(
-                            viewModel = viewModel,
-                            personBookmarks = viewModel.personBookmarks,
-                            onBackClick = {
-                                secondaryBookRoute = SecondaryBookRouteFrame()
-                                viewModel.closePersonBooks()
-                            },
-                            onBookClick = { id ->
-                                secondaryBookRoute = SecondaryBookRouteFrame(
-                                    parent = SecondaryBookParent.PERSON,
-                                    originBookId = id,
-                                    detailBookId = id,
-                                    parentName = selectedPerson?.name.orEmpty(),
-                                    parentPath = selectedPerson?.path.orEmpty(),
-                                    parentRole = selectedPerson?.role
-                                )
-                                viewModel.selectBook(id)
-                            },
-                            restoreFocusBookId = secondaryBookRoute.originBookId.takeIf {
-                                secondaryBookRoute.parent == SecondaryBookParent.PERSON
-                            },
-                            onBookFocusRestored = { restoredId ->
-                                if (secondaryBookRoute.parent == SecondaryBookParent.PERSON &&
-                                    secondaryBookRoute.originBookId == restoredId
-                                ) {
-                                    secondaryBookRoute = SecondaryBookRouteFrame()
-                                }
-                            },
-                            listState = personBookListState
-                        )
+                        // The same content the wide branch keeps beside the work
+                        // (#1235).
+                        selectedPerson != null -> personListContent()
 
                         // Виконавці or Автори index.
                         selectedPeopleKind != null -> PeopleScreen(
@@ -1365,7 +1574,11 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             tabKey = selectedTab.name
                         ) { when (selectedTab) {
                             // Spec-9: first tab is the listening panel, not the storefront.
-                            SelectedTab.LISTEN -> ListenScreen(
+                            // Plan 2026-2027, step 3: the Слухати tab is the first
+                            // screen moved onto «Папір і голос». The other roots
+                            // keep the legacy theme until their own migration, so a
+                            // half-migrated screen cannot leak into another tab.
+                            SelectedTab.LISTEN -> PaperInkThemedContent { ListenScreen(
                                 // #958 — the gear opens Settings from THIS root,
                                 // wired exactly as EXPLORE, LIBRARY and FRIENDS
                                 // already are (ADR-0049: the gear sits in the SAME
@@ -1388,9 +1601,16 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                     viewModel.setShowFullPlayer(true)
                                 },
                                 onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
-                                onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) }
-                            )
-                            SelectedTab.EXPLORE ->                        HomeScreen(
+                                onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) },
+                                // #1703 — dismissals are answered by the root
+                                // undo snackbar, so changing tabs cannot
+                                // silently consume the only way back.
+                                onDismissBook = { bookId -> listenDismissUndo.dismiss(bookId) }
+                            ) }
+                            // Plan 2026-2027: «Огляд» is the next screen on the
+                            // direction. The header/search/chips are migrated;
+                            // the rails follow while they keep their layout.
+                            SelectedTab.EXPLORE -> PaperInkThemedContent { HomeScreen(
                                 // #860 — the gear opens Settings from THIS root.
                                 onOpenSettings = {
                                     settingsReturnTab = SelectedTab.EXPLORE
@@ -1428,7 +1648,7 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                                 } else {
                                     null
                                 }
-                            )
+                            ) }
                             SelectedTab.LIBRARY -> libraryRootContent()
                             SelectedTab.FRIENDS -> FriendsScreen(
                                 // #916 — the state that EXISTS: the friendship and
@@ -1456,6 +1676,13 @@ fun AudiobookApp(viewModel: MainViewModel = viewModel()) {
                             )
                             SelectedTab.SETTINGS -> SettingsScreen(
                                 returnDestination = settingsReturnDestination,
+                                themeMode = appearanceStore.themeMode.collectAsState().value,
+                                onThemeModeChange = appearanceStore::setThemeMode,
+                                playerAlwaysInk = playerAlwaysInk,
+                                onPlayerAlwaysInkChange = appearanceStore::setPlayerAlwaysInk,
+                                density = appearanceStore.density.collectAsState().value,
+                                onDensityChange = appearanceStore::setDensity,
+                                onBackClick = { viewModel.selectTab(settingsReturnTab) },
                                 onOpen = { destination ->
                                     settingsReturnDestination = destination
                                     when (destination) {
@@ -1602,79 +1829,50 @@ fun AppBottomBar(
     bookDetailOpen: Boolean = false,
     onSelect: (SelectedTab) -> Unit
 ) {
-    BoxWithConstraints {
-        val labelWidth = (maxWidth / 4 - 4.dp).coerceAtLeast(1.dp)
-        val minimumHeight = (80 * LocalDensity.current.fontScale.coerceAtLeast(1f)).dp
-        NavigationBar(
-            // MD3: the navigation bar is a tonal container (surfaceContainer),
-            // one step above the screen surface.
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            contentColor = MaterialTheme.colorScheme.primary,
-            modifier = Modifier
-                .windowInsetsPadding(WindowInsets.navigationBars)
-                .heightIn(min = minimumHeight)
-                .testTag("bottom_navigation_bar")
-        ) {
-            // #547: Слухати · Огляд · Медіатека · Налаштування (listening
-            // first). Test tags stay stable for the screens that moved (tab_explore
-            // / tab_library) so existing UI tests keep working.
-            NavigationBarItem(
-                selected = selectedTab == SelectedTab.LISTEN && !bookDetailOpen,
-                onClick = { onSelect(SelectedTab.LISTEN) },
-                icon = { Icon(imageVector = Icons.Default.Headphones, contentDescription = null) },
-                label = { Text(stringResource(R.string.nav_listen), modifier = Modifier.requiredWidth(labelWidth), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                    indicatorColor = MaterialTheme.colorScheme.outlineVariant
-                ),
-                modifier = Modifier.testTag("tab_listen")
+    val tabs = listOf(
+        SelectedTab.LISTEN,
+        SelectedTab.EXPLORE,
+        SelectedTab.LIBRARY,
+        SelectedTab.FRIENDS,
+    )
+    // A full-screen book page is not one of the root destinations; nothing is
+    // selected there, exactly as the old bar behaved.
+    val selectedIndex = if (bookDetailOpen) -1 else tabs.indexOf(selectedTab)
+    val items = listOf(
+        PaperInkNavItem(
+            label = stringResource(R.string.nav_listen),
+            icon = PaperInkIcons.Headphones,
+            testTag = "tab_listen",
+        ),
+        PaperInkNavItem(
+            label = stringResource(R.string.nav_explore),
+            icon = PaperInkIcons.Compass,
+            testTag = "tab_explore",
+        ),
+        PaperInkNavItem(
+            label = stringResource(R.string.nav_library),
+            icon = PaperInkIcons.Library,
+            testTag = "tab_library",
+        ),
+        PaperInkNavItem(
+            label = stringResource(R.string.nav_friends),
+            icon = PaperInkIcons.Friends,
+            testTag = "tab_friends",
+        ),
+    )
+    Box(
+        modifier = Modifier
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .testTag("bottom_navigation_bar")
+    ) {
+        // The bar follows whichever scheme the window shows (it is chrome, not
+        // a night surface), and the pill/typography come from the direction.
+        PaperInkThemedContent {
+            PaperInkNavigationBar(
+                items = items,
+                selectedIndex = selectedIndex,
+                onSelect = { index -> onSelect(tabs[index]) },
             )
-
-            NavigationBarItem(
-                selected = selectedTab == SelectedTab.EXPLORE && !bookDetailOpen,
-                onClick = { onSelect(SelectedTab.EXPLORE) },
-                icon = { Icon(imageVector = Icons.Default.Explore, contentDescription = null) },
-                label = { Text(stringResource(R.string.nav_explore), modifier = Modifier.requiredWidth(labelWidth), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                    indicatorColor = MaterialTheme.colorScheme.outlineVariant
-                ),
-                modifier = Modifier.testTag("tab_explore")
-            )
-
-            NavigationBarItem(
-                selected = selectedTab == SelectedTab.LIBRARY && !bookDetailOpen,
-                onClick = { onSelect(SelectedTab.LIBRARY) },
-                icon = { Icon(imageVector = Icons.Default.LibraryMusic, contentDescription = null) },
-                label = { Text(stringResource(R.string.nav_library), modifier = Modifier.requiredWidth(labelWidth), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                    indicatorColor = MaterialTheme.colorScheme.outlineVariant
-                ),
-                modifier = Modifier.testTag("tab_library")
-            )
-
-            // #898 / ADR-0049 — the fourth working section. «Друзі» takes the
-            // slot the settings tab used to hold; settings is a gear in every
-            // root header now, so no working destination was displaced.
-            NavigationBarItem(
-                selected = selectedTab == SelectedTab.FRIENDS && !bookDetailOpen,
-                onClick = { onSelect(SelectedTab.FRIENDS) },
-                icon = { Icon(imageVector = Icons.Default.Group, contentDescription = null) },
-                label = { Text(stringResource(R.string.nav_friends), modifier = Modifier.requiredWidth(labelWidth), style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 0.sp, lineBreak = androidx.compose.ui.text.style.LineBreak.Heading), textAlign = androidx.compose.ui.text.style.TextAlign.Center) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                    indicatorColor = MaterialTheme.colorScheme.outlineVariant
-                ),
-                modifier = Modifier.testTag("tab_friends")
-            )
-
-            // #860 / ADR-0049 — «Налаштування» left the bar: the gear in every
-            // root header opens them, so the bar keeps only working sections.
         }
     }
 }
@@ -1755,7 +1953,20 @@ fun AdaptiveNavigationLayout(
                         // rail itself (no mini-player) is left to the rail.
                         .then(if (miniPlayer == null) Modifier else Modifier.fillMaxWidth())
                 )
-                miniPlayer?.invoke()
+                // #1711 — the content Box beside this column pays the
+                // navigation-bar inset from the Scaffold; the column itself is
+                // outside it, so the bar inside the column carries its own
+                // bottom inset. Only the bar gets it — the rail stays full
+                // height, and a column without a bar has no inset to carry.
+                miniPlayer?.let { bar ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                    ) {
+                        bar()
+                    }
+                }
             }
         }
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {

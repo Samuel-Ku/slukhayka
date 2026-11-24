@@ -15,11 +15,9 @@ class CollectiveOverviewBlocks(
     /** Observes local commits in source/kind order, retaining each key's last good payload. */
     fun observe(sourceIds: List<String> = collectiveBlockSources().map { it.id }): Flow<List<CollectiveFeedBlock>> =
         flow {
-            val keys = sourceIds.distinct().flatMap { sourceId ->
-                CollectiveBlockKind.entries.map { kind -> collectiveBlockKey(sourceId, kind) }
-            }
             val lastGood = mutableMapOf<String, CollectiveFeedBlock>()
-            store.observeChanges(keys).collect {
+            store.observeSourceChanges(sourceIds.distinct()).collect {
+                val keys = persistedKeys(sourceIds)
                 for (key in keys) {
                     currentCoroutineContext().ensureActive()
                     val block = try {
@@ -30,27 +28,47 @@ class CollectiveOverviewBlocks(
                         null
                     }
                     if (block != null && block.blockKey == key &&
-                        collectiveBlockKey(block.sourceId, block.kind) == key && block.cards.isNotEmpty()
+                        parseCollectiveBlockKey(key)?.let { it.sourceId == block.sourceId && it.kind == block.kind } == true && block.cards.isNotEmpty()
                     ) {
                         lastGood[key] = block
                     }
                 }
                 currentCoroutineContext().ensureActive()
-                emit(keys.mapNotNull { lastGood[it] })
+                emit(ordered(sourceIds, lastGood.values.toList()))
             }
         }.distinctUntilChanged()
 
     suspend fun read(sourceIds: List<String> = collectiveBlockSources().map { it.id }): List<CollectiveFeedBlock> =
-        sourceIds.flatMap { sourceId ->
-            CollectiveBlockKind.entries.mapNotNull { kind ->
-                val key = collectiveBlockKey(sourceId, kind)
-                try {
-                    store.active(key)
+        persistedKeys(sourceIds).mapNotNull { key ->
+            try {
+                store.active(key)?.takeIf { block ->
+                    val ref = parseCollectiveBlockKey(key)
+                    block.blockKey == key && ref != null && ref.sourceId == block.sourceId && ref.kind == block.kind &&
+                        block.cards.isNotEmpty()
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+    private suspend fun persistedKeys(sourceIds: List<String>): List<String> =
+        sourceIds.distinct().flatMap { sourceId ->
+            CollectiveBlockKind.entries.flatMap { kind ->
+                val legacy = collectiveBlockKey(sourceId, kind)
+                val discovered = try {
+                    store.keys(sourceId, kind)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
-                    null
+                    emptyList()
                 }
+                (listOf(legacy) + discovered).distinct().sorted()
             }
         }
+
+    private fun ordered(sourceIds: List<String>, blocks: List<CollectiveFeedBlock>): List<CollectiveFeedBlock> =
+        blocks.sortedWith(compareBy<CollectiveFeedBlock> { sourceIds.indexOf(it.sourceId) }
+            .thenBy { it.kind.ordinal }.thenBy { it.blockKey })
 }

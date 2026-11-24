@@ -7,7 +7,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CollectiveRelatedBlocksTest {
-    private val key = collectiveBlockKey("sluhayua", CollectiveBlockKind.RECOMMENDATIONS)
+    private val key = collectiveBlockKey("sluhayua", CollectiveBlockKind.RECOMMENDATIONS, "https://sluhay.com.ua/100:tyhrolovy")
     private fun detail() = SourceBookDetail(
         title = "Тигролови", author = "Іван Багряний", url = "https://sluhay.com.ua/100:tyhrolovy",
         chapters = emptyList(), related = listOf(
@@ -33,7 +33,7 @@ class CollectiveRelatedBlocksTest {
         assertEquals("one shared block reaches B", 1,
             CollectiveBlockSync(shared, b, InMemoryCollectiveBlockSyncCursorStore()).syncOnce())
         val received = b.active(key)!!
-        assertEquals("sluhayua|RECOMMENDATIONS", received.blockKey)
+        assertEquals("sluhayua|RECOMMENDATIONS|sluhay.com.ua/100:tyhrolovy", received.blockKey)
         assertEquals("sluhayua", received.sourceId)
         assertEquals("До «Тигролови»", received.name)
         assertEquals("https://sluhay.com.ua/100:tyhrolovy", received.provenanceUrl)

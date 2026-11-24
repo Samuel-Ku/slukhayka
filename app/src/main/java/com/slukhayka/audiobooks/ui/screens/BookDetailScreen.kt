@@ -19,8 +19,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -72,6 +71,7 @@ import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.library.siblingNarrations
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.data.reviews.ReviewDeleteResult
@@ -97,6 +97,107 @@ import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
 import com.slukhayka.audiobooks.ui.screens.bookdetail.*
 
+/**
+ * #1628 — what the size line under the book actions may state.
+ *
+ * The line is a FACT, never a placeholder: when neither the live download
+ * progress nor an estimate knows a real byte count, the block is absent.
+ * Before this seam the fallback rendered a bare «невідомо» under «Додати до
+ * добірки», which reads as a broken label rather than "size not known yet".
+ */
+internal sealed interface BookDetailSizeLine {
+    /** Live/paused download progress; [totalBytes] is absent/0 when unknown. */
+    data class Downloading(
+        val completedChapters: Int,
+        val totalChapters: Int,
+        val downloadedBytes: Long,
+        val totalBytes: Long?
+    ) : BookDetailSizeLine
+
+    /** A pre-download estimate in whole MB. */
+    data class Estimated(val mb: Long, val approximate: Boolean) : BookDetailSizeLine
+
+    /** Nothing real to say — the line must not render. */
+    data object Hidden : BookDetailSizeLine
+}
+
+private const val BYTES_PER_MB = 1024L * 1024L
+
+internal fun bookDetailSizeLine(
+    hasBytesProgress: Boolean,
+    completedChapters: Int,
+    totalChapters: Int,
+    downloadedBytes: Long,
+    totalBytes: Long?,
+    estimatedTotalBytes: Long?,
+    estimatedApproximate: Boolean
+): BookDetailSizeLine = when {
+    hasBytesProgress -> BookDetailSizeLine.Downloading(
+        completedChapters = completedChapters,
+        totalChapters = totalChapters,
+        downloadedBytes = downloadedBytes,
+        totalBytes = totalBytes
+    )
+    // The line speaks in WHOLE megabytes: an estimate below one MB would
+    // render as «0 МБ», which is the same kind of non-fact as a bare
+    // «невідомо» — hide it (the base branch also required mb > 0).
+    estimatedTotalBytes != null && estimatedTotalBytes >= BYTES_PER_MB ->
+        BookDetailSizeLine.Estimated(
+            mb = estimatedTotalBytes / BYTES_PER_MB,
+            approximate = estimatedApproximate
+        )
+    else -> BookDetailSizeLine.Hidden
+}
+
+/**
+ * #1628 — the size line's ONE rendering. [BookDetailSizeLine.Hidden] renders
+ * NOTHING: the Robolectric test pins the absence, so a future "just show
+ * невідомо" fallback cannot slip back in behind the green pure test.
+ */
+@Composable
+internal fun BookDetailSizeText(sizeLine: BookDetailSizeLine) {
+    when (sizeLine) {
+        is BookDetailSizeLine.Downloading -> {
+            val downloadedMb = sizeLine.downloadedBytes / BYTES_PER_MB
+            val totalBytes = sizeLine.totalBytes
+            val sizeText = if (totalBytes != null && totalBytes > 0L) {
+                stringResource(
+                    R.string.book_detail_download_progress,
+                    sizeLine.completedChapters,
+                    sizeLine.totalChapters,
+                    downloadedMb,
+                    totalBytes / BYTES_PER_MB,
+                    (sizeLine.downloadedBytes * 100 / totalBytes).toInt()
+                )
+            } else {
+                stringResource(
+                    R.string.book_detail_download_progress_unknown_total,
+                    sizeLine.completedChapters,
+                    sizeLine.totalChapters,
+                    downloadedMb
+                )
+            }
+            Text(
+                text = sizeText,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 4.dp)
+            )
+        }
+        is BookDetailSizeLine.Estimated -> Text(
+            text = if (sizeLine.approximate) {
+                stringResource(R.string.book_detail_size_approximate, sizeLine.mb)
+            } else {
+                stringResource(R.string.book_detail_size_format, sizeLine.mb)
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 4.dp)
+        )
+        BookDetailSizeLine.Hidden -> Unit
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun BookDetailScreen(
@@ -115,6 +216,10 @@ fun BookDetailScreen(
     playerModalVisible: Boolean = false,
     returnFocusOrigin: BookDetailLinkOrigin? = null,
     fullPlayerModalActive: Boolean = false,
+    // #1230 — SAF doors live in the composition root (the same place
+    // LibraryScreen keeps its pickers); the page only names the book.
+    onRecoverAccessFile: (String) -> Unit = {},
+    onRecoverAccessFolder: (String) -> Unit = {},
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
     onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {}
 ) {
@@ -198,6 +303,10 @@ fun BookDetailScreen(
     // Source Watch (§6, the T4 seam): the refused-only page offers the
     // watch, never a browser door.
     val audioUnavailable by viewModel.bookAudioUnavailable.collectAsState()
+    // #1230 — the local-access state of the open book (a local book whose
+    // files cannot be read). Its ordered door list is the shared recovery
+    // seam; the network suggestion is last.
+    val localAccess by viewModel.bookLocalAccess.collectAsState()
     val bookWatched by viewModel.bookWatched.collectAsState()
     val narrationClaimDone by viewModel.narrationClaimDone.collectAsState()
     // Spec-53 T7 — the correction dialog and the shared-base gate.
@@ -232,7 +341,10 @@ fun BookDetailScreen(
     // ADR-0011: the other rendition cards of this Work — the «Інші начитки»
     // block. Cold flow collected once per composition; the pure filter is
     // JVM-tested (siblingNarrations).
-    val allBooks by libraryEntries.allBooks.collectAsState(initial = emptyList())
+    // ADR-0063 — the detail's sibling renditions come from every materialized
+    // book, not only the personal shelf: a mirror card can have several
+    // narrations the listener has not saved yet.
+    val allBooks by libraryEntries.materializedBooks.collectAsState(initial = emptyList())
     val siblingCards = remember(currentBook.id, currentBook.mergeKey, allBooks) {
         siblingNarrations(allBooks, currentBook.id, currentBook.mergeKey ?: "")
     }
@@ -386,6 +498,15 @@ fun BookDetailScreen(
     // a catalogue book whose page could not be fetched — surface that instead
     // of the button silently doing nothing.
     val snackbarHostState = remember { SnackbarHostState() }
+    // #1230 — the local-access recovery says what happened on THIS page; the
+    // library snackbar may not be composed behind the book page on a phone.
+    val localRecoveryMessage by viewModel.localRecoveryMessage.collectAsState()
+    LaunchedEffect(localRecoveryMessage) {
+        localRecoveryMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.consumeLocalRecoveryMessage()
+        }
+    }
     // ADR-0037 §4 — the merged-confirmation snackbar, consumed once so a
     // rotation never repeats it.
     val context = LocalContext.current
@@ -499,15 +620,11 @@ fun BookDetailScreen(
     // fetched once per opened book through the catalog seam. The series
     // fetch is session-cached, so this row costs nothing once the series
     // page loaded.
-    var inSeriesBooks by remember { mutableStateOf<List<AudiobookEntity>>(emptyList()) }
-    LaunchedEffect(currentBook.id) {
-        val url = currentBook.seriesUrl?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
-        inSeriesBooks = try {
-            viewModel.sourceCatalog.fetchSeriesBooks(url)
-                .filterNot { it.id == currentBook.id }
-        } catch (e: Exception) {
-            emptyList()
-        }
+    val inSeriesBooks = rememberSeriesBooks(
+        currentBookId = currentBook.id,
+        seriesUrl = currentBook.seriesUrl
+    ) { url ->
+        viewModel.sourceCatalog.fetchSeriesBooks(url)
     }
 
     // #40 decision 1: the main button reflects the book's real state — plain
@@ -557,6 +674,7 @@ fun BookDetailScreen(
         }
     }
 
+    PaperInkThemedContent {
     Scaffold(
         modifier = Modifier.accessibilityModalBackground(
             modalVisible = showAddToCollection || showAddBookmarkDialog || showDeleteSheet || showDeleteDialog ||
@@ -646,7 +764,7 @@ fun BookDetailScreen(
                         modifier = Modifier.testTag("book_detail_back_button")
                     ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = PaperInkIcons.ChevronLeft,
                             contentDescription = stringResource(R.string.book_detail_back)
                         )
                     }
@@ -656,6 +774,16 @@ fun BookDetailScreen(
                     // page itself — the place where the user decides a book is
                     // worth keeping at hand.
                     val isFavoriteThis = favoriteBooks.any { it.id == currentBook.id }
+                    // ADR-0063 — a book opened from the catalogue mirror is
+                    // only materialized technically. «Зберегти в бібліотеку»
+                    // is the explicit act that makes it personal; a personal
+                    // book hides this item.
+                    val bookOrigin by remember(currentBook.id) {
+                        libraryEntries.observeOrigin(currentBook.id)
+                    }.collectAsState(initial = null)
+                    val isPersonalBook = bookOrigin
+                        ?.let(com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy::isPersonal)
+                        ?: false
                     // Issue #752: the manual «Прослухано» state is the stored
                     // Listening State flag (not the percent-derived finish).
                     val isListenedThis = progress?.isCompleted == true
@@ -690,7 +818,7 @@ fun BookDetailScreen(
                                 .testTag("book_detail_delete_trigger")
                         ) {
                             Icon(
-                                imageVector = Icons.Default.MoreVert,
+                                imageVector = PaperInkIcons.More,
                                 contentDescription = stringResource(R.string.book_detail_more_actions),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -705,7 +833,7 @@ fun BookDetailScreen(
                             if (currentBook.sourceUrl.contains("sluhay.com") && !currentBook.sourceUrl.contains("sluhay.com.ua")) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.a11y_book_detail_open_sluhay, currentBook.title)) },
-                                    leadingIcon = { Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null) },
+                                    leadingIcon = { Icon(Icons.AutoMirrored.Outlined.OpenInNew, contentDescription = null) },
                                     onClick = {
                                         showOverflowMenu = false
                                         viewModel.openWebSource("sluhay", "https://sluhay.com/", "Sluhay")
@@ -722,7 +850,7 @@ fun BookDetailScreen(
                                     )
                                 },
                                 leadingIcon = {
-                                    Icon(Icons.Default.CheckCircle, contentDescription = null)
+                                    Icon(PaperInkIcons.Check, contentDescription = null)
                                 },
                                 modifier = Modifier
                                     .testTag("book_detail_listened_toggle")
@@ -751,7 +879,7 @@ fun BookDetailScreen(
                             if (chapters.size > 1) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.chapter_order_edit)) },
-                                    leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                    leadingIcon = { Icon(PaperInkIcons.Edit, contentDescription = null) },
                                     modifier = Modifier.testTag("book_detail_chapter_order"),
                                     onClick = {
                                         showOverflowMenu = false
@@ -763,7 +891,7 @@ fun BookDetailScreen(
                             // Spec-53 T7 — a bad parse is fixable, locally…
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.book_detail_correct_metadata)) },
-                                leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                leadingIcon = { Icon(PaperInkIcons.Edit, contentDescription = null) },
                                 modifier = Modifier.testTag("book_detail_correct_metadata"),
                                 onClick = {
                                     showOverflowMenu = false
@@ -775,7 +903,7 @@ fun BookDetailScreen(
                             if (bookPublishedSubmission) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.book_detail_update_published)) },
-                                    leadingIcon = { Icon(Icons.Default.CloudUpload, contentDescription = null) },
+                                    leadingIcon = { Icon(PaperInkIcons.Upload, contentDescription = null) },
                                     modifier = Modifier.testTag("book_detail_update_published"),
                                     onClick = {
                                         showOverflowMenu = false
@@ -788,11 +916,22 @@ fun BookDetailScreen(
                                     }
                                 )
                             }
+                            if (!isPersonalBook) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.book_detail_save_to_library)) },
+                                    leadingIcon = { Icon(PaperInkIcons.BookmarkAdd, contentDescription = null) },
+                                    modifier = Modifier.testTag("book_detail_save_to_library"),
+                                    onClick = {
+                                        showOverflowMenu = false
+                                        viewModel.saveToLibrary(currentBook.id)
+                                    }
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.a11y_book_detail_delete_work, currentBook.title)) },
                                 leadingIcon = {
                                     Icon(
-                                        imageVector = Icons.Default.Delete,
+                                        imageVector = PaperInkIcons.Trash,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.error
                                     )
@@ -847,6 +986,16 @@ fun BookDetailScreen(
                         ownNarrationRating = ownNarrationRating?.rating,
                         canRateNarration = viewModel.narrationRatingsStore != null &&
                             listenerProfile != null && currentEditionId != null,
+                        // #1383 — same three gates, one source of truth: the
+                        // reason comes from the pure helper, so the screen can
+                        // never claim the rating is possible while refusing it
+                        // (or the reverse). When it is null the listener can
+                        // rate and no message is drawn.
+                        narrationRateUnavailableReason = narrationRateUnavailableReason(
+                            hasRatingsBackend = viewModel.narrationRatingsStore != null,
+                            hasListenerIdentity = listenerProfile != null,
+                            hasEdition = currentEditionId != null
+                        ),
                         onRateNarration = { stars ->
                             val editionId = currentEditionId
                             if (editionId != null && ownNarrationRating?.rating != stars) {
@@ -966,45 +1115,17 @@ fun BookDetailScreen(
                     ) { Text(stringResource(R.string.book_detail_add_to_collection)) }
                     // #392 — size display below download button
                     if (!streamOnly && !currentBook.isDownloaded && !isDownloadingThis) {
-                        val sizeText = when {
-                            bytesProgress != null -> {
-                                val dl = bytesProgress!!.downloadedBytes / (1024 * 1024)
-                                val totalBytes = bytesProgress!!.totalBytes
-                                if (totalBytes != null && totalBytes > 0) {
-                                    val tot = totalBytes / (1024 * 1024)
-                                    val pct = (bytesProgress!!.downloadedBytes * 100 / totalBytes).toInt()
-                                    stringResource(
-                                        R.string.book_detail_download_progress,
-                                        bytesProgress!!.completedChapters,
-                                        bytesProgress!!.totalChapters,
-                                        dl,
-                                        tot,
-                                        pct
-                                    )
-                                } else {
-                                    stringResource(
-                                        R.string.book_detail_download_progress_unknown_total,
-                                        bytesProgress!!.completedChapters,
-                                        bytesProgress!!.totalChapters,
-                                        dl
-                                    )
-                                }
-                            }
-                            estimatedSize != null -> {
-                                val es = estimatedSize!!
-                                val mb = es.totalBytes?.let { it / (1024 * 1024) }
-                                if (mb != null && mb > 0) {
-                                    if (es.isApproximate) stringResource(R.string.book_detail_size_approximate, mb)
-                                    else stringResource(R.string.book_detail_size_format, mb)
-                                } else stringResource(R.string.book_detail_size_unknown)
-                            }
-                            else -> stringResource(R.string.book_detail_size_unknown)
-                        }
-                        Text(
-                            text = sizeText,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 4.dp)
+                        // #1628 — the line states a FACT; "unknown" is not one.
+                        BookDetailSizeText(
+                            bookDetailSizeLine(
+                                hasBytesProgress = bytesProgress != null,
+                                completedChapters = bytesProgress?.completedChapters ?: 0,
+                                totalChapters = bytesProgress?.totalChapters ?: 0,
+                                downloadedBytes = bytesProgress?.downloadedBytes ?: 0L,
+                                totalBytes = bytesProgress?.totalBytes,
+                                estimatedTotalBytes = estimatedSize?.totalBytes,
+                                estimatedApproximate = estimatedSize?.isApproximate == true
+                            )
                         )
                     } else if (!streamOnly && isDownloadingThis && bytesProgress != null) {
                         val bp = bytesProgress!!
@@ -1059,7 +1180,22 @@ fun BookDetailScreen(
                     // state: every source that can play this book is refused.
                     // No browser door exists for a refusal — the page offers
                     // the Source Watch action instead.
-                    if (audioUnavailable) {
+                    //
+                    // #1230 — for a local book the FIRST door is the listener's
+                    // own file/folder, not the network. The shared recovery
+                    // seam decides the order; the panel renders it verbatim.
+                    val recoveryState = localAccess
+                    if (recoveryState?.recoverable == true) {
+                        LocalAccessRecoveryPanel(
+                            state = recoveryState,
+                            bookWatched = bookWatched,
+                            onRecoverFile = { onRecoverAccessFile(currentBook.id) },
+                            onRecoverFolder = { onRecoverAccessFolder(currentBook.id) },
+                            onRescanKnownFolder = { viewModel.rescanLocalFolderForBook(currentBook.id) },
+                            onWatch = { viewModel.watchCurrentBook() },
+                            onStopWatching = { viewModel.stopWatchingCurrentBook() }
+                        )
+                    } else if (audioUnavailable) {
                         val unavailable = stringResource(R.string.book_detail_audio_unavailable)
                         Surface(
                             shape = RoundedCornerShape(AppDimens.RadiusPanel),
@@ -1423,7 +1559,7 @@ fun BookDetailScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = androidx.compose.material.icons.Icons.Default.Star,
+                                imageVector = PaperInkIcons.Star,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.secondary,
                                 modifier = Modifier.size(18.dp)
@@ -1431,7 +1567,7 @@ fun BookDetailScreen(
                             Spacer(modifier = Modifier.size(6.dp))
                             Text(
                                 text = "%.1f".format(java.util.Locale.US, average.value),
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Spacer(modifier = Modifier.size(8.dp))
@@ -1765,6 +1901,7 @@ fun BookDetailScreen(
             )
         }
     }
+    }
 }
 
 internal fun reviewFailureNeedsSnackbar(formVisible: Boolean): Boolean = !formVisible
@@ -1782,3 +1919,33 @@ data class PersonBookmarkControl(
     val onToggle: () -> Unit = {},
     val onToggleNotify: (Boolean) -> Unit = {}
 )
+
+/**
+ * #1506: the «У серії» row is state of ONE opened book, not of the screen.
+ *
+ * `remember(currentBookId)` makes a book switch drop the previous volumes in
+ * the first frame — before any fetch — and `LaunchedEffect(currentBookId, …)`
+ * cancels the previous fetch, so a late answer cannot be applied to the next
+ * book. The loader stays a parameter so the invalidation rule is testable
+ * without a ViewModel or network.
+ */
+@Composable
+internal fun rememberSeriesBooks(
+    currentBookId: String,
+    seriesUrl: String?,
+    load: suspend (String) -> List<AudiobookEntity>
+): List<AudiobookEntity> {
+    var inSeriesBooks by remember(currentBookId) {
+        mutableStateOf<List<AudiobookEntity>>(emptyList())
+    }
+    LaunchedEffect(currentBookId, seriesUrl) {
+        val url = seriesUrl?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        val loaded = try {
+            load(url)
+        } catch (e: Exception) {
+            emptyList()
+        }
+        inSeriesBooks = loaded.filterNot { it.id == currentBookId }
+    }
+    return inSeriesBooks
+}

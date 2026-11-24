@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.collective
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.currentCoroutineContext
@@ -33,7 +34,11 @@ class CollectiveFeedRefresh(
      */
     private val onActivated: (suspend (CollectiveFeedBlock) -> Unit)? = null,
     /** The shared write is optional; its deadline never encloses local activation. */
-    private val publicationTimeoutMs: Long = DEFAULT_PUBLICATION_TIMEOUT_MS
+    private val publicationTimeoutMs: Long = DEFAULT_PUBLICATION_TIMEOUT_MS,
+    private val sharedLease: CollectiveSharedLease? = null,
+    private val sharedWaitTimeoutMs: Long = DEFAULT_SHARED_WAIT_MS,
+    private val sharedPollMs: Long = DEFAULT_SHARED_POLL_MS,
+    private val sleep: suspend (Long) -> Unit = { delay(it) }
 ) {
 
     /** The block to render: the last good one, refreshed at most once per TTL. */
@@ -45,33 +50,56 @@ class CollectiveFeedRefresh(
         }
 
         val token = lease.acquire(blockKey, clock(), leaseTtlMs) ?: return active
-        val applied = try {
-            // A preceding commit may have completed while acquisition waited.
-            val current = store.active(blockKey)
-            if (current != null && !current.isStale(clock()) && !CollectiveBlockPolicy.requiresSourceRefresh(current)) {
-                currentCoroutineContext().ensureActive()
-                return current
+        var grant: CollectiveLeaseGrant? = null
+        try {
+            val applied = when (val result = readWithLocalLease(blockKey, token) { grant = it }) {
+                is LocalRead.Direct -> return result.block
+                is LocalRead.Refreshed -> result.applied
             }
-            val outcome = try {
-                fetch(blockKey)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                CollectiveRefreshOutcome.Failure(CollectiveAttemptStatus.TIMEOUT)
-            }
-            lease.applyIfOwned(token, clock) { commitOutcome(blockKey, current, outcome) }
+            currentCoroutineContext().ensureActive()
+            if (applied == null) return store.active(blockKey)
+            return finishOutcome(applied, grant)
         } finally {
-            withContext(NonCancellable) { lease.release(token) }
+            withContext(NonCancellable) {
+                withTimeoutOrNull(publicationTimeoutMs) { grant?.let { sharedLease?.release(it) } }
+            }
         }
-        currentCoroutineContext().ensureActive()
-        if (applied == null) return store.active(blockKey)
-        return finishOutcome(applied)
+    }
+
+    private sealed interface LocalRead {
+        data class Direct(val block: CollectiveFeedBlock?) : LocalRead
+        data class Refreshed(val applied: AppliedBlock?) : LocalRead
+    }
+
+    /** Local cleanup has its own coroutine frame; shared cleanup stays with [read]. */
+    private suspend fun readWithLocalLease(
+        blockKey: String,
+        token: CollectiveRefreshLeaseToken,
+        onSharedGrant: (CollectiveLeaseGrant) -> Unit
+    ): LocalRead = try {
+        // A preceding commit may have completed while acquisition waited.
+        val current = store.active(blockKey)
+        if (current != null && !current.isStale(clock()) && !CollectiveBlockPolicy.requiresSourceRefresh(current)) {
+            currentCoroutineContext().ensureActive()
+            LocalRead.Direct(current)
+        } else {
+            val attempt = sharedLease?.acquire(blockKey)
+            if (attempt is CollectiveLeaseAttempt.Busy) {
+                LocalRead.Direct(awaitSharedResult(blockKey, current))
+            } else {
+                if (attempt is CollectiveLeaseAttempt.Granted) onSharedGrant(attempt.grant)
+                val outcome = fetchOutcome(blockKey)
+                LocalRead.Refreshed(lease.applyIfOwned(token, clock) { commitOutcome(blockKey, current, outcome) })
+            }
+        }
+    } finally {
+        withContext(NonCancellable) { lease.release(token) }
     }
 
     /**
      * #528 — an EXPLICIT listener action (they opened a category): the page is
      * fetched NOW and, when it is a valid non-empty candidate, activated and
-     * shared. Neither the TTL nor the lease applies — the listener asked, so
+     * shared. Neither the TTL nor the local lease applies — the listener asked, so
      * the action is its own owner — but a failure still keeps the previous
      * block and only records the attempt. The caller passes the fetch it needs
      * (a category path + that action's cursor).
@@ -83,14 +111,45 @@ class CollectiveFeedRefresh(
         fetch: suspend (String) -> CollectiveRefreshOutcome = this.fetch
     ): CollectiveFeedBlock? {
         val active = store.active(blockKey)
-        val outcome = try {
-            fetch(blockKey)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            CollectiveRefreshOutcome.Failure(CollectiveAttemptStatus.TIMEOUT)
+        var grant: CollectiveLeaseGrant? = null
+        try {
+            val attempt = sharedLease?.acquire(blockKey)
+            if (attempt is CollectiveLeaseAttempt.Granted) grant = attempt.grant
+            val outcome = fetchOutcome(blockKey, fetch)
+            return finishOutcome(commitOutcome(blockKey, active, outcome), grant)
+        } finally {
+            withContext(NonCancellable) {
+                withTimeoutOrNull(publicationTimeoutMs) { grant?.let { sharedLease?.release(it) } }
+            }
         }
-        return finishOutcome(commitOutcome(blockKey, active, outcome))
+    }
+
+    /** A shared follower waits boundedly and never issues its own source request. */
+    private suspend fun awaitSharedResult(blockKey: String, active: CollectiveFeedBlock?): CollectiveFeedBlock? {
+        val shared = sharedLease ?: return active
+        var waited = 0L
+        while (true) {
+            val published = shared.published(blockKey)
+            if (published != null && published.isNewerThan(active)) {
+                store.activateIfNewer(published)
+                return store.active(blockKey)
+            }
+            if (waited >= sharedWaitTimeoutMs) return store.active(blockKey)
+            val step = minOf(sharedPollMs, sharedWaitTimeoutMs - waited).coerceAtLeast(1L)
+            sleep(step)
+            waited += step
+        }
+    }
+
+    private suspend fun fetchOutcome(
+        blockKey: String,
+        fetch: suspend (String) -> CollectiveRefreshOutcome = this.fetch
+    ): CollectiveRefreshOutcome = try {
+        fetch(blockKey)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        CollectiveRefreshOutcome.Failure(CollectiveAttemptStatus.TIMEOUT)
     }
 
     private data class AppliedBlock(
@@ -114,6 +173,8 @@ class CollectiveFeedRefresh(
                     AppliedBlock(store.active(blockKey))
                 } else {
                     val activated = candidate.copy(
+                        blockKey = blockKey,
+                        revision = 0L,
                         fetchedAt = at,
                         staleAfter = at + CollectiveBlockPolicy.ttlMillisFor(candidate.kind),
                         version = (active?.version ?: 0L) + 1L,
@@ -138,19 +199,28 @@ class CollectiveFeedRefresh(
         }
     }
 
-    private suspend fun finishOutcome(applied: AppliedBlock): CollectiveFeedBlock? {
-        if (applied.newlyActivated != null) {
-            currentCoroutineContext().ensureActive()
-            try {
-                withTimeoutOrNull(publicationTimeoutMs) { onActivated?.invoke(applied.newlyActivated) }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                // A shared write failure leaves the committed local block intact.
+    private suspend fun finishOutcome(applied: AppliedBlock, grant: CollectiveLeaseGrant?): CollectiveFeedBlock? {
+        val activated = applied.newlyActivated ?: return applied.active
+        var result = activated
+        currentCoroutineContext().ensureActive()
+        try {
+            withTimeoutOrNull(publicationTimeoutMs) {
+                val published = grant?.let { sharedLease?.publish(activated, it) }
+                if (published != null) {
+                    store.recordRevision(activated.blockKey, published.revision, activated.version)
+                    result = activated.copy(revision = published.revision)
+                } else if (sharedLease == null) {
+                    // An unconditional publish must never bypass a configured shared fence.
+                    onActivated?.invoke(activated)
+                }
             }
-            currentCoroutineContext().ensureActive()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // A shared write failure leaves the committed local block intact.
         }
-        return applied.active
+        currentCoroutineContext().ensureActive()
+        return result
     }
 
     companion object {
@@ -159,5 +229,14 @@ class CollectiveFeedRefresh(
 
         /** Short by design: a refresh is one page, and an abandoned one frees up. */
         const val DEFAULT_LEASE_TTL_MS: Long = 60_000L
+        const val DEFAULT_SHARED_WAIT_MS: Long = 3_000L
+        const val DEFAULT_SHARED_POLL_MS: Long = 200L
     }
+}
+
+/** Server revisions order shared snapshots; observation time breaks equal-revision ties. */
+fun CollectiveFeedBlock.isNewerThan(existing: CollectiveFeedBlock?): Boolean {
+    if (existing == null) return true
+    if (revision != existing.revision) return revision > existing.revision
+    return fetchedAt > existing.fetchedAt
 }

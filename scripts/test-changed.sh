@@ -3,6 +3,20 @@ set -u
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 selector="$repo_root/scripts/test_partitions.py"
+# Свою теку прогону створює спільний прибиральник (`scripts/tmp_budget.py`), а не
+# `mktemp`: він же прибирає теку, лишену SIGKILL'ом попереднього прогону, і кладе
+# маркер власника, щоб сусідній прогін не зніс живу (#1300). Прибирання в
+# `cleanup` лишається як було — SIGKILL його не виконує, і саме тому прибиральник
+# мусить бути на СТАРТІ прогону, а не в кінці.
+budget_module="$repo_root/scripts/tmp_budget.py"
+
+# Прибирання стоїть на САМОМУ СТАРТІ — до розбору аргументів: тека, лишена
+# SIGKILL'ом, мусить зникнути й тоді, коли цей прогін відмовить (криві
+# аргументи), — інакше відмова одного прогону лишала б чужу теку в tmpfs
+# назавжди (#1300). `claim` нижче прибирає ще раз (дешево) і створює свою.
+python3 "$budget_module" sweep --prefix slukhayka-changed-tests. ||
+  printf '%s\n' "test-changed.sh: прибирання застарілих тек прогону не вдалося (причина вище)" >&2
+
 base_ref=origin/main
 changed_files=()
 
@@ -25,17 +39,36 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/slukhayka-changed-tests.XXXXXX") || exit 2
+scratch=$(python3 "$budget_module" claim --prefix slukhayka-changed-tests. --owner-pid $$) ||
+  { printf '%s\n' "test-changed.sh: cannot create a scratch directory (the reason is above)" >&2; exit 2; }
 cleanup() {
-  rm -rf -- "$scratch"
+  # A cleanup that cannot remove the directory says so instead of passing in
+  # silence: the boundary is that the cleanup is no stronger than `rm`, so a
+  # read-only parent or a permission problem leaves the directory behind. The
+  # exit code is untouched either way — on the exec path the process becomes the
+  # full suite, and an EXIT trap does not overwrite the status of the script.
+  rm -rf -- "$scratch" ||
+    printf '%s\n' "test-changed.sh: cannot remove $scratch" >&2
 }
 trap cleanup EXIT HUP INT TERM
+
+# Both fallbacks to the full suite `exec` it, and `exec` REPLACES this process:
+# a replaced process runs no EXIT trap, so the trap above would never fire on
+# that path and every fallback left one empty `slukhayka-changed-tests.*`
+# directory in $TMPDIR behind (17 had piled up by #1280). `exec` stays because
+# it hands the full suite's exit code through untouched — which means the
+# cleanup has to run BEFORE it, at EVERY `exec` site. `rm -rf` is idempotent, so
+# running it twice on an interrupted run is not a problem.
+run_full_suite() {
+  cleanup
+  exec "$repo_root/scripts/test-all.sh" "$@"
+}
 
 if [[ ${#changed_files[@]} -eq 0 ]]; then
   cd "$repo_root" || exit 2
   if ! git rev-parse --verify "$base_ref^{commit}" >/dev/null 2>&1; then
     printf '%s\n' "Base ref '$base_ref' is unavailable; running all six legs and the explicit controlled App target." >&2
-    exec "$repo_root/scripts/test-all.sh" --include-controlled-app
+    run_full_suite --include-controlled-app
   fi
   git diff --name-only "$base_ref" -- > "$scratch/changed-files"
   git ls-files --others --exclude-standard >> "$scratch/changed-files"
@@ -60,9 +93,35 @@ if [[ $(python3 -c 'import json,sys; print("yes" if json.loads(sys.argv[1])["ful
   reason=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["reason"])' "$selection")
   printf '%s\n' "Changed-test selection fell back to the full suite: $reason"
   if [[ "$controlled" == yes ]]; then
-    exec "$repo_root/scripts/test-all.sh" --include-controlled-app
+    run_full_suite --include-controlled-app
   fi
-  exec "$repo_root/scripts/test-all.sh"
+  run_full_suite
+fi
+
+# A diff that touches documentation only cannot change a test's behaviour, and
+# select says so by naming no partitions and no checks (#1493). Running the
+# matrix here would spend a lane-wide slot on a commit no test can witness.
+if [[ $(python3 -c 'import json,sys; payload=json.loads(sys.argv[1]); print("yes" if not payload["partitions"] and not payload.get("checks") and not payload.get("explicitTargets") else "no")' "$selection") == yes ]]; then
+  printf '%s\n' "Documentation-only diff: no test partitions to run."
+  exit 0
+fi
+
+# Production Kotlin also compiles against app/src/androidTest (the device
+# accessibility suites, run only in CI). A changed public Compose signature can
+# break that compile while every JVM partition stays green — #1499 paid a
+# ~20-minute CI round for exactly that. Run the cheap compile BEFORE the
+# partitions, through the same JDK-21/resolver path the suite uses.
+androidtest_compile=no
+for path in "${changed_files[@]}"; do
+  case "$path" in
+    app/src/main/java/*) androidtest_compile=yes ;;
+  esac
+done
+if [[ $androidtest_compile == yes ]]; then
+  printf '%s\n' "Production Kotlin changed: also compiling :app:compileDebugAndroidTestKotlin"
+  printf '%s\n' :app:compileDebugAndroidTestKotlin > "$scratch/gradle-arguments"
+  SLUKHAYKA_GRADLE_ARGS_FILE="$scratch/gradle-arguments" \
+    "$repo_root/scripts/test-all.sh" || exit $?
 fi
 
 python3 -c '

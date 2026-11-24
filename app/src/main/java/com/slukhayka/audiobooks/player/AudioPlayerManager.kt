@@ -10,7 +10,6 @@ import com.slukhayka.audiobooks.data.duration.StreamSizeDurationCheck
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import android.os.Build
-import android.os.CountDownTimer
 import android.util.Log
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
@@ -42,9 +41,14 @@ import com.slukhayka.audiobooks.data.db.SourceTrackEntity
 import com.slukhayka.audiobooks.data.listening.ListeningObservation
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
 import com.slukhayka.audiobooks.data.listening.ProgressSyncController
+import com.slukhayka.audiobooks.data.listening.startsAtBookEnd
 import com.slukhayka.audiobooks.data.source.YouTubeTracks
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
+import com.slukhayka.audiobooks.widget.WidgetStateMapper
+import com.slukhayka.audiobooks.widget.WidgetUpdateCadence
+import com.slukhayka.audiobooks.widget.WidgetUpdateKind
+import com.slukhayka.audiobooks.widget.publishWidgetSnapshot
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -53,16 +57,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.sample
-
-/**
- * Spec-22 T5: sleep-timer fade volume for a given remaining-second count.
- * Linear 1.0→0.0 over the last 30 s; outside the fade window volume is
- * untouched (1.0). Extracted as a pure function so the boundary math is
- * unit-testable.
- */
-internal fun sleepTimerFadeVolume(remainingSec: Int): Float =
-    if (remainingSec in 1..30) remainingSec / 30f else 1.0f
 
 /** One-shot user feedback emitted only at sleep-timer transitions. */
 sealed interface SleepTimerNotice {
@@ -114,7 +108,14 @@ data class PlayerState(
     // Position-history undo (wayfinder #25): true while a big accidental seek
     // can be undone back to [undoFromPositionMs].
     val canUndoSeek: Boolean = false,
-    val undoFromPositionMs: Long = 0L
+    val undoFromPositionMs: Long = 0L,
+    /**
+     * #1752 — why the last cast session handed playback back to the phone.
+     * Separate from [lastErrorMsg] because [prepareChapter] clears that field
+     * on every local prepare; this notice is written after the hand-back
+     * prepare instead.
+     */
+    val castSessionOutcome: CastSessionOutcome? = null
 )
 
 /** A factual engine callback, used where optimistic transport state is unsafe. */
@@ -247,8 +248,21 @@ class AudioPlayerManager(
      * failure, no fabricated audio (ADR-0019).
      */
     private val streamUrlResolver: suspend (String) -> String? = { url -> url },
-    /** Local WebView cookies, scoped by the source header policy. */
+    /**
+     * The 4read session cookie for stream headers, ALREADY resolved off the
+     * main thread (production wires [StreamCookieCache.cachedHeader]).
+     *
+     * #1722 — this must stay a plain memory read: `CookieManager.getCookie`
+     * is a synchronous Binder call, and every [prepareChapter] (play,
+     * auto-advance) runs on the application looper.
+     */
     private val cookieProvider: () -> String = { "" },
+    /**
+     * #1722 — refreshes [cookieProvider]'s value from the WebView jar. Always
+     * invoked on [ioDispatcher], never on the main thread; null in tests that
+     * only exercise the cached value.
+     */
+    private val refreshCookie: (suspend () -> Unit)? = null,
     /** Fresh metadata for a Play invalidated by confirmed topology replacement. */
     private val bookFetcher: (suspend (String) -> AudiobookEntity?)? = null,
     private val onBookCompleted: (String) -> Unit = {},
@@ -573,6 +587,49 @@ class AudioPlayerManager(
     internal fun playableTracksForCast(): List<SourceCatalog.PlayableChapter> = playableChapters.toList()
 
     /**
+     * #1750 — the cast takeover owns audio now. Stop the local engine WITHOUT
+     * the public [pause] side effects: no PAUSE event, no `pausedAt` marker,
+     * no smart rewind and no progress write. The receiver mirror becomes the
+     * only source of truth for play state and position.
+     */
+    internal fun activateCastTakeover() {
+        shouldAutoPlay = false
+        stopActualListening()
+        mediaPlayer?.let { mp ->
+            try {
+                mp.pause()
+            } catch (e: Exception) {
+                Log.e("AudioPlayer", "Error stopping local engine for cast takeover", e)
+            }
+        }
+        _playerState.value = _playerState.value.copy(
+            isPlaying = false,
+            isBuffering = false,
+            castSessionOutcome = null
+        )
+    }
+
+    /**
+     * #1752 — hand playback back to the phone after a cast session ends.
+     *
+     * [prepareChapter] clears [PlayerState.lastErrorMsg] on every local
+     * prepare, so the listener-facing outcome is written AFTER it. `null`
+     * means the takeover never became active, so there is nothing to report.
+     */
+    internal fun finishCastHandback(
+        outcome: CastSessionOutcome?,
+        chapterIndex: Int,
+        positionMs: Long,
+        playbackSpeed: Float
+    ) {
+        mirrorCastState {
+            it.copy(isPlaying = false, isBuffering = false, playbackSpeed = playbackSpeed)
+        }
+        runCatching { prepareChapter(chapterIndex, positionMs, autoPlay = false) }
+        _playerState.value = _playerState.value.copy(castSessionOutcome = outcome)
+    }
+
+    /**
      * ADR-0024 (#362): the receiver is the truth while it plays — the cast
      * controller mirrors position, play state and chapter index into the ONE
      * StateFlow the UI, the progress tracker and the persistence path read,
@@ -807,16 +864,33 @@ class AudioPlayerManager(
     private fun reportListeningStopped() = reportListeningObservation(ListeningObservation.Stopped)
 
 
-    // Spec-22 T4: keep the home-screen widget's progress/transport in sync
-    // with playback. Sampled to ~one update per 2 s while playing (widget
-    // updates are expensive); a pause still refreshes within the current
-    // window. Fire-and-forget — a failing widget must never break playback.
+    // Spec-22 T4 / #1749: keep the home-screen widget live. The content reads
+    // its frame from Glance's DataStore snapshot (WidgetSnapshotCodec), so the
+    // sampler must publish a new snapshot — updateAll alone only extends an
+    // active session and never re-runs provideGlance. Discrete transitions
+    // repaint at once; position-only progress is throttled to one repaint per
+    // 15 s instead of the old 2 s poll. Fire-and-forget — a failing widget
+    // must never break playback.
     init {
         if (widgetSyncEnabled) {
             scope.launch {
-                playerState
-                    .sample(2_000)
-                    .collect { com.slukhayka.audiobooks.widget.AudiobookGlanceWidgetReceiver.update(context) }
+                val cadence = WidgetUpdateCadence()
+                playerState.collect { state ->
+                    if (state.currentBook == null) return@collect
+                    val widgetState = WidgetStateMapper.mapFromPlayerState(state)
+                    if (cadence.decide(widgetState, monotonicNow()) == WidgetUpdateKind.NONE) {
+                        return@collect
+                    }
+                    withContext(Dispatchers.IO) {
+                        try {
+                            publishWidgetSnapshot(context, widgetState)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (e: Exception) {
+                            Log.w("AudioPlayer", "widget snapshot update failed", e)
+                        }
+                    }
+                }
             }
         }
     }
@@ -825,9 +899,9 @@ class AudioPlayerManager(
     /** Issue #752: debounces the automatic per-book speed save. */
     private var preferredSpeedSaveJob: Job? = null
     private var preferredSpeedSaveBookId: String? = null
-    private var sleepTimer: CountDownTimer? = null
-    private var shakeDetector: ShakeDetector? = null
-    private var fadeWarningEmitted = false
+    // #1573 — countdown, fade, shake, re-arm and finish effects live in one
+    // deep module; the manager only starts/stops/extends and mirrors its state.
+    private val sleepTimerModule: SleepTimerModule by lazy { createSleepTimerModule() }
     private val _sleepTimerNotices = MutableSharedFlow<SleepTimerNotice>(extraBufferCapacity = 2)
     val sleepTimerNotices: SharedFlow<SleepTimerNotice> = _sleepTimerNotices.asSharedFlow()
     private val _playbackStarted = MutableSharedFlow<PlaybackStarted>(extraBufferCapacity = 1)
@@ -909,6 +983,29 @@ class AudioPlayerManager(
             val engine = mediaPlayer ?: return
             // Ignore stale callbacks queued by an earlier prepare/pause.
             if (engine.isPlaying != isPlaying) return
+
+            // #1413 — the ENGINE now has a voice in the transport state.
+            //
+            // play() sets `isPlaying = true` optimistically, BEFORE the engine
+            // starts. When the stream never actually starts — the usual case
+            // is an expired signed YouTube URL after a pause — nothing ever
+            // corrected it, so the button stuck on "playing" and the listener
+            // had to tap twice (the first tap turned into an unnoticed pause).
+            //
+            // Only a settled, non-transitioning engine may correct the state:
+            // buffering is a transition (seek / next chapter / re-prepare), not
+            // a stop, and flipping the button on every seek would be a worse
+            // defect than the one being fixed.
+            if (TransportStateReconciliation.shouldClearPlayback(
+                    engineIsPlaying = engine.isPlaying,
+                    transportIsPlaying = _playerState.value.isPlaying,
+                    transportIsBuffering = _playerState.value.isBuffering,
+                    enginePlaybackState = engine.playbackState
+                )
+            ) {
+                _playerState.value = _playerState.value.copy(isPlaying = false)
+            }
+
             if (!isPlaying) { stopActualListening(); return }
             if (!_playerState.value.isPlaying || _playerState.value.isBuffering) return
             val bookId = _playerState.value.currentBook?.id ?: return
@@ -940,42 +1037,49 @@ class AudioPlayerManager(
             if (playbackState != Player.STATE_READY && !isCasting) stopActualListening()
             if (playbackState == Player.STATE_READY) {
                 prepareTimeoutJob?.cancel()
-                val mp = mediaPlayer ?: return
-                // #471: the local-file verdict is one shared decision
-                // ([SmartRetryPolicy.localFileReady]) — the retry policy can
-                // never disagree with what the engine actually plays.
-                val isLocal = SmartRetryPolicy.localFileReady(currentTrack?.localFilePath)
-                _playerState.value = _playerState.value.copy(
-                    isBuffering = false,
-                    durationMs = if (mp.duration > 0) mp.duration else _playerState.value.durationMs,
-                    audioEngineMode = if (isLocal) "Offline Local File" else "4read Direct Stream"
-                )
-                // Persist the real chapter duration once the stream reports it,
-                // so the book's total duration is honest instead of a seeded
-                // placeholder ("4:00:00" for every catalogue book).
-                persistRealDurationIfKnown(mp.duration)
-                applyPlaybackSpeed(_playerState.value.playbackSpeed)
-                val validDur = if (mp.duration > 0) mp.duration else _playerState.value.durationMs
-                // One-shot resume seek (see [pendingResumeSeekMs]): fire it once
-                // and consume it. Never seek from the live state position here -
-                // that re-armed on every READY and stalled resume forever.
-                val pendingSeek = pendingResumeSeekMs
-                pendingResumeSeekMs = -1L
-                if (pendingSeek > 0 && pendingSeek < validDur) {
-                    try { mp.seekTo(pendingSeek) } catch (_: Exception) {}
-                }
-                if (shouldAutoPlay || _playerState.value.isPlaying) {
-                    try {
-                        mp.play()
-                        _playerState.value = _playerState.value.copy(isPlaying = true)
-                    } catch (e: Exception) {
-                        Log.e("AudioPlayer", "Error starting after prepare", e)
+                // #1750: while a receiver is active it owns the play state and
+                // position. A late LOCAL READY must not resurrect the phone
+                // engine beside it, nor overwrite the mirrored state.
+                if (!isCasting) {
+                    val mp = mediaPlayer ?: return
+                    // #471: the local verdict is one shared decision
+                    // ([SmartRetryPolicy.localAddressReady]) — the retry policy
+                    // can never disagree with what the engine actually plays.
+                    val isLocal = SmartRetryPolicy.localAddressReady(currentTrack?.localFilePath, currentTrack?.url)
+                    _playerState.value = _playerState.value.copy(
+                        isBuffering = false,
+                        durationMs = if (mp.duration > 0) mp.duration else _playerState.value.durationMs,
+                        audioEngineMode = if (isLocal) "Offline Local File" else "4read Direct Stream"
+                    )
+                    // Persist the real chapter duration once the stream reports it,
+                    // so the book's total duration is honest instead of a seeded
+                    // placeholder ("4:00:00" for every catalogue book).
+                    persistRealDurationIfKnown(mp.duration)
+                    applyPlaybackSpeed(_playerState.value.playbackSpeed)
+                    val validDur = if (mp.duration > 0) mp.duration else _playerState.value.durationMs
+                    // One-shot resume seek (see [pendingResumeSeekMs]): fire it once
+                    // and consume it. Never seek from the live state position here -
+                    // that re-armed on every READY and stalled resume forever.
+                    val pendingSeek = pendingResumeSeekMs
+                    pendingResumeSeekMs = -1L
+                    if (pendingSeek > 0 && pendingSeek < validDur) {
+                        try { mp.seekTo(pendingSeek) } catch (_: Exception) {}
                     }
-                } else {
-                    _playerState.value = _playerState.value.copy(isPlaying = false)
+                    if (shouldAutoPlay || _playerState.value.isPlaying) {
+                        try {
+                            mp.play()
+                            _playerState.value = _playerState.value.copy(isPlaying = true)
+                        } catch (e: Exception) {
+                            Log.e("AudioPlayer", "Error starting after prepare", e)
+                        }
+                    } else {
+                        _playerState.value = _playerState.value.copy(isPlaying = false)
+                    }
                 }
             } else if (playbackState == Player.STATE_ENDED) {
-                onChapterCompleted()
+                // #1750: a local ENDED may still arrive after the takeover;
+                // only the receiver's owned FINISHED may advance the book.
+                if (!isCasting) onChapterCompleted()
             }
         }
 
@@ -1135,13 +1239,14 @@ class AudioPlayerManager(
     /**
      * Spec-32 T4 (#234): whether a stream failure qualifies for self-healing.
      * Mirrors [buildMediaItem]'s source decision exactly: a track plays
-     * locally only while its file exists with real content — a stale local
-     * path falls back to the network stream, and THAT stream may heal. Pure
-     * local playback never re-fetches a page.
+     * locally while its address is local ([SmartRetryPolicy.localAddressReady] —
+     * a real file, or the SAF document URI of a by-reference import); only a
+     * non-local track streams, and THAT stream may heal. Pure local playback
+     * never re-fetches a page.
      */
     private fun isNetworkStream(track: SourceTrackEntity?): Boolean {
         if (track == null) return false
-        val playsLocally = SmartRetryPolicy.localFileReady(track.localFilePath)
+        val playsLocally = SmartRetryPolicy.localAddressReady(track.localFilePath, track.url)
         return !playsLocally && track.url?.startsWith("http", ignoreCase = true) == true
     }
 
@@ -1332,7 +1437,10 @@ class AudioPlayerManager(
         // is the last chapter's in-chapter seconds, below the book total).
         forceRelisten: Boolean = false,
         initialChapterId: String? = null,
-        expectedChapterStructureVersion: Long? = null
+        expectedChapterStructureVersion: Long? = null,
+        // #1722 — the 4read session cookie resolved on IO by the caller. The
+        // immediate prepare consumes it; null keeps the cached value.
+        cookieHeader: String? = null
     ) {
         resetActualCastReceiverEvidence()
         val request = ++loadRequestSequence
@@ -1366,13 +1474,23 @@ class AudioPlayerManager(
         var positionSeconds = initialPositionSeconds
         // Spec-16 T4: starting playback of a finished book is a re-listen — it
         // resets to the beginning (chapter 0, position 0) and logs RELISTEN
-        // instead of RESUME. Completion is derived from position, the same rule
-        // the library card uses (AC4): only a start at/after the very end of
-        // the book triggers it, so explicit chapter or bookmark navigation
-        // (which never asks to start at the end) is untouched.
-        val totalDurationSeconds = loadChapters.sumOf { it.durationSeconds }
-        val relisten = forceRelisten ||
-            (autoPlay && totalDurationSeconds > 0L && positionSeconds >= totalDurationSeconds)
+        // instead of RESUME. Completion is derived from the position in the
+        // BOOK, through the very rule the library card uses
+        // ([com.slukhayka.audiobooks.data.listening.startsAtBookEnd] →
+        // isBookFinished, AC4): only a start at/after the very end of a book
+        // whose total is KNOWN triggers it, so explicit chapter or bookmark
+        // navigation (which never asks to start at the end) is untouched.
+        // #1187 — the old rule compared the in-chapter position with the sum of
+        // the loaded chapters, which for a local book was only the chapters
+        // already listened to: 60 s into the third chapter of a book whose one
+        // played chapter is 45 s read as "past the end" and reset a book that
+        // was two thirds unheard.
+        val relisten = forceRelisten || (autoPlay && startsAtBookEnd(
+            chapters = loadChapters,
+            chapterIndex = chapterIdx,
+            positionSeconds = positionSeconds,
+            bookTotalDurationSeconds = book.totalDurationSeconds
+        ))
         if (relisten) {
             chapterIdx = 0
             positionSeconds = 0L
@@ -1393,7 +1511,8 @@ class AudioPlayerManager(
             // the chapter reaches READY.
             playbackSpeed = book.preferredSpeed ?: playbackSettings.defaultSpeed,
             canUndoSeek = false,
-            undoFromPositionMs = 0L
+            undoFromPositionMs = 0L,
+            castSessionOutcome = null
         )
         // The caller already chose this load's start (including any resume
         // rewind). A pause from the previous item must not shift it again.
@@ -1402,19 +1521,7 @@ class AudioPlayerManager(
         persistPausedAt(null)
         // A fresh load starts a new listening cycle: the sleep timer belongs to
         // the previous listening session and does not follow the new book.
-        sleepTimer?.cancel()
-        shakeDetector?.stopListening()
-        _playerState.value = _playerState.value.copy(
-            sleepTimerMinutes = 0,
-            sleepTimerRemainingSeconds = 0,
-            isSleepTimerEndOfChapter = false
-        )
-        val hook = castEngineHook?.takeIf { it.isActive }
-        if (hook != null) {
-            try { hook.setVolume(1.0f) } catch (_: Exception) {}
-        } else {
-            try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
-        }
+        sleepTimerModule.clear()
         // A fresh load starts a new listening cycle: completion resets, chapter
         // history resets, and — when autoplaying — the resume + segment begin.
         completionLogged = false
@@ -1453,7 +1560,12 @@ class AudioPlayerManager(
             }
         }
 
-        prepareChapter(chapterIdx, positionSeconds * 1000L, autoPlay)
+        prepareChapter(
+            chapterIdx,
+            positionSeconds * 1000L,
+            autoPlay,
+            cookieHeader = cookieHeader
+        )
     }
 
     /**
@@ -1477,7 +1589,8 @@ class AudioPlayerManager(
     private fun stopEngineForUnavailableBook(book: AudiobookEntity) {
         stopActualListening()
         prepareRequestId++
-        sleepTimer?.cancel()
+        // Only the countdown stops here: the error screen keeps its timer state.
+        sleepTimerModule.cancel()
         prepareTimeoutJob?.cancel()
         mediaPlayer?.let { mp ->
             try {
@@ -1614,6 +1727,24 @@ class AudioPlayerManager(
         _playerState.value = _playerState.value.copy(canUndoSeek = jump != null, undoFromPositionMs = jump?.fromPositionMs ?: 0L)
     }
 
+    /**
+     * #1722 — refreshes the cached stream cookie off the main thread. Fire and
+     * forget: the current prepare consumes the value its caller resolved (or
+     * the last refresh), and the next prepare sees the fresh session value.
+     */
+    private fun refreshCookieInBackground() {
+        val refresh = refreshCookie ?: return
+        scope.launch(ioDispatcher) {
+            try {
+                refresh()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Keep the previous value; playback degrades honestly.
+            }
+        }
+    }
+
     fun prepareChapter(
         chapterIndex: Int,
         startPositionMs: Long = 0L,
@@ -1621,7 +1752,11 @@ class AudioPlayerManager(
         // Spec-32 T4 (#234): every user-initiated prepare resets the heal
         // budget; the self-heal retry passes FALSE so a dead fresh URL cannot
         // re-heal in a loop within the same chapter prepare.
-        resetHealBudget: Boolean = true
+        resetHealBudget: Boolean = true,
+        // #1722 — an already-resolved session cookie from the caller's IO
+        // refresh. Null falls back to the cached value; neither path may call
+        // CookieManager on the main thread.
+        cookieHeader: String? = null
     ) {
         val chapters = _playerState.value.chapters
         if (chapters.isEmpty() || chapterIndex !in chapters.indices) return
@@ -1650,6 +1785,13 @@ class AudioPlayerManager(
         val chapter = chapters[chapterIndex]
         val durationMs = chapter.durationSeconds * 1000L
         val track = playableChapters.getOrNull(chapterIndex)?.track
+        val chapterSourceId = playableChapters.getOrNull(chapterIndex)?.sourceId
+            ?: sourceIdForUrl(_playerState.value.currentBook?.sourceUrl.orEmpty())
+
+        // #1722 — only 4read's audio hosts receive the session cookie; keep
+        // the cache warm for the NEXT prepare. The read is a Binder call, so it
+        // runs on IO; this prepare only consumes the already-resolved value.
+        if (chapterSourceId == "4read") refreshCookieInBackground()
 
         currentChapter = chapter
         currentTrack = track
@@ -1661,10 +1803,12 @@ class AudioPlayerManager(
             durationMs = durationMs,
             isBuffering = true,
             currentStreamUrl = track?.url.orEmpty(),
-            currentSourceId = playableChapters.getOrNull(chapterIndex)?.sourceId
-                ?: sourceIdForUrl(_playerState.value.currentBook?.sourceUrl.orEmpty()),
+            currentSourceId = chapterSourceId,
             lastErrorMsg = "",
             errorKind = PlaybackErrorKind.NONE,
+            // #1752: a fresh prepare owns playback again; the hand-back method
+            // writes its outcome after this reset.
+            castSessionOutcome = null,
             // A chapter switch is deliberate — the seek history is cleared.
             canUndoSeek = false,
             undoFromPositionMs = 0L
@@ -1674,7 +1818,7 @@ class AudioPlayerManager(
         // AND no remote URL) never reaches the engine: an empty URI loops
         // ExoPlayer on FILE_NOT_FOUND. Publish an honest UNAVAILABLE state;
         // an explicit Play has already armed one bounded recovery pass.
-        val hasLocal = SmartRetryPolicy.localFileReady(track?.localFilePath)
+        val hasLocal = SmartRetryPolicy.localAddressReady(track?.localFilePath, track?.url)
         if (track == null || (!hasLocal && track.url.isNullOrBlank())) {
             Log.w("AudioPlayer", "No playable locator for chapter $chapterIndex")
             reportPlaybackFailure(
@@ -1686,7 +1830,9 @@ class AudioPlayerManager(
         }
 
         // Spec-22 T5: «до кінця розділу» follows manual chapter switches.
-        rearmEndOfChapterTimerIfActive(chapterIndex, startPositionMs)
+        _playerState.value.chapters.getOrNull(chapterIndex)?.let { chapter ->
+            sleepTimerModule.onChapterSwitch(chapter.durationSeconds, startPositionMs)
+        }
 
         // Arm the one-shot resume seek (see [pendingResumeSeekMs]): it is fired
         // by the READY listener exactly once and consumed, so a resume position
@@ -1702,7 +1848,17 @@ class AudioPlayerManager(
                 // raw second count stays as the technical detail in brackets.
                 val timeoutMessage =
                     context.getString(R.string.a11y_player_error_timeout, PREPARE_TIMEOUT_MS / 1000L)
+                // #1413 — the timeout must also STOP CLAIMING PLAYBACK. It
+                // used to write only the error text, leaving `isBuffering`
+                // and the optimistic `isPlaying = true` that play() sets
+                // before the engine starts. The transport button then showed
+                // "playing / buffering" over silence forever — exactly the
+                // stuck-play report. `shouldAutoPlay` is deliberately NOT
+                // cleared: a stream that merely needs longer than 45 s must
+                // still start on its own if it does reach READY.
                 _playerState.value = _playerState.value.copy(
+                    isBuffering = false,
+                    isPlaying = false,
                     lastErrorMsg = timeoutMessage,
                     errorKind = PlaybackErrorKind.TRANSIENT
                 )
@@ -1739,10 +1895,9 @@ class AudioPlayerManager(
             val headers = _playerState.value.currentBook
                 ?.let {
                     headersFor(
-                        playableChapters.getOrNull(chapterIndex)?.sourceId
-                            ?: sourceIdForUrl(it.sourceUrl),
+                        chapterSourceId,
                         track?.url.orEmpty(),
-                        cookieProvider()
+                        cookieHeader ?: cookieProvider()
                     )
                 }
                 ?: emptyMap()
@@ -1985,7 +2140,12 @@ class AudioPlayerManager(
         )
     }
 
-    fun play() {
+    /**
+     * @param cookieHeader #1722 — a session cookie already resolved on IO for
+     *   this play; null keeps the cached value. Either way no Binder call
+     *   happens here: this runs on the main thread.
+     */
+    fun play(cookieHeader: String? = null) {
         actualCastTerminal = null
         val wasPlaying = _playerState.value.isPlaying
         // The user's latest transport action owns the pending READY result.
@@ -1996,7 +2156,11 @@ class AudioPlayerManager(
         // no break at all — a fresh start). Read the gap before the smart
         // rewind consumes the pause marker.
         val resumeGapMs = if (wasPlaying) null else pausedAtEpochMs?.let { now() - it }
-        _playerState.value = _playerState.value.copy(isPlaying = true)
+        _playerState.value = _playerState.value.copy(
+            isPlaying = true,
+            // #1752: resuming is the listener acknowledging the hand-back.
+            castSessionOutcome = null
+        )
         ensurePlaybackServiceStarted()
         // Smart rewind (wayfinder #25): coming back from a pause rewinds a few
         // seconds to a few tens of seconds depending on how long the break was.
@@ -2025,14 +2189,29 @@ class AudioPlayerManager(
                 if (mp.playbackState == Player.STATE_READY || mp.playbackState == Player.STATE_ENDED) {
                     mp.play()
                 } else if (currentChapter != null) {
-                    prepareChapter(_playerState.value.currentChapterIndex, _playerState.value.currentPositionMs, true)
+                    prepareChapter(
+                        _playerState.value.currentChapterIndex,
+                        _playerState.value.currentPositionMs,
+                        true,
+                        cookieHeader = cookieHeader
+                    )
                 }
             } catch (e: Exception) {
                 Log.e("AudioPlayer", "Error resume play", e)
-                prepareChapter(_playerState.value.currentChapterIndex, _playerState.value.currentPositionMs, true)
+                prepareChapter(
+                    _playerState.value.currentChapterIndex,
+                    _playerState.value.currentPositionMs,
+                    true,
+                    cookieHeader = cookieHeader
+                )
             }
         } else {
-            prepareChapter(_playerState.value.currentChapterIndex, _playerState.value.currentPositionMs, true)
+            prepareChapter(
+                _playerState.value.currentChapterIndex,
+                _playerState.value.currentPositionMs,
+                true,
+                cookieHeader = cookieHeader
+            )
         }
     }
 
@@ -2075,11 +2254,11 @@ class AudioPlayerManager(
         saveCurrentProgressToDb(immediateSync = true)
     }
 
-    fun togglePlayPause() {
+    fun togglePlayPause(cookieHeader: String? = null) {
         if (_playerState.value.isPlaying) {
             pause()
         } else {
-            play()
+            play(cookieHeader)
         }
     }
 
@@ -2299,176 +2478,127 @@ class AudioPlayerManager(
      *
      * - `0` — cancels any active timer and restores volume.
      * - `-1` — «до кінця розділу»: stops exactly at the current chapter's
-     *   boundary (recomputed on manual chapter switches via [prepareChapter]).
+     *   boundary (recomputed on manual chapter switches).
      * - positive — minutes until stop.
      *
-     * Both timed modes fade the volume 1.0→0.0 linearly over the last 30 s;
-     * during that window a shake gesture (see [ShakeDetector]) restores
-     * volume and extends the timer by +15 min.
+     * All countdown/fade/shake/finish behaviour lives in [SleepTimerModule].
      */
     fun setSleepTimer(minutes: Int) {
-        sleepTimer?.cancel()
-        shakeDetector?.stopListening()
-        if (minutes == 0) {
-            _playerState.value = _playerState.value.copy(
-                sleepTimerMinutes = 0,
-                sleepTimerRemainingSeconds = 0,
-                isSleepTimerEndOfChapter = false
-            )
-            try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
-            return
+        when {
+            minutes == 0 -> sleepTimerModule.clear()
+            minutes == -1 -> {
+                val state = _playerState.value
+                val remainingMs = (state.durationMs - state.currentPositionMs)
+                    .coerceAtLeast(1_000L)
+                sleepTimerModule.startEndOfChapter(remainingMs)
+            }
+            else -> sleepTimerModule.start(minutes)
         }
-
-        if (minutes == -1) {
-            val state = _playerState.value
-            val remainingMs = (state.durationMs - state.currentPositionMs).coerceAtLeast(1000L)
-            val remainingSec = (remainingMs / 1000L).toInt()
-            _playerState.value = _playerState.value.copy(
-                sleepTimerMinutes = -1,
-                sleepTimerRemainingSeconds = remainingSec,
-                isSleepTimerEndOfChapter = true
-            )
-            startSleepTimerInternal(remainingMs, isEndOfChapter = true)
-            // #1173 (T9): ARMING is the fact. The stop event below may never
-            // arrive — the timer re-arms on the chapter boundary (#700).
-            onEndOfChapterArmed()
-            return
-        }
-
-        val totalMs = minutes * 60 * 1000L
-        _playerState.value = _playerState.value.copy(
-            sleepTimerMinutes = minutes,
-            sleepTimerRemainingSeconds = minutes * 60,
-            isSleepTimerEndOfChapter = false
-        )
-        startSleepTimerInternal(totalMs, isEndOfChapter = false)
     }
 
     /**
      * Canonical +15-minute command for both the visible timer action and the
      * optional shake shortcut. The exact current remainder is preserved; an
-     * end-of-Chapter timer becomes an ordinary timed remainder.
+     * end-of-chapter timer becomes an ordinary timed remainder.
      *
      * @return the new exact remainder in seconds, or `0` when no timer is active.
      */
-    fun extendSleepTimerBy15Minutes(): Int {
-        val currentRemaining = _playerState.value.sleepTimerRemainingSeconds
-        if (currentRemaining <= 0) return 0
+    fun extendSleepTimerBy15Minutes(): Int = sleepTimerModule.extendBy15Minutes()
 
-        val extendedRemaining = currentRemaining + 15 * 60
-        sleepTimer?.cancel()
-        shakeDetector?.stopListening()
-        try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
-        _playerState.value = _playerState.value.copy(
-            sleepTimerMinutes = (extendedRemaining + 59) / 60,
-            sleepTimerRemainingSeconds = extendedRemaining,
-            isSleepTimerEndOfChapter = false
-        )
-        startSleepTimerInternal(extendedRemaining * 1000L, isEndOfChapter = false)
-        _sleepTimerNotices.tryEmit(SleepTimerNotice.Extended(extendedRemaining))
-        return extendedRemaining
-    }
+    /** Testable boundary used as the shake callback. */
+    internal fun handleSleepTimerShake(): Int = sleepTimerModule.extendBy15Minutes()
 
-    /** Testable boundary used as the [ShakeDetector] callback. */
-    internal fun handleSleepTimerShake(): Int = extendSleepTimerBy15Minutes()
+    private fun createSleepTimerModule(): SleepTimerModule = SleepTimerModule(
+        ticker = CountDownSleepTicker(),
+        shakeSource = ShakeDetectorSource(context),
+        effects = sleepTimerEffects
+    )
 
     /**
-     * Spec-22 T5: if the timer is in «до кінця розділу» mode, re-arm it for
-     * the newly prepared chapter (manual skip or auto-advance) so it still
-     * stops exactly at the chapter boundary.
+     * The manager's ports for every timer-caused effect (#1573): the module
+     * decides WHAT happens; this adapter decides how it touches the player.
      */
-    private fun rearmEndOfChapterTimerIfActive(chapterIndex: Int, startPositionMs: Long) {
-        if (!_playerState.value.isSleepTimerEndOfChapter) return
-        sleepTimer?.cancel()
-        shakeDetector?.stopListening()
-        val chapter = _playerState.value.chapters.getOrNull(chapterIndex) ?: return
-        val remainingMs =
-            (chapter.durationSeconds * 1000L - startPositionMs).coerceAtLeast(1000L)
-        _playerState.value = _playerState.value.copy(
-            sleepTimerRemainingSeconds = (remainingMs / 1000L).toInt()
-        )
-        startSleepTimerInternal(remainingMs, isEndOfChapter = true)
-    }
+    private val sleepTimerEffects: SleepTimerEffects = object : SleepTimerEffects {
+        override fun onState(snapshot: SleepTimerSnapshot) {
+            _playerState.value = _playerState.value.copy(
+                sleepTimerMinutes = snapshot.minutes,
+                sleepTimerRemainingSeconds = snapshot.remainingSeconds,
+                isSleepTimerEndOfChapter = snapshot.isEndOfChapter
+            )
+        }
 
-    private fun startSleepTimerInternal(totalMs: Long, isEndOfChapter: Boolean) {
-        fadeWarningEmitted = false
-        if (shakeDetector == null) {
-            shakeDetector = ShakeDetector(context) {
-                handleSleepTimerShake()
+        override fun setFadeVolume(volume: Float) {
+            // The fade tick was cast-aware before #1573 and stays cast-aware.
+            val hook = castEngineHook?.takeIf { it.isActive }
+            if (hook != null) {
+                try { hook.setVolume(volume) } catch (_: Exception) {}
+            } else {
+                try { mediaPlayer?.volume = volume } catch (_: Exception) {}
             }
         }
 
-        sleepTimer = object : CountDownTimer(totalMs, 1000L) {
-            override fun onTick(millisUntilFinished: Long) {
-                val remainingSec = (millisUntilFinished / 1000L).toInt()
-                _playerState.value = _playerState.value.copy(
-                    sleepTimerRemainingSeconds = remainingSec
-                )
-                // Smooth 30 s volume fade 1.0→0.0; shake-to-extend only armed
-                // inside the fade window.
-                val vol = sleepTimerFadeVolume(remainingSec)
-                if (vol < 1.0f) {
-                    if (!fadeWarningEmitted) {
-                        fadeWarningEmitted = true
-                        _sleepTimerNotices.tryEmit(SleepTimerNotice.FadeWarning)
-                    }
-                    val hook = castEngineHook?.takeIf { it.isActive }
-                    if (hook != null) {
-                        try { hook.setVolume(vol) } catch (_: Exception) {}
-                    } else {
-                        try { mediaPlayer?.volume = vol } catch (_: Exception) {}
-                    }
-                    shakeDetector?.startListening()
-                } else {
-                    shakeDetector?.stopListening()
-                }
+        override fun restoreVolume() {
+            // Cancel/extend reset only the LOCAL engine, exactly as the old
+            // `try { mediaPlayer?.volume = 1.0f }` did; a cast session is not
+            // re-volumed by those paths.
+            try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
+        }
+
+        override fun restoreVolumeAfterFinish() {
+            val hook = castEngineHook?.takeIf { it.isActive }
+            if (hook != null) {
+                try { hook.setVolume(1.0f) } catch (_: Exception) {}
+            } else {
+                try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
             }
+        }
 
-            override fun onFinish() {
-                shakeDetector?.stopListening()
-                val book = _playerState.value.currentBook
-                val chapterIdx = _playerState.value.currentChapterIndex
-                val chapters = _playerState.value.chapters
-                val chapterTitle = chapters.getOrNull(chapterIdx)?.title ?: "Глава ${chapterIdx + 1}"
-                val posSec = _playerState.value.currentPositionMs / 1000L
+        override fun pause() = this@AudioPlayerManager.pause()
 
-                if (book != null) {
-                    scope.launch(ioDispatcher) {
-                        listeningState.addBookmark(
-                            BookmarkEntity(
-                                bookId = book.id,
-                                chapterIndex = chapterIdx,
-                                chapterTitle = chapterTitle,
-                                timestampSeconds = posSec,
-                                note = "Авто-закладка (Таймер сну)"
-                            ),
-                            chapterId = chapters.getOrNull(chapterIdx)?.id
-                        )
-                    }
-                }
-
-                pause()
-                // Spec-16 T2: the timer stop itself is a discrete transition
-                // (the pause above records a PAUSE only when the segment was
-                // long enough to matter).
-                recordPlaybackEvent(
-                    kind = PlaybackEventKind.TIMER_STOP,
-                    chapterIndex = chapterIdx,
-                    positionSeconds = posSec
-                )
-                val hook = castEngineHook?.takeIf { it.isActive }
-                if (hook != null) {
-                    try { hook.setVolume(1.0f) } catch (_: Exception) {}
-                } else {
-                    try { mediaPlayer?.volume = 1.0f } catch (_: Exception) {}
-                }
-                _playerState.value = _playerState.value.copy(
-                    sleepTimerMinutes = 0,
-                    sleepTimerRemainingSeconds = 0,
-                    isSleepTimerEndOfChapter = false
+        override fun writeAutoBookmark(context: SleepTimerStopContext) {
+            val bookId = context.bookId ?: return
+            scope.launch(ioDispatcher) {
+                listeningState.addBookmark(
+                    BookmarkEntity(
+                        bookId = bookId,
+                        chapterIndex = context.chapterIndex,
+                        chapterTitle = context.chapterTitle,
+                        timestampSeconds = context.positionSeconds,
+                        note = "Авто-закладка (Таймер сну)"
+                    ),
+                    chapterId = context.chapterId
                 )
             }
-        }.start()
+        }
+
+        override fun recordTimerStop(context: SleepTimerStopContext) {
+            recordPlaybackEvent(
+                kind = PlaybackEventKind.TIMER_STOP,
+                chapterIndex = context.chapterIndex,
+                positionSeconds = context.positionSeconds
+            )
+        }
+
+        override fun emitNotice(notice: SleepTimerNotice) {
+            _sleepTimerNotices.tryEmit(notice)
+        }
+
+        override fun onEndOfChapterArmed() {
+            this@AudioPlayerManager.onEndOfChapterArmed.invoke()
+        }
+
+        override fun stopContext(): SleepTimerStopContext {
+            val state = _playerState.value
+            val chapterIndex = state.currentChapterIndex
+            val chapter = state.chapters.getOrNull(chapterIndex)
+            return SleepTimerStopContext(
+                bookId = state.currentBook?.id,
+                chapterIndex = chapterIndex,
+                chapterTitle = chapter?.title ?: "Глава ${chapterIndex + 1}",
+                positionSeconds = state.currentPositionMs / 1_000L,
+                chapterId = chapter?.id
+            )
+        }
     }
 
     private fun onChapterCompleted(confirmedPositionMs: Long? = null) {
@@ -2513,15 +2643,20 @@ class AudioPlayerManager(
                 actualListeningClock.flush()
                 if (state.isPlaying && !state.isBuffering) {
                     var newPos = state.currentPositionMs
-                    val mp = mediaPlayer
+                    // #1750: while the receiver owns playback, the local engine
+                    // is stopped and its position is stale. Only the mirror may
+                    // feed the tracker (and therefore the database).
+                    if (!remote) {
+                        val mp = mediaPlayer
 
-                    if (mp != null) {
-                        try {
-                            if (mp.isPlaying) {
-                                newPos = mp.currentPosition
+                        if (mp != null) {
+                            try {
+                                if (mp.isPlaying) {
+                                    newPos = mp.currentPosition
+                                }
+                            } catch (e: Exception) {
+                                // Ignore get position errors
                             }
-                        } catch (e: Exception) {
-                            // Ignore get position errors
                         }
                     }
 
@@ -2626,9 +2761,7 @@ class AudioPlayerManager(
 
     fun release() {
         resetActualCastReceiverEvidence()
-        sleepTimer?.cancel()
-        shakeDetector?.stopListening()
-        shakeDetector = null
+        sleepTimerModule.release()
         updateProgressJob?.cancel()
         // Code-review HIGH #1 (post-Wave-1 review): without this, a prepare
         // timeout coroutine launched by `prepareChapter` can outlive the
@@ -2662,8 +2795,8 @@ class AudioPlayerManager(
         resetActualCastReceiverEvidence()
         loadRequestSequence++
         prepareRequestId++
-        sleepTimer?.cancel()
-        sleepTimer = null
+        // The session is gone: forget the timer state too, not just the ticker.
+        sleepTimerModule.reset()
         prepareTimeoutJob?.cancel()
         // Deliberately NOT persisting progress here: the caller (deleteBook)
         // removes the book's progress row right after, so a save would race it
@@ -2711,4 +2844,37 @@ class AudioPlayerManager(
         const val SEEK_BACK_INCREMENT_MS: Long = 15_000L
         const val SEEK_FORWARD_INCREMENT_MS: Long = 30_000L
     }
+
+}
+
+/**
+ * #1413 — may the ENGINE correct the transport button's state?
+ *
+ * `play()` sets `isPlaying = true` optimistically, before the engine starts,
+ * so the button responds instantly. Nothing used to correct that optimism when
+ * the stream never started — the usual case being an expired signed YouTube
+ * URL after a pause. The button then read "playing" over silence, and the
+ * listener had to tap twice: the first tap silently turned into a pause.
+ *
+ * The decision is extracted here because the listener that uses it is
+ * entangled with Media3, so this rule can be pinned by a JVM test. It is
+ * narrow on purpose:
+ *
+ *  * only a genuinely settled, NOT-playing engine may correct the state;
+ *  * buffering is a transition (seek, next chapter, re-prepare), not a stop —
+ *    flipping the button on every seek would be a worse defect than the one
+ *    being fixed;
+ *  * a transport that already reads "paused" has nothing to correct.
+ */
+internal object TransportStateReconciliation {
+    fun shouldClearPlayback(
+        engineIsPlaying: Boolean,
+        transportIsPlaying: Boolean,
+        transportIsBuffering: Boolean,
+        enginePlaybackState: Int
+    ): Boolean =
+        !engineIsPlaying &&
+            transportIsPlaying &&
+            !transportIsBuffering &&
+            enginePlaybackState != Player.STATE_BUFFERING
 }

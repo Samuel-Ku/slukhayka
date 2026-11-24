@@ -12,7 +12,9 @@ import android.net.Uri
 class FakeDocumentFile(
     private val displayName: String?,
     private val directory: Boolean,
-    private val children: List<FakeDocumentFile> = emptyList()
+    private val children: List<FakeDocumentFile> = emptyList(),
+    private val sizeBytes: Long = 42L,
+    private val lastModifiedMs: Long = 0L
 ) : DocumentFile(null) {
 
     private val documentUri = Uri.parse("content://fake/${displayName ?: "root"}")
@@ -23,8 +25,8 @@ class FakeDocumentFile(
     override fun isDirectory(): Boolean = directory
     override fun isFile(): Boolean = !directory
     override fun isVirtual(): Boolean = false
-    override fun lastModified(): Long = 0L
-    override fun length(): Long = if (directory) 0L else 42L
+    override fun lastModified(): Long = lastModifiedMs
+    override fun length(): Long = if (directory) 0L else sizeBytes
     override fun canRead(): Boolean = true
     override fun canWrite(): Boolean = false
     override fun delete(): Boolean = false

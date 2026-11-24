@@ -10,6 +10,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
+import com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.source.SourceAdapter
@@ -126,6 +127,38 @@ class SmartCollectionsRepositoryTest {
         )
     }
 
+    /**
+     * The same materialized card, but only a hidden TECHNICAL_OPEN anchor — the
+     * shape a catalogue card has before the listener saves it.
+     */
+    private suspend fun mirror(title: String, author: String, sourceUrl: String) {
+        val id = "owned-${title.hashCode()}"
+        dao.insertAudiobooks(
+            listOf(
+                AudiobookEntity(
+                    id = id,
+                    title = title,
+                    author = author,
+                    narrator = "",
+                    description = "",
+                    coverDrawableRes = 0,
+                    genre = "",
+                    sourceUrl = sourceUrl
+                )
+            )
+        )
+        val workId = MergeKey.keyFor(title, author)
+        dao.upsertWork(WorkEntity(id = workId, mergeKey = workId, title = title, author = author, addedAt = 0L))
+        dao.upsertLibraryEntry(
+            id = id,
+            workId = workId,
+            isFavorite = false,
+            createdAt = 0L,
+            downloadProgress = 0f,
+            origin = LibraryEntryOrigin.TECHNICAL_OPEN.name
+        )
+    }
+
     private val nobel = CollectionList(
         id = "nobel",
         name = "Нобелівські лауреати",
@@ -157,6 +190,31 @@ class SmartCollectionsRepositoryTest {
         val collections = repository.smartCollections.first()
         assertEquals(listOf("nobel"), collections.map { it.id })
         assertEquals(listOf("Старий і море"), collections.single().books.map { it.title })
+    }
+
+    /**
+     * #1399 (review of #1398) — the collections corpus is wired to the PERSONAL
+     * shelf (ADR-0063 §5). Pinning the DAO query alone let a revert of the
+     * `SourceCatalog` wiring stay green.
+     */
+    @Test
+    fun `a technical anchor is not a collection corpus`() = runBlocking {
+        val repository = repo(
+            listOf(FakeAdapter("sluhay", listOf(book("Старий і море", "Ернест Гемінґвей", "sluhay")))),
+            listOf(nobel, booker)
+        )
+        mirror("Старий і море", "Ернест Гемінґвей", "https://sluhay.example/old-man")
+
+        repository.refreshUnifiedCatalog()
+        assertTrue(
+            "a hidden mirror anchor must not join a collection",
+            repository.smartCollections.first().isEmpty()
+        )
+
+        // The listener saves the same card → the next recompute matches it.
+        own("Старий і море", "Ернест Гемінґвей", "https://sluhay.example/old-man")
+        repository.refreshUnifiedCatalog()
+        assertEquals(listOf("nobel"), repository.smartCollections.first().map { it.id })
     }
 
     @Test

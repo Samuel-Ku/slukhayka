@@ -24,7 +24,7 @@ import com.slukhayka.audiobooks.ui.screens.LibraryBookCard
 import com.slukhayka.audiobooks.ui.screens.LibraryFilterSheetContent
 import com.slukhayka.audiobooks.ui.screens.LibraryStatusRow
 import com.slukhayka.audiobooks.ui.screens.ListeningStatsCard
-import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import java.time.LocalDate
 import org.junit.Assert.assertEquals
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
@@ -88,7 +88,7 @@ class LibraryComponentsSnapshotTest {
     @Test
     fun book_card_list_mode() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 LibrarySurface {
                     // onListenNow is what the Library always passes — the golden
                     // documents the shipped card (play action + offline badge).
@@ -109,7 +109,7 @@ class LibraryComponentsSnapshotTest {
     @Test
     fun book_card_grid_mode() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 LibrarySurface {
                     LibraryBookCard(book = libraryBooks[0], grid = true, onClick = {})
                 }
@@ -126,7 +126,7 @@ class LibraryComponentsSnapshotTest {
     @Test
     fun book_card_abandoned_badge() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 LibrarySurface {
                     LibraryBookCard(
                         book = libraryBooks[0],
@@ -146,7 +146,7 @@ class LibraryComponentsSnapshotTest {
     @Test
     fun book_card_sluhay_source_badge() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 LibrarySurface {
                     LibraryBookCard(
                         book = sluhayBook,
@@ -165,7 +165,7 @@ class LibraryComponentsSnapshotTest {
     @Test
     fun stats_card_empty() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 LibrarySurface {
                     ListeningStatsCard(
                         listeningStats = emptyList(),
@@ -183,7 +183,7 @@ class LibraryComponentsSnapshotTest {
     @Test
     fun stats_card_populated() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 LibrarySurface {
                     ListeningStatsCard(
                         listeningStats = TestDataFactory.seedListeningStats(),
@@ -204,7 +204,7 @@ class LibraryComponentsSnapshotTest {
     @Test
     fun status_row_segmented() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 LibrarySurface {
                     LibraryStatusRow(selected = LibraryFilter.LISTENING, onSelect = {})
                 }
@@ -220,7 +220,7 @@ class LibraryComponentsSnapshotTest {
     @Test
     fun status_row_new_selected() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 LibrarySurface {
                     LibraryStatusRow(selected = LibraryFilter.NEW, onSelect = {})
                 }
@@ -237,7 +237,7 @@ class LibraryComponentsSnapshotTest {
     @Test
     fun filter_sheet_content() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.surfaceContainerLow
@@ -265,7 +265,7 @@ class LibraryComponentsSnapshotTest {
     fun status_row_one_tap_per_status() {
         var selected: LibraryFilter? = null
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 LibrarySurface {
                     LibraryStatusRow(selected = LibraryFilter.ALL, onSelect = { selected = it })
                 }
@@ -288,7 +288,7 @@ class LibraryComponentsSnapshotTest {
     @Test
     fun clear_cache_confirm_dialog() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 ClearCacheConfirmDialog(
                     bookCount = 12,
                     bytes = 2_469_396_397L,

@@ -6,7 +6,7 @@ package com.slukhayka.audiobooks.data.achievements
  * «Власний» is the ADR-0060 rule, not a synonym for "in the library": the row
  * was really saved or imported by the listener (EXPLICIT_SAVE /
  * EXPLICIT_IMPORT). A book that merely arrived with the catalogue
- * (AUTO_SEED / CATALOG_SYNC / UNKNOWN) never reaches this row, so it can
+ * (AUTO_SEED / CATALOG_SYNC / TECHNICAL_OPEN / UNKNOWN) never reaches this row, so it can
  * neither complete a series nor cover a curated collection — a catalogue
  * mirror is not a listener's choice (ADR-0047).
  *

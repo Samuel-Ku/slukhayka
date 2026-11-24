@@ -12,7 +12,7 @@ import androidx.compose.ui.test.onRoot
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import com.slukhayka.audiobooks.ui.screens.LibrarySectionTabs
-import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -46,7 +46,7 @@ class LibrarySectionTabsSnapshotTest {
     @Test
     fun books_selected_pins_the_equal_tab_switcher() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 TabsSurface {
                     LibrarySectionTabs(
                         booksSelected = true,
@@ -72,7 +72,7 @@ class LibrarySectionTabsSnapshotTest {
         // The underline has to FOLLOW the selection, so a second state is
         // pinned rather than assumed from the first.
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 TabsSurface {
                     LibrarySectionTabs(
                         booksSelected = false,

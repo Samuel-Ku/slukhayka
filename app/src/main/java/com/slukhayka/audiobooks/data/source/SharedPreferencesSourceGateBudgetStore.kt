@@ -13,8 +13,16 @@ import android.content.SharedPreferences
  */
 class SharedPreferencesSourceGateBudgetStore(context: Context) : SourceGateBudgetStore {
 
-    private val prefs: SharedPreferences =
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    // #1730 — the store is constructed on main inside App.onCreate, before any
+    // network module exists. getSharedPreferences itself is a disk-backed read,
+    // so it must not happen in the constructor; the gate can still be installed
+    // synchronously (installing it touches no preferences), and the first
+    // load/save — on the gate's IO path — creates the file. A synchronized lazy
+    // keeps two concurrent first calls on one instance.
+    private val appContext = context.applicationContext
+    private val prefs: SharedPreferences by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
 
     override fun load(host: String): SourceBucketState? {
         val raw = prefs.getString(key(host), null) ?: return null

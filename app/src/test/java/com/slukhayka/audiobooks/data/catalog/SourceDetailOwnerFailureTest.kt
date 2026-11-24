@@ -243,42 +243,4 @@ class SourceDetailOwnerFailureTest {
         assertObservedWithoutLinkedWork(adapter.response)
     }
 
-    private fun seeder(failure: Exception, probes: MutableList<String>, imports: LibraryImport,
-        imported: MutableList<String>) = LibrarySeeder(
-        candidates = { listOf(GlobalSearchResult(
-            title = "Тигролови", author = "Іван Багряний", mergeKey = "тигролови|іван багряний",
-            sources = listOf(GlobalSearchSource("sluhayua", "Sluhay UA", pageUrl)))) },
-        adapterFor = { adapter },
-        known = { key -> db.audiobookDao().findByMergeKey(key) != null },
-        streamProbe = { stream -> probes += stream; true },
-        import = { sourceId, receivedDetail ->
-            imported += imports.importBookFromSource(sourceId, receivedDetail, writeBackProfile = false).id
-        },
-        onSourceDetailObserved = observer(failure))
-
-    @Test
-    fun `a real Room seed imports once after an ordinary recommendation callback failure`() = runBlocking {
-        val probes = mutableListOf<String>()
-        val imported = mutableListOf<String>()
-        val failure = IOException("seed recommendation unavailable")
-        val result = seeder(failure, probes, imports(failure), imported).seedOnce()
-        assertEquals(LibrarySeeder.SeedResult(1, 1, 0, 0), result)
-        assertEquals(listOf("https://mp3.sluhay.com.ua/100/fresh.mp3"), probes)
-        assertEquals(1, imported.size)
-        assertOwnBook(imported.single(), freshStream, 3_600L, liveCover)
-        assertObservedWithoutLinkedWork(adapter.response)
-    }
-
-    @Test
-    fun `seed callback cancellation escapes before the empty chapter guard with no probe or Room import`() = runBlocking {
-        adapter.response = detail().copy(chapters = emptyList())
-        val probes = mutableListOf<String>()
-        val imported = mutableListOf<String>()
-        val cancelled = CancellationException("seed callback cancelled")
-        assertCancellation(cancelled) { seeder(cancelled, probes, imports(cancelled), imported).seedOnce() }
-        assertTrue(probes.isEmpty())
-        assertTrue(imported.isEmpty())
-        assertTrue(db.audiobookDao().getAllAudiobooksOnce().isEmpty())
-        assertObservedWithoutLinkedWork(adapter.response)
-    }
 }

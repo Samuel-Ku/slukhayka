@@ -25,7 +25,7 @@ fun collectiveRelatedBlock(sourceId: String, detail: SourceBookDetail): Collecti
     val kind = CollectiveBlockKind.RECOMMENDATIONS
     return CollectiveRefreshOutcome.Success(
         CollectiveFeedBlock(
-            blockKey = collectiveBlockKey(sourceId, kind), sourceId = sourceId, kind = kind,
+            blockKey = collectiveBlockKey(sourceId, kind, detail.url), sourceId = sourceId, kind = kind,
             name = "До «${detail.title}»", provenanceUrl = detail.url,
             cards = cards,
             fetchedAt = 0L, staleAfter = 0L, version = 0L,

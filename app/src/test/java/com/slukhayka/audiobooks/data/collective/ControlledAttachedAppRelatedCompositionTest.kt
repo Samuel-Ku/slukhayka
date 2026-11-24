@@ -100,7 +100,7 @@ class ControlledAttachedAppRelatedCompositionTest {
             val dao = app.audiobookDao
             assertTrue("fresh runtime-owned Room starts without imported books", dao.getAllAudiobooksOnce().isEmpty())
             assertEquals(0, dao.countWorks())
-            assertNull(RoomCollectiveFeedBlockStore(dao).active("sluhayua|RECOMMENDATIONS"))
+            assertNull(RoomCollectiveFeedBlockStore(dao).active("sluhayua|RECOMMENDATIONS|sluhay.com.ua/5931576:grigorij-kvitka-osnovjanenko-serdjeshna-oksana"))
             Instrumentation().callApplicationOnCreate(app)
             assertSame("actual onCreate installs the normal App singleton", app, App.instance)
             assertEquals(NetworkRoute.Relay(relayBase), TransportPrivacy.current())
@@ -112,10 +112,10 @@ class ControlledAttachedAppRelatedCompositionTest {
             val ended = System.currentTimeMillis()
             assertEquals("Сердешна Оксана", imported.title)
             assertEquals("Григорій Квітка-Основяненко", imported.author)
-            val persisted = requireNotNull(RoomCollectiveFeedBlockStore(dao).active("sluhayua|RECOMMENDATIONS"))
+            val persisted = requireNotNull(RoomCollectiveFeedBlockStore(dao).active("sluhayua|RECOMMENDATIONS|sluhay.com.ua/5931576:grigorij-kvitka-osnovjanenko-serdjeshna-oksana"))
             assertTrue("activation time belongs to this public import", persisted.fetchedAt in started..ended)
             val expected = CollectiveFeedBlock(
-                blockKey = "sluhayua|RECOMMENDATIONS", sourceId = "sluhayua",
+                blockKey = "sluhayua|RECOMMENDATIONS|sluhay.com.ua/5931576:grigorij-kvitka-osnovjanenko-serdjeshna-oksana", sourceId = "sluhayua",
                 kind = CollectiveBlockKind.RECOMMENDATIONS, name = "До «Сердешна Оксана»", provenanceUrl = pageUrl,
                 cards = listOf(
                     CollectiveBlockCard("sluhayua", "https://sluhay.com.ua/7056710:Іvan-karpenko-karij-burlaka", "Іван Карпенко-Карий — Бурлака", "", null),

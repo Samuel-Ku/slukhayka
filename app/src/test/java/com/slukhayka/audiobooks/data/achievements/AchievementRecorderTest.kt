@@ -30,6 +30,25 @@ class AchievementRecorderTest {
         assertTrue(accepted.isCompleted)
         assertEquals(setOf(AchievementFact.REVIEW_ACCEPTED),store.observeFacts().first())
     }
+    /**
+     * #1574 — the snapshot is pulled at WRITE checkpoints, not per Room
+     * emission: one successful queued write triggers exactly one pull.
+     */
+    @Test fun `each successful write pulls the achievements snapshot exactly once`() = runTest {
+        val store = MemoryAchievementStore()
+        var pulls = 0
+        val recorder = AchievementRecorder(
+            backgroundScope, store, { _ -> },
+            onWritten = { pulls++ }
+        )
+        recorder.recordObservation(ListeningObservation.Played(500L))
+        recorder.captureFact(AchievementFact.PLAYBACK_STARTED)
+        recorder.captureCounter(AchievementCounter.END_OF_CHAPTER_ARM)
+        runCurrent()
+
+        assertEquals("one pull per successful write", 3, pulls)
+    }
+
     @Test fun `a failed write retries the same interval and never drops the following one`() = runTest {
         val store = MemoryAchievementStore()
         var fail = true

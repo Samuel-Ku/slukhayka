@@ -36,14 +36,14 @@ import com.slukhayka.audiobooks.ui.library.UK_REMAINING_TIME_UNITS
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
 import com.slukhayka.audiobooks.ui.library.libraryGridEntries
-import com.slukhayka.audiobooks.ui.components.AppTabHeader
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
 import com.slukhayka.audiobooks.ui.screens.LibraryHeaderActions
-import com.slukhayka.audiobooks.ui.screens.LibrarySearchField
+import com.slukhayka.audiobooks.ui.screens.LibraryTabsWithSearch
 import com.slukhayka.audiobooks.ui.screens.LibraryStatusRow
 import com.slukhayka.audiobooks.ui.screens.libraryGridColumns
 import com.slukhayka.audiobooks.ui.screens.libraryGridContent
 import com.slukhayka.audiobooks.ui.theme.AppDimens
-import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -56,8 +56,8 @@ import org.robolectric.annotation.GraphicsMode
  *
  * The book area is rendered through the very same [libraryGridContent] seam the
  * screen calls, so these goldens cannot document a layout the app does not
- * ship — the only chrome this test re-states is the permanently visible search
- * field, the one-line status row and the filter chip beside it.
+ * ship — the only chrome this test re-states is the tab+search band (F30b),
+ * the one-line status row and the filter chip beside it.
  *
  * Run:    ./gradlew testDebugUnitTest --tests "*LibraryRedesignSnapshotTest" \
  *           -Proborazzi.test.record=true
@@ -74,7 +74,7 @@ class LibraryRedesignSnapshotTest {
     @Test
     fun browsing_sections_hero_and_shelf() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 LibraryRedesignScreen(
                     entries = libraryGridEntries(
                         browsing = true,
@@ -95,7 +95,7 @@ class LibraryRedesignSnapshotTest {
     fun narrowed_down_dense_rows() {
         val listening = previewLibrary.filter { it.isListening }
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 LibraryRedesignScreen(
                     selected = LibraryFilter.LISTENING,
                     subtitle = "Фільтр: Слухаю · ${listening.size}",
@@ -109,8 +109,7 @@ class LibraryRedesignSnapshotTest {
                             listening.sumOf { it.remainingSeconds },
                             UK_REMAINING_TIME_UNITS
                         )
-                    ),
-                    browsing = false
+                    )
                 )
             }
         }
@@ -122,7 +121,7 @@ class LibraryRedesignSnapshotTest {
     @Test
     fun grid_view_sections() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 LibraryRedesignScreen(
                     entries = libraryGridEntries(
                         browsing = true,
@@ -147,18 +146,18 @@ private fun LibraryRedesignScreen(
     entries: List<LibraryGridEntry>,
     selected: LibraryFilter = LibraryFilter.ALL,
     subtitle: String = "${previewLibrary.size} книг",
-    gridMode: Boolean = false,
-    browsing: Boolean = true
+    gridMode: Boolean = false
 ) {
     val returnFocus = remember { FocusRequester() }
     val importFocus = remember { FocusRequester() }
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(modifier = Modifier.fillMaxSize()) {
             // The real header, including the «+ Додати» corner and the ⋮ menu.
-            AppTabHeader(
+            PaperInkTabHeader(
                 title = "Мої книги",
                 subtitle = subtitle,
                 headingTestTag = "library_heading",
+                onSettingsClick = {},
                 actions = {
                     LibraryHeaderActions(
                         bookmarksCount = 0,
@@ -171,9 +170,17 @@ private fun LibraryRedesignScreen(
                     )
                 }
             )
-            // ADR-0033 amended 2026-09-18: the field is permanently visible, so
-            // it belongs to the chrome these goldens restate.
-            LibrarySearchField(query = "", onQueryChange = {})
+            // F30b — tabs + the ADR-0033 permanently visible search share one
+            // band; the goldens restate that shipped arrangement.
+            LibraryTabsWithSearch(
+                booksSelected = true,
+                savedSelected = false,
+                onBooks = {},
+                onShelves = {},
+                onSaved = {},
+                query = "",
+                onQueryChange = {}
+            )
             LibraryStatusRow(
                 selected = selected,
                 onSelect = {},
@@ -220,7 +227,6 @@ private fun LibraryRedesignScreen(
             ) {
                 libraryGridContent(
                     entries = entries,
-                    browsing = browsing,
                     gridMode = gridMode,
                     availability = emptyMap(),
                     downloadCounts = emptyMap(),

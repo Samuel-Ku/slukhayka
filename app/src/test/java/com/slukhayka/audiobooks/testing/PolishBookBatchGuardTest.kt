@@ -1,0 +1,232 @@
+package com.slukhayka.audiobooks.testing
+
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.File
+
+/**
+ * #1388 — batch 2 of the Polish return: book screen, reviews, rating, player.
+ *
+ * The ticket's acceptance criterion is not «a `values-pl` file exists»: an
+ * untranslated line falls back to Ukrainian, so a file with one missing key
+ * looks complete until a Polish listener opens that screen. This guard
+ * therefore DERIVES the batch's area from the sources that own the three
+ * surfaces — every `R.string` / `R.plurals` key the library, collections and
+ * saved screens can reach — and then asks the `pl` resource set, key by key,
+ * whether that exact line is really Polish.
+ *
+ * The area is source-derived on purpose: a new string added to one of these
+ * screens turns this test red until that line is translated, instead of
+ * quietly falling back. The list below is batch 2's boundary (book screen,
+ * reviews, rating, player, achievements labels); batch 1 keeps its own guard
+ * and batch 3 (#1389) adds its own sources rather than widening this one.
+ *
+ * Three failures this catches, all of which a "file exists" check misses:
+ *  * a key missing from `values-pl` — the listener sees Ukrainian;
+ *  * a value copied from `values/` — Cyrillic letters in the Polish set mean
+ *    the line was not translated, which is what #1385 was filed about;
+ *  * a placeholder lost or renamed (`%1$d` → `%1$s`, `%%` → `%`) — the app
+ *    would throw at `String.format` time on a Polish device only.
+ *
+ * A library that renders a wrong-looking string but not a missing one is out
+ * of scope here on purpose: this is a completeness guard, not a linguistic
+ * review.
+ */
+class PolishBookBatchGuardTest {
+
+    /** `app/` — Gradle runs unit tests with cwd = app/, other runners with cwd = repo root. */
+    private val appRoot: File by lazy {
+        listOf(File(System.getProperty("user.dir")), File(System.getProperty("user.dir"), "app"))
+            .firstOrNull { File(it, "src/main/res").isDirectory }
+            ?: error("app root not found from ${System.getProperty("user.dir")}")
+    }
+
+    private val res: File get() = File(appRoot, "src/main/res")
+
+    /** The batch boundary: the sources that own the book, reviews, rating and player surfaces. */
+    /**
+     * The batch boundary: the four surfaces NAMED by #1388 and the composables
+     * they actually render — the achievement cards/award notices, the bookmark
+     * and metadata dialogs, the chapter-order dialog, the sleep-timer sheet and
+     * the showcase publish sheet. A screen file alone is not the surface: these
+     * dialogs and notice labels are visible lines of the same screens, and when
+     * they were missing here the guard's "green" proved only the screen files.
+     *
+     * Batch 3 (#1389) keeps app-shell navigation labels (`MainActivity` panes,
+     * `HomeScreen` catalog nav) and background-service accessibility messages
+     * (`AudioPlayerManager` errors) — those are not lines of the four surfaces.
+     */
+    private val areaSources: List<File> by lazy {
+        val files = listOf(
+            "src/main/java/com/slukhayka/audiobooks/ui/screens/BookDetailScreen.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/screens/BookDetailReviews.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/screens/BookFeedback.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/screens/LibraryRatingScreen.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/screens/PlayerScreen.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/screens/AchievementsScreen.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/screens/AchievementPinButton.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/screens/ListenScreen.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/screens/ShowcasePreviewSheet.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/components/MiniPlayerBar.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/components/PlayerPane.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/components/BookmarkDialog.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/components/MetadataCorrectionDialog.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/components/ChapterOrderDialog.kt",
+            "src/main/java/com/slukhayka/audiobooks/ui/components/SleepTimerSheet.kt",
+        ).map { File(appRoot, it) }
+        val trees = listOf(
+            "src/main/java/com/slukhayka/audiobooks/ui/screens/bookdetail",
+            "src/main/java/com/slukhayka/audiobooks/ui/achievements",
+        ).map { dir ->
+            File(appRoot, dir).walkTopDown().filter { it.isFile && it.extension == "kt" }.toList()
+        }
+        val missing = files.filterNot { it.isFile }
+        assertTrue(
+            "the batch area lists sources that no longer exist (the area moved, not the test): " +
+                missing.joinToString { it.path },
+            missing.isEmpty()
+        )
+        files + trees.flatten()
+    }
+
+    private val reference = Regex("""R\.(string|plurals|array)\.([a-z0-9_]+)""")
+
+    /** `key` → every value of that key in one resource qualifier, as raw XML text. */
+    private fun valuesIn(directory: File): Map<String, String> {
+        val out = LinkedHashMap<String, String>()
+        val stringNode = Regex("""<string\s+name="([^"]+)"[^>]*>(.*?)</string>""", RegexOption.DOT_MATCHES_ALL)
+        val pluralNode = Regex("""<plurals\s+name="([^"]+)"[^>]*>(.*?)</plurals>""", RegexOption.DOT_MATCHES_ALL)
+        (directory.listFiles() ?: emptyArray())
+            .filter { it.isFile && it.name.endsWith(".xml") }
+            .sortedBy { it.name }
+            .forEach { file ->
+                val text = file.readText(charset = Charsets.UTF_8)
+                stringNode.findAll(text).forEach { out[it.groupValues[1]] = it.groupValues[2] }
+                pluralNode.findAll(text).forEach { out[it.groupValues[1]] = it.groupValues[2] }
+            }
+        return out
+    }
+
+    private val ukrainian: Map<String, String> by lazy { valuesIn(res.resolve("values")) }
+    private val polish: Map<String, String> by lazy { valuesIn(res.resolve("values-pl")) }
+
+    /** Every `R.string` / `R.plurals` the batch area names. */
+    private fun area(): Map<String, String> {
+        val found = LinkedHashMap<String, String>()
+        areaSources.forEach { source ->
+            val text = source.readText(charset = Charsets.UTF_8)
+            reference.findAll(text).forEach { match ->
+                val kind = match.groupValues[1]
+                val key = match.groupValues[2]
+                if (kind == "array") {
+                    throw AssertionError(
+                        "${source.name} reaches the string array `$key`; add array support to " +
+                            "this guard (or keep the array out of the batch area) instead of " +
+                            "letting it fall back to Ukrainian silently"
+                    )
+                }
+                found[key] = kind
+            }
+        }
+        assertTrue(
+            "the batch area produced ${found.size} keys — the source walk found nothing, so a " +
+                "green run here would prove nothing",
+            found.size >= 400
+        )
+        return found
+    }
+
+    private val cyrillic = Regex("[А-Яа-яІіЇїЄєҐґ]")
+    private val placeholder = Regex("""%(?:\d+\$)?[sd]|%%""")
+
+    @Test
+    fun `every line in the batch area has a polish value`() {
+        val missing = area().keys.filterNot { polish.containsKey(it) }.sorted()
+        assertTrue(
+            "these book/reviews/rating/player lines are absent from `values-pl` and would fall " +
+                "back to Ukrainian:\n  " + missing.joinToString("\n  "),
+            missing.isEmpty()
+        )
+    }
+
+    @Test
+    fun `no polish line in the batch area is a copy of the ukrainian one`() {
+        val copies = area().keys.mapNotNull { key ->
+            val value = polish[key] ?: return@mapNotNull null
+            if (cyrillic.containsMatchIn(value)) key else null
+        }.sorted()
+        assertTrue(
+            "these `values-pl` lines still carry Cyrillic letters — they were copied from " +
+                "`values/` instead of translated, which is the #1385 mixture:\n  " +
+                copies.joinToString("\n  "),
+            copies.isEmpty()
+        )
+    }
+
+    /**
+     * `plurals` keeps its categories in `<item quantity=…>` children; a raw
+     * concatenation would compare four Polish forms against three Ukrainian
+     * ones only because Polish needs an extra `many` category. That is a real
+     * language difference, not a lost placeholder: compare category by
+     * category, and for a category the Ukrainian source does not have (Polish
+     * `many` vs Ukrainian `one/few/other`) fall back to the source's `other`
+     * form — the same fallback Android itself uses for an unknown quantity.
+     */
+    private val quantityItem = Regex("""<item\s+quantity="([a-z]+)"[^>]*>(.*?)</item>""", RegexOption.DOT_MATCHES_ALL)
+
+    private fun quantitiesOf(raw: String): Map<String, List<String>> =
+        quantityItem.findAll(raw).associate { match ->
+            match.groupValues[1] to placeholder.findAll(match.groupValues[2]).map { it.value }.sorted().toList()
+        }
+
+    @Test
+    fun `placeholders in the batch area match the ukrainian source`() {
+        val offenders = area().keys.mapNotNull { key ->
+            val ukrainianText = ukrainian[key] ?: return@mapNotNull "$key: no Ukrainian source"
+            val polishText = polish[key] ?: return@mapNotNull null
+            val ukrainianQuantities = quantitiesOf(ukrainianText)
+            val polishQuantities = quantitiesOf(polishText)
+            if (ukrainianQuantities.isEmpty() && polishQuantities.isEmpty()) {
+                val expected = placeholder.findAll(ukrainianText).map { it.value }.sorted().toList()
+                val actual = placeholder.findAll(polishText).map { it.value }.sorted().toList()
+                return@mapNotNull if (expected == actual) null else "$key: expected $expected, found $actual"
+            }
+            val fallback = ukrainianQuantities["other"]
+            val diff = polishQuantities.mapNotNull { (quantity, actual) ->
+                val expected = ukrainianQuantities[quantity] ?: fallback
+                    ?: return@mapNotNull "$key/$quantity: no Ukrainian quantity to compare"
+                if (expected == actual) null else "$key/$quantity: expected $expected, found $actual"
+            }
+            if (diff.isEmpty()) null else diff.joinToString("; ")
+        }.sorted()
+        assertTrue(
+            "placeholders differ from the Ukrainian source, so `String.format` could throw on a " +
+                "Polish device:\n  " + offenders.joinToString("\n  "),
+            offenders.isEmpty()
+        )
+    }
+
+    @Test
+    fun `a key lives in exactly one file of the pl qualifier`() {
+        // Two definitions in the same qualifier are an aapt error, and a build
+        // that never reaches this point tells the reviewer nothing about which
+        // file is authoritative. The override file and the translation file
+        // must never both claim a key.
+        val owners = HashMap<String, MutableList<String>>()
+        (res.resolve("values-pl").listFiles() ?: emptyArray())
+            .filter { it.isFile && it.name.endsWith(".xml") }
+            .forEach { file ->
+                val text = file.readText(charset = Charsets.UTF_8)
+                Regex("""<(string|plurals)\s+name="([^"]+)"""").findAll(text).forEach { match ->
+                    owners.getOrPut(match.groupValues[2]) { mutableListOf() }.add(file.name)
+                }
+            }
+        val clashes = owners.filterValues { it.size > 1 }
+        assertTrue(
+            "these keys are defined twice in the `pl` qualifier — aapt rejects the build, and " +
+                "nothing says which definition the app would speak:\n  " +
+                clashes.entries.joinToString("\n  ") { "${it.key}: ${it.value}" },
+            clashes.isEmpty()
+        )
+    }
+}

@@ -17,10 +17,15 @@ import subprocess
 import sys
 import time
 import uuid
+import unicodedata
 import xml.etree.ElementTree as ET
 import zipfile
 
-ROOT = Path(__file__).resolve().parents[1]
+_ROOT_FROM_FILE = Path(__file__).resolve().parents[1]
+# The macOS JDK emits NFC canonical paths; choose that spelling at our trusted root.
+ROOT = Path(unicodedata.normalize("NFC", str(_ROOT_FROM_FILE))) if sys.platform == "darwin" else _ROOT_FROM_FILE
+if not ROOT.samefile(_ROOT_FROM_FILE):
+    raise RuntimeError("Normalized controlled repository root has different physical identity")
 CLASS = "com.slukhayka.audiobooks.data.collective.ControlledAttachedAppRelatedCompositionTest"
 METHOD = "actual attached App public import persists observed related cards for its public overview reader"
 PREFIX = "com/slukhayka/audiobooks/"
@@ -48,7 +53,7 @@ CASES = {
                     PREFIX + "data/collective/ControlledAppFixtureRunner.class"],
         "main": ['com/slukhayka/audiobooks/App.class', 'com/slukhayka/audiobooks/App$sourceCatalog$2$1.class', 'com/slukhayka/audiobooks/App$sourceCatalog$2$2.class', 'com/slukhayka/audiobooks/App$observeSourceArrivals$3.class', 'com/slukhayka/audiobooks/data/catalog/SourceCatalog.class', 'com/slukhayka/audiobooks/data/catalog/SourceCatalog$refreshSourceFeeds$2.class', 'com/slukhayka/audiobooks/data/catalog/SourceCatalog$newFeedFor$outcome$1.class', 'com/slukhayka/audiobooks/data/catalog/FeedSnapshotRefresh.class', 'com/slukhayka/audiobooks/data/catalog/FeedSnapshotStore.class', 'com/slukhayka/audiobooks/data/catalog/WorkIndexStore.class', 'com/slukhayka/audiobooks/data/catalog/WorkIndexRefresher.class', 'com/slukhayka/audiobooks/data/collective/CollectiveFeedRefresh.class', 'com/slukhayka/audiobooks/data/collective/CollectiveOverviewBlocks.class', 'com/slukhayka/audiobooks/data/collective/RoomCollectiveFeedBlockStore.class', 'com/slukhayka/audiobooks/data/collective/RoomCollectiveFeedBlockStore$activateIfUnchanged$2.class', 'com/slukhayka/audiobooks/data/collective/RoomCollectiveFeedBlockStore$active$2.class', 'com/slukhayka/audiobooks/data/collective/CollectiveFeedBlockCodec.class', 'com/slukhayka/audiobooks/data/source/SluhayuaAdapter.class', 'com/slukhayka/audiobooks/data/source/HttpFetcher.class', 'com/slukhayka/audiobooks/data/source/SourceRequestGate.class', 'com/slukhayka/audiobooks/data/db/AudiobookDatabase.class', 'com/slukhayka/audiobooks/data/db/AudiobookDao.class', 'com/slukhayka/audiobooks/data/db/AudiobookDao_Impl.class'],
         "source": 'app/src/test/java/com/slukhayka/audiobooks/data/collective/ControlledAttachedAppArrivalsCompositionTest.kt',
-        "sourceSHA256": '8eb5d62cfea5e565aa54446764625b1ef3253078872639986d16406b59beea34',
+        "sourceSHA256": '96b231b7523c924690c2e04bf77b70e0ffcaf2a181fe5fbd38b957f0766e0242',
     },
 }
 
@@ -63,7 +68,7 @@ def selection(receipt):
 
 
 ORACLES = {
-    "app/src/test/java/com/slukhayka/audiobooks/data/collective/ControlledAttachedAppRelatedCompositionTest.kt": "8b2880a2dec3b734efe55f6b03c47cc9e806de8812cab8f4c41914539046f751",
+    "app/src/test/java/com/slukhayka/audiobooks/data/collective/ControlledAttachedAppRelatedCompositionTest.kt": "6f9bf0f3700be9263696b3e5855fd7b80b910fbb53361b705e6ebcad15da7143",
     "app/src/test/java/com/slukhayka/audiobooks/data/collective/ControlledAppFixtureRunner.kt": "f84b3c09ecaa46ef37ab1a4aef8231ba445e4d271be6a8a5d9f33881a71d608b",
     "app/src/test/resources/s2-app-composition-serdeshna.html": "342d39bdc1520e9caabebe6d3318a2b9d7925c3a8048d40ed7b8729649155a35",
     "scripts/fixtures/controlled-app-AndroidManifest.xml": "77e467080fda4826ce15c2243d2fcda8f3b86e975c10d5e0ed7dd1887172bca1",

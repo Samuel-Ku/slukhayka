@@ -24,20 +24,43 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 class ShowcaseConsentStore(context: Context) {
 
-    private val prefs: SharedPreferences =
-        context.getSharedPreferences("showcase_consent_prefs", Context.MODE_PRIVATE)
+    private val appContext = context.applicationContext
+    // #1723 — the preferences object is created lazily: this store is
+    // constructed while the ViewModel is being built on the main thread, and
+    // getSharedPreferences() is a disk read on first touch. StartupReads
+    // loads the persisted value on IO and [seed] publishes it; grant/withdraw
+    // touch the file only on an explicit listener action.
+    private val prefs: SharedPreferences by lazy {
+        appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    }
 
-    private val _published = MutableStateFlow(prefs.getBoolean(KEY_PUBLISHED, false))
+    private val _published = MutableStateFlow(false)
+    private val seedLock = Any()
+    private var mutated = false
 
     /** True once the listener has confirmed publishing their showcase. */
     val published: StateFlow<Boolean> = _published.asStateFlow()
 
     fun isPublished(): Boolean = _published.value
 
+    /**
+     * Publishes the value the startup batch already read (#1723). It never
+     * overwrites a [grant]/[withdraw] that raced it: the listener's explicit
+     * action is the newer fact.
+     */
+    fun seed(published: Boolean) {
+        synchronized(seedLock) {
+            if (!mutated) _published.value = published
+        }
+    }
+
     /** The listener confirmed. Recorded only AFTER the write succeeded. */
     fun grant() {
-        prefs.edit().putBoolean(KEY_PUBLISHED, true).apply()
-        _published.value = true
+        synchronized(seedLock) {
+            prefs.edit().putBoolean(KEY_PUBLISHED, true).apply()
+            mutated = true
+            _published.value = true
+        }
     }
 
     /**
@@ -45,11 +68,25 @@ class ShowcaseConsentStore(context: Context) {
      * After this, changing the pins sends nothing until they confirm again.
      */
     fun withdraw() {
-        prefs.edit().putBoolean(KEY_PUBLISHED, false).apply()
-        _published.value = false
+        synchronized(seedLock) {
+            prefs.edit().putBoolean(KEY_PUBLISHED, false).apply()
+            mutated = true
+            _published.value = false
+        }
     }
 
-    private companion object {
-        const val KEY_PUBLISHED = "showcase_published"
+    companion object {
+        private const val PREFS_NAME = "showcase_consent_prefs"
+        private const val KEY_PUBLISHED = "showcase_published"
+
+        /**
+         * The startup read (#1723), on whatever thread the caller provides.
+         * [StartupReads] is the IO caller; keeping the key names here means
+         * the store owns its storage format.
+         */
+        internal fun readPublished(context: Context): Boolean =
+            context.applicationContext
+                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(KEY_PUBLISHED, false)
     }
 }

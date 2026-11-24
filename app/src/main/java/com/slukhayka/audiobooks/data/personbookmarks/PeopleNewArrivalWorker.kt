@@ -4,7 +4,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -14,7 +13,7 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.slukhayka.audiobooks.App
-import com.slukhayka.audiobooks.MainActivity
+import com.slukhayka.audiobooks.NotificationIntents
 import kotlinx.coroutines.flow.first
 import java.util.concurrent.TimeUnit
 
@@ -70,13 +69,20 @@ class PeopleNewArrivalWorker(
             ) ?: return
             val context = app.applicationContext
             if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
+            // #1547 — every word (plural included) comes from resources for the
+            // current locale; nothing user-facing lives in this file anymore.
+            val copy = PeopleNewArrivalNotificationText.build(
+                resources = context.resources,
+                count = decision.count,
+                people = decision.people
+            )
             // Channels exist from API 26 only; API 24–25 posts the same
             // notification the old way, without one.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val manager = context.getSystemService(NotificationManager::class.java)
                 if (manager.getNotificationChannel(CHANNEL_ID) == null) {
                     manager.createNotificationChannel(NotificationChannel(
-                        CHANNEL_ID, "Новинки від людей", NotificationManager.IMPORTANCE_DEFAULT
+                        CHANNEL_ID, copy.channelName, NotificationManager.IMPORTANCE_DEFAULT
                     ))
                 }
             }
@@ -87,28 +93,19 @@ class PeopleNewArrivalWorker(
             // the same person (role from the key, name from `people`).
             val firstPersonName = decision.people.firstOrNull()?.takeIf { it.isNotBlank() }
             val firstPersonRole = decision.notifiedCounts.keys.firstOrNull()?.role
-            val intent = Intent(context, MainActivity::class.java)
-                .putExtra(MainActivity.EXTRA_OPEN_PEOPLE_NEW, true)
-                .apply {
-                    if (firstPersonName != null && firstPersonRole != null) {
-                        putExtra(MainActivity.EXTRA_PEOPLE_NEW_NAME, firstPersonName)
-                        putExtra(MainActivity.EXTRA_PEOPLE_NEW_ROLE, firstPersonRole.name)
-                    }
-                }
-                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            val intent = NotificationIntents.peopleNew(context, firstPersonName, firstPersonRole)
             val pending = PendingIntent.getActivity(
                 context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            val people = decision.people.take(2).joinToString(" та ").ifBlank { "ваших авторів" }
             NotificationManagerCompat.from(context).notify(
                 NOTIFICATION_ID,
                 NotificationCompat.Builder(context, CHANNEL_ID)
                     .setSmallIcon(com.slukhayka.audiobooks.R.drawable.ic_launcher_foreground)
-                    .setContentTitle("${decision.count} нові книги")
-                    .setContentText("Від $people")
+                    .setContentTitle(copy.title)
+                    .setContentText(copy.body)
                     .setContentIntent(pending)
                     .setAutoCancel(true)
-                    .addAction(0, "Переглянути", pending)
+                    .addAction(0, copy.action, pending)
                     .build()
             )
             app.personBookmarks.markNotified(decision.notifiedCounts)

@@ -102,8 +102,8 @@ class RoomCollectiveAttemptAtomicityTest {
                 val rowB = row(b)
                 assertTrue(peerStore.activate(a))
                 assertEquals(a, ownerStore.active(a.blockKey))
-                assertEquals(54, ownerDb.openHelper.writableDatabase.version)
-                assertEquals(54, peerDb.openHelper.writableDatabase.version)
+                assertEquals(56, ownerDb.openHelper.writableDatabase.version)
+                assertEquals(56, peerDb.openHelper.writableDatabase.version)
                 assertEquals(context.getDatabasePath(name).canonicalFile, java.io.File(ownerDb.openHelper.writableDatabase.path).canonicalFile)
                 assertEquals(context.getDatabasePath(name).canonicalFile, java.io.File(peerDb.openHelper.writableDatabase.path).canonicalFile)
 

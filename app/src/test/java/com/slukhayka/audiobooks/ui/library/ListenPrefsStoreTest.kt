@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.ui.library
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.slukhayka.audiobooks.testing.TestDataFactory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -38,7 +39,9 @@ class ListenPrefsStoreTest {
         // Default order is HERO, ALMOST_DONE, RETURN, NEXT_IN_SERIES, TRAVEL…;
         // one move-up puts TRAVEL one step higher (position 3, 0-based).
         assertEquals(3, store.order.indexOf(ListenComposer.BlockId.TRAVEL))
-        assertEquals(8, store.order.size)
+        // The whole default order is materialised once a move writes it, so this
+        // count tracks DEFAULT_ORDER — #1469 appended FINISHED (8 → 9).
+        assertEquals(ListenComposer.DEFAULT_ORDER.size, store.order.size)
 
         // A fresh store over the same prefs file sees the same order.
         val reloaded = store()
@@ -108,5 +111,36 @@ class ListenPrefsStoreTest {
         assertFalse(reloaded.dismissedBookIds.contains("book-1"))
         // One move-down puts HERO at position 1 (0-based); dismiss unaffected.
         assertEquals(1, reloaded.order.indexOf(ListenComposer.BlockId.HERO))
+    }
+
+    /**
+     * #1703 — the UI contract behind the «Повернути» snackbar: undoing a
+     * dismissal really puts the Work back on a shelf. `undismissBook` alone
+     * only edits the preference set; this walks the same composer the screen
+     * runs, so a restored id that no block claims would still fail.
+     */
+    @Test
+    fun `undismiss puts the work back on the shelf`() {
+        val store = store()
+        val books = buildLibraryBooks(
+            books = TestDataFactory.dataBooks(),
+            progressList = emptyList(),
+            chaptersByBook = emptyMap(),
+        )
+        // The production copy: the composer's own strings are not under test.
+        val copy = ResourceListenCopy(context.resources)
+        val bookId = books[1].book.id
+
+        fun onShelf(): Boolean = ListenComposer
+            .compose(books, nextInSeries = null, prefs = store, copy = copy)
+            .any { block -> block.books.any { it.book.id == bookId } }
+
+        assertTrue("the fixture must start on a shelf", onShelf())
+
+        store.dismissBook(bookId)
+        assertFalse("dismiss removes the work from every shelf", onShelf())
+
+        store.undismissBook(bookId)
+        assertTrue("undo restores the work to the shelf", onShelf())
     }
 }

@@ -5,9 +5,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -17,9 +14,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.EmptyState
@@ -91,7 +88,7 @@ fun BookListScreen(
                         // real progress-bar node keeps its contentDescription.
                         val loadingLabel = stringResource(R.string.secondary_loading)
                         EmptyState(
-                            icon = Icons.Filled.Info,
+                            icon = PaperInkIcons.Info,
                             title = loadingLabel,
                             body = "",
                             iconContent = {
@@ -112,7 +109,7 @@ fun BookListScreen(
                 errorMessage != null -> {
                     item {
                         EmptyState(
-                            icon = Icons.Filled.Warning,
+                            icon = PaperInkIcons.Alert,
                             title = errorMessage,
                             body = "",
                             stateDescription = stringResource(R.string.secondary_state_error),
@@ -126,7 +123,7 @@ fun BookListScreen(
                 books.isEmpty() -> {
                     item {
                         EmptyState(
-                            icon = Icons.Filled.Info,
+                            icon = PaperInkIcons.Info,
                             title = emptyMessage,
                             body = "",
                             modifier = Modifier

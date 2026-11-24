@@ -2,6 +2,8 @@ package com.slukhayka.audiobooks.ui.library
 
 import com.slukhayka.audiobooks.data.downloads.OfflineDownloads
 import com.slukhayka.audiobooks.data.imports.LibraryImport
+import com.slukhayka.audiobooks.data.imports.LocalAccessRecoveryReport
+import com.slukhayka.audiobooks.data.imports.LocalCopyMigration
 import com.slukhayka.audiobooks.data.imports.LocalImportResult
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -31,6 +33,40 @@ class OutcomeMessagesTest {
         assertEquals(
             "Імпорт завершено · 3 дублікатів пропущено · 2 файлів не вдалося додати",
             OutcomeMessages.importOutcome(LocalImportResult(booksImported = 0, filesImported = 0, duplicateFiles = 3, skippedFiles = 2))
+        )
+    }
+
+    // --- one-time copy migration (#1185 T4) --------------------------------
+
+    @Test
+    fun `copy migration report names the freed space and the copies kept`() {
+        assertEquals(
+            "Звільнено 1 МБ: копії локальних книг переїхали на оригінальні теки · 2 копій лишено",
+            OutcomeMessages.localCopyMigration(
+                LocalCopyMigration.Report(freedBytes = 1_572_864L, keptTracks = 2)
+            )
+        )
+        assertEquals(
+            "Звільнено 0 МБ: копії локальних книг переїхали на оригінальні теки",
+            OutcomeMessages.localCopyMigration(LocalCopyMigration.Report())
+        )
+    }
+
+    // --- local-access recovery (#1230) -------------------------------------
+
+    @Test
+    fun `local access recovery only claims success after exact bytes matched`() {
+        assertEquals(
+            "Доступ відновлено: 2 файлів цієї книги · 1 чужих файлів не додано",
+            OutcomeMessages.localAccessRecovery(
+                LocalAccessRecoveryReport(identityProven = true, relinkedTracks = 2, unprovenFiles = 1)
+            )
+        )
+        assertEquals(
+            "Ці файли не належать книзі за вмістом — нічого не змінено. Іншу начитку виберіть явно.",
+            OutcomeMessages.localAccessRecovery(
+                LocalAccessRecoveryReport(identityProven = false, unprovenFiles = 1)
+            )
         )
     }
 

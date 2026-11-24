@@ -10,6 +10,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.collections.ListenerCollection
 import com.slukhayka.audiobooks.data.collections.ListenerCollectionItem
+import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.ui.screens.collections.CollectionDetailContent
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
@@ -44,17 +45,32 @@ class CollectionDetailContentTest {
         items = books.map { (bookId, reason) -> ListenerCollectionItem(bookId, reason, 1L) }
     )
 
+    private fun localBook(id: String, title: String, author: String = "Автор") = AudiobookEntity(
+        id = id,
+        title = title,
+        author = author,
+        narrator = "",
+        description = "",
+        coverDrawableRes = 0,
+        genre = "",
+        sourceUrl = "https://example.invalid/$id"
+    )
+
     private fun setContent(
         collection: ListenerCollection,
         onRemoveBook: (String) -> Unit = {},
-        onDelete: () -> Unit = {}
+        onDelete: () -> Unit = {},
+        booksById: Map<String, AudiobookEntity> = emptyMap(),
+        onOpenBook: (String) -> Unit = {}
     ) {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 CollectionDetailContent(
                     collection = collection,
                     onRemoveBook = onRemoveBook,
-                    onDelete = onDelete
+                    onDelete = onDelete,
+                    booksById = booksById,
+                    onOpenBook = onOpenBook
                 )
             }
         }
@@ -69,6 +85,47 @@ class CollectionDetailContentTest {
         composeTestRule.onNodeWithTag("collection_item_book-a").assertIsDisplayed()
         composeTestRule.onNodeWithTag("collection_item_book-b").assertIsDisplayed()
         composeTestRule.onNodeWithText("бо атмосферно").assertIsDisplayed()
+    }
+
+    @Test
+    fun `items show resolved names, never the raw book id`() {
+        setContent(
+            collection("book-a" to "бо атмосферно", "book-b" to ""),
+            booksById = mapOf(
+                "book-a" to localBook("book-a", "Місто"),
+                "book-b" to localBook("book-b", "Тигролови", author = "Іван Багряний")
+            )
+        )
+
+        composeTestRule.onNodeWithText("Місто").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Тигролови").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Іван Багряний").assertIsDisplayed()
+        composeTestRule.onNodeWithText("book-a").assertDoesNotExist()
+        composeTestRule.onNodeWithText("book-b").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a book missing from the local library falls back to a human line`() {
+        setContent(collection("book-a" to ""), booksById = emptyMap())
+
+        composeTestRule
+            .onNodeWithText(context.getString(R.string.collection_item_unknown))
+            .assertIsDisplayed()
+        composeTestRule.onNodeWithText("book-a").assertDoesNotExist()
+    }
+
+    @Test
+    fun `tapping a resolved item opens the book`() {
+        var opened: String? = null
+        setContent(
+            collection("book-a" to ""),
+            booksById = mapOf("book-a" to localBook("book-a", "Місто")),
+            onOpenBook = { opened = it }
+        )
+
+        composeTestRule.onNodeWithTag("collection_item_book-a").performClick()
+
+        assertEquals("book-a", opened)
     }
 
     @Test

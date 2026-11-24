@@ -20,6 +20,12 @@ interface CollectiveFeedBlockStore {
     /** Cold local observation, including the initial state and same-key payload changes. */
     fun observeChanges(blockKeys: List<String>): Flow<Unit>
 
+    /** All persisted identities of this source/kind, including legacy rows. */
+    suspend fun keys(sourceId: String, kind: CollectiveBlockKind): List<String>
+
+    /** Observes source rows, including identities first persisted after subscription. */
+    fun observeSourceChanges(sourceIds: List<String>): Flow<Unit>
+
     /**
      * Atomically replaces the active block. False when the candidate is
      * invalid (no cards) — an empty snapshot must never become active.
@@ -30,14 +36,22 @@ interface CollectiveFeedBlockStore {
     suspend fun activateIfUnchanged(expected: CollectiveFeedBlock?, block: CollectiveFeedBlock): Boolean
 
     /**
-     * Atomically admits a non-empty block only when its observed fetchedAt is
-     * strictly newer. Keeps the incoming whole block; local version is not
+     * Atomically admits a non-empty block only when its shared revision and
+     * observation time order it strictly newer. Keeps the incoming whole block; local version is not
      * shared freshness. A missing active block accepts the candidate.
      */
     suspend fun activateIfNewer(block: CollectiveFeedBlock): Boolean
 
     /** Records the latest attempt WITHOUT touching the active cards. */
     suspend fun recordAttempt(blockKey: String, attempt: CollectiveAttempt)
+
+    /**
+     * #1238 — records the SERVER revision the shared lane assigned to the row
+     * this owner activated, without touching the cards, the honest window or
+     * the version. A no-op when the row moved on (a newer activation won), so
+     * a late publish answer can never relabel newer cards as its own.
+     */
+    suspend fun recordRevision(blockKey: String, revision: Long, expectedVersion: Long) = Unit
 }
 
 /** An opaque acquisition identity; an expired owner cannot release its successor. */
@@ -81,6 +95,14 @@ class InMemoryCollectiveFeedBlockStore : CollectiveFeedBlockStore {
             .distinctUntilChanged()
             .map { Unit }
 
+    override suspend fun keys(sourceId: String, kind: CollectiveBlockKind): List<String> = mutex.withLock {
+        blocks.value.values.filter { it.sourceId == sourceId && it.kind == kind }.map { it.blockKey }.sorted()
+    }
+
+    override fun observeSourceChanges(sourceIds: List<String>): Flow<Unit> =
+        blocks.map { snapshot -> snapshot.filterValues { it.sourceId in sourceIds } }
+            .distinctUntilChanged().map { Unit }
+
     override suspend fun activate(block: CollectiveFeedBlock): Boolean = mutex.withLock {
         if (block.cards.isEmpty()) return@withLock false
         blocks.value = blocks.value + (block.blockKey to block)
@@ -98,7 +120,7 @@ class InMemoryCollectiveFeedBlockStore : CollectiveFeedBlockStore {
     override suspend fun activateIfNewer(block: CollectiveFeedBlock): Boolean = mutex.withLock {
         if (block.cards.isEmpty()) return@withLock false
         val current = blocks.value[block.blockKey]
-        if (current != null && block.fetchedAt <= current.fetchedAt) return@withLock false
+        if (!block.isNewerThan(current)) return@withLock false
         blocks.value = blocks.value + (block.blockKey to block)
         true
     }
@@ -107,6 +129,13 @@ class InMemoryCollectiveFeedBlockStore : CollectiveFeedBlockStore {
         mutex.withLock {
             val current = blocks.value[blockKey] ?: return@withLock
             blocks.value = blocks.value + (blockKey to current.copy(lastAttempt = attempt))
+        }
+
+    override suspend fun recordRevision(blockKey: String, revision: Long, expectedVersion: Long) =
+        mutex.withLock {
+            val current = blocks.value[blockKey] ?: return@withLock
+            if (current.version != expectedVersion) return@withLock
+            blocks.value = blocks.value + (blockKey to current.copy(revision = revision))
         }
 }
 

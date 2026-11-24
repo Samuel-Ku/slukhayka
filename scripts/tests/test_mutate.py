@@ -15,9 +15,16 @@ import stat
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+# Скільки випадків чутливості гнати одночасно (#1266). Кожен — окремий
+# підпроцес зі своєю копією скрипта, тож черга тут не потрібна: вона лишала
+# ядра просто. Це швидкість, а не вимикач — кожен випадок усе одно виконується.
+SENSITIVITY_JOBS = min(4, os.cpu_count() or 1)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -49,6 +56,12 @@ class Fixture:
     def __init__(self, root: Path, logs: Path, script_source: Path, trace_source: Path):
         self.root = root
         self.logs = logs
+        # Свій `TMPDIR` — ПОЗА копією дерева: тека прогону не сміє робити дерево
+        # брудним (тоді `mutate.sh` відмовив би сам собі), і вона не сміє ділити
+        # `$TMPDIR` із рештою набору — саме так теки прогону й течуть у спільний
+        # `/tmp`, де їх потім прибирає вже інший прогін (#1300).
+        self.tmp = logs / "tmp"
+        self.tmp.mkdir(parents=True, exist_ok=True)
         self.script = root / "scripts" / "mutate.sh"
         self.build(script_source, trace_source)
 
@@ -61,7 +74,9 @@ class Fixture:
         # keeps the JUnit XML out of `git status`.
         shutil.copy(REPO_ROOT / ".gitignore", self.root / ".gitignore")
         shutil.copy(REPO_ROOT / "app/.gitignore", self.root / "app/.gitignore")
-        for name in ("test_partitions.py", "test-all.sh"):
+        # `tmp_budget.py` — сусід скрипта, якого той кличе за техою прогону
+        # (#1300): копія дерева мусить мати все, що скрипт шукає поряд із собою.
+        for name in ("test_partitions.py", "test-all.sh", "tmp_budget.py"):
             shutil.copy(REPO_ROOT / "scripts" / name, self.root / "scripts" / name)
         shutil.copy(trace_source, self.root / "scripts" / "mutation_trace.py")
         shutil.copy(script_source, self.script)
@@ -103,6 +118,9 @@ class Fixture:
             "SLUKHAYKA_JAVA_HOME": str(self.jdk),
             "SLUKHAYKA_GRADLEW": str(self.root / "gradlew"),
             "MUTATE_TEST_GRADLE_LOG": str(self.logs / "gradle.log"),
+            # Свій `TMPDIR`, а не успадкований: інакше тека прогону лягає в
+            # спільний `/tmp` і лишається там після SIGKILL (#1300).
+            "TMPDIR": str(self.tmp),
         }
         environment.update(overrides)
         return environment
@@ -265,7 +283,7 @@ if [[ -n ${MUTATE_TEST_XML_CLASS:-} ]]; then
   mkdir -p app/build/test-results/testDebugUnitTest
   printf '%s\\n' \\
     '<?xml version="1.0" encoding="UTF-8"?>' \\
-    "<testsuite name=\\"$MUTATE_TEST_XML_CLASS\\" tests=\\"${MUTATE_TEST_TESTS:-1}\\" skipped=\\"0\\" failures=\\"${MUTATE_TEST_FAILURES:-0}\\" errors=\\"${MUTATE_TEST_ERRORS:-0}\\" timestamp=\\"$(date -u +%Y-%m-%dT%H:%M:%S.%N.000Z)\\" hostname=\\"fixture\\" time=\\"0.01\\">" \\
+    "<testsuite name=\\"$MUTATE_TEST_XML_CLASS\\" tests=\\"${MUTATE_TEST_TESTS:-1}\\" skipped=\\"${MUTATE_TEST_SKIPPED:-0}\\" failures=\\"${MUTATE_TEST_FAILURES:-0}\\" errors=\\"${MUTATE_TEST_ERRORS:-0}\\" timestamp=\\"$(date -u +%Y-%m-%dT%H:%M:%S.%N.000Z)\\" hostname=\\"fixture\\" time=\\"0.01\\">" \\
     "  <testcase name=\\"case\\" classname=\\"$MUTATE_TEST_XML_CLASS\\" time=\\"0.01\\"/>" \\
     '</testsuite>' > "app/build/test-results/testDebugUnitTest/TEST-$MUTATE_TEST_XML_CLASS.xml"
 fi
@@ -339,6 +357,26 @@ class MutationRunTest(MutateFixtureTest):
         self.assertIn("sha256", result.stderr)
         self.assertClean()
 
+    def test_runs_a_class_that_shares_its_file_with_another_test(self):
+        # #1636 — the changed file may declare several test classes (#1634).
+        # Requiring `classes == [target]` refused both of them; the named class
+        # only has to be one of the declared ones.
+        self.fixture.write(
+            SAMPLE_TEST,
+            "package com.slukhayka.fixture\n\nclass SampleTest\n\nclass SecondTest\n",
+        )
+        self.fixture.git("add", "-A")
+        self.fixture.git("commit", "-q", "-m", "multi-class test file")
+
+        result = self.fixture.run_class(self.fixture.answer_patch, tests=1, failures=1)
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn(":app:testPureJvm", self.fixture.gradle_invocations())
+        self.assertIn(f"-Ptest.selectedClasses={SAMPLE_CLASS}", self.fixture.gradle_invocations())
+        record = self.last_record()
+        self.assertEqual(SAMPLE_CLASS, record["class"])
+        self.assertEqual("pure-jvm", record["partition"])
+
     def test_records_a_surviving_mutation_and_exits_one(self):
         result = self.fixture.run_class(self.fixture.answer_patch, tests=3, failures=0)
 
@@ -348,6 +386,54 @@ class MutationRunTest(MutateFixtureTest):
         self.assertEqual(3, record["tests"])
         self.assertEqual(0, record["failures"])
         self.assertIn("survived", result.stderr)
+        self.assertClean()
+
+    def test_records_an_error_as_a_caught_mutation(self):
+        # A witness can notice a mutation by raising, not only by failing an
+        # assertion, and that lands in the artifact's `errors`. The verdict reads
+        # failures and errors alike, so both have to be counted and pinned.
+        result = self.fixture.run_class(
+            self.fixture.answer_patch,
+            tests=2,
+            failures=0,
+            exit_status=1,
+            MUTATE_TEST_ERRORS="1",
+        )
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        record = self.last_record()
+        self.assertEqual("killed", record["outcome"])
+        self.assertEqual(0, record["failures"])
+        self.assertEqual(1, record["errors"])
+        self.assertEqual(2, record["tests"])
+        self.assertIn("verdict: caught", result.stderr)
+        self.assertClean()
+
+    def test_reports_no_verdict_when_every_test_was_skipped(self):
+        # Green with nothing executed is not a survivor: a class whose every test
+        # is @Ignore'd would otherwise record a live mutation as caught-by-nobody.
+        result = self.fixture.run_class(
+            self.fixture.answer_patch, tests=1, failures=0, MUTATE_TEST_SKIPPED="1"
+        )
+
+        self.assertEqual(3, result.returncode, result.stderr)
+        record = self.last_record()
+        self.assertEqual("no-verdict", record["outcome"])
+        self.assertIn("every test was skipped", record["detail"])
+        self.assertClean()
+
+    def test_a_partly_skipped_run_is_still_a_survivor(self):
+        # The guard is "every test skipped", not "any test skipped": one @Ignore'd
+        # case among executing green ones is exactly what survived means, and
+        # tightening the rule to `skipped > 0` would condemn real classes.
+        result = self.fixture.run_class(
+            self.fixture.answer_patch, tests=3, failures=0, MUTATE_TEST_SKIPPED="1"
+        )
+
+        self.assertEqual(1, result.returncode, result.stderr)
+        record = self.last_record()
+        self.assertEqual("survived", record["outcome"])
+        self.assertEqual(3, record["tests"])
         self.assertClean()
 
     def test_reports_no_verdict_when_the_class_leaves_no_artifact(self):
@@ -394,6 +480,30 @@ class MutationRunTest(MutateFixtureTest):
         self.assertEqual(dirty, self.fixture.read(SAMPLE))
         self.assertEqual("", self.fixture.gradle_invocations())
         self.assertEqual([], self.fixture.records())
+
+    def test_a_refused_run_still_reaps_the_scratch_a_sigkill_left(self):
+        """Відмова цього прогону не сміє лишати чужу теку в tmpfs назавжди.
+
+        SIGKILL лишає ДВІ речі: теку прогону і застосовану мутацію в дереві. Тож
+        наступний прогін відмовляє саме на брудному дереві — і якби прибирання
+        стояло після перевірок, воно не виконалося б ніколи (#1300). Сторож
+        ставить саме цей стан: брудне дерево (як після SIGKILL) і залишок у
+        `$TMPDIR`, який мусить зникнути, хоч прогін і відмовляє.
+        """
+        leftover = self.fixture.tmp / "slukhayka-mutation.SIGKILL"
+        leftover.mkdir()
+        (leftover / "gradle-arguments").write_text(":app:testPureJvm\n", encoding="utf-8")
+        os.utime(leftover, (1, 1))
+        self.fixture.write(SAMPLE, self.fixture.read(SAMPLE) + "\n// a working edit\n")
+
+        result = self.fixture.run_class(self.fixture.answer_patch)
+
+        self.assertEqual(2, result.returncode, result.stderr)
+        self.assertIn("dirty", result.stderr)
+        self.assertFalse(leftover.exists(),
+                         "тека, лишена SIGKILL'ом, мусила зникнути на старті прогону")
+        self.assertIn(leftover.name, result.stderr)
+        self.assertIn("прибрано застарілу теку прогону", result.stderr)
 
     def test_refuses_an_unknown_class(self):
         result = self.fixture.run_script(
@@ -605,9 +715,14 @@ class MutationStatusTest(MutateFixtureTest):
         mutation_sha = self.fixture.artifact_sha()
 
         self.fixture.simulate_real_run(SAMPLE_CLASS, tests=7)
+        real_sha = self.fixture.artifact_sha()
 
         status = self.fixture.status()
         self.assertEqual("genuine", status["verdict"])
+        # Хеш називається точно, а не «не такий, як у мутації»: `assertNotEqual`
+        # проходить і на `None`, тож поле, стерте з відповіді, лишалося б
+        # непоміченим — а воно і є тим, за чим читач знаходить XML на диску.
+        self.assertEqual(real_sha, status["artifactSha256"])
         self.assertNotEqual(mutation_sha, status["artifactSha256"])
         self.assertIn("genuine", status["summary"])
 
@@ -781,6 +896,27 @@ class MutationSensitivityTest(unittest.TestCase):
             "test_mutate.MutationRunTest.test_runs_the_named_class_and_records_a_caught_mutation",
         ),
         (
+            "the error counts",
+            "script",
+            "elif [[ $failures -gt 0 || $errors -gt 0 ]]; then",
+            "elif [[ $failures -gt 0 ]]; then",
+            "test_mutate.MutationRunTest.test_records_an_error_as_a_caught_mutation",
+        ),
+        (
+            "the all-skipped guard",
+            "script",
+            'elif [[ $skipped == "$tests" ]]; then',
+            "elif false; then",
+            "test_mutate.MutationRunTest.test_reports_no_verdict_when_every_test_was_skipped",
+        ),
+        (
+            "the all-skipped boundary",
+            "script",
+            'elif [[ $skipped == "$tests" ]]; then',
+            "elif [[ $skipped -gt 0 ]]; then",
+            "test_mutate.MutationRunTest.test_a_partly_skipped_run_is_still_a_survivor",
+        ),
+        (
             "the dirty-worktree refusal",
             "script",
             'dirty=$(git -C "$repo_root" status --porcelain)',
@@ -795,6 +931,16 @@ class MutationSensitivityTest(unittest.TestCase):
             "test_mutate.MutationRollbackTest.test_rolls_back_when_the_run_is_interrupted",
         ),
         (
+            # #1636: a changed test file may declare several test classes; the
+            # mutant puts back the exact-list comparison that refused every one
+            # of them, and the witness below must go red on it.
+            "the multi-class file acceptance",
+            "script",
+            "if target not in classes:",
+            "if classes != [target]:",
+            "test_mutate.MutationRunTest.test_runs_a_class_that_shares_its_file_with_another_test",
+        ),
+        (
             "the rollback trap",
             "script",
             "trap finalize EXIT",
@@ -802,6 +948,8 @@ class MutationSensitivityTest(unittest.TestCase):
             "test_mutate.MutationRollbackTest.test_restores_the_file_byte_for_byte_after_a_failing_run",
         ),
     )
+    # Друге джерело правди про розмір `CASES` — див. коментар у тесті.
+    EXPECTED_CASES = 8
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -844,16 +992,69 @@ class MutationSensitivityTest(unittest.TestCase):
         return directory
 
     def test_the_suite_dies_when_a_promise_is_mutated(self):
-        for index, (name, edited, needle, replacement, target) in enumerate(self.CASES):
-            with self.subTest(mutation=name):
-                mutant = self.mutant(needle, replacement, edited, index)
+        """Випадки незалежні, тож ідуть одночасно (#1266).
 
-                # The nested run has to work at all, or "it failed" means nothing.
-                intact = self.run_one_test(target, None)
+        У кожного свій каталог мутанта, свій підставний `gradlew` і свій
+        підпроцес — спільного в них лише те, що вони читають той самий скрипт.
+        Черга лишала ядра просто: 10 с із 136 с джоби `script-tests` — один
+        послідовний блок. Це швидкість, а не вимикач: кожен випадок усе одно
+        перевіряється, і жодна перевірка не зникає.
+        """
+        # Оголошене число тут — ДРУГЕ джерело правди, і саме тому воно потрібне
+        # (#1266, огляд). `CASES` — це джерело ітерації: перевірка «скільки
+        # зібрано» проти нього ж не тримає нічого, бо `CASES = ()` дає порожній
+        # `outcomes` і зелений набір — «Ran 1 test ... OK» на наборі, який не
+        # виконав жодного випадку. Це та сама діра, яку лікує ця серія: свідок,
+        # зелений тому, що не виконався. Число поруч робить червоними і порожній
+        # перелік, і зрізаний, і воно навмисно вимагає правки разом із `CASES`:
+        # зникнення випадку мусить бути видимим, а не тихим.
+        self.assertEqual(self.EXPECTED_CASES, len(self.CASES),
+                         "оголошених випадків чутливості мусить бути рівно стільки")
+
+        in_flight = 0
+        observed = 0
+        lock = threading.Lock()
+
+        def judge(index, case):
+            nonlocal in_flight, observed
+            with lock:
+                in_flight += 1
+                observed = max(observed, in_flight)
+            try:
+                name, edited, needle, replacement, target = case
+                try:
+                    mutant = self.mutant(needle, replacement, edited, index)
+                    # The nested run has to work at all, or "it failed" means nothing.
+                    intact = self.run_one_test(target, None)
+                    mutated = self.run_one_test(target, mutant)
+                except Exception as error:  # noqa: BLE001 — звітується під subTest
+                    return name, None, None, error
+                return name, intact, mutated, None
+            finally:
+                with lock:
+                    in_flight -= 1
+
+        with ThreadPoolExecutor(max_workers=SENSITIVITY_JOBS) as pool:
+            outcomes = list(pool.map(lambda pair: judge(*pair), enumerate(self.CASES)))
+
+        # Одночасність не мусить тихо з'їсти випадок: скільки оголошено, стільки
+        # й перевірено.
+        self.assertEqual(len(self.CASES), len(outcomes),
+                         "кожен оголошений випадок мусить бути перевірений")
+        if SENSITIVITY_JOBS > 1:
+            # І випадки мусять іти одночасно, а не чергою: повернення `for`
+            # лишило б набір зеленим, тож черга піниться тим, скільки випадків
+            # побувало в польоті разом. На одному ядрі пінити нічого — пул там
+            # і буде один.
+            self.assertGreater(observed, 1,
+                               "випадки мусять іти одночасно, а не чергою")
+
+        for name, intact, mutated, error in outcomes:
+            with self.subTest(mutation=name):
+                self.assertIsNone(error, error)
                 self.assertEqual(0, intact.returncode, intact.stderr)
                 self.assertIn("Ran 1 test", intact.stderr)
 
-                mutated = self.run_one_test(target, mutant)
                 self.assertNotEqual(
                     0,
                     mutated.returncode,

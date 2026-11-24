@@ -1,0 +1,91 @@
+name: branch-hygiene
+
+# Нічний сторож порядку в гілках: прибирає те, що доведено вже в main, і
+# оновлює звіт-issue про застій. Політика — docs/runbooks/branch-hygiene.md.
+#
+# Видаляються ЛИШЕ гілки, чий вміст доведено вже в main:
+#   - tip — предок main;
+#   - PR злито, і tip гілки досі той самий, що злили (squash/rebase);
+#   - нуль унікальних патчів щодо main.
+# Ніколи не чіпаються: гілки з відкритим PR, `main`/`master`, `legal/*`,
+# `backup/*` і релізні лінії без тега v*. Решта безладу не видаляється, а
+# потрапляє у звіт: агент не прибирає роботу, яку не завершили.
+#
+# Сухий прогін: workflow_dispatch із dry_run — нічого не видаляється, issue не
+# оновлюється, а повний текст звіту видно в summary прогону.
+#
+# Секрети: BRANCH_HYGIENE_LLM_TOKEN — ключ LLM-endpoint для наративу звіту
+# (OpenAI-сумісний /chat/completions; адреса й модель — константи в скрипті).
+# Якщо його не заведено, пробується наявний OCR_LLM_AUTH_TOKEN. Без жодного
+# токена звіт лишається детермінованим і не падає.
+
+on:
+  schedule:
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Лише показати, що буде видалено (нічого не видаляти, issue не чіпати)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: branch-hygiene
+  cancel-in-progress: false
+
+jobs:
+  hygiene:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
+      BRANCH_HYGIENE_LLM_TOKEN: ${{ secrets.BRANCH_HYGIENE_LLM_TOKEN || secrets.OCR_LLM_AUTH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Свіжі refи origin
+        run: git fetch origin --prune --force
+
+      # Спершу доводимо, що рішення взагалі правильне: зламана логіка не має
+      # шансу щось видалити.
+      - name: Тести сторожа
+        run: python3 -m unittest scripts.tests.test_branch_hygiene
+
+      - name: Прибрати гілки, чий вміст уже в main
+        id: cleanup
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          args=(cleanup --json "$RUNNER_TEMP/cleanup.json")
+          if [ "$DRY_RUN" != "true" ]; then
+            args+=(--apply)
+          fi
+          python3 scripts/branch-hygiene.py "${args[@]}"
+
+      - name: Оновити нічний звіт
+        if: always()
+        run: |
+          set -euo pipefail
+          args=(report)
+          if [ -f "$RUNNER_TEMP/cleanup.json" ]; then
+            args+=(--deleted "$RUNNER_TEMP/cleanup.json")
+          fi
+          args+=(--run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")
+          if [ "$DRY_RUN" != "true" ]; then
+            args+=(--upsert)
+          fi
+          python3 scripts/branch-hygiene.py "${args[@]}" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Провалити прогін, якщо чистка не впоралася
+        if: steps.cleanup.outcome == 'failure'
+        run: |
+          echo "::error::Чистка завершилася помилкою — дивись крок «Прибрати гілки»."
+          exit 1

@@ -13,28 +13,34 @@
  * redirect hop (redirect: 'manual', re-validated, bounded depth). Failures
  * degrade to `{ok:false}` with an honest reason — never fabricated data.
  */
-import { mayFetch, SERVED_REGISTRY, sourceEntry, type SourceEntry } from './registry'
-import type { CatalogCard, SourceId } from './types'
-import { mergeWorkFeed } from './workFeed'
-import { decodeWorkFeedCursor, encodeWorkFeedCursor } from './workFeedCursor'
+import {
+  mayFetch,
+  SERVED_REGISTRY,
+  sourceEntry,
+  type SourceEntry,
+} from "./registry";
+import type { CatalogCard, SourceId } from "./types";
+import { mergeWorkFeed } from "./workFeed";
+import { collectWorkSearchOutcome } from "./workSearchOutcome";
+import { decodeWorkFeedCursor, encodeWorkFeedCursor } from "./workFeedCursor";
 
-const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' }
-const MAX_REDIRECTS = 3
+const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
+const MAX_REDIRECTS = 3;
 
 function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS })
+  return new Response(JSON.stringify(body), { status, headers: JSON_HEADERS });
 }
 
 function ok(data: unknown): Response {
-  return json({ ok: true, data })
+  return json({ ok: true, data });
 }
 
 function fail(reason: string, status = 400): Response {
-  return json({ ok: false, reason }, status)
+  return json({ ok: false, reason }, status);
 }
 
 const DEFAULT_UA =
-  'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36'
+  "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36";
 
 /**
  * The guarded transport: every hop (initial URL and each redirect target)
@@ -45,29 +51,36 @@ async function guardedFetchText(
   url: string,
   referer: string,
   depth = 0,
-  extraHeaders: Record<string, string> = {},
+  extraHeaders: Record<string, string> = {}
 ): Promise<string | null> {
-  if (!mayFetch(entry, url)) return null
-  if (depth > MAX_REDIRECTS) return null
+  if (!mayFetch(entry, url)) return null;
+  if (depth > MAX_REDIRECTS) return null;
   try {
     const response = await fetch(url, {
-      headers: { referer, 'user-agent': DEFAULT_UA, ...extraHeaders },
-      redirect: 'manual',
-    })
+      headers: { referer, "user-agent": DEFAULT_UA, ...extraHeaders },
+      redirect: "manual",
+    });
     if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get('location')
-      if (!location) return null
-      return guardedFetchText(entry, new URL(location, url).toString(), referer, depth + 1, extraHeaders)
+      const location = response.headers.get("location");
+      if (!location) return null;
+      return guardedFetchText(
+        entry,
+        new URL(location, url).toString(),
+        referer,
+        depth + 1,
+        extraHeaders
+      );
     }
-    if (!response.ok) return null
-    return await response.text()
+    if (!response.ok) return null;
+    return await response.text();
   } catch {
-    return null
+    return null;
   }
 }
 
 function transportFor(entry: SourceEntry) {
-  return (target: string): Promise<string | null> => guardedFetchText(entry, target, entry.adapter.baseUrl)
+  return (target: string): Promise<string | null> =>
+    guardedFetchText(entry, target, entry.adapter.baseUrl);
 }
 
 interface WorkerEnv {
@@ -78,118 +91,202 @@ interface WorkerEnv {
    * never echoed to a client. Absent = the bibliography door honestly refuses
    * with 503 instead of reaching Google keyless (which answers 429).
    */
-  readonly GOOGLE_BOOKS_KEY?: string
+  readonly GOOGLE_BOOKS_KEY?: string;
 }
 
 /** The minimal shape Cloudflare's runtime expects; declared locally to stay dep-free. */
 interface ExportedHandler<E> {
-  fetch(request: Request, env: E, ctx: { waitUntil(promise: Promise<unknown>): void }): Promise<Response> | Response
+  fetch(
+    request: Request,
+    env: E,
+    ctx: { waitUntil(promise: Promise<unknown>): void }
+  ): Promise<Response> | Response;
 }
 
 export default {
   async fetch(request: Request, env: WorkerEnv): Promise<Response> {
-    const url = new URL(request.url)
-    const { pathname, searchParams } = url
+    const url = new URL(request.url);
+    const { pathname, searchParams } = url;
 
-    if (pathname === '/api/sources') {
-      return ok(Object.entries(SERVED_REGISTRY).map(([id, entry]) => ({ id, displayName: entry.adapter.displayName })))
+    if (pathname === "/api/sources") {
+      return ok(
+        Object.entries(SERVED_REGISTRY).map(([id, entry]) => ({
+          id,
+          displayName: entry.adapter.displayName,
+        }))
+      );
     }
 
     // #458/#459: one bounded Work page. The opaque cursor carries the next
     // URL for every Source, so an append continues pagination instead of
     // repeatedly fetching source roots. Every carried URL is still checked
     // by guardedFetchText before it ever reaches the network.
-    if (pathname === '/api/work-feed') {
-      const requestedSource = searchParams.get('source')?.trim() ?? ''
-      if (requestedSource && !sourceEntry(requestedSource)) return fail(`unknown source: ${requestedSource}`)
-      const rawCursor = searchParams.get('cursor')
-      const cursor = rawCursor ? decodeWorkFeedCursor(rawCursor) : null
-      if (rawCursor && cursor === null) return fail('invalid work-feed cursor')
-      const entries = Object.entries(SERVED_REGISTRY).filter(([id]) => !requestedSource || id === requestedSource)
-      const currentPages = cursor?.pages ?? Object.fromEntries(entries.map(([id, entry]) => [id, entry.catalogUrl ?? entry.adapter.baseUrl]))
-      const settled = await Promise.allSettled(entries.map(async ([id, entry]) => {
-        const pageUrl = currentPages[id as SourceId]
-        if (!pageUrl) return { sourceId: id as SourceId, cards: [] as CatalogCard[], nextPageUrl: undefined }
-        const html = await guardedFetchText(entry, pageUrl, pageUrl)
-        if (html === null) return { sourceId: id as SourceId, cards: [] as CatalogCard[], nextPageUrl: undefined }
-        const parsed = entry.adapter.parseCatalog(html, pageUrl)
-        return {
-          sourceId: id as SourceId,
-          cards: parsed?.sections.flatMap((section) => section.cards) ?? [],
-          nextPageUrl: parsed?.nextPageUrl,
-        }
-      }))
+    if (pathname === "/api/work-feed") {
+      const requestedSource = searchParams.get("source")?.trim() ?? "";
+      if (requestedSource && !sourceEntry(requestedSource))
+        return fail(`unknown source: ${requestedSource}`);
+      const rawCursor = searchParams.get("cursor");
+      const cursor = rawCursor ? decodeWorkFeedCursor(rawCursor) : null;
+      if (rawCursor && cursor === null) return fail("invalid work-feed cursor");
+      const entries = Object.entries(SERVED_REGISTRY).filter(
+        ([id]) => !requestedSource || id === requestedSource
+      );
+      const currentPages =
+        cursor?.pages ??
+        Object.fromEntries(
+          entries.map(([id, entry]) => [
+            id,
+            entry.catalogUrl ?? entry.adapter.baseUrl,
+          ])
+        );
+      const settled = await Promise.allSettled(
+        entries.map(async ([id, entry]) => {
+          const pageUrl = currentPages[id as SourceId];
+          if (!pageUrl)
+            return {
+              sourceId: id as SourceId,
+              cards: [] as CatalogCard[],
+              nextPageUrl: undefined,
+            };
+          const html = await guardedFetchText(entry, pageUrl, pageUrl);
+          if (html === null)
+            return {
+              sourceId: id as SourceId,
+              cards: [] as CatalogCard[],
+              nextPageUrl: undefined,
+            };
+          const parsed = entry.adapter.parseCatalog(html, pageUrl);
+          return {
+            sourceId: id as SourceId,
+            cards: parsed?.sections.flatMap((section) => section.cards) ?? [],
+            nextPageUrl: parsed?.nextPageUrl,
+          };
+        })
+      );
       const sources = settled
-        .filter((result): result is PromiseFulfilledResult<{ sourceId: SourceId; cards: CatalogCard[]; nextPageUrl: string | undefined }> => result.status === 'fulfilled')
-        .map((result) => result.value)
-      const page = mergeWorkFeed(sources, cursor?.offset ?? 0)
+        .filter(
+          (
+            result
+          ): result is PromiseFulfilledResult<{
+            sourceId: SourceId;
+            cards: CatalogCard[];
+            nextPageUrl: string | undefined;
+          }> => result.status === "fulfilled"
+        )
+        .map((result) => result.value);
+      const page = mergeWorkFeed(sources, cursor?.offset ?? 0);
       if (page.nextCursor) {
         return ok({
           ...page,
-          nextCursor: encodeWorkFeedCursor({ offset: Number(page.nextCursor), pages: currentPages }),
-        })
+          nextCursor: encodeWorkFeedCursor({
+            offset: Number(page.nextCursor),
+            pages: currentPages,
+          }),
+        });
       }
       const nextPages = Object.fromEntries(
         sources
           .filter((source) => source.nextPageUrl)
-          .map((source) => [source.sourceId, source.nextPageUrl!]),
-      ) as Partial<Record<SourceId, string>>
+          .map((source) => [source.sourceId, source.nextPageUrl!])
+      ) as Partial<Record<SourceId, string>>;
       return ok({
         ...page,
         nextCursor: Object.keys(nextPages).length
           ? encodeWorkFeedCursor({ offset: 0, pages: nextPages })
           : undefined,
-      })
+      });
     }
 
     // #458: search projects into the same Work → Edition → Source model as
     // the feed. A Source that cannot search simply contributes nothing; it
     // never changes the shape back to a per-source card list.
-    if (pathname === '/api/work-search') {
-      const query = searchParams.get('q')?.trim() ?? ''
-      const requestedSource = searchParams.get('source')?.trim() ?? ''
-      if (query.length < 2) return fail('query too short')
-      if (requestedSource && !sourceEntry(requestedSource)) return fail(`unknown source: ${requestedSource}`)
-      const entries = Object.entries(SERVED_REGISTRY)
-        .filter(([id, entry]) => (!requestedSource || id === requestedSource) && entry.searchUrl && entry.adapter.search)
-      const settled = await Promise.allSettled(entries.map(async ([id, entry]) => {
-        const searchEntry = entry as Required<Pick<SourceEntry, 'searchUrl' | 'searchHeaders'>> & SourceEntry
-        const searchUrl = searchEntry.searchUrl(query)
-        const payload = mayFetch(entry, searchUrl)
-          ? await guardedFetchText(entry, searchUrl, entry.adapter.baseUrl, 0, searchEntry.searchHeaders ?? {})
-          : null
-        let cards: CatalogCard[] = []
-        if (payload !== null) {
-          try {
-            cards = entry.adapter.search!(payload, searchUrl) ?? []
-          } catch {
-            cards = []
+    if (pathname === "/api/work-search") {
+      const query = searchParams.get("q")?.trim() ?? "";
+      const requestedSource = searchParams.get("source")?.trim() ?? "";
+      if (query.length < 2) return fail("query too short");
+      if (requestedSource && !sourceEntry(requestedSource))
+        return fail(`unknown source: ${requestedSource}`);
+      const entries = Object.entries(SERVED_REGISTRY).filter(
+        ([id, entry]) =>
+          (!requestedSource || id === requestedSource) &&
+          entry.searchUrl &&
+          entry.adapter.search
+      );
+      const requestedIds = entries.map(([id]) => id as SourceId);
+      const settled = await Promise.allSettled(
+        entries.map(async ([id, entry]) => {
+          const searchEntry = entry as Required<
+            Pick<SourceEntry, "searchUrl" | "searchHeaders">
+          > &
+            SourceEntry;
+          const searchUrl = searchEntry.searchUrl(query);
+          const payload = mayFetch(entry, searchUrl)
+            ? await guardedFetchText(
+                entry,
+                searchUrl,
+                entry.adapter.baseUrl,
+                0,
+                searchEntry.searchHeaders ?? {}
+              )
+            : null;
+          if (payload === null) {
+            // #1508: no answer is a failure of THIS Source, not an empty result.
+            return {
+              sourceId: id as SourceId,
+              cards: [] as CatalogCard[],
+              failed: true,
+            };
           }
-        }
-        return { sourceId: id as SourceId, cards }
-      }))
-      const sources = settled
-        .filter((result): result is PromiseFulfilledResult<{ sourceId: SourceId; cards: CatalogCard[] }> => result.status === 'fulfilled')
-        .map((result) => result.value)
-      return ok(mergeWorkFeed(sources))
+          try {
+            return {
+              sourceId: id as SourceId,
+              cards: entry.adapter.search!(payload, searchUrl) ?? [],
+              failed: false,
+            };
+          } catch {
+            // A parser that threw is the same honest fact as a dead Source.
+            return {
+              sourceId: id as SourceId,
+              cards: [] as CatalogCard[],
+              failed: true,
+            };
+          }
+        })
+      );
+      const outcome = collectWorkSearchOutcome(requestedIds, settled);
+      // The full answer always carries `failedSources` (possibly empty): the
+      // client never has to guess whether absence means "all good".
+      return ok({
+        ...mergeWorkFeed(outcome.sources),
+        failedSources: outcome.failedSources,
+      });
     }
 
-    if (pathname === '/api/search' || pathname === '/api/search-all') {
-      const query = searchParams.get('q')?.trim() ?? ''
-      if (query.length < 2) return fail('query too short')
-      if (pathname === '/api/search') {
-        const sourceId = searchParams.get('source') ?? ''
-        const entry = sourceEntry(sourceId)
-        if (!entry?.searchUrl || !entry.adapter.search) return fail(`search not available for ${sourceId}`)
-        const searchUrl = entry.searchUrl(query)
-        if (!mayFetch(entry, searchUrl)) return fail(`search url outside ${sourceId} hosts`)
-        const payload = await guardedFetchText(entry, searchUrl, entry.adapter.baseUrl, 0, entry.searchHeaders ?? {})
-        if (payload === null) return fail(`search did not answer for ${sourceId}`, 502)
+    if (pathname === "/api/search" || pathname === "/api/search-all") {
+      const query = searchParams.get("q")?.trim() ?? "";
+      if (query.length < 2) return fail("query too short");
+      if (pathname === "/api/search") {
+        const sourceId = searchParams.get("source") ?? "";
+        const entry = sourceEntry(sourceId);
+        if (!entry?.searchUrl || !entry.adapter.search)
+          return fail(`search not available for ${sourceId}`);
+        const searchUrl = entry.searchUrl(query);
+        if (!mayFetch(entry, searchUrl))
+          return fail(`search url outside ${sourceId} hosts`);
+        const payload = await guardedFetchText(
+          entry,
+          searchUrl,
+          entry.adapter.baseUrl,
+          0,
+          entry.searchHeaders ?? {}
+        );
+        if (payload === null)
+          return fail(`search did not answer for ${sourceId}`, 502);
         try {
-          const cards = entry.adapter.search(payload, searchUrl) ?? []
-          return ok(cards)
+          const cards = entry.adapter.search(payload, searchUrl) ?? [];
+          return ok(cards);
         } catch {
-          return fail(`search parsing failed for ${sourceId}`, 502)
+          return fail(`search parsing failed for ${sourceId}`, 502);
         }
       }
       // search-all: best-effort across all searchable sources
@@ -197,89 +294,140 @@ export default {
         Object.entries(SERVED_REGISTRY)
           .filter(([, entry]) => entry.searchUrl && entry.adapter.search)
           .map(async ([id, entry]) => {
-            const searchEntry = entry as Required<Pick<SourceEntry, 'searchUrl' | 'searchHeaders'>> & SourceEntry
-            const searchUrl = searchEntry.searchUrl(query)
-            if (!mayFetch(entry, searchUrl)) return { id, displayName: entry.adapter.displayName, cards: [] as never[] }
-            const payload = await guardedFetchText(entry, searchUrl, entry.adapter.baseUrl, 0, searchEntry.searchHeaders ?? {})
-            if (payload === null) return { id, displayName: entry.adapter.displayName, cards: [] }
+            const searchEntry = entry as Required<
+              Pick<SourceEntry, "searchUrl" | "searchHeaders">
+            > &
+              SourceEntry;
+            const searchUrl = searchEntry.searchUrl(query);
+            if (!mayFetch(entry, searchUrl))
+              return {
+                id,
+                displayName: entry.adapter.displayName,
+                cards: [] as never[],
+              };
+            const payload = await guardedFetchText(
+              entry,
+              searchUrl,
+              entry.adapter.baseUrl,
+              0,
+              searchEntry.searchHeaders ?? {}
+            );
+            if (payload === null)
+              return { id, displayName: entry.adapter.displayName, cards: [] };
             try {
-              const cards = entry.adapter.search!(payload, searchUrl) ?? []
-              return { id, displayName: entry.adapter.displayName, cards }
+              const cards = entry.adapter.search!(payload, searchUrl) ?? [];
+              return { id, displayName: entry.adapter.displayName, cards };
             } catch {
-              return { id, displayName: entry.adapter.displayName, cards: [] }
+              return { id, displayName: entry.adapter.displayName, cards: [] };
             }
-          }),
+          })
+      );
+      const groups = (
+        settled as PromiseSettledResult<{
+          id: string;
+          displayName: string;
+          cards: CatalogCard[];
+        }>[]
       )
-      const groups = (settled as PromiseSettledResult<{ id: string; displayName: string; cards: CatalogCard[] }>[])
-        .filter((result) => result.status === 'fulfilled')
-        .map((result) => (result as PromiseFulfilledResult<{ id: string; displayName: string; cards: CatalogCard[] }>).value)
-        .filter((group) => group.cards.length > 0)
-      return ok(groups)
+        .filter((result) => result.status === "fulfilled")
+        .map(
+          (result) =>
+            (
+              result as PromiseFulfilledResult<{
+                id: string;
+                displayName: string;
+                cards: CatalogCard[];
+              }>
+            ).value
+        )
+        .filter((group) => group.cards.length > 0);
+      return ok(groups);
     }
 
-    if (pathname === '/api/audio') {
-      const raw = searchParams.get('u') ?? ''
-      let target: string
+    if (pathname === "/api/audio") {
+      const raw = searchParams.get("u") ?? "";
+      let target: string;
       try {
-        target = decodeURIComponent(raw)
-        new URL(target)
+        target = decodeURIComponent(raw);
+        new URL(target);
       } catch {
-        return fail('bad audio url')
+        return fail("bad audio url");
       }
-      const allHosts = [...new Set(Object.values(SERVED_REGISTRY).flatMap((entry) => entry.allowedHosts))]
-      let host: string
+      const allHosts = [
+        ...new Set(
+          Object.values(SERVED_REGISTRY).flatMap((entry) => entry.allowedHosts)
+        ),
+      ];
+      let host: string;
       try {
-        host = new URL(target).hostname
+        host = new URL(target).hostname;
       } catch {
-        return fail('bad audio url')
+        return fail("bad audio url");
       }
-      if (!allHosts.some((allowed) => host === allowed || host.endsWith(`.${allowed}`))) {
-        return fail('audio host not allowlisted', 403)
+      if (
+        !allHosts.some(
+          (allowed) => host === allowed || host.endsWith(`.${allowed}`)
+        )
+      ) {
+        return fail("audio host not allowlisted", 403);
       }
-      const range = request.headers.get('range') ?? undefined
+      const range = request.headers.get("range") ?? undefined;
       try {
         const upstream = await fetch(target, {
           headers: {
-            referer: 'https://4read.org/',
-            'user-agent': DEFAULT_UA,
+            referer: "https://4read.org/",
+            "user-agent": DEFAULT_UA,
             ...(range ? { range } : {}),
           },
-        })
-        const headers = new Headers()
-        for (const hop of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'cache-control']) {
-          const value = upstream.headers.get(hop)
-          if (value) headers.set(hop, value)
+        });
+        const headers = new Headers();
+        for (const hop of [
+          "content-type",
+          "content-length",
+          "content-range",
+          "accept-ranges",
+          "cache-control",
+        ]) {
+          const value = upstream.headers.get(hop);
+          if (value) headers.set(hop, value);
         }
-        headers.set('access-control-allow-origin', '*')
-        return new Response(upstream.body, { status: upstream.status, headers })
+        headers.set("access-control-allow-origin", "*");
+        return new Response(upstream.body, {
+          status: upstream.status,
+          headers,
+        });
       } catch {
-        return fail('audio relay failed', 502)
+        return fail("audio relay failed", 502);
       }
     }
 
-    if (pathname === '/api/catalog' || pathname === '/api/book') {
-      const sourceId = searchParams.get('source') ?? ''
-      const pageUrl = searchParams.get('url') ?? ''
-      const entry = sourceEntry(sourceId)
-      if (!entry) return fail(`unknown source: ${sourceId}`)
-      const target = pageUrl || entry.adapter.baseUrl
-      if (!mayFetch(entry, target)) return fail(`url is outside ${sourceId}'s own hosts`)
+    if (pathname === "/api/catalog" || pathname === "/api/book") {
+      const sourceId = searchParams.get("source") ?? "";
+      const pageUrl = searchParams.get("url") ?? "";
+      const entry = sourceEntry(sourceId);
+      if (!entry) return fail(`unknown source: ${sourceId}`);
+      const target = pageUrl || entry.adapter.baseUrl;
+      if (!mayFetch(entry, target))
+        return fail(`url is outside ${sourceId}'s own hosts`);
 
-      const html = await guardedFetchText(entry, target, entry.adapter.baseUrl)
-      if (html === null) return fail(`source did not answer for ${target}`, 502)
+      const html = await guardedFetchText(entry, target, entry.adapter.baseUrl);
+      if (html === null)
+        return fail(`source did not answer for ${target}`, 502);
 
       try {
-        if (pathname === '/api/catalog') {
-          const parsed = entry.adapter.parseCatalog(html, target)
-          if (!parsed) return fail(`unrecognized catalog markup at ${target}`, 502)
-          return ok(parsed)
+        if (pathname === "/api/catalog") {
+          const parsed = entry.adapter.parseCatalog(html, target);
+          if (!parsed)
+            return fail(`unrecognized catalog markup at ${target}`, 502);
+          return ok(parsed);
         }
-        const detail = await entry.buildBook(html, target, transportFor(entry))
-        if (!detail) return fail(`unrecognized book markup at ${target}`, 502)
-        if (detail.chapters.length === 0) return ok({ ...detail, unavailableReason: 'no-chapters' })
-        return ok(detail)
+        const detail = await entry.buildBook(html, target, transportFor(entry));
+        if (!detail) return fail(`unrecognized book markup at ${target}`, 502);
+        if (detail.chapters.length === 0)
+          return ok({ ...detail, unavailableReason: "no-chapters" });
+        return ok(detail);
       } catch {
-        return fail(`parsing failed for ${target}`, 502)
+        return fail(`parsing failed for ${target}`, 502);
       }
     }
 
@@ -290,24 +438,30 @@ export default {
     // the relay recipe's transparency rule — so the client's parser owns the
     // real `books#volumes` shape and no wrapper has to be unwrapped twice.
     // Nothing from `env` is ever echoed into the response.
-    if (pathname === '/api/bibliography/isbn') {
-      const isbn = (searchParams.get('isbn') ?? '').replace(/[^0-9Xx]/g, '').toUpperCase()
-      if (!/^(\d{9}[\dX]|\d{13})$/.test(isbn)) return fail('invalid isbn')
-      const key = env.GOOGLE_BOOKS_KEY
-      if (!key) return fail('bibliography is not configured', 503)
-      const target = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&key=${encodeURIComponent(key)}`
+    if (pathname === "/api/bibliography/isbn") {
+      const isbn = (searchParams.get("isbn") ?? "")
+        .replace(/[^0-9Xx]/g, "")
+        .toUpperCase();
+      if (!/^(\d{9}[\dX]|\d{13})$/.test(isbn)) return fail("invalid isbn");
+      const key = env.GOOGLE_BOOKS_KEY;
+      if (!key) return fail("bibliography is not configured", 503);
+      const target = `https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}&key=${encodeURIComponent(key)}`;
       try {
         const upstream = await fetch(target, {
-          headers: { 'user-agent': DEFAULT_UA },
-          redirect: 'manual',
-        })
-        if (upstream.status >= 300 && upstream.status < 400) return fail('google books redirected', 502)
-        return new Response(await upstream.text(), { status: upstream.status, headers: JSON_HEADERS })
+          headers: { "user-agent": DEFAULT_UA },
+          redirect: "manual",
+        });
+        if (upstream.status >= 300 && upstream.status < 400)
+          return fail("google books redirected", 502);
+        return new Response(await upstream.text(), {
+          status: upstream.status,
+          headers: JSON_HEADERS,
+        });
       } catch {
-        return fail('google books did not answer', 502)
+        return fail("google books did not answer", 502);
       }
     }
 
-    return fail('not found', 404)
+    return fail("not found", 404);
   },
-} satisfies ExportedHandler<WorkerEnv>
+} satisfies ExportedHandler<WorkerEnv>;

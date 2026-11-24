@@ -12,6 +12,10 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -80,6 +84,14 @@ class FriendsScreenTest {
 
         composeTestRule.onNodeWithTag("friends_empty_no_friends").assertExists().assertIsDisplayed()
         composeTestRule.onNodeWithText("Поки немає друзів").assertExists()
+        // #1766 review — the state has NO action (no friend search, no reader
+        // profile), so the copy must carry the reason the buttons are missing:
+        // «adding friends / own profile are not ready». Removing that sentence
+        // would leave an empty page with no explanation and no control.
+        composeTestRule.onNodeWithText(
+            "Додавання друзів за іменем і власний профіль ще не готові — " +
+                "тут з’являться їхні дописи."
+        ).assertExists()
         // The "friends, but no posts" state must NOT also be shown: the two
         // facts are different and the screen never merges them.
         composeTestRule.onNodeWithTag("friends_empty_no_posts").assertDoesNotExist()
@@ -100,10 +112,33 @@ class FriendsScreenTest {
 
         // The body copy is the honest "how" — it names the audience that makes
         // a post appear here rather than promising a feature that is not built.
+        // #1766: one sentence (the direction's anatomy is title + ONE short
+        // line), so the «Лише я» aside that used to make a second sentence is
+        // gone; the fact that a post appears is what the state has to say.
         composeTestRule.onNodeWithText(
             "Щойно хтось із друзів поділиться враженням про книгу з аудиторією «Друзі», " +
-                "допис з’явиться тут. Дописи з аудиторією «Лише я» не показуються нікому."
+                "допис з’явиться тут."
         ).assertExists()
+    }
+
+    @Test
+    fun theEmptyStateHasNoPlaceholderGlyphAndNoDeadCta() {
+        render(FriendsFeedState())
+
+        composeTestRule.onNodeWithTag("friends_empty_no_friends").assertExists()
+        // F17 / spec §4: an empty state does not draw a placeholder glyph —
+        // the absence is stated in type, not illustrated by an icon standing
+        // for friends who do not exist.
+        composeTestRule.onNodeWithTag("empty_state_icon", useUnmergedTree = true)
+            .assertDoesNotExist()
+        // Spec §4 also asks for ONE next action. This build has no friend
+        // search and no reader profile data source yet, so the honest
+        // implementation offers none rather than a control that goes nowhere
+        // (ADR-0014). When that source lands, the action goes HERE.
+        composeTestRule.onAllNodes(
+            hasClickAction() and hasAnyAncestor(hasTestTag("friends_empty_no_friends")),
+            useUnmergedTree = true
+        ).assertCountEquals(0)
     }
 
     @Test

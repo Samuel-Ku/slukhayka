@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.data.db.EditionEntity
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.db.NativeRoomWorkerIdentity
 import kotlinx.coroutines.runBlocking
@@ -21,10 +22,10 @@ import org.robolectric.annotation.Config
 
 /**
  * Room seam (spec-24 T1 + #264): the one-time startup scrub rewrites stored
- * titles (audiobooks + works) and stored descriptions (audiobooks) through
- * the pure [MetadataAssertions] rules and is idempotent — a second run
- * matches nothing. In-memory Room, same style as the DAO / migration Room
- * tests.
+ * titles (audiobooks + works), stored descriptions (audiobooks) and person
+ * names through the pure rules / shared decoder, and is idempotent IN ONE RUN
+ * (#1684 — names first) — a second run matches nothing. In-memory Room, same
+ * style as the DAO / migration Room tests.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -154,6 +155,197 @@ class StoredMetadataScrubRoomTest {
         assertEquals("", descriptions["b2"])
         // The second pass matches nothing — the rules are stable on stored rows.
         assertEquals(0, scrub.scrubOnce())
+    }
+
+    // --- #964 / #972 follow-up: stored author & narrator names -------------
+    //
+    // Before #972 the write path stored the source's rendered entity verbatim
+    // in a person name («Наталія Дев&#x27;ятко»). The one-time pass repairs the
+    // TEXT through the same shared decodeEntities the title repair uses; it
+    // never re-keys identity (mergeKey / Edition id stay exactly as stored).
+
+    @Test
+    fun `startup scrub decodes a stored entity on every name column`() = runBlocking {
+        dao.insertAudiobooks(
+            listOf(
+                book("b1", "Кобзар").copy(
+                    author = "Наталія Дев&#x27;ятко",
+                    narrator = "О&#039;Коннор"
+                )
+            )
+        )
+        dao.upsertWork(
+            WorkEntity(id = "w1", mergeKey = "w1", title = "Кобзар", author = "Наталія Дев&#x27;ятко")
+        )
+        dao.replaceEdition(
+            EditionEntity(id = "e1", workId = "b1", narrator = "Наталія Дев&#x27;ятко")
+        )
+
+        val scrub = StoredMetadataScrub(dao)
+        // One changed row per table holding a name: audiobooks, works, editions.
+        assertEquals(3, scrub.scrubOnce())
+
+        assertEquals("Наталія Дев'ятко", dao.getAllBookTitleRows().single().author)
+        assertEquals("О'Коннор", dao.getAudiobookById("b1")!!.narrator)
+        assertEquals("Наталія Дев'ятко", dao.getAllWorkTitleRows().single().author)
+        assertEquals("Наталія Дев'ятко", dao.getEditionById("e1")!!.narrator)
+        // The pass is idempotent at the Room level too.
+        assertEquals(0, scrub.scrubOnce())
+    }
+
+    @Test
+    fun `a clean stored name is byte-identical - the repair only decodes entities`() = runBlocking {
+        dao.insertAudiobooks(
+            listOf(book("b1", "Кобзар").copy(author = "Тарас Шевченко", narrator = "О'Коннор"))
+        )
+        dao.upsertWork(
+            WorkEntity(id = "w1", mergeKey = "w1", title = "Кобзар", author = "Тарас Шевченко")
+        )
+        dao.replaceEdition(EditionEntity(id = "e1", workId = "b1", narrator = "О'Коннор"))
+
+        // Nothing to decode: a clean name is never rewritten (not even trimmed).
+        assertEquals(0, StoredMetadataScrub(dao).scrubOnce())
+        assertEquals("Тарас Шевченко", dao.getAllBookTitleRows().single().author)
+        assertEquals("О'Коннор", dao.getAudiobookById("b1")!!.narrator)
+        assertEquals("Тарас Шевченко", dao.getAllWorkTitleRows().single().author)
+        assertEquals("О'Коннор", dao.getEditionById("e1")!!.narrator)
+    }
+
+    @Test
+    fun `an unknown or malformed entity in a stored name stays literal`() = runBlocking {
+        dao.insertAudiobooks(
+            listOf(
+                book("b1", "Кобзар").copy(
+                    author = "Світ &foo; тіні",
+                    narrator = "Дев&#xZZ;ятко"
+                )
+            )
+        )
+        dao.upsertWork(
+            WorkEntity(id = "w1", mergeKey = "w1", title = "Кобзар", author = "Світ &foo; тіні")
+        )
+        dao.replaceEdition(EditionEntity(id = "e1", workId = "b1", narrator = "Дев&#xZZ;ятко"))
+
+        // The decoder never fabricates a character: both stay byte-for-byte.
+        assertEquals(0, StoredMetadataScrub(dao).scrubOnce())
+        assertEquals("Світ &foo; тіні", dao.getAllBookTitleRows().single().author)
+        assertEquals("Дев&#xZZ;ятко", dao.getAudiobookById("b1")!!.narrator)
+        assertEquals("Світ &foo; тіні", dao.getAllWorkTitleRows().single().author)
+        assertEquals("Дев&#xZZ;ятко", dao.getEditionById("e1")!!.narrator)
+    }
+
+    @Test
+    fun `the name repair never re-keys identity - mergeKey and Edition id survive`() = runBlocking {
+        dao.insertAudiobooks(
+            listOf(book("b1", "Кобзар").copy(author = "Наталія Дев&#x27;ятко"))
+        )
+        dao.upsertWork(
+            WorkEntity(
+                id = "w1",
+                mergeKey = "кобзар|наталія девx27ятко",
+                title = "Кобзар",
+                author = "Наталія Дев&#x27;ятко"
+            )
+        )
+        dao.replaceEdition(EditionEntity(id = "edition-1", workId = "b1", narrator = "Наталія Дев&#x27;ятко"))
+
+        assertEquals(3, StoredMetadataScrub(dao).scrubOnce())
+
+        // #968 owns identity: the stored key and the rendition id are NOT
+        // recomputed behind the listener's back, even though the display text
+        // now decodes.
+        assertEquals("кобзар|наталія девx27ятко", dao.getWorkById("w1")!!.mergeKey)
+        assertEquals("edition-1", dao.getEditionById("edition-1")!!.id)
+        assertNotNull(dao.findWorkByMergeKey("кобзар|наталія девx27ятко"))
+    }
+
+    @Test
+    fun `name repair and title repair coexist in one pass`() = runBlocking {
+        dao.insertAudiobooks(
+            listOf(book("b1", "Ім&#x27;я тіні").copy(author = "Наталія Дев&#x27;ятко"))
+        )
+        dao.upsertWork(
+            WorkEntity(
+                id = "w1",
+                mergeKey = "w1",
+                title = "Ім&#x27;я тіні",
+                author = "Наталія Дев&#x27;ятко"
+            )
+        )
+
+        // The book and the Work each change under BOTH rules — the title rule
+        // and the name rule, two rows apiece. (The counter reports rule hits,
+        // the same accounting the title/description loops use.)
+        assertEquals(4, StoredMetadataScrub(dao).scrubOnce())
+        val book = dao.getAllBookTitleRows().single()
+        assertEquals("Ім'я тіні", book.title)
+        assertEquals("Наталія Дев'ятко", book.author)
+        val work = dao.getAllWorkTitleRows().single()
+        assertEquals("Ім'я тіні", work.title)
+        assertEquals("Наталія Дев'ятко", work.author)
+        assertEquals(0, StoredMetadataScrub(dao).scrubOnce())
+    }
+
+    @Test
+    fun `an encoded author in a Soundbooks suffix is cleaned in the same run`() = runBlocking {
+        // #1684 — with titles repaired before names, the wrapper rule compared
+        // the stored title with the still-encoded author and left the
+        // « - <author>» suffix behind until the NEXT startup. Names now go
+        // first, so one run settles the row (this test fails on the old order).
+        dao.insertAudiobooks(
+            listOf(
+                book(
+                    "b1",
+                    "Аудіокнига Темна матерія - Наталія Дев&#x27;ятко слухати онлайн українською"
+                ).copy(author = "Наталія Дев&#x27;ятко")
+            )
+        )
+
+        val scrub = StoredMetadataScrub(dao)
+        assertEquals(2, scrub.scrubOnce())
+
+        val row = dao.getAllBookTitleRows().single()
+        assertEquals("Темна матерія", row.title)
+        assertEquals("Наталія Дев'ятко", row.author)
+        assertEquals(0, scrub.scrubOnce())
+    }
+
+    @Test
+    fun `a clean name keeps its spaces and punctuation byte-for-byte`() = runBlocking {
+        // The repair decodes entities only; it must not trim, collapse or
+        // re-brand a stored name that is already clean (#1684 test gap).
+        val author = "  Наталія  Дев'ятко "
+        val narrator = "О'Коннор Бренд"
+        dao.insertAudiobooks(listOf(book("b1", "Кобзар").copy(author = author, narrator = narrator)))
+
+        assertEquals(0, StoredMetadataScrub(dao).scrubOnce())
+        assertEquals(author, dao.getAllBookTitleRows().single().author)
+        assertEquals(narrator, dao.getAudiobookById("b1")!!.narrator)
+    }
+
+    @Test
+    fun `only the encoded column changes - the clean neighbour stays byte-identical`() = runBlocking {
+        // #1684 test gap: a mutation that wrote BOTH columns on any hit would
+        // pass the old tests (they always encoded both). Here one book changes
+        // only the author, the other only the narrator.
+        val encoded = "Наталія Дев&#x27;ятко"
+        val cleanAuthor = "Тарас Шевченко"
+        val cleanNarrator = "О'Коннор"
+        dao.insertAudiobooks(
+            listOf(
+                book("b-author", "Кобзар").copy(author = encoded, narrator = cleanNarrator),
+                book("b-narrator", "Гайдамаки").copy(author = cleanAuthor, narrator = encoded)
+            )
+        )
+
+        assertEquals(2, StoredMetadataScrub(dao).scrubOnce())
+
+        val authorRow = dao.getAudiobookById("b-author")!!
+        assertEquals("Наталія Дев'ятко", authorRow.author)
+        assertEquals(cleanNarrator, authorRow.narrator)
+        val narratorRow = dao.getAudiobookById("b-narrator")!!
+        assertEquals(cleanAuthor, narratorRow.author)
+        assertEquals("Наталія Дев'ятко", narratorRow.narrator)
     }
 
     // --- #264: stored descriptions -----------------------------------------

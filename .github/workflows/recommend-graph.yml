@@ -20,3 +20,44 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install numpy==2.2.6
       - run: python -m unittest discover -s scripts/tests -p test_recommend_graph.py -v
+  model-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface/hub
+          key: content-graph-potion-38ebd7f10f71e67fa8db898290f92b82e9cfff2a
+      - run: python -m pip install -r scripts/recommend/requirements.txt
+      - name: Build using real pinned Model2Vec weights, then verify a warm run
+        env:
+          HF_HUB_DISABLE_XET: '1'
+        run: |
+          set -eu
+          python scripts/recommend/build_graph.py \
+            --catalog scripts/recommend/smoke-catalog.json \
+            --cache /tmp/content-vectors.sqlite --output /tmp/content-graph.json \
+            --revision 38ebd7f10f71e67fa8db898290f92b82e9cfff2a > /tmp/cold.json
+          python scripts/recommend/build_graph.py \
+            --catalog scripts/recommend/smoke-catalog.json \
+            --cache /tmp/content-vectors.sqlite --output /tmp/content-graph.json \
+            --revision 38ebd7f10f71e67fa8db898290f92b82e9cfff2a > /tmp/warm.json
+          python - <<'PY'
+          import json
+          cold = json.load(open('/tmp/cold.json'))
+          warm = json.load(open('/tmp/warm.json'))
+          assert cold['computed'] == 4, cold
+          assert warm['computed'] == 0, warm
+          print({'cold': cold, 'warm': warm})
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: content-graph-model-smoke
+          path: |
+            /tmp/content-graph.json
+            /tmp/cold.json
+            /tmp/warm.json

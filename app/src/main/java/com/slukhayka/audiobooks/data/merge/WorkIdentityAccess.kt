@@ -213,6 +213,70 @@ class WorkIdentityAccess(
         }
     }
 
+    /** Frozen local rows/resources for one catalog item, never an I/O lease or a Book-ID guess. */
+    private data class CatalogWriteScope(
+        val targetWorkId: String,
+        val source: SourceImportScope,
+    )
+
+    /** One admitted catalog row transaction; publish outcomes only after this returns. */
+    internal suspend fun <T> writeCatalogSource(
+        mergeKey: String, sourceId: String, sourceUrl: String,
+        narrator: String, language: String, unmergeableWorkId: String,
+        block: suspend (SourceWorkIdentity) -> T,
+    ): T {
+        val discovered = database.withTransaction {
+            val identity = resolveCatalogSourceStored(mergeKey, sourceId, sourceUrl, narrator, language, unmergeableWorkId)
+            catalogWriteScope(identity, mergeKey, unmergeableWorkId)
+        }
+        return gate.withIdentityWrite(listOf(discovered.targetWorkId), discovered.source.bookIds) {
+            database.withTransaction {
+                val identity = resolveCatalogSourceStored(mergeKey, sourceId, sourceUrl, narrator, language, unmergeableWorkId)
+                val current = catalogWriteScope(identity, mergeKey, unmergeableWorkId)
+                if (current != discovered) throw WorkIdentityWriteRefused(IdentityWriteRefusal.StaleAdmission)
+                val keys = relevantTombstoneKeys(identity, mergeKey, current.targetWorkId)
+                if (keys.toList().chunked(128).any { database.audiobookDao().manualMergeTombstones(it).isNotEmpty() }) {
+                    throw WorkIdentityWriteRefused(IdentityWriteRefusal.Tombstoned)
+                }
+                val result = block(identity)
+                currentCoroutineContext().ensureActive()
+                result
+            }
+        }
+    }
+
+    private suspend fun catalogWriteScope(
+        identity: SourceWorkIdentity, mergeKey: String, unmergeableWorkId: String,
+    ): CatalogWriteScope {
+        val target = identity.work?.id ?: mergeKey.ifBlank { unmergeableWorkId }
+        if (target.isBlank()) throw WorkIdentityWriteRefused(IdentityWriteRefusal.StaleAdmission)
+        // Catalog creates a real Work at target; only existing actual Book rows are Book resources.
+        return CatalogWriteScope(target, importScope(identity))
+    }
+
+    private suspend fun resolveCatalogSourceStored(
+        mergeKey: String, sourceId: String, sourceUrl: String,
+        narrator: String, language: String, unmergeableWorkId: String,
+    ): SourceWorkIdentity {
+        val exact = resolveSourceStored(mergeKey, sourceId, sourceUrl, narrator, language, null)
+        // Actual source/key evidence decides ownership before any proposed creation resource.
+        val activity = sourceActivityScope(sourceId, sourceUrl, exact)
+        val owner = activity?.workId?.let { id ->
+            resolvedWork(WorkIdentityInput.WorkId(id))
+                ?: throw WorkIdentityWriteRefused(IdentityWriteRefusal.DanglingSource)
+        }
+        if (owner != null) return exact.copy(work = owner)
+        if (mergeKey.isBlank()) {
+            // A stable blank-key ID is a new row resource, never evidence for adopting its occupant.
+            when (val creation = resolveStored(WorkIdentityInput.WorkId(unmergeableWorkId))) {
+                is WorkResolution.Missing -> Unit
+                is WorkResolution.Resolved -> throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+                is WorkResolution.Refused -> throw WorkIdentityWriteRefused(IdentityWriteRefusal.Alias(creation.reason))
+            }
+        }
+        return exact
+    }
+
     private suspend fun readTombstonesAtStart(): Map<String, TombstoneEntity> {
         val dao = database.audiobookDao()
         val ids = dao.getTombstoneBookIds()
@@ -231,14 +295,14 @@ class WorkIdentityAccess(
 
     /** Resolve every reverse alias in its own namespace; only Work-ID aliases extend the frontier. */
     private suspend fun relevantTombstoneKeys(
-        identity: SourceWorkIdentity, mergeKey: String, prospectiveBookId: String,
+        identity: SourceWorkIdentity, mergeKey: String, unresolvedTargetKey: String,
     ): Set<String> {
-        val canonical = identity.work?.id ?: mergeKey.takeIf { it.isNotBlank() } ?: prospectiveBookId
+        val canonical = identity.work?.id ?: mergeKey.takeIf { it.isNotBlank() } ?: unresolvedTargetKey
         val selectedBook = identity.existingSource?.book ?: identity.importBook
         val keys = linkedSetOf(canonical)
         listOfNotNull(identity.work?.mergeKey, mergeKey.takeIf { it.isNotBlank() },
             selectedBook?.id, selectedBook?.workId, selectedBook?.mergeKey,
-            prospectiveBookId.takeIf { selectedBook == null })
+            unresolvedTargetKey.takeIf { selectedBook == null })
             .filter { it.isNotBlank() }.forEach(keys::add)
         val visited = linkedSetOf(canonical)
         var frontier = listOf(canonical)

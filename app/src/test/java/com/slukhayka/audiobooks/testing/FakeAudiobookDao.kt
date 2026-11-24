@@ -1252,6 +1252,9 @@ class FakeAudiobookDao(
                 java.util.Arrays.compareUnsigned(first.id.toByteArray(Charsets.UTF_8), second.id.toByteArray(Charsets.UTF_8))
             }.take(4097)
 
+    override suspend fun getWorkSourceById(id: String): WorkSourceEntity? =
+        workSourcesState.value.firstOrNull { it.id == id }
+
     override fun observeWorks(): Flow<List<WorkEntity>> = worksState
 
     /** #484 — the fake owns no entry facts; the pool honestly has none. */

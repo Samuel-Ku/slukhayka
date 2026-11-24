@@ -850,6 +850,16 @@ interface AudiobookDao {
     @Query("SELECT * FROM work_sources WHERE sourceId = :sourceId AND sourceUrl = :sourceUrl ORDER BY id LIMIT 4097")
     suspend fun getWorkSourcesByIdentity(sourceId: String, sourceUrl: String): List<WorkSourceEntity>
 
+    /** One local catalog item, including its facets and index, commits or rolls back as a unit. */
+    @Transaction
+    suspend fun runCatalogRowTransaction(block: suspend () -> Unit) {
+        block()
+    }
+
+    /** Strict global PK ownership check before a catalog claim may be written. */
+    @Query("SELECT * FROM work_sources WHERE id = :id LIMIT 1")
+    suspend fun getWorkSourceById(id: String): WorkSourceEntity?
+
     @Query("SELECT * FROM works ORDER BY addedAt DESC")
     fun observeWorks(): Flow<List<WorkEntity>>
 

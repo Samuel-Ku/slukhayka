@@ -98,3 +98,25 @@ runId=20261124T110942Z-2647.
 повним SHA справжнього commit на сторінці моделі:
 73908c3438cf03b6a01bcb9611d62b23d0726f08. Worker-tests на цьому прогоні
 пройшли. Повторний справжній inference лишається окремим результатом CI.
+
+## Захист воркера, доповнення 2026-11-24
+
+Вісім Python-тестів пройшли після додавання локального офлайн-завантаження,
+відхилення іншої ревізії/неповної моделі, приватних полів у корені каталогу
+та ліміту входу 64 MiB. pip --dry-run --require-hashes прийняв універсальний
+requirements.lock на Python 3.12. Режим встановлення в Mac smoke і CI тепер
+використовує цей lock. CI model-smoke також готує окремі локальні ваги й
+запускає нову базу векторів із --model-dir та HF_HUB_OFFLINE=1.
+
+Мутація ігнорування локальної REVISION через scripts/mutate.sh:
+outcome=killed, CatalogTest почервонів, SHA-256 відкату збігається;
+runId=20261124T112046Z-3114. Це не тест Linux-ізоляції.
+
+Підготовлено systemd unit із DynamicUser, відсутністю мережі, ProtectHome,
+ProtectSystem, відсутністю capabilities, syscall/resource limits. Він не
+встановлений. systemd-analyze verify/security у цьому Cloud не зміг створити
+/run/systemd (Permission denied); runtime sandbox на dragonborn не перевірений.
+Фактичні налаштування sshd/firewall/router невідомі. Окреме отримання каталогу,
+доставка з обмеженим credential і перевірка підпису графа на телефоні ще не
+реалізовані. Production URL лишається вимкненим. Межа розгортання —
+docs/runbooks/recommendation-worker-security.md.

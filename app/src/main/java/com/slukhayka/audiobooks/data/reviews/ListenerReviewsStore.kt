@@ -24,6 +24,20 @@ sealed interface ReviewDeleteReceipt {
     }
 }
 
+/** The SDK observation source; legacy adapters do not claim a server read. */
+enum class ReviewReadProvenance { SERVER, CACHE, UNKNOWN }
+
+/** Transport metadata stays outside the stored review payload. */
+data class ReviewDocumentSnapshot(
+    val data: Map<String, Any>,
+    val hasPendingWrites: Boolean,
+)
+
+data class ReviewQuerySnapshot(
+    val documents: List<ReviewDocumentSnapshot>,
+    val provenance: ReviewReadProvenance,
+)
+
 /**
  * Spec-620 (#623) — the honest outcome of READING one Work's reviews. The
  * existing [ListenerReviewsStore.getReviews] keeps its degrade-to-empty
@@ -32,7 +46,11 @@ sealed interface ReviewDeleteReceipt {
  * genuine empty must clear it.
  */
 sealed interface ReviewReadResult {
-    data class Data(val reviews: List<ListenerReview>) : ReviewReadResult
+    data class Data(
+        val reviews: List<ListenerReview>,
+        val pendingReviews: List<ListenerReview> = emptyList(),
+        val provenance: ReviewReadProvenance = ReviewReadProvenance.UNKNOWN,
+    ) : ReviewReadResult
     data object Empty : ReviewReadResult
     data object Failure : ReviewReadResult
 }
@@ -81,8 +99,16 @@ interface ListenerReviewsStore {
      * documents contribute nothing — empty on a silent work, never an error.
      */
     suspend fun getReviews(workId: String): List<ListenerReview> {
-        val documents = runCatching { queryWorkDocuments(workId) }.getOrNull() ?: return emptyList()
-        return decode(documents)
+        return try {
+            when (val result = readReviews(workId)) {
+                is ReviewReadResult.Data -> result.reviews
+                ReviewReadResult.Empty, ReviewReadResult.Failure -> emptyList()
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
 
     /**
@@ -94,22 +120,34 @@ interface ListenerReviewsStore {
     suspend fun getForWorks(workIds: List<String>): Map<String, List<ListenerReview>> {
         val ids = workIds.filter { it.isNotBlank() }.distinct()
         if (ids.isEmpty()) return emptyMap()
-        val documents = runCatching { queryWorksDocuments(ids) }.getOrNull() ?: return emptyMap()
+        val documents = try {
+            queryWorksDocuments(ids)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            return emptyMap()
+        }
         return decode(documents)
             .groupBy { it.workId }
             .filterKeys { it in ids.toSet() }
     }
 
     /**
-     * Spec-620 (#623) — reads one Work's reviews with the three outcomes kept
-     * apart. A transport failure is [ReviewReadResult.Failure] (NOT an empty
-     * community), a successful empty answer is [ReviewReadResult.Empty], and
-     * real documents are [ReviewReadResult.Data] newest-first.
+     * Reads confirmed and pending reviews separately, newest-first, with the
+     * observation's provenance. A transport failure is [ReviewReadResult.Failure].
+     * SDK snapshots use [ReviewReadResult.Data] even when empty, retaining
+     * CACHE or SERVER provenance. Only a legacy UNKNOWN empty observation uses
+     * [ReviewReadResult.Empty] for compatibility.
      */
     suspend fun readReviews(workId: String): ReviewReadResult {
-        val documents = queryWorkDocumentsOrNull(workId) ?: return ReviewReadResult.Failure
-        val reviews = decode(documents)
-        return if (reviews.isEmpty()) ReviewReadResult.Empty else ReviewReadResult.Data(reviews)
+        val snapshot = queryWorkSnapshot(workId) ?: return ReviewReadResult.Failure
+        val reviews = decode(snapshot.documents.filterNot { it.hasPendingWrites }.map { it.data })
+        val pending = decode(snapshot.documents.filter { it.hasPendingWrites }.map { it.data })
+        return if (reviews.isEmpty() && pending.isEmpty() && snapshot.provenance == ReviewReadProvenance.UNKNOWN) {
+            ReviewReadResult.Empty
+        } else {
+            ReviewReadResult.Data(reviews, pending, snapshot.provenance)
+        }
     }
 
     /**
@@ -182,6 +220,15 @@ interface ListenerReviewsStore {
     } catch (_: Exception) {
         null
     }
+
+    /** Rich observations retain SDK pending status and cache provenance. */
+    suspend fun queryWorkSnapshot(workId: String): ReviewQuerySnapshot? =
+        queryWorkDocumentsOrNull(workId)?.let { documents ->
+            ReviewQuerySnapshot(
+                documents.map { ReviewDocumentSnapshot(it, hasPendingWrites = false) },
+                ReviewReadProvenance.UNKNOWN,
+            )
+        }
 
     /** Raw documents across several Works — chunked internally by the impl. */
     suspend fun queryWorksDocuments(workIds: List<String>): List<Map<String, Any>>

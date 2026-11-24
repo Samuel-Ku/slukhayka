@@ -37,32 +37,40 @@ class FirestoreListenerReviewsStore(private val firestore: FirebaseFirestore) : 
      * can keep its last confirmed snapshot instead of showing an empty
      * community.
      */
-    override suspend fun queryWorkDocumentsOrNull(workId: String): List<Map<String, Any>>? {
-        // The ordered query needs a (workId ASC, createdAt DESC) composite
-        // index; until it exists (or on any other transport hiccup) the
-        // plain equality query serves — decode() enforces newest-first.
-        val ordered = runCatching {
+    override suspend fun queryWorkDocumentsOrNull(workId: String): List<Map<String, Any>>? =
+        queryWorkSnapshot(workId)?.documents
+            ?.filterNot { it.hasPendingWrites }
+            ?.map { it.data }
+
+    override suspend fun queryWorkSnapshot(workId: String): ReviewQuerySnapshot? {
+        val ordered = try {
             firestore.collection(COLLECTION)
                 .whereEqualTo(FIELD_WORK_ID, workId)
                 .orderBy(FIELD_CREATED_AT, Query.Direction.DESCENDING)
                 .get()
-                .awaitDocuments()
-        }.getOrNull()
+                .awaitSnapshot()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
         if (ordered != null) return ordered
         return firestore.collection(COLLECTION)
             .whereEqualTo(FIELD_WORK_ID, workId)
             .get()
-            .awaitDocuments()
+            .awaitSnapshot()
     }
 
     override suspend fun queryWorksDocuments(workIds: List<String>): List<Map<String, Any>> {
         val result = mutableListOf<Map<String, Any>>()
         for (chunk in workIds.chunked(MAX_WHERE_IN)) {
-            result += firestore.collection(COLLECTION)
+            val snapshot = firestore.collection(COLLECTION)
                 .whereIn(FIELD_WORK_ID, chunk)
                 .get()
-                .awaitDocuments()
-                .orEmpty()
+                .awaitSnapshot()
+            result += snapshot?.documents.orEmpty()
+                .filterNot { it.hasPendingWrites }
+                .map { it.data }
         }
         return result
     }
@@ -108,11 +116,32 @@ class FirestoreListenerReviewsStore(private val firestore: FirebaseFirestore) : 
         ReviewDeleteReceipt.Rejected
     }
 
-    /** Bridges the Play Services [Task] onto a coroutine: documents or null on failure. */
-    private suspend fun Task<com.google.firebase.firestore.QuerySnapshot>.awaitDocuments(): List<Map<String, Any>>? =
-        suspendCancellableCoroutine { cont ->
-            addOnSuccessListener { snapshot -> cont.resume(snapshot.documents.mapNotNull { it.data }) }
-            addOnFailureListener { cont.resume(null) }
+    /** Read metadata is local transport state, never a field in a shared document. */
+    private suspend fun Task<com.google.firebase.firestore.QuerySnapshot>.awaitSnapshot(): ReviewQuerySnapshot? =
+        suspendCancellableCoroutine { continuation ->
+            addOnSuccessListener(reviewWriteTaskExecutor) { snapshot ->
+                if (continuation.isActive) {
+                    continuation.resume(
+                        ReviewQuerySnapshot(
+                            snapshot.documents.mapNotNull { document ->
+                                document.data?.let { data ->
+                                    ReviewDocumentSnapshot(data, document.metadata.hasPendingWrites())
+                                }
+                            },
+                            if (snapshot.metadata.isFromCache) ReviewReadProvenance.CACHE
+                            else ReviewReadProvenance.SERVER,
+                        )
+                    )
+                }
+            }
+            addOnFailureListener(reviewWriteTaskExecutor) {
+                if (continuation.isActive) continuation.resume(null)
+            }
+            addOnCanceledListener(reviewWriteTaskExecutor) {
+                if (continuation.isActive) {
+                    continuation.cancel(CancellationException("Firestore review query was cancelled"))
+                }
+            }
         }
 
     companion object {

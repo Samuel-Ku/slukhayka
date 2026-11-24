@@ -42,8 +42,10 @@ data class ListenerReviewState(
     val pending: Map<String, ListenerReview> = emptyMap(),
     /** Document ids locally accepted for deletion (removed from [visible] now). */
     val deleting: Set<String> = emptySet(),
-    /** The last FAILED save per document id — the exact payload a retry resends. */
+    /** Exact retryable failed or SDK-restored unconfirmed payloads; no SDK error reason is implied. */
     val failedSave: Map<String, ListenerReview> = emptyMap(),
+    /** Pending ids restored from SDK CACHE or SERVER without a live submission in this epoch. */
+    internal val sdkRestoredPending: Set<String> = emptySet(),
     /** Document ids whose last FAILED mutation was a delete. */
     val failedDelete: Set<String> = emptySet(),
     /**
@@ -54,7 +56,8 @@ data class ListenerReviewState(
      */
     val deletedDocuments: Set<String> = emptySet(),
     /** True when the last read failed: [confirmed] is the last good snapshot. */
-    val readFailed: Boolean = false
+    val readFailed: Boolean = false,
+    val readProvenance: ReviewReadProvenance = ReviewReadProvenance.UNKNOWN,
 ) {
     /** Confirmed server truth plus the pending cards, minus locally deleted ones. */
     val visible: List<ListenerReview>
@@ -127,6 +130,12 @@ class ListenerReviewLifecycle(
     /** Bumped on every Work/uid switch: late callbacks compare against it. */
     private val epoch = AtomicLong(0)
 
+    /** Serializes scope changes with non-suspending read publication only. */
+    private val readScopeLock = Any()
+    private var readScopeEpoch = Any()
+    /** Per-document PUBLISHED ordering; immutable map snapshots belong to read starts. */
+    private var publishedSaveStamps: Map<String, Any> = emptyMap()
+
     /**
      * Scopes the module to one Work and one listener.
      *
@@ -136,53 +145,118 @@ class ListenerReviewLifecycle(
      * private state never belongs to the new profile.
      */
     fun open(workId: String, uid: String = "") {
-        val current = _state.value
-        when {
-            current.workId != workId -> {
-                epoch.incrementAndGet()
-                _state.value = ListenerReviewState(workId = workId, uid = uid)
-            }
-            current.uid != uid -> {
-                epoch.incrementAndGet()
-                _state.value = current.copy(
-                    uid = uid,
-                    pending = emptyMap(),
-                    deleting = emptySet(),
-                    failedSave = emptyMap(),
-                    failedDelete = emptySet(),
-                    deletedDocuments = emptySet()
-                )
+        synchronized(readScopeLock) {
+            val current = _state.value
+            when {
+                current.workId != workId -> {
+                    readScopeEpoch = Any()
+                    publishedSaveStamps = emptyMap()
+                    epoch.incrementAndGet()
+                    _state.value = ListenerReviewState(workId = workId, uid = uid)
+                }
+                current.uid != uid -> {
+                    readScopeEpoch = Any()
+                    publishedSaveStamps = emptyMap()
+                    epoch.incrementAndGet()
+                    _state.value = current.copy(
+                        uid = uid,
+                        pending = emptyMap(),
+                        sdkRestoredPending = emptySet(),
+                        deleting = emptySet(),
+                        failedSave = emptyMap(),
+                        failedDelete = emptySet(),
+                        deletedDocuments = emptySet()
+                    )
+                }
             }
         }
     }
 
     /**
-     * Re-reads one Work's reviews. A failure keeps the previous confirmed
-     * snapshot; a successful empty clears it. Results for a Work that is no
-     * longer open (or superseded by a newer read) are dropped.
+     * Re-reads one Work's reviews. Failure keeps the previous confirmed snapshot.
+     * An authoritative SERVER empty clears it; a CACHE partial or empty keeps
+     * already known confirmed rows absent from that observation. Legacy UNKNOWN
+     * [ReviewReadResult.Empty] retains its clearing behavior. Results from a previous Work/listener epoch or superseded by a newer read
+     * are dropped; scope changes and result publication share one short lock.
      */
     suspend fun refresh(workId: String) {
-        if (workId != _state.value.workId) return
         val seam = store ?: return
-        val request = loads.begin(workId)
+        val (request, requestEpoch, readPublishedStamps) = synchronized(readScopeLock) {
+            if (workId != _state.value.workId) return
+            Triple(loads.begin(workId), readScopeEpoch, publishedSaveStamps)
+        }
         val result = seam.readReviews(workId)
-        if (workId != _state.value.workId || !loads.isLatest(request)) return
-        when (result) {
-            is ReviewReadResult.Data ->
-                _state.update {
-                    it.copy(
-                        confirmed = result.reviews.filterNot { review ->
-                            ListenerReviewCodec.documentId(review.workId, review.uid) in it.deletedDocuments
-                        },
-                        readFailed = false
-                    )
-                }
-            ReviewReadResult.Empty ->
-                _state.update { it.copy(confirmed = emptyList(), readFailed = false) }
-            ReviewReadResult.Failure ->
-                // The community is NOT empty — it is unreachable. Keep the
-                // last confirmed snapshot and say that it is stale.
-                _state.update { it.copy(readFailed = true) }
+        synchronized(readScopeLock) {
+            if (requestEpoch !== readScopeEpoch || workId != _state.value.workId || !loads.isLatest(request)) return
+            val newerPublishedIds = publishedSaveStamps.keys.filterTo(mutableSetOf()) { id ->
+                publishedSaveStamps[id] !== readPublishedStamps[id]
+            }
+            when (result) {
+                is ReviewReadResult.Data ->
+                    _state.update { current ->
+                        val blocked = current.deletedDocuments + current.deleting
+                        val confirmed = result.reviews.filterNot { documentIdOf(it) in blocked || documentIdOf(it) in newerPublishedIds }
+                        val observedPending = result.pendingReviews.filterNot { documentIdOf(it) in newerPublishedIds }
+                        val confirmedIds = confirmed.mapTo(mutableSetOf(), ::documentIdOf)
+                        val pendingIds = observedPending.mapTo(mutableSetOf(), ::documentIdOf)
+                        val retained = current.confirmed.filter { review ->
+                            val id = documentIdOf(review)
+                            id !in blocked && id !in confirmedIds &&
+                                (result.provenance == ReviewReadProvenance.CACHE || id in pendingIds || id in newerPublishedIds)
+                        }
+                        val restored = observedPending
+                            .filter { it.uid == current.uid && it.workId == current.workId }
+                            .associateBy(::documentIdOf)
+                        val acknowledged = if (result.provenance == ReviewReadProvenance.UNKNOWN) {
+                            emptySet()
+                        } else {
+                            confirmed.filter { current.pending[documentIdOf(it)] == it }
+                                .mapTo(mutableSetOf(), ::documentIdOf)
+                        }
+                        // A SERVER replacement is not an SDK rejection reason. A draft
+                        // restored without a live receipt remains retryable, not queued forever.
+                        val unconfirmed = if (result.provenance == ReviewReadProvenance.SERVER) {
+                            current.pending.filterKeys { id ->
+                                id in current.sdkRestoredPending && id !in pendingIds &&
+                                    id !in acknowledged && id !in blocked
+                            }
+                        } else {
+                            emptyMap()
+                        }
+                        // SDK observations may update a restored draft, never a live submission.
+                        val livePending = current.pending.filterKeys { it !in current.sdkRestoredPending }
+                        val pending = (current.pending + restored + livePending).filter { (id, review) ->
+                            review.uid == current.uid && id !in blocked && id !in acknowledged &&
+                                id !in current.failedSave && id !in current.failedDelete && id !in unconfirmed
+                        }
+                        // An SDK observation must not acquire ownership of a live save.
+                        val newlyRestored = if (result.provenance != ReviewReadProvenance.UNKNOWN) {
+                            restored.keys - current.pending.keys
+                        } else {
+                            emptySet()
+                        }
+                        current.copy(
+                            confirmed = (confirmed + retained).sortedByDescending { it.createdAt },
+                            pending = pending,
+                            sdkRestoredPending = (current.sdkRestoredPending + newlyRestored).intersect(pending.keys),
+                            failedSave = current.failedSave + unconfirmed,
+                            readFailed = false,
+                            readProvenance = result.provenance,
+                        )
+                    }
+                ReviewReadResult.Empty ->
+                    _state.update {
+                        it.copy(
+                            confirmed = it.confirmed.filter { review -> documentIdOf(review) in newerPublishedIds },
+                            readFailed = false,
+                            readProvenance = ReviewReadProvenance.UNKNOWN
+                        )
+                    }
+                ReviewReadResult.Failure ->
+                    // The community is NOT empty — it is unreachable. Keep the
+                    // last confirmed snapshot and say that it is stale.
+                    _state.update { it.copy(readFailed = true) }
+            }
         }
     }
 
@@ -319,6 +393,7 @@ class ListenerReviewLifecycle(
         _state.update {
             it.copy(
                 pending = it.pending + (documentId to review),
+                sdkRestoredPending = it.sdkRestoredPending - documentId,
                 deleting = it.deleting - documentId,
                 failedSave = it.failedSave - documentId,
                 failedDelete = it.failedDelete - documentId
@@ -375,20 +450,30 @@ class ListenerReviewLifecycle(
         }
         return when (remote) {
             ReviewRemoteResult.PUBLISHED -> {
-                _state.update { current ->
-                    current.copy(
-                        pending = current.pending - documentId,
-                        // #1226 — the replacement review is now the truth; a
-                        // stale read may no longer resurrect the deleted one.
-                        deletedDocuments = current.deletedDocuments - documentId,
-                        confirmed = (
-                            current.confirmed.filterNot {
-                                ListenerReviewCodec.documentId(it.workId, it.uid) == documentId
-                            } + review
-                            ).sortedByDescending { it.createdAt },
-                        failedSave = current.failedSave - documentId
-                    )
+                val published = synchronized(readScopeLock) {
+                    if (!inScope(workId, epochAtStart) || !submissions.isLatest(submission)) {
+                        false
+                    } else {
+                        _state.update { current ->
+                            current.copy(
+                                pending = current.pending - documentId,
+                                sdkRestoredPending = current.sdkRestoredPending - documentId,
+                                // #1226 — the replacement review is now the truth; a
+                                // stale read may no longer resurrect the deleted one.
+                                deletedDocuments = current.deletedDocuments - documentId,
+                                confirmed = (
+                                    current.confirmed.filterNot {
+                                        ListenerReviewCodec.documentId(it.workId, it.uid) == documentId
+                                    } + review
+                                    ).sortedByDescending { it.createdAt },
+                                failedSave = current.failedSave - documentId
+                            )
+                        }
+                        publishedSaveStamps = publishedSaveStamps + (documentId to Any())
+                        true
+                    }
                 }
+                if (!published) return ReviewSaveResult.FAILED
                 _results.emit(submission.event(ReviewSaveResult.PUBLISHED))
                 ReviewSaveResult.PUBLISHED
             }
@@ -397,6 +482,7 @@ class ListenerReviewLifecycle(
                 _state.update { current ->
                     current.copy(
                         pending = current.pending - documentId,
+                        sdkRestoredPending = current.sdkRestoredPending - documentId,
                         failedSave = current.failedSave + (documentId to review)
                     )
                 }
@@ -423,6 +509,7 @@ class ListenerReviewLifecycle(
                     ListenerReviewCodec.documentId(row.workId, row.uid) == documentId
                 },
                 pending = it.pending - documentId,
+                sdkRestoredPending = it.sdkRestoredPending - documentId,
                 deleting = it.deleting + documentId,
                 failedSave = it.failedSave - documentId,
                 failedDelete = it.failedDelete - documentId
@@ -477,6 +564,9 @@ class ListenerReviewLifecycle(
         }
         return if (succeeded) ReviewDeleteResult.DELETED else ReviewDeleteResult.FAILED
     }
+
+    private fun documentIdOf(review: ListenerReview): String =
+        ListenerReviewCodec.documentId(review.workId, review.uid)
 
     /** A late callback applies only while its Work AND listener epoch still hold. */
     private fun inScope(workId: String, epochAtStart: Long): Boolean =

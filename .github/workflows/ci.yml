@@ -21,11 +21,11 @@ jobs:
       - name: Checkout exact PR candidate
         uses: actions/checkout@v5
         with:
-          ref: 6ccf08b2cbbe2625ce840e2477b27509cfcababd
+          ref: aacca018c7171b808db9e5ddd6b62e8887842960
           fetch-depth: 0
           persist-credentials: false
       - name: Check source revision
-        run: test "$(git rev-parse HEAD)" = 6ccf08b2cbbe2625ce840e2477b27509cfcababd
+        run: test "$(git rev-parse HEAD)" = aacca018c7171b808db9e5ddd6b62e8887842960
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -75,12 +75,14 @@ jobs:
           chmod +x .worktrees/gt gradlew
           python3 - <<'PYCODE'
           from pathlib import Path
-          import difflib
+          import difflib, hashlib, json, os
           mutants = [
-              ('work-only-cache-key', 'app/src/main/java/com/slukhayka/audiobooks/data/EditionId.kt', 'recentIds[input]', 'recentIds[input.substringBefore("\\u0000")]'),
-              ('missing-cache-language', 'app/src/main/java/com/slukhayka/audiobooks/data/EditionId.kt', 'recentIds[input]', 'recentIds[input.substringBeforeLast("\\u0000")]'),
-              ('corrupt-cache-hit', 'app/src/main/java/com/slukhayka/audiobooks/data/EditionId.kt', 'recentIds[input]?.let { return it }', 'recentIds[input]?.let { return "" }'),
+              ('work-only-cache-key', 'app/src/main/java/com/slukhayka/audiobooks/data/EditionId.kt', 'recentIds[input]', 'recentIds[input.substringBefore(0.toChar())]'),
+              ('missing-cache-language', 'app/src/main/java/com/slukhayka/audiobooks/data/EditionId.kt', 'recentIds[input]', 'recentIds[input.substringBeforeLast(0.toChar())]'),
+              ('bypass-cache-hit', 'app/src/main/java/com/slukhayka/audiobooks/data/EditionId.kt', '        recentIds[input]?.let { return it }\n', ''),
+              ('unbounded-cache', 'app/src/main/java/com/slukhayka/audiobooks/data/EditionId.kt', '        if (recentIds.size >= MAX_RECENT_IDS) recentIds.clear()\n', ''),
           ]
+          preparation = []
           for name, file, original, replacement in mutants:
               path = Path(file)
               source = path.read_text()
@@ -89,6 +91,8 @@ jobs:
               mutant = source.replace(original, replacement)
               patch = ''.join(difflib.unified_diff(source.splitlines(keepends=True), mutant.splitlines(keepends=True), fromfile='a/' + file, tofile='b/' + file))
               Path('.mutations/patches/' + name + '.patch').write_text(patch)
+              preparation.append({'name': name, 'file': file, 'original': original, 'replacement': replacement, 'sourceSha256': hashlib.sha256(source.encode()).hexdigest(), 'mutantSha256': hashlib.sha256(mutant.encode()).hexdigest(), 'patchSha256': hashlib.sha256(patch.encode()).hexdigest()})
+          Path('.mutations/evidence/mutant-preparation.json').write_text(json.dumps({'workflowCommit': os.environ['GITHUB_SHA'], 'mutants': preparation}, indent=2))
           PYCODE
       - name: Path-selected partitions and AndroidTest compile
         run: .worktrees/gt scripts/test-changed.sh --base 85c4423b6c608b18162f440ff3044d47e76d6451
@@ -100,9 +104,13 @@ jobs:
         run: |
           .worktrees/gt scripts/mutate.sh --patch .mutations/patches/missing-cache-language.patch --class com.slukhayka.audiobooks.data.EditionIdTest
           scripts/mutate.sh status --class com.slukhayka.audiobooks.data.EditionIdTest
-      - name: Catch corrupt-cache-hit
+      - name: Catch bypass-cache-hit
         run: |
-          .worktrees/gt scripts/mutate.sh --patch .mutations/patches/corrupt-cache-hit.patch --class com.slukhayka.audiobooks.data.EditionIdTest
+          .worktrees/gt scripts/mutate.sh --patch .mutations/patches/bypass-cache-hit.patch --class com.slukhayka.audiobooks.data.EditionIdTest
+          scripts/mutate.sh status --class com.slukhayka.audiobooks.data.EditionIdTest
+      - name: Catch unbounded-cache
+        run: |
+          .worktrees/gt scripts/mutate.sh --patch .mutations/patches/unbounded-cache.patch --class com.slukhayka.audiobooks.data.EditionIdTest
           scripts/mutate.sh status --class com.slukhayka.audiobooks.data.EditionIdTest
       - name: Recheck genuine source after all rollbacks
         run: |

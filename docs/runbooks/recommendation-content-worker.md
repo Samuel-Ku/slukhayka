@@ -29,7 +29,7 @@
 
 ```sh
 python3 -m venv .venv-recommend
-.venv-recommend/bin/pip install -r scripts/recommend/requirements.txt
+.venv-recommend/bin/pip install --require-hashes -r scripts/recommend/requirements.lock
 ```
 
 Модель — `minishlab/potion-multilingual-128M`, ваги близько 512 МБ. Потрібні
@@ -99,3 +99,12 @@ cold computed=4 / warm computed=0. Результат — локальний gra
 
 Cloud-чат не отримує доступу до Mac автоматично. Запустити цей скрипт
 у Mac Terminal або продовжити в локальному Codex-чаті цієї копії.
+
+## Перед розгортанням на dragonborn
+
+Власник додав вимогу захистити машину від неавторизованого доступу.
+Чинний контракт: [recommendation-worker-security.md](recommendation-worker-security.md).
+Немає вхідних портів для рекомендацій, модель працює в офлайн-сервісі,
+отримання даних і доставка відділені. Попередні команди прямого запуску —
+лише проба функціональності, не прийнятий захищений production-сервіс.
+Встановлення залежностей використовує requirements.lock з --require-hashes.

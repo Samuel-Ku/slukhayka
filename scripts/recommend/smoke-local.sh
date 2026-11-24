@@ -24,7 +24,7 @@ mkdir -p "$trial_dir"
 trial_dir=$(cd "$trial_dir" && pwd)
 printf 'Trial directory: %s\n' "$trial_dir"
 "$trial_python" -m venv "$trial_dir/venv"
-"$trial_dir/venv/bin/python" -m pip install -r "$repo_root/scripts/recommend/requirements.txt"
+"$trial_dir/venv/bin/python" -m pip install --require-hashes -r "$repo_root/scripts/recommend/requirements.lock"
 # HF_HUB_CACHE scopes the model download to this trial, including on macOS.
 export HF_HUB_CACHE="$trial_dir/model-cache"
 export HF_HUB_DISABLE_XET=1

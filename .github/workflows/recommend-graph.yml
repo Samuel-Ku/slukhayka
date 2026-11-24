@@ -32,7 +32,7 @@ jobs:
         with:
           path: ~/.cache/huggingface/hub
           key: content-graph-potion-73908c3438cf03b6a01bcb9611d62b23d0726f08
-      - run: python -m pip install -r scripts/recommend/requirements.txt
+      - run: python -m pip install --require-hashes -r scripts/recommend/requirements.lock
       - name: Build using real pinned Model2Vec weights, then verify a warm run
         env:
           HF_HUB_DISABLE_XET: '1'
@@ -54,6 +54,20 @@ jobs:
           assert warm['computed'] == 0, warm
           print({'cold': cold, 'warm': warm})
           PY
+      - name: Stage pinned local weights and build in offline mode
+        env:
+          HF_HUB_DISABLE_XET: '1'
+        run: |
+          set -eu
+          python scripts/recommend/prepare_model.py \
+            --output /tmp/content-model \
+            --revision 73908c3438cf03b6a01bcb9611d62b23d0726f08
+          HF_HUB_OFFLINE=1 python scripts/recommend/build_graph.py \
+            --catalog scripts/recommend/smoke-catalog.json \
+            --cache /tmp/offline-vectors.sqlite --output /tmp/offline-graph.json \
+            --model-dir /tmp/content-model \
+            --revision 73908c3438cf03b6a01bcb9611d62b23d0726f08
+
       - uses: actions/upload-artifact@v4
         with:
           name: content-graph-model-smoke

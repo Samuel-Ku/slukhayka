@@ -32,6 +32,37 @@ class CatalogTest(unittest.TestCase):
             self.assertEqual(b"new", path.read_bytes())
             self.assertEqual([path], list(Path(directory).iterdir()))
 
+    def test_rejects_private_root_fields_and_oversized_input(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "catalog.json"
+            path.write_text(json.dumps({"works": [], "uid": "private"}))
+            with self.assertRaisesRegex(ValueError, "only a public"):
+                graph.read_catalog(path)
+            path.write_bytes(b"x" * 32)
+            with patch.object(graph, "MAX_CATALOG_BYTES", 16):
+                with self.assertRaisesRegex(ValueError, "exceeds"):
+                    graph.read_catalog(path)
+
+    def test_offline_model_does_not_import_downloader_or_fall_back(self):
+        import sys
+        from unittest.mock import Mock, patch
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            (path / "REVISION").write_text("a" * 40)
+            for name in ("model.safetensors", "tokenizer.json", "config.json"):
+                (path / name).touch()
+            fake_model = Mock()
+            with patch.dict(sys.modules, {"model2vec": fake_model, "huggingface_hub": None}), patch.dict(graph.os.environ):
+                graph.load_model("a" * 40, path)
+                fake_model.StaticModel.from_pretrained.assert_called_once_with(str(path), force_download=False)
+                self.assertEqual("1", graph.os.environ["HF_HUB_OFFLINE"])
+                with self.assertRaisesRegex(ValueError, "revision mismatch"):
+                    graph.load_model("b" * 40, path)
+                (path / "tokenizer.json").unlink()
+                with self.assertRaisesRegex(ValueError, "incomplete"):
+                    graph.load_model("a" * 40, path)
+
 
 @unittest.skipIf(np is None, "install scripts/recommend/requirements.txt for numerical pipeline tests")
 class PipelineTest(unittest.TestCase):

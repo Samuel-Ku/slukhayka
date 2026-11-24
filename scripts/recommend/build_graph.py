@@ -17,6 +17,7 @@ import time
 MODEL = "minishlab/potion-multilingual-128M"
 MAX_BYTES = 8 * 1024 * 1024
 MAX_WORKS = 20_000
+MAX_CATALOG_BYTES = 64 * 1024 * 1024
 
 
 def atomic_write(path, data):
@@ -36,7 +37,13 @@ def atomic_write(path, data):
 
 
 def read_catalog(path):
-    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    with Path(path).open("rb") as stream:
+        content = stream.read(MAX_CATALOG_BYTES + 1)
+    if len(content) > MAX_CATALOG_BYTES:
+        raise ValueError("catalog exceeds 64 MiB")
+    payload = json.loads(content)
+    if not isinstance(payload, dict) or set(payload) != {"works"}:
+        raise ValueError("only a public works catalog is accepted")
     rows = payload["works"]
     if not isinstance(rows, list) or not 2 <= len(rows) <= MAX_WORKS:
         raise ValueError("catalog must contain 2..20000 public Works")
@@ -117,12 +124,34 @@ def build_graph(catalog, matrix, revision, now, top_k=24, ttl_days=7):
             "workKeys": [key for key, _ in catalog], "neighbors": neighbors}
 
 
+def load_model(revision, model_dir=None):
+    if model_dir is not None:
+        model_dir = Path(model_dir)
+        # Deployment copies pinned weights to a root-owned, read-only directory.
+        # Missing local files fail here; never substitute an online model.
+        if not model_dir.is_dir() or (model_dir / "REVISION").read_text().strip() != revision:
+            raise ValueError("local model revision mismatch")
+        for name in ("model.safetensors", "tokenizer.json", "config.json"):
+            if not (model_dir / name).is_file():
+                raise ValueError("local model is incomplete")
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+        from model2vec import StaticModel
+        return StaticModel.from_pretrained(str(model_dir), force_download=False)
+    from model2vec import StaticModel
+    from huggingface_hub import snapshot_download
+    path = snapshot_download(repo_id=MODEL, revision=revision,
+                             allow_patterns=["*.json", "model.safetensors", "vocab.txt"])
+    return StaticModel.from_pretrained(path)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--catalog", required=True, type=Path)
     parser.add_argument("--cache", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--revision", required=True, help="Pinned 40-character Hugging Face commit SHA")
+    parser.add_argument("--model-dir", type=Path, help="Use pre-staged local weights, never download")
     parser.add_argument("--top-k", type=int, default=24)
     parser.add_argument("--ttl-days", type=int, default=7)
     args = parser.parse_args()
@@ -134,13 +163,8 @@ def main():
     for name in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS", "TOKENIZERS_PARALLELISM"):
         os.environ[name] = "false" if name == "TOKENIZERS_PARALLELISM" else "2"
     catalog = read_catalog(args.catalog)
-    def load():
-        from model2vec import StaticModel
-        from huggingface_hub import snapshot_download
-        path = snapshot_download(repo_id=MODEL, revision=args.revision,
-                                 allow_patterns=["*.json", "model.safetensors", "vocab.txt"])
-        return StaticModel.from_pretrained(path)
-    matrix, computed = cached_vectors(catalog, args.cache, MODEL, args.revision, load)
+    matrix, computed = cached_vectors(catalog, args.cache, MODEL, args.revision,
+                                       lambda: load_model(args.revision, args.model_dir))
     graph = build_graph(catalog, matrix, args.revision, int(time.time() * 1000), args.top_k, args.ttl_days)
     content = json.dumps(graph, ensure_ascii=False, separators=(",", ":")).encode()
     if len(content) > MAX_BYTES:

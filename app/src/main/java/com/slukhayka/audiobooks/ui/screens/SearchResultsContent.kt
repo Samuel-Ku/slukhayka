@@ -6,21 +6,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
@@ -71,6 +66,26 @@ fun LazyListScope.searchResultsContent(
     // would stack into two "nothing found" messages.
     val nothingAnywhere = localEmpty && (!liveSearchActive || liveSettledEmpty)
 
+    if (nothingAnywhere) {
+        // F33 — one canonical empty state, not six blocks: no counted
+        // «У вашій медіатеці (0)» / «Знайдені книги (0)» headers above a
+        // second «нічого не знайдено», and no placeholder glyph — the
+        // direction states an absence in type (Literata 20 + Meta), not with
+        // an icon standing for something that is not there.
+        item(key = "search_no_results") {
+            EmptyState(
+                title = stringResource(R.string.home_search_no_results),
+                body = stringResource(R.string.home_search_no_results_hint),
+                modifier = Modifier
+                    .testTag("search_no_results")
+                    .semantics(mergeDescendants = true) {
+                        liveRegion = LiveRegionMode.Polite
+                    }
+            )
+        }
+        return
+    }
+
     item(key = "library_results_header") {
         // #885 (wave 2) — one canonical header instead of a private twin.
         AppSectionHeader(
@@ -80,18 +95,18 @@ fun LazyListScope.searchResultsContent(
         )
     }
     if (localEmpty) {
-        if (!nothingAnywhere) {
-            item(key = "library_results_empty") {
-                Text(
-                    text = stringResource(R.string.home_library_no_matches),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                        .testTag("search_library_empty")
-                )
-            }
+        // `nothingAnywhere` already returned above, so this branch only runs
+        // when live results or a live status exist beside an empty library.
+        item(key = "library_results_empty") {
+            Text(
+                text = stringResource(R.string.home_library_no_matches),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .testTag("search_library_empty")
+            )
         }
     } else {
         items(localBooks, key = { it.id }) { book ->
@@ -104,14 +119,20 @@ fun LazyListScope.searchResultsContent(
     }
 
     if (liveSearchActive) {
-        item(key = "all_sources_header") {
-            AppSectionHeader(
-                title = stringResource(R.string.home_all_sources, globalResults.size),
-                level = SectionHeaderLevel.SECTION,
-                modifier = Modifier.testTag("search_sources_header")
-            )
+        // #1553 — the count is a FACT, never a progress hint: while the live
+        // search is in flight the header would read «Знайдені книги (0)» right
+        // next to «Шукаємо в усіх джерелах» (ADR-0014; web already waits for
+        // settlement). The status and the results below must stay visible.
+        if (!isGlobalLoading) {
+            item(key = "all_sources_header") {
+                AppSectionHeader(
+                    title = stringResource(R.string.home_all_sources, globalResults.size),
+                    level = SectionHeaderLevel.SECTION,
+                    modifier = Modifier.testTag("search_sources_header")
+                )
+            }
         }
-        if (isGlobalLoading || globalError || (globalResults.isEmpty() && !nothingAnywhere)) {
+        if (isGlobalLoading || globalError || globalResults.isEmpty()) {
             item(key = "all_sources_status") {
                 GlobalSearchStatus(
                     isLoading = isGlobalLoading,
@@ -175,17 +196,5 @@ fun LazyListScope.searchResultsContent(
         }
     }
 
-    if (nothingAnywhere) {
-        item(key = "search_no_results") {
-            EmptyState(
-                icon = Icons.Default.SearchOff,
-                title = stringResource(R.string.home_search_no_results),
-                body = stringResource(R.string.home_search_no_results_hint),
-                modifier = Modifier.semantics(mergeDescendants = true) {
-                    liveRegion = LiveRegionMode.Polite
-                }
-            )
-        }
-    }
 }
 

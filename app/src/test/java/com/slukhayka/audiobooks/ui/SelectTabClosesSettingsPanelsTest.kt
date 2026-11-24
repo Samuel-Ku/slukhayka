@@ -38,7 +38,10 @@ class SelectTabClosesSettingsPanelsTest {
         Panel("Recommendations", { it.openRecommendationSettings() }, { it.recommendationSettingsOpen }),
         Panel("ContentLanguages", { it.openContentLanguages() }, { it.contentLanguagesOpen }),
         Panel("AppLocale", { it.openAppLocale() }, { it.appLocaleOpen }),
-        Panel("SourceAudioRefusal", { it.openSourceAudioRefusal() }, { it.sourceAudioRefusalOpen })
+        Panel("SourceAudioRefusal", { it.openSourceAudioRefusal() }, { it.sourceAudioRefusalOpen }),
+        // F18 — the eighth destination; it had no UI row before, which is why
+        // its missing close in `selectTab` went unnoticed.
+        Panel("Achievements", { it.openAchievements() }, { it.achievementsOpen })
     )
 
     @Test

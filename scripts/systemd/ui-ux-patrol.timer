@@ -1,0 +1,13 @@
+[Unit]
+Description=Нічний UI/UX-патруль (таймер)
+Documentation=file:%h/Projects/slukhayka/docs/runbooks/ui-ux-patrol.md
+
+[Timer]
+# 03:20 — після нічного CI й branch-hygiene (02:40), до ранку.
+# Persistent=true доганяє пропущений запуск, якщо машина спала.
+OnCalendar=*-*-* 03:20:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

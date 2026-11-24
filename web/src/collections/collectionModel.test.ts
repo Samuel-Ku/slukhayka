@@ -65,6 +65,26 @@ describe('decodePublishedCollection (#692)', () => {
     ])
   })
 
+  it('keeps identity fields raw, exactly as Kotlin decodes them', () => {
+    // Kotlin checks `isBlank()` but never trims: the derived document id must
+    // stay `${authorId}-${collectionId}` byte-for-byte, or the browser would
+    // address a different Firestore document than the phone.
+    const decoded = decodePublishedCollection(
+      document({
+        authorId: ' author ',
+        collectionId: ' collection ',
+        items: [{ bookId: ' work ', title: 'Книга', coverUrl: ' https://cdn.example/c.jpg ' }],
+      }),
+    )
+    expect(decoded?.authorId).toBe(' author ')
+    expect(decoded?.collectionId).toBe(' collection ')
+    expect(collectionDocumentId(decoded!)).toBe(' author - collection ')
+    expect(decoded?.items[0]).toMatchObject({
+      bookId: ' work ',
+      coverUrl: ' https://cdn.example/c.jpg ',
+    })
+  })
+
   it('is a miss when the document cannot address a real collection', () => {
     expect(decodePublishedCollection(null)).toBeNull()
     expect(decodePublishedCollection(document({ authorId: '   ' }))).toBeNull()

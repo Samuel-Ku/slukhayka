@@ -7,6 +7,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.slukhayka.audiobooks.data.collections.ListenerCollection
+import com.slukhayka.audiobooks.data.db.AudiobookEntity
 
 /**
  * Spec-51 (#690) + #1154 — the listener's OWN collection, as a full-screen page.
@@ -38,6 +39,9 @@ fun ListenerCollectionPage(
     onRemoveBook: (collectionId: String, bookId: String) -> Unit,
     onDelete: (collectionId: String) -> Unit,
     modifier: Modifier = Modifier,
+    /** #1505 — local books for the stored ids, and the tap that opens one. */
+    booksById: Map<String, AudiobookEntity> = emptyMap(),
+    onOpenBook: (bookId: String) -> Unit = {},
     onPublish: (collectionId: String, pseudonym: String) -> Unit = { _, _ -> }
 ) {
     val collection = openId?.let { id -> collections.firstOrNull { it.id == id } } ?: return
@@ -55,6 +59,8 @@ fun ListenerCollectionPage(
             collection = collection,
             onRemoveBook = { bookId -> onRemoveBook(collection.id, bookId) },
             onDelete = { onDelete(collection.id) },
+            booksById = booksById,
+            onOpenBook = onOpenBook,
             onPublish = { publishing = true }
         )
     }

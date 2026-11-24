@@ -59,7 +59,24 @@ class CollectiveBlockSourcesTest {
     }
 
     @Test
-    fun `the new-arrivals block key is source-scoped`() {
-        assertEquals("soundbooks|NEW_ARRIVALS", newArrivalsBlockKey("soundbooks"))
+    fun `the new-arrivals block key names the source and its canonical provenance`() {
+        // #1238 — the context is the registry home without scheme/slash, so the
+        // identity is stable across http/https spelling and trailing slashes.
+        assertEquals("soundbooks|NEW_ARRIVALS|sound-books.net", newArrivalsBlockKey("soundbooks"))
+        assertEquals(CollectiveBlockKind.NEW_ARRIVALS, parseCollectiveBlockKey(newArrivalsBlockKey("soundbooks"))!!.kind)
+        assertEquals("sound-books.net", parseCollectiveBlockKey(newArrivalsBlockKey("soundbooks"))!!.provenanceContext)
+    }
+
+    @Test
+    fun `two related collections of one source get distinct identities`() {
+        val a = collectiveGenreBlockKey("soundbooks", "/collections/do-a")
+        val b = collectiveGenreBlockKey("soundbooks", "/collections/do-b")
+
+        assertEquals(false, a == b)
+        assertEquals("soundbooks", parseCollectiveBlockKey(a)!!.sourceId)
+        assertEquals(
+            "sound-books.net/collections/do-a",
+            parseCollectiveBlockKey(a)!!.provenanceContext
+        )
     }
 }

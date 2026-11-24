@@ -58,10 +58,10 @@ class LocalSourceRescanGuardTest {
 
     /** #1052 — loose files at the TREE ROOT: no parent folder. */
     private fun rootEntry(name: String, byte: Int) =
-        LocalAudioEntry(name, null) { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
+        LocalAudioEntry(name, null, uri = "content://test/local") { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
 
     private fun entry(name: String, byte: Int) =
-        LocalAudioEntry(name, "Кобзар") { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
+        LocalAudioEntry(name, "Кобзар", uri = "content://test/local") { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
 
     private suspend fun importTwoChapters(): String {
         imports().importAudioEntries(
@@ -96,7 +96,7 @@ class LocalSourceRescanGuardTest {
     @Test
     fun `rescan keeps planned merge order and split ownership while refusing an ambiguous new chapter`() = runBlocking {
         val tree = "content://tree/manual-corrections"
-        fun file(name: String, folder: String?, byte: Int) = LocalAudioEntry(name, folder) { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
+        fun file(name: String, folder: String?, byte: Int) = LocalAudioEntry(name, folder, uri = "content://test/local") { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
         val initial = listOf(file("01.mp3", "A", 1), file("02.mp3", "A", 2), file("03.mp3", "A", 3),
             file("01.mp3", "B", 5), file("00.mp3", null, 6))
         var plan = ImportPlanner.buildPlan(SourceRef.Folder(tree, "Оповідання"), initial)
@@ -142,7 +142,7 @@ class LocalSourceRescanGuardTest {
     @Test
     fun `explicit reimport owns new chapters and replacement paths ahead of removed folder memory`() = runBlocking {
         val tree = "content://tree/reimport-owner"
-        fun root(name: String, byte: Int) = LocalAudioEntry(name, null) { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
+        fun root(name: String, byte: Int) = LocalAudioEntry(name, null, uri = "content://test/local") { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
         val original = root("01.mp3", 1)
         val plan = ImportPlanner.buildPlan(SourceRef.Folder(tree, "Кобзар", LocalFolderGrouping.ONE_BOOK), listOf(original))
         assertEquals(1, imports().applyImportPlan(plan).booksImported)
@@ -220,7 +220,7 @@ class LocalSourceRescanGuardTest {
     @Test
     fun `one root book keeps confirmed title and receives new files after recreating importer`() = runBlocking {
         val tree = "content://tree/root-chapters"
-        fun root(name: String, byte: Int) = LocalAudioEntry(name, null) { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
+        fun root(name: String, byte: Int) = LocalAudioEntry(name, null, uri = "content://test/local") { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
         val initial = listOf(root("03.mp3", 3), root("01.mp3", 1), root("02.mp3", 2))
         var plan = ImportPlanner.buildPlan(SourceRef.Folder(tree, "Кобзар", LocalFolderGrouping.ONE_BOOK), initial)
         plan = ImportPlanner.editBook(plan, plan.books.single().id, title = "Поезії", author = "Тарас Шевченко")
@@ -244,7 +244,7 @@ class LocalSourceRescanGuardTest {
 
     @Test
     fun `one book accepts two folders and rescans each physical tree independently`() = runBlocking {
-        fun root(name: String, byte: Int) = LocalAudioEntry(name, null) { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
+        fun root(name: String, byte: Int) = LocalAudioEntry(name, null, uri = "content://test/local") { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
         val firstTree = "content://tree/first"
         val secondTree = "content://tree/second"
         val firstFile = root("01.mp3", 1)
@@ -273,7 +273,7 @@ class LocalSourceRescanGuardTest {
     @Test
     fun `a proven folder rename is remembered even when no new chapter was added`() = runBlocking {
         val tree = "content://tree/renamed-folder"
-        fun file(name: String, folder: String, byte: Int) = LocalAudioEntry(name, folder) {
+        fun file(name: String, folder: String, byte: Int) = LocalAudioEntry(name, folder, uri = "content://test/local") {
             ByteArrayInputStream(ByteArray(16) { byte.toByte() })
         }
         val initial = listOf(file("01.mp3", "Оригінальна", 1), file("02.mp3", "Оригінальна", 2))
@@ -301,7 +301,7 @@ class LocalSourceRescanGuardTest {
     @Test
     fun `moving a known file into another books folder never steals that folders new chapters`() = runBlocking {
         val tree = "content://tree/foreign-file"
-        fun file(name: String, folder: String, byte: Int) = LocalAudioEntry(name, folder) {
+        fun file(name: String, folder: String, byte: Int) = LocalAudioEntry(name, folder, uri = "content://test/local") {
             ByteArrayInputStream(ByteArray(16) { byte.toByte() })
         }
         val initial = listOf(file("01.mp3", "Перша", 1), file("02.mp3", "Перша", 2), file("01.mp3", "Друга", 3))

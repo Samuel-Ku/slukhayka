@@ -35,7 +35,7 @@ spec-46, spec-52, web-паритет, локальний пошуковий ін
 | [v1.12 — Трековані твори](https://github.com/Samuel-Ku/slukhayka/milestone/11) | Work без Source і зовнішня бібліографія OL → GB | #853, #856, #857, #858, #968 | 5 | 5/2 |
 | [v1.13 — Канонічний UI (spec-46)](https://github.com/Samuel-Ku/slukhayka/milestone/12) | канонічні компоненти виконуються як записано (ADR-0033) — **закрито 27.09** | — | 0 | 0/18 |
 | [v1.14 — Нагороди (spec-52)](https://github.com/Samuel-Ku/slukhayka/milestone/13) | локальні досягнення з реальних даних | #698–#705 | 8 | 8/0 |
-| [v1.15 — Web-паритет](https://github.com/Samuel-Ku/slukhayka/milestone/14) | web-клієнт 1:1 з Android (ADR-0034) | #557, #697, #817, #934 | 4 | 4/6 |
+| [v1.15 — Web-паритет](https://github.com/Samuel-Ku/slukhayka/milestone/14) | web-клієнт 1:1 з Android (ADR-0034). **Плановий майлстоун, не обіцянка номера релізу:** номер паритету не призначено (рішення власника 2026-10-11, #817; спека `2026-09-06-web-parity.md`, розділ «Реліз») | #557, #697, #817, #934 | 4 | 4/6 |
 | [v1.16 — Друзі й соціальний шар](https://github.com/Samuel-Ku/slukhayka/milestone/15) | аудиторія, блок, дружба, скарги, стрічка «Друзі» — **закрито 22.09** | — | 0 | 0/6 |
 | [v1.17 — Масштабування](https://github.com/Samuel-Ku/slukhayka/milestone/16) | менеджер завантажень і великі екрани (§11 крок 4) | #900 | 1 | 1/1 |
 

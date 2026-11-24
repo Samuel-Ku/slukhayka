@@ -307,6 +307,46 @@ class WitnessTest(unittest.TestCase):
                 self.assertFalse([target for target in targets if meta in target])
                 self.assertTrue(any("RunTest" in target for target in targets))
 
+    def test_a_program_run_by_name_is_a_suite_run_too(self):
+        """`-c <програма>`, що вантажить тести за іменами, — та сама ознака (#1270).
+
+        Ґард оточення перестав писати `-m unittest` у виклику, коли почав брати
+        лічильники з самого прогону, і клас-мета-тест раптом став свідком поля:
+        підрядок `unittest` у виклику — це ФОРМА, а чи ганяє клас набір, видно з
+        того, ЩО робить програма. Коштувало це десяти секунд прогону на кожне
+        місце `mutate.sh` — тобто п'ятдесяти секунд джоби.
+        """
+        source = (
+            "import subprocess\n"
+            "import sys\n"
+            "import unittest\n"
+            "\n"
+            "RUNNER = '''\n"
+            "import sys\n"
+            "import unittest\n"
+            "suite = unittest.TestLoader().loadTestsFromNames(sys.argv[1:])\n"
+            "'''\n"
+            "\n"
+            "\n"
+            "class MetaTest(unittest.TestCase):\n"
+            "    def test_runs_the_suite_by_program(self):\n"
+            "        subprocess.run([sys.executable, '-c', RUNNER, 'test_x'], check=False)\n"
+            "\n"
+            "\n"
+            "class RealTest(unittest.TestCase):\n"
+            "    def test_named_field(self):\n"
+            "        record = {'errors': 1}\n"
+            "        self.assertEqual(1, record['errors'])\n"
+        )
+        with tempfile.TemporaryDirectory(prefix="witness-by-program-") as temporary:
+            module = Path(temporary) / "test_meta_by_program.py"
+            module.write_text(source, encoding="utf-8")
+
+            targets = v.test_targets(module)
+
+        self.assertEqual(["test_meta_by_program.RealTest.test_named_field"], targets,
+                         "мета-тест програмою `-c` не свідок, а справжній тест — свідок")
+
     def test_the_two_phases_are_narrow_then_full(self):
         module = REPO_ROOT / "scripts" / "tests" / "test_mutate.py"
 
@@ -314,6 +354,32 @@ class WitnessTest(unittest.TestCase):
 
         self.assertEqual(["вузький набір", "повний модуль"], [phase for phase, _ in phases])
         self.assertLess(len(phases[0][1]), len(phases[1][1]))
+
+    def test_the_narrow_phases_of_every_witness_come_before_the_full_ones(self):
+        """Порядок МІЖ свідками (#1313): вузькі всіх — перед повними будь-кого.
+
+        Це перестановка, а не звуження, тож вердикт змінитися не може — а час
+        може, і саме тому вона тут піниться. Повна фаза модуля, який не вбиває,
+        не сміє бігти перед вузькою модуля, який убиває: виміряно, що саме там
+        губилися десятки секунд.
+        """
+        modules = [REPO_ROOT / "scripts" / "tests" / "test_mutate.py",
+                   REPO_ROOT / "scripts" / "tests" / "test_mutate_python.py"]
+
+        phases = v.witness_phases(modules, "errors")
+        kinds = [phase for _module, phase, _targets in phases]
+
+        # Нічого не загублено: це ті самі фази, що дає `phases_for` на кожен модуль.
+        self.assertEqual(
+            sorted((module.name, phase) for module in modules
+                   for phase, _targets in v.phases_for(module, "errors")),
+            sorted((module.name, phase) for module, phase, _targets in phases),
+        )
+        # І жодна повна не стоїть перед вузькою.
+        self.assertIn(v.FULL_PHASE, kinds, "повна фаза мусить лишитися")
+        self.assertIn(v.NARROW_PHASE, kinds, "вузька фаза мусить лишитися")
+        first_full = kinds.index(v.FULL_PHASE)
+        self.assertNotIn(v.NARROW_PHASE, kinds[first_full:])
 
 
 class MutantTest(unittest.TestCase):
@@ -398,6 +464,32 @@ class HistoricalStateTest(unittest.TestCase):
                 self.assertIn("record", usage, usage)
                 self.assertNotIn("--log LOG record", usage, usage)
 
+    def test_the_fixture_verdict_rule_is_the_real_one(self):
+        """Ланка, яку вдає фікстура, — це насамперед ПРАВИЛО вердикту.
+
+        Запис реєстру каже, що фікстура вдає ланку (артефакт → лічильники →
+        вердикт → запис), а не CLI: у неї нуль argv, у справжнього
+        `scripts/mutate.sh` на нуль argv — usage. Ланка без правила — не ланка,
+        тож рішення мусить бути тим самим рядком, що в справжньому інструменті:
+        `errors`/`failures` убивають, усі скіпи — `no-verdict`. Розійдись
+        справжній інструмент із фікстурою — фікстура перевіряла б інше правило,
+        ніж те, що в репозиторії, і це саме та межа, яку реєстр називає піном.
+        """
+        real = (REPO_ROOT / "scripts" / "mutate.sh").read_text(encoding="utf-8")
+
+        for name in ("pinned", "unpinned"):
+            with self.subTest(fixture=name):
+                fixture = (FIXTURES / name / "scripts" / "mutate.sh").read_text(
+                    encoding="utf-8"
+                )
+                for rule in (
+                    "elif [[ $failures -gt 0 || $errors -gt 0 ]]; then",
+                    'elif [[ $skipped == "$tests" ]]; then',
+                ):
+                    self.assertIn(rule, real,
+                                  "правило вердикту зникло зі справжнього інструмента")
+                    self.assertIn(rule, fixture, rule)
+
     def test_the_two_fixtures_cover_both_real_halves_of_the_chain(self):
         """Чотири місця — це читання, правило, передача й поле запису."""
         report = self.report("pinned")
@@ -406,6 +498,80 @@ class HistoricalStateTest(unittest.TestCase):
             {"поле запису", "правило вердикту", "передача в запис", "читання з артефакту"},
             {site.kind for site in report.sites},
         )
+
+
+# Другий свідок тієї самої ланки, який ДОПИСУЄТЬСЯ до копії фікстури: на ньому
+# видно, що прогін мутанта спиняється на першій червоній цілі, а не договорює
+# решту. З одним свідком це число не відрізнити від повного прогону — саме тому
+# він і потрібен. Сортується ПІСЛЯ `test_a_witness_that_raises_…`, тож першою
+# червоною лишається вона, і решта перевірок фікстури не зрушуються.
+SECOND_WITNESS = '''
+
+    def test_the_zeroed_errors_are_named_by_the_record(self):
+        artifact(tests=1, failures=0, errors=1)
+
+        self.assertEqual(1, run_tool()["errors"])
+'''
+
+
+class FailfastTest(unittest.TestCase):
+    """Прогін мутанта спиняється на першій червоній цілі — і це видно, а не обіцяно.
+
+    Вердикт від цього не залежить: він — код виходу, а прапорець може лише
+    ВКОРОТИТИ прогін, не створивши й не знявши жодної червоної цілі. Змінюється
+    рівно одне — скільком свідкам прогін устигає впасти. Без цієї перевірки
+    «швидше» могло б тихо означати «інакше»: мутація, яка знімає прапорець,
+    лишає вердикт тим самим, а це число — ні (запис у реєстрі
+    `guard_witnesses`).
+    """
+
+    def test_the_mutant_run_stops_at_the_first_red(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            shutil.copytree(FIXTURES / "pinned", root, dirs_exist_ok=True)
+            witness = root / "scripts" / "tests" / "test_gate.py"
+            witness.write_text(witness.read_text(encoding="utf-8") + SECOND_WITNESS,
+                               encoding="utf-8")
+
+            report = v.check(root, TESTS_DIR, only=["errors"])
+
+        self.assertEqual([], report.blocked)
+        self.assertEqual(4, len(report.killed))
+        for verdict in report.killed:
+            self.assertEqual(1, len(verdict.killed_by),
+                             "прогін договорює цілі, а не спиняється на першій "
+                             "червоній: %s" % verdict.killed_by)
+
+
+class WarmTest(unittest.TestCase):
+    """Прогрів перших базових прогонів — та сама робота, але без черги (#1313).
+
+    Замок ключа робить базовий прогін один на ключ; той, кому ключ потрібен
+    другим, СТОЇТЬ і чекає, і це час воркера, а не робота. Прогрів знімає чергу,
+    не змінюючи ні ключів, ні вердикту. Піниться тут саме те, що прогріваються
+    ПЕРШІ фази — дешеві, — а не останні: `phases[-1]` прогріло б повні набори
+    модулів, і зрізання тихо вернулося б разом із секундами.
+    """
+
+    def test_the_warmed_baselines_are_the_first_phases_of_every_site(self):
+        # Свідок справжній — у нього обидві фази, і повна більша за вузьку;
+        # `plan()` тут не потрібен: питання про ключі, а не про місця.
+        witness = REPO_ROOT / "scripts" / "tests" / "test_mutate.py"
+        site = v.Site(field=v.FIELDS_BY_NAME["errors"], kind="правило вердикту",
+                      path=Path("scripts/mutate.sh"), line=1, start=0, end=0,
+                      original="", replacement="")
+        witnesses = {site.path: [witness]}
+
+        phases = v.witness_phases(witnesses[site.path], site.field.name)
+        self.assertEqual([v.NARROW_PHASE, v.FULL_PHASE],
+                         [phase for _module, phase, _targets in phases])
+
+        warm = v.first_phase_baselines([site], witnesses)
+
+        # Прогрівається ПЕРША фаза — і тільки вона: ключ останньої (повний набір
+        # модуля) тут означав би, що прогрів рахує дороге замість дешевого.
+        self.assertEqual({(witness.name, tuple(phases[0][2]))}, set(warm))
+        self.assertNotIn((witness.name, tuple(phases[-1][2])), warm)
 
 
 class FailClosedTest(unittest.TestCase):
@@ -493,6 +659,34 @@ class FailClosedTest(unittest.TestCase):
         self.assertTrue(report.blocked, "невдача копіювання мусить бути названа")
         self.assertIn("перевірити не вдалося", report.blocked[0])
 
+    def test_a_marker_that_cannot_be_written_is_unknown_and_leaves_no_carrier(self):
+        """Збій маркера — відмова (код 2) і жодної теки-носія без власника (#1270).
+
+        Маркер — та сама невдача, що й тимчасова тека: ENOSPC/EDQUOT/EROFS.
+        Механізм мусить назвати її відмовою, а не трейсбеком, і не лишити по собі
+        теку, яку наступний прогін прибере за часом як сміття: сміття, проти якого
+        механізм і заведений, він же й створив би. У порожній формі цю гілку пінить
+        `test_empty_shape_mutants.TempBudgetTest`
+        `.test_a_marker_that_cannot_be_written_is_unknown_and_leaves_no_carrier`; у
+        полях її не пінив ніхто (огляд #1275) — знятий `try/except OSError` навколо
+        `Runner` лишався б непоміченим, а без прибирання теки-носія сусідній прогін
+        прибрав би її аж за пільговий час.
+        """
+        elsewhere = Path(self._tmp.name) / "elsewhere"
+        elsewhere.mkdir()
+
+        with mock.patch.object(v.tmp_budget, "mark",
+                               side_effect=OSError("no space left")), \
+                mock.patch.dict(os.environ,
+                                {v.tmp_budget.RELOCATE_VARIABLE: str(elsewhere)}):
+            status, out, err = self.run_main(self.root(), "--field", "errors")
+
+        self.assertEqual(2, status, out)
+        self.assertIn("не створити", err)
+        self.assertIn("no space left", err)
+        self.assertEqual([], sorted(path.name for path in elsewhere.iterdir()),
+                         "невдалий маркер не має лишати теку-носій без власника")
+
     def test_a_tool_without_a_witness_is_refused(self):
         root = self.root()
         (root / "scripts" / "tests" / "test_gate.py").unlink()
@@ -556,6 +750,30 @@ class FailClosedTest(unittest.TestCase):
 
         self.assertEqual(2, status, out)
         self.assertIn("не розібрано", err)
+
+    def test_an_unparsable_witness_module_is_unknown_not_a_traceback(self):
+        """Модуль-СВІДОК, якого не розібрано, — невідомість (2), не трейсбек.
+
+        `first_phase_baselines` читає свідків РАНІШЕ за першу мутацію, тож
+        `FieldError` звідти падає поза `judged`, який ловить рівно цей клас.
+        Обіцянка механізму — «невідомість — код 2, а не трейсбек» — мусить
+        триматися і тут: інакше той самий вхід дає інший код виходу й іншу
+        діагностику (знахідка огляду #1313). Свідок навмисно називає ОБИДВА
+        файли інструмента, щоб його було видно як свідка (текст читається навіть
+        коли модуль не парситься) і щоб упав саме розбір, а не «свідка немає».
+        """
+        root = self.root()
+        self.witness(
+            root,
+            '"""Свідок scripts/mutate.sh і scripts/mutation_trace.py — і зламаний."""\n'
+            "def broken(:\n",
+        )
+
+        status, out, err = self.run_main(root, "--field", "errors")
+
+        self.assertEqual(2, status, out)
+        self.assertIn("не розібрано", err)
+        self.assertNotIn("Traceback", err)
 
     def test_the_mechanism_refuses_to_run_inside_itself(self):
         root = self.root()
@@ -647,6 +865,147 @@ class EnvironmentTest(unittest.TestCase):
         self.assertEqual([], report.blocked)
         self.assertEqual([], report.findings)
         self.assertEqual(4, len(report.killed))
+
+
+class TempBudgetTest(unittest.TestCase):
+    """Тимчасові дерева (#1271): спершу відмова, потім копіювання.
+
+    Механізм будує копію дерева на кожен мутант. Коли тимчасової ФС бракує, він
+    мусить відмовити (код 2, з числами) ДО копіювання, а не заповнити ФС: її
+    вичерпання валить кожен запуск процесу в середовищі — `bash` не стартує навіть
+    на `true`, `ripgrep` не запускається, і робота виглядає як «зламалися
+    інструменти», а не як вичерпана квота. Тому кожен тест тут ловить не лише
+    повідомлення, а й те, що копіювання **не почалося**.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+
+    def pinned(self) -> Path:
+        root = self.root / "root"
+        shutil.copytree(FIXTURES / "pinned" / "scripts", root / "scripts")
+        return root
+
+    def run_main(self, root: Path, *arguments: str):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            status = v.main(["--root", str(root), *arguments])
+        return status, out.getvalue(), err.getvalue()
+
+    def no_copy(self):
+        return mock.patch.object(
+            v.shutil, "copytree",
+            side_effect=AssertionError("копіювання почалося попри відмову"),
+        )
+
+    def test_no_room_is_refused_before_the_copy_with_both_numbers(self):
+        root = self.pinned()
+        needed = v.tmp_budget.mib(v.tmp_budget.requirement(v.copy_bytes(root)))
+
+        with self.no_copy(), mock.patch.object(
+            v.tmp_budget, "disk_free_bytes", return_value=1024
+        ):
+            status, out, err = self.run_main(root, "--field", "errors")
+
+        self.assertEqual(2, status, out)
+        self.assertIn("FAIL", err)
+        self.assertIn(needed, err)          # скільки треба
+        self.assertIn("0.0 MiB", err)       # скільки є
+        self.assertIn("Копіювання не почато", err)
+        self.assertIn(v.tmp_budget.RELOCATE_VARIABLE, err)
+        self.assertNotIn("не пінить", err, "це відмова середовища, а не живий мутант")
+
+    def test_a_small_ram_tmpfs_is_refused_loudly(self):
+        """Маленький tmpfs у RAM — відмова, а не тихе перенаправлення."""
+        root = self.pinned()
+
+        with self.no_copy(), mock.patch.object(
+            v.tmp_budget, "ram_backed", return_value=True
+        ), mock.patch.object(
+            v.tmp_budget, "filesystem_total_bytes", return_value=64 * 1048576
+        ):
+            status, out, err = self.run_main(root, "--field", "errors")
+
+        self.assertEqual(2, status, out)
+        self.assertIn("tmpfs", err)
+        self.assertIn("64.0 MiB", err)
+        self.assertIn("TMPDIR", err)
+        self.assertIn(v.tmp_budget.RELOCATE_VARIABLE, err)
+
+    def test_stale_trees_of_previous_crashes_are_reclaimed_loudly(self):
+        """Після `EDQUOT` лишається недороблене дерево, і воно добиває наступний прогін."""
+        elsewhere = self.root / "elsewhere"
+        elsewhere.mkdir()
+        stale = elsewhere / "slukhayka-field-stale"
+        stale.mkdir()
+        (stale / "payload").write_bytes(b"p" * 4096)
+        os.utime(stale, (1, 1))
+        live = elsewhere / "slukhayka-field-live"
+        live.mkdir()
+        (live / v.tmp_budget.OWNER_MARKER).write_text("%d\n" % os.getpid(), encoding="utf-8")
+
+        with mock.patch.dict(os.environ, {v.tmp_budget.RELOCATE_VARIABLE: str(elsewhere)}):
+            status, out, err = self.run_main(self.pinned(), "--field", "errors")
+
+        self.assertEqual(0, status, err)
+        self.assertFalse(stale.exists(), "застаріле дерево мусить бути прибране")
+        self.assertTrue(live.exists(), "дерево живого прогону чіпати не можна")
+        self.assertIn("прибрано застаріле тимчасове дерево", err)
+        self.assertIn(str(stale), err)
+        self.assertIn(str(elsewhere), err, "перенесення мусить бути назване вголос")
+        self.assertEqual([], list(elsewhere.glob("slukhayka-field-*/root")),
+                         "дерева прогону мусять бути прибрані разом із коренем")
+
+    def test_the_immutable_part_of_the_tree_is_linked_not_copied(self):
+        """Важіль обсягу: копіюється лише `scripts/`, решта — симлінки.
+
+        Виміряно на дереві `d6c35cdf`: повна копія — 76.2 MiB і 0.32 с на кожне з 38
+        дерев, тобто 38 × 76.2 MiB = 2.8 GiB на гейт; копія `scripts/` — 1.4 MiB і
+        0.01 с. Тест тримає саме відношення й те, що симлінки не стали копіями.
+        """
+        (self.root / "tree").mkdir()
+        work = v._roots(REPO_ROOT, self.root / "tree")
+
+        copied = v.copy_bytes(REPO_ROOT)
+        naive = sum(v.tmp_budget.tree_bytes(entry)
+                    for entry in REPO_ROOT.iterdir()
+                    if entry.name not in v.SKIP_DIRS | {v.COPY_ENTRY})
+        self.assertLess(copied, 8 * 1048576, "копіювати `scripts/` цілком — це межа")
+        self.assertGreater(naive, 10 * copied, "решта дерева мусить лишатися симлінками")
+        self.assertFalse((work / v.COPY_ENTRY).is_symlink(), "`scripts/` — справжня копія")
+        for entry in REPO_ROOT.iterdir():
+            if entry.name in v.SKIP_DIRS | {v.COPY_ENTRY}:
+                continue
+            with self.subTest(entry=entry.name):
+                self.assertTrue((work / entry.name).is_symlink(),
+                                "незмінна частина дерева не копіюється")
+
+    def test_a_run_releases_its_tree_instead_of_keeping_every_one(self):
+        """Пік — це `--jobs` дерев, а не всі 38: інакше 38 копій живуть до кінця прогону.
+
+        Корінь тут — фікстура, а не репозиторій: твердження про звільнення дерева
+        від кореня не залежить, а випадок чутливості жене цей тест двічі.
+        """
+        root = FIXTURES / "pinned"
+        runner = v.Runner(root, TESTS_DIR)
+        self.addCleanup(runner.cleanup)
+        module = root / "scripts" / "tests" / "test_gate.py"
+        targets = ["test_gate.GateTest.test_a_witness_that_raises"]
+        site = v.plan(root, TESTS_DIR, only=["errors"])[0][0]
+
+        with mock.patch.object(v, "_run", return_value=(0, "")):
+            baseline = runner.baseline(module, targets)
+            runner.mutant(site, module, targets, [])
+
+        self.assertEqual("", baseline)
+        self.assertEqual(
+            [v.tmp_budget.OWNER_MARKER],
+            sorted(path.name for path in runner._temporary.iterdir()),
+            "дерево прогону мусить бути звільнене одразу після нього, лишається "
+            "тільки маркер власника",
+        )
 
 
 class MechanismCostTest(unittest.TestCase):
@@ -833,8 +1192,8 @@ class SensitivityTest(unittest.TestCase):
         ),
         (
             "мутант живе лише в копії дерева",
-            '    work = tmp / "root"\n    work.mkdir()',
-            '    work = root\n    return work  # mutated',
+            "            work = _roots(self.root, tmp)\n            target_file = work / site.path",
+            "            work = self.root  # mutated\n            target_file = work / site.path",
             "test_verdict_field_mutants.FailClosedTest.test_the_tree_is_not_touched",
         ),
         (
@@ -906,10 +1265,33 @@ class SensitivityTest(unittest.TestCase):
         ),
         (
             "мета-тест набору — не свідок поля",
-            "if not is_test_class(name) or runs_the_suite(node):",
+            "if not is_test_class(name) or runs_the_suite(node, programs):",
             "if not is_test_class(name):  # mutated",
             "test_verdict_field_mutants.WitnessTest"
             ".test_a_class_that_runs_the_suite_is_not_a_witness",
+        ),
+        (
+            "клас, що ганяє набір програмою `-c`, — теж не свідок поля",
+            '    return any("loadTestsFromNames" in text for text in literals)',
+            "    return False  # mutated",
+            "test_verdict_field_mutants.WitnessTest"
+            ".test_a_program_run_by_name_is_a_suite_run_too",
+        ),
+        (
+            "місце міряється ДО першої копії, а не після",
+            "        base = tmp_budget.prepare(tmp_budget.OWN_PREFIXES, copy_bytes(root))",
+            "        base = tmp_budget.prepare(tmp_budget.OWN_PREFIXES)  # mutated",
+            "test_verdict_field_mutants.TempBudgetTest"
+            ".test_no_room_is_refused_before_the_copy_with_both_numbers",
+        ),
+        (
+            "дерево прогону звільняється одразу після нього",
+            "        finally:\n            shutil.rmtree(tmp, ignore_errors=True)\n"
+            "        state, why = verdict_of_run(status, output)",
+            "        finally:\n            pass  # mutated\n"
+            "        state, why = verdict_of_run(status, output)",
+            "test_verdict_field_mutants.TempBudgetTest"
+            ".test_a_run_releases_its_tree_instead_of_keeping_every_one",
         ),
         (
             "атрибут JUnit-артефакту — окремий вид місця",
@@ -919,7 +1301,7 @@ class SensitivityTest(unittest.TestCase):
         ),
     )
     # Друге джерело правди про розмір `CASES` — див. коментар у тесті.
-    EXPECTED_CASES = 22
+    EXPECTED_CASES = 25
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()

@@ -27,13 +27,14 @@
     <string name="book_detail_download_progress_unknown_total">%1$d/%2$d • %3$d MB downloaded</string>
     <!-- #394 — Download controls -->
     <string name="download_notification_paused">Paused</string>
+    <!-- #1734 — Android 15+ dataSync timeout: honest system-stopped state. -->
+    <string name="download_notification_system_stopped">Stopped by the system: time limit reached</string>
     <string name="download_action_pause">Pause</string>
     <string name="download_action_continue">Continue</string>
     <string name="download_action_cancel">Cancel</string>
     <!-- #433 — the browser-required badge in the book page's «Джерела» block -->
     <string name="book_detail_browser_needed">Browser required</string>
     <!-- Spec-45 (#405) T10 (#498): visible UI literals (English). -->
-    <string name="home_search_placeholder">Search for a book or author…</string>
     <string name="home_not_recommend">Don\'t recommend…</string>
     <!-- #486 — the per-Source badge on a source-suggested recommendation card. -->
     <string name="home_recommendation_source_badge">Source suggests · %1$s</string>
@@ -42,21 +43,28 @@
     <string name="feed_sort_title">By title</string>
     <string name="feed_filters">Filters</string>
     <string name="feed_all_genres">All genres</string>
+    <string name="feed_empty_title">No works yet</string>
+    <string name="feed_empty_body">The catalogue has no works yet. Refresh the feed, or open your Library.</string>
+    <string name="feed_empty_refresh">Refresh</string>
+    <string name="feed_filters_empty_title">Nothing found</string>
+    <string name="feed_filters_empty_body">No work matches the selected filters.</string>
+    <string name="feed_refresh_error_empty_body">The feed didn\'t load. Check your connection and try again.</string>
+    <string name="feed_refresh_error_title">Couldn\'t refresh the feed</string>
+    <string name="feed_refresh_error_body">The works already shown are still here. Try again.</string>
+    <string name="feed_refresh_retry">Retry</string>
     <string name="feed_reset_all">Reset all</string>
     <string name="feed_done">Done</string>
     <!-- v1.4 EN/UK chrome (E3 + «Огляд rails → ресурси»): English twins. -->
-    <string name="feed_quick_links">Quick links</string>
-    <string name="feed_for_you">For you</string>
     <string name="feed_your_cycles">Your cycles</string>
     <string name="feed_similar_cycles">Similar cycles</string>
     <string name="feed_recommended_for_you">Recommended for you</string>
-    <string name="feed_discover">Discover</string>
     <!-- spec-46 T16 (#577): the Огляд quick-navigation rail and the Слухати
          fresh-install empty state — English twins. -->
     <string name="catalog_nav_rating">Rating</string>
     <string name="people_narrators_title">Narrators</string>
     <string name="collections_index_title">Collections</string>
     <string name="collections_index_empty">Collections will appear once the catalogue has loaded.</string>
+    <string name="collections_index_refresh">Refresh catalogue</string>
     <string name="listen_empty_title">Keep listening</string>
     <string name="listen_empty_body">Your current book will appear here as soon as you start listening.</string>
     <string name="feed_genres">Genres</string>
@@ -87,8 +95,8 @@
     <string name="player_feedback_chapter_end">Until chapter end</string>
     <string name="player_feedback_timer_minutes">Timer for %1$d min</string>
     <string name="player_feedback_bookmark_saved">Bookmark added at %1$s</string>
-    <string name="player_seek_back_label">15 s</string>
-    <string name="player_seek_forward_label">30 s</string>
+    <!-- #1474 — the temporary sum of one seek-tap series. -->
+    <string name="player_seek_sum_a11y">Total %1$s</string>
     <string name="player_chapters_title">Chapters</string>
     <!-- v1.4: locale-aware remaining-time units. -->
     <string name="remaining_units_hm">%1$d h %2$d min</string>
@@ -98,7 +106,7 @@
     <string name="lib_books_count">Books (%1$d)</string>
     <string name="lib_bookmarks_count">Bookmarks (%1$d)</string>
     <string name="lib_statistics">Statistics</string>
-    <string name="lib_search_placeholder">Title, author, or series</string>
+    <string name="lib_search_short_hint">Search</string>
     <string name="lib_add_own_files">Add your own files</string>
     <string name="lib_find_book">Find a book</string>
     <string name="lib_import_connect">Connect</string>
@@ -109,6 +117,8 @@
     <string name="browser_clear_session_consequence">You will need to sign in or verify again for this source only. Other sources\' sessions stay.</string>
     <string name="browser_fix_structure_question">Fix book structure?</string>
     <string name="browser_fix">Fix</string>
+    <string name="browser_category_label">Category</string>
+    <string name="browser_add_category_action">Add the category to Explore</string>
     <string name="browser_address_hint">Enter an address…</string>
     <string name="browser_got_it">Got it</string>
     <string name="browser_in_browser">In browser</string>
@@ -131,6 +141,8 @@
     <string name="feed_recommendation_consent_body">Local recommendations already work privately. With separate consent, future shared learning would use only the weekly update of five weights — never books or history.</string>
     <string name="feed_more">Learn more</string>
     <string name="update_hide">Hide</string>
+    <string name="update_available_title">Version %1$s is available</string>
+    <string name="update_available_action">Update</string>
     <string name="speed_default_for_all">Default for all</string>
     <string name="book_detail_mark_listened">Mark as listened</string>
     <string name="book_detail_unmark_listened">Remove mark</string>
@@ -144,6 +156,7 @@
     <string name="book_detail_metadata_narrator">Narrator</string>
     <string name="book_detail_metadata_cover">Cover (URL)</string>
     <string name="book_detail_metadata_save">Save</string>
+    <string name="book_detail_save_to_library">Save to library</string>
     <string name="book_detail_listened_state_on">Marked as listened</string>
     <string name="book_detail_listened_state_off">Not marked as listened</string>
     <!-- spec-52 US28 (#1174) — «abandon book»: only for a book with progress
@@ -178,6 +191,12 @@
     <string name="narration_claim_action">Same narration — merge</string>
     <string name="narration_claim_done">Merged. Progress carried over.</string>
     <string name="book_detail_audio_unavailable">No audio for this book right now — we keep looking in other sources.</string>
+    <!-- #1230 — local files are the first door for a local book, never the network. -->
+    <string name="book_detail_local_access_unavailable">This book’s audio can no longer be read from the device. Restore access to the file or folder — the book, your position and bookmarks stay as they are.</string>
+    <string name="book_detail_recover_file">Choose the file again</string>
+    <string name="book_detail_recover_folder">Choose the folder again</string>
+    <string name="book_detail_recover_rescan">Rescan the known folder</string>
+    <string name="book_detail_recover_network_hint">Not on the device? Searching other sources is a separate, later action.</string>
     <string name="book_detail_watch_action">Watch for a source</string>
     <string name="book_detail_watching">Waiting for a source…</string>
     <string name="book_detail_stop_watching">Stop watching</string>
@@ -186,7 +205,7 @@
     <string name="source_audio_refusal_title">Source audio</string>
     <string name="source_audio_refusal_description">Ticked sources stop supplying audio for playback and downloads — metadata, catalog and collections stay. Untick a source to bring it back without re-importing.</string>
     <!-- v1.4 (ADR-0033): player and timer chrome rides resources. -->
-    <string name="player_now_playing">NOW PLAYING</string>
+    <string name="player_now_playing">Now playing</string>
     <string name="player_favorite_add">Add to favourites</string>
     <string name="player_favorite_remove">Remove from favourites</string>
     <string name="timer_off">Off</string>
@@ -197,7 +216,33 @@
     <string name="timer_remaining_countdown">Remaining: %1$d:%2$02d</string>
 
     <!-- v1.4 (ADR-0033): Listen hero chrome. -->
-    <string name="listen_hero_overline">RESUME LISTENING</string>
+    <string name="listen_hero_overline">Resume listening</string>
+
+    <!-- #1478 — shelf titles and reasons come from resources, not ListenComposer code. -->
+    <string name="listen_shelf_hero">Continue listening</string>
+    <string name="listen_shelf_almost_done">Almost done</string>
+    <string name="listen_shelf_return">Come back</string>
+    <string name="listen_shelf_next_in_series">Continue the series</string>
+    <string name="listen_shelf_travel">Ready for the trip</string>
+    <string name="listen_shelf_short">Something short</string>
+    <string name="listen_shelf_favorite_authors">Favourite authors</string>
+    <string name="listen_shelf_recently_added">Recently added</string>
+    <string name="listen_shelf_finished">Finished</string>
+    <string name="listen_reason_remaining">Left: %1$s</string>
+    <plurals name="listen_reason_dormant">
+        <item quantity="one">You listened %1$d day ago</item>
+        <item quantity="other">You listened %1$d days ago</item>
+    </plurals>
+    <string name="listen_reason_next_volume">Next volume: %1$s</string>
+    <string name="listen_reason_offline_ready">Downloaded · works offline</string>
+    <string name="listen_reason_short">%1$s of listening</string>
+    <string name="listen_short_less_than_hour">less than an hour</string>
+    <string name="listen_short_hours">~%1$d h</string>
+    <string name="listen_reason_favorite_author">You listen to this author often</string>
+    <string name="listen_reason_added_this_week">Added this week</string>
+    <string name="listen_reason_finished">Finished: %1$d</string>
+    <string name="listen_series_part">Part %1$d</string>
+    <string name="listen_series_next_part">Next part</string>
     <string name="listen_chapter_of">Chapter %1$d of %2$d</string>
     <string name="listen_chapter_position">Chapter %1$d · %2$s</string>
     <string name="listen_progress_percent">%1$d%%</string>
@@ -212,6 +257,9 @@
     <!-- #885 (wave 3) — every shelf hidden is a STATE, not a blank screen. -->
     <string name="listen_all_shelves_hidden_title">All shelves are hidden</string>
     <string name="listen_all_shelves_hidden_body">Your books are still here — bring a shelf back and it appears here again.</string>
+    <!-- #1703 — «Не цікаво» is reversible from the shelf it was chosen on. -->
+    <string name="listen_dismissed_message">Book hidden from Listen shelves</string>
+    <string name="listen_dismiss_undo">Undo</string>
     <string name="collection_with_book_title">Collections with this book</string>
     <string name="collection_by_pseudonym">a listener collection by %1$s</string>
     <string name="collection_no_ratings">No ratings yet</string>
@@ -285,10 +333,19 @@
         <item quantity="one">%1$d new</item>
         <item quantity="other">%1$d new</item>
     </plurals>
+    <!-- #1547 — the «person new arrivals» notification copy, plural + EN. -->
+    <plurals name="people_new_notification_title">
+        <item quantity="one">%1$d new book</item>
+        <item quantity="other">%1$d new books</item>
+    </plurals>
+    <string name="people_new_notification_from">From %1$s</string>
+    <string name="people_new_notification_two_people">%1$s and %2$s</string>
+    <string name="people_new_notification_some_people">your authors</string>
+    <string name="people_new_notification_action">View</string>
+    <string name="people_new_notification_channel_name">New arrivals from people</string>
     <string name="a11y_people_new_mark_seen">Mark new arrivals as seen</string>
     <string name="home_search_no_results">Nothing found</string>
     <string name="home_search_no_results_hint">Try a different query or filter.</string>
-    <string name="home_no_personal_picks">No personal picks yet.</string>
     <string name="home_personal_picks_loading">Preparing personal picks…</string>
 
     <!-- v1.4 (ADR-0033): book-page section headers and source chrome. -->
@@ -323,7 +380,7 @@
     <string name="book_detail_series_pill">“%1$s”</string>
     <string name="book_detail_series_pill_index">“%1$s” • Book %2$d</string>
     <string name="book_detail_universe_line">Universe: “%1$s”</string>
-    <string name="book_detail_source_rating">Source rating: ★ %1$s</string>
+    <string name="book_detail_source_rating">Source rating: %1$s</string>
     <string name="book_detail_source_narrator">Narrated by (source data): %1$s</string>
     <string name="book_detail_source_genres">Genres (source data): %1$s</string>
     <string name="book_detail_source_description">Different description from the source: %1$s</string>
@@ -341,6 +398,9 @@
     <string name="book_detail_review_pending_sync">we will send it when you are online</string>
     <string name="book_detail_review_rate_narration">Rate the narration</string>
     <string name="book_detail_review_narration_tag">Narration: %1$s</string>
+    <string name="book_detail_rate_unavailable_no_backend">Narration rating is unavailable: no connection to the ratings service.</string>
+    <string name="book_detail_rate_unavailable_no_profile">Narration rating is unavailable: a listener profile is required.</string>
+    <string name="book_detail_rate_unavailable_no_edition">Narration rating is unavailable: this book has no edition to rate.</string>
     <string name="book_detail_review_edition_line">Narration:</string>
     <string name="book_detail_review_edition_none">Do not specify</string>
     <string name="book_detail_visitor_comments">Visitor comments from %1$s</string>
@@ -423,7 +483,7 @@
     <string name="a11y_submission_pane">Submit a link</string>
     <string name="a11y_submission_close">Close</string>
     <string name="submission_sheet_title">Submit a link</string>
-    <string name="submission_sheet_subtitle">A YouTube video or playlist, or a Telegram post. The book lands in your library right away and in the shared catalog after it really plays.</string>
+    <string name="submission_sheet_subtitle">A YouTube video, a playlist, a Telegram post, or a book page from a known source. The book lands in your library right away.</string>
     <string name="submission_url_label">Link</string>
     <string name="submission_remaining">Submissions left today: %1$d</string>
     <string name="submission_submit_action">Add now</string>
@@ -468,6 +528,8 @@
     <string name="submission_status_working">Processing the link…</string>
     <string name="submission_status_imported">Book added. Listen to it — once it really plays, it joins the shared catalog.</string>
     <string name="submission_status_imported_local">Book added locally. The shared base is unavailable — nothing will be published.</string>
+    <string name="submission_status_imported_catalog">Book added from a known source. It already lives in that source’s catalog — nothing to publish.</string>
+    <string name="submission_status_imported_probed">Book added from the source page. This is not Sluchajka’s catalog: quality and availability are the site’s.</string>
     <string name="submission_status_published">Published to the shared catalog.</string>
     <string name="submission_status_metadata_published">Metadata published. Audio behind this link needs a login — others will see the honest unavailable state.</string>
     <string name="submission_status_refused_limit">The daily submission limit is reached.</string>
@@ -513,6 +575,14 @@
     <string name="lib_year_record_hint">Pages or percent</string>
     <string name="lib_year_record">Record</string>
     <string name="lib_year_finish">Finish</string>
+    <string name="lib_year_recorded">Saved to the pass journal.</string>
+    <string name="lib_year_finished">Pass finished.</string>
+    <string name="lib_year_refused_unknown">That pass is not in storage — nothing was saved.</string>
+    <string name="lib_year_refused_closed">That pass is already finished or closed — nothing was saved.</string>
+    <string name="lib_year_save_failed">Could not save the record. Try again.</string>
+    <string name="lib_year_error_title">Could not read progress</string>
+    <string name="lib_year_error_body">The last known view stays until the read succeeds. Try again.</string>
+    <string name="lib_year_refresh_failed">Could not re-read progress — the view may be stale.</string>
     <string name="manual_add_menu">Add a book by hand</string>
     <string name="manual_add_title">Add a book</string>
     <string name="manual_add_name">Title</string>
@@ -549,13 +619,16 @@
     <string name="submission_open_book">Open the book</string>
     <string name="submission_status_refused_not_verified">Publishing needs a real playback.</string>
     <string name="submission_status_refused_unavailable">The shared base is unavailable.</string>
+    <string name="submission_status_refused_page_unreadable">The page could not be read. Open it in your browser — it may carry audio.</string>
+    <string name="submission_status_refused_page_no_audio">The page opened but no audio was found on it. Open it in your browser.</string>
+    <string name="submission_open_in_browser">Open in browser</string>
     <string name="submission_listen_now">Listen now</string>
     <string name="submission_awaiting_badge">Awaiting</string>
     <!-- Spec-53 T5: the TG card's honest state — the preview has no audio. -->
     <string name="submission_watching_source">Looking for a source</string>
     <string name="submission_published_toast">Shared the book with the community</string>
     <string name="submission_paste_from_clipboard">Paste from clipboard</string>
-    <string name="submission_status_unsupported">This link is not supported. Submit a YouTube video, a playlist or a Telegram post.</string>
+    <string name="submission_status_unsupported">This link is not supported. Submit a YouTube video, a playlist, a Telegram post, or a book page from a known source.</string>
     <!-- Spec-53 T8 — the offline queue. -->
     <string name="submission_status_deferred">No network — the link is deferred. It will run when the connection returns.</string>
     <string name="submission_deferred_title">Deferred links</string>
@@ -565,7 +638,7 @@
     <string name="submission_status_deferred_publication">The daily limit is spent — it will publish tomorrow, with no second playback.</string>
     <string name="submission_deferred_publication_badge">Publishes tomorrow</string>
     <string name="import_option_link">Submit a link</string>
-    <string name="import_option_link_subtitle">YouTube video, playlist or TG post</string>
+    <string name="import_option_link_subtitle">YouTube video, playlist, TG post or a book from a known source</string>
     <string name="source_audio_refusal_publish_title">Share my refusals anonymously</string>
     <string name="source_audio_refusal_publish_description">When on, the app adds one anonymous vote to the shared counter of each ticked source — a count only, no name, books or links. Turning it off stops new votes.</string>
     <string name="source_audio_refusal_shared_count">Anonymous refusals: %1$d</string>
@@ -583,7 +656,7 @@
     <string name="lib_grid_pane_too_narrow">The pane is too narrow for two columns — tiles in one</string>
     <string name="lib_audiobook_fallback">Audiobook</string>
     <string name="lib_source_local">Local</string>
-    <string name="lib_continue_label">CONTINUE</string>
+    <string name="lib_continue_label">Continue</string>
     <string name="lib_progress_percent">Listened %1$d%%</string>
     <string name="lib_listen_continue">Listen on</string>
     <string name="lib_listen_continue_remaining">Listen on · %1$s</string>
@@ -618,8 +691,13 @@
     <string name="lib_import_chapter_order">Chapter order</string>
     <string name="lib_import_move_up">Up</string>
     <string name="lib_import_move_down">Down</string>
+    <string name="a11y_chapter_drag_handle">Drag chapter</string>
+    <string name="a11y_chapter_move_up">Move chapter up</string>
+    <string name="a11y_chapter_move_down">Move chapter down</string>
     <string name="lib_import_title_label">Title</string>
     <string name="lib_import_save">Save</string>
+    <string name="lib_import_retry">Retry</string>
+    <string name="lib_import_retry_body">The write was interrupted. The plan is kept — try again.</string>
     <string name="lib_import_confirm">Import %1$d</string>
     <string name="lib_person_role_author">Author</string>
     <string name="lib_person_role_narrator">Narrator</string>
@@ -644,7 +722,9 @@
     <string name="lib_filter_new">New</string>
     <string name="lib_filter_listening">Listening</string>
     <string name="lib_filter_completed">Finished</string>
-    <string name="lib_filter_downloaded">Downloaded</string>
+    <!-- #1163 — see the UK twin: the chip is about what is readable on this
+         device, not only about what was downloaded. -->
+    <string name="lib_filter_downloaded">On device</string>
     <string name="lib_filter_local">Local</string>
     <string name="lib_filter_online">Online</string>
     <string name="lib_filter_favorite">Favourites</string>
@@ -746,6 +826,32 @@
     <string name="achievements_upcoming">Ahead</string>
     <string name="achievements_empty_title">No awards yet</string>
     <string name="achievements_empty_body">Listen to books and your awards will appear here.</string>
+    <!-- F18 — the hero panel, registry statuses and the current-week strip. -->
+    <string name="achievements_status_earned">Earned</string>
+    <string name="achievements_progress_count">%1$d of %2$d</string>
+    <plurals name="achievements_progress_hours">
+        <item quantity="one">%1$d of %2$d h</item>
+        <item quantity="other">%1$d of %2$d h</item>
+    </plurals>
+    <plurals name="achievements_hero_caption">
+        <item quantity="one">of %1$d award</item>
+        <item quantity="other">of %1$d awards</item>
+    </plurals>
+    <string name="achievements_streak_title">Day streak</string>
+    <plurals name="achievements_streak_run">
+        <item quantity="one">%1$d day in a row</item>
+        <item quantity="other">%1$d days in a row</item>
+    </plurals>
+    <string name="achievements_ring_a11y">%1$d%% — %2$d of %3$d earned</string>
+    <string name="achievements_weekday_1">Mon</string>
+    <string name="achievements_weekday_2">Tue</string>
+    <string name="achievements_weekday_3">Wed</string>
+    <string name="achievements_weekday_4">Thu</string>
+    <string name="achievements_weekday_5">Fri</string>
+    <string name="achievements_weekday_6">Sat</string>
+    <string name="achievements_weekday_7">Sun</string>
+    <string name="achievements_day_listened">listened</string>
+    <string name="achievements_day_today">today</string>
     <!-- #702 (T4): ten books in the genres the sources really claim. -->
     <string name="achievement_genre_detective_10">10 detective books</string>
     <string name="achievement_genre_fantasy_10">10 fantasy books</string>
@@ -775,4 +881,19 @@
         <item quantity="one">%1$d hour listened</item>
         <item quantity="other">%1$d hours listened</item>
     </plurals>
+    <!-- Plan 2026-2027: the appearance group on the Settings root. -->
+    <string name="settings_group_appearance">Appearance</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_theme_auto">Auto</string>
+    <string name="settings_theme_paper">Paper</string>
+    <string name="settings_theme_ink">Ink</string>
+    <string name="settings_player_always_ink">Player is always dark</string>
+    <string name="settings_player_always_ink_desc">The player stays Ink even when the app is light.</string>
+    <string name="settings_density">Density</string>
+    <string name="settings_density_comfortable">Comfortable</string>
+    <string name="settings_density_compact">Compact</string>
+    <string name="settings_density_desc">Compact shrinks rows and posters, never touch targets.</string>
+    <!-- #1752: cast hand-back is an info banner, not a playback failure. -->
+    <string name="player_cast_ended">Casting ended. You can keep listening on this phone.</string>
+    <string name="player_cast_lost">Lost connection to the cast device. You can keep listening on this phone.</string>
 </resources>

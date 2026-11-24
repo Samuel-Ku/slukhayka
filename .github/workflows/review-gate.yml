@@ -1,0 +1,75 @@
+name: Review gate
+
+# The mechanical half of the merge gate (#1492).
+#
+# `scripts/merge-pr.sh` refuses to merge without a fresh `review:pass` label,
+# but it only runs when someone calls it. PR #1490 was merged with a plain
+# `gh pr merge` and no verdict, because branch protection required a single
+# unrelated check. This workflow publishes the same verdict as a check, so
+# once "Review gate" is required in branch protection, a PR cannot present a
+# green board without a fresh independent review.
+#
+# `labeled` / `unlabeled` are in the trigger list on purpose: the reviewer adds
+# the verdict after CI is green, and only a re-run can turn the check green on
+# the same HEAD. Earlier runs (opened/synchronize) correctly fail without it.
+#
+# Boundary, named rather than implied: GitHub takes the workflow YAML itself
+# from the PR branch for `pull_request`, so a PR can rewrite THIS file and fake
+# its own check. The base checkout below protects the script logic, not the
+# YAML transport. The backstops are `scripts/merge-pr.sh`, which refuses a PR
+# that rewrites the gate files, and the reviewer, who must treat an edit to
+# this workflow as an edit of the gate itself.
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review, converted_to_draft]
+
+concurrency:
+  group: review-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  review-gate:
+    name: Review gate
+    if: github.event.pull_request.base.ref == 'main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # The gate itself is read from the BASE commit, not from the PR: a PR
+      # that can rewrite the script which judges it turns a process signal into
+      # a self-signed note. The PR copy is checked out only as a bootstrap
+      # fallback when the base commit predates scripts/review_gate.py — that is
+      # the PR which introduces this workflow, but also any PR whose base commit
+      # is older than that merge (`pull_request.base.sha` is frozen at PR
+      # creation). So the fallback is not "never taken after the first merge";
+      # the guarantee comes from `scripts/merge-pr.sh`, which refuses PRs that
+      # edit gate files (this workflow, review_gate.py) unless the owner passes
+      # MERGE_PR_ALLOW_GATE_EDITS=1, and from the reviewer treating a workflow
+      # edit as a gate edit.
+      - name: Checkout base (the gate under test)
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+
+      - name: Checkout PR (bootstrap fallback only)
+        uses: actions/checkout@v5
+        with:
+          path: pr
+
+      - name: Check the verdict is fresh on this HEAD
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -eu
+          gate=base/scripts/review_gate.py
+          if [ ! -f "$gate" ]; then
+            echo "::warning::base commit has no scripts/review_gate.py yet — bootstrap run from the PR copy; PRs whose frozen base predates the merge keep this fallback, which is why merge-pr.sh refuses gate-file edits unless the owner allows them"
+            gate=pr/scripts/review_gate.py
+          fi
+          python3 "$gate" "$PR_NUMBER"

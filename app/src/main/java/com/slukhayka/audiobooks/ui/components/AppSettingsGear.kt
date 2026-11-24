@@ -1,8 +1,6 @@
 package com.slukhayka.audiobooks.ui.components
 
 import androidx.compose.foundation.layout.size
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
@@ -16,6 +14,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.ui.theme.AppDimens
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 
 /**
  * ADR-0049 / spec-54 T (#860) — the ONE gear every ROOT screen carries in its
@@ -34,7 +33,7 @@ fun AppSettingsGear(
     // #885 (wave 3) — the same tonal header action as every other root action,
     // so the gear cannot drift from the ⋮, «+» and refresh beside it.
     AppHeaderAction(
-        icon = Icons.Filled.Settings,
+        icon = PaperInkIcons.Settings,
         contentDescription = stringResource(R.string.a11y_open_settings),
         onClick = onClick,
         modifier = modifier,

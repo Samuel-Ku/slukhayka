@@ -2,7 +2,7 @@ package com.slukhayka.audiobooks.data.catalog
 
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.search.SearchCache
-import com.slukhayka.audiobooks.data.search.SearchQueryKey
+import com.slukhayka.audiobooks.data.search.SearchDocumentId
 import com.slukhayka.audiobooks.data.search.SearchResultCodec
 import com.slukhayka.audiobooks.data.source.SourceBook
 import com.slukhayka.audiobooks.data.source.mergeGlobalSearchResults
@@ -25,11 +25,11 @@ class SluhayuaCrossResolveTest {
         val documents = HashMap<String, Map<String, Any>>()
         val written = mutableListOf<String>()
 
-        override suspend fun readDocument(queryKey: String): Map<String, Any>? = documents[queryKey]
+        override suspend fun readDocument(documentId: String): Map<String, Any>? = documents[documentId]
 
-        override suspend fun writeDocument(queryKey: String, document: Map<String, Any>) {
-            written += queryKey
-            documents[queryKey] = document
+        override suspend fun writeDocument(documentId: String, document: Map<String, Any>) {
+            written += documentId
+            documents[documentId] = document
         }
 
         override fun nowMillis(): Long = 1_000_000L
@@ -69,7 +69,7 @@ class SluhayuaCrossResolveTest {
         assertEquals("Книга", match?.title)
         assertEquals(1, searches)
         // The merged cards rode back into the shared base best-effort.
-        assertTrue(cache.written.contains(SearchQueryKey.normalize("Книга Автор")!!))
+        assertTrue(cache.written.contains(SearchDocumentId.of("Книга Автор")!!))
     }
 
     @Test
@@ -112,7 +112,7 @@ class SluhayuaCrossResolveTest {
         var searches = 0
         val cache = FakeCache()
         val results = mergeGlobalSearchResults(listOf(sluhayuaBook()))
-        cache.documents[SearchQueryKey.normalize("Книга Автор")!!] = SearchResultCodec.toMap(1_000_000L, results)
+        cache.documents[SearchDocumentId.of("Книга Автор")!!] = SearchResultCodec.toMap(1_000_000L, results)
         val resolver = SluhayuaCrossResolve(
             search = { _ ->
                 searches += 1
@@ -132,7 +132,7 @@ class SluhayuaCrossResolveTest {
         var searches = 0
         val cache = FakeCache()
         val cachedResults = mergeGlobalSearchResults(listOf(fourReadBook()))
-        cache.documents[SearchQueryKey.normalize("Книга Автор")!!] = SearchResultCodec.toMap(1_000_000L, cachedResults)
+        cache.documents[SearchDocumentId.of("Книга Автор")!!] = SearchResultCodec.toMap(1_000_000L, cachedResults)
         val resolver = SluhayuaCrossResolve(
             search = { _ ->
                 searches += 1

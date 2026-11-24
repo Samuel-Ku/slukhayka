@@ -36,7 +36,10 @@
 #      (committedDate), за кожен прогін чеків HEAD-ревізії (filter=all, тож
 #      видно й перезапущені спроби) і за будь-який force-push гілки PR.
 #      Вердикт, старіший за новий коміт, новий прогін чи новий fail, не
-#      покриває те, що зливається, — і гейт відмовляє;
+#      покриває те, що зливається, — і гейт відмовляє. Власний чек вердикту
+#      (`MERGE_PR_VERDICT_CHECK`, типово `Review gate`) із цього списку
+#      виключений: його запускає сама мітка, тож «пізній» він завжди; його
+#      чесність тримає власна логіка (без свіжої мітки він червоний);
 #   7) у репозиторії вимкнено auto-delete гілок: увімкнений
 #      `delete_branch_on_merge` знищив би гілку PR так само, як колись
 #      `gh pr merge --delete-branch` зніс worktree.
@@ -69,6 +72,9 @@
 # Виклик: scripts/merge-pr.sh <номер-PR> [--dry-run]
 # Змінні: MERGE_PR_GH — шлях до gh (типово `gh`; потрібен для тестів),
 #         MERGE_PR_LABEL — назва мітки вердикту (типово `review:pass`),
+#         MERGE_PR_VERDICT_CHECK — назва CI-чека, що публікує вердикт (типово
+#         `Review gate`); його власний прогін не вважається «пізнім», бо його
+#         створює сама мітка,
 #         MERGE_PR_REPO — робоча копія для перевірок 2 і 3 (типово — git-корінь
 #         поточного каталогу; потрібен для тестів),
 #         MERGE_PR_GIT — шлях до git (типово `git`; теж для тестів: їм треба
@@ -81,6 +87,13 @@ set -euo pipefail
 
 GH="${MERGE_PR_GH:-gh}"
 LABEL="${MERGE_PR_LABEL:-review:pass}"
+# The CI check that publishes this verdict. It is triggered BY the label, so it
+# necessarily starts after the verdict and must not be counted as a "late CI
+# run" — otherwise every correctly reviewed PR would be refused forever. Its
+# own freshness logic (no label / label older than HEAD) is what keeps it
+# honest; a failing or pending gate still blocks through check 4 above.
+VERDICT_CHECK="${MERGE_PR_VERDICT_CHECK:-Review gate}"
+export MERGE_PR_VERDICT_CHECK="$VERDICT_CHECK"
 GIT="${MERGE_PR_GIT:-git}"
 
 usage() {
@@ -151,8 +164,9 @@ refuse() { printf 'FAIL  %s\n' "$1" >&2; printf 'Далі: %s\n' "$2" >&2; exit 
 json_facts() {
   python3 - "$@" <<'PY'
 import json
+import os
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 MODE, *ARGS = sys.argv[1:]
 
@@ -215,7 +229,36 @@ if MODE == "pr":
     pr = load(ARGS[0]) or {}
     out_dir, label = ARGS[1], ARGS[2]
     fails, pending, cancels, untimed = [], [], [], []
+    # GitHub can keep MORE than one run with the same check name for one HEAD:
+    # a failed run stays in `statusCheckRollup` after the check is re-run to
+    # green (exactly the Review gate bootstrap: it fails without the label,
+    # then succeeds after `labeled`). Only the LATEST run per name decides the
+    # verdict — otherwise a superseded failure refuses the merge forever, and
+    # the gate can never accept a re-run it itself asked for (#1492).
+    # In-progress runs come with `completedAt = "0001-01-01T00:00:00Z"`, not
+    # null. Parsing that sentinel as a real year-1 moment made the dedupe keep
+    # an older completed success and DISCARD the newer pending run — a
+    # fail-open that would merge while CI is still running. A zero-time
+    # completion means "not completed": fall back to startedAt, and a run with
+    # no usable time at all is treated as the newest (unknown recency must not
+    # silently pick an older green run).
+    sentinel = datetime.max.replace(tzinfo=timezone.utc)
+
+    def run_recency(context):
+        for key in ("completedAt", "startedAt"):
+            stamp = moment(context.get(key))
+            if stamp is not None and stamp.year > 1970:
+                return stamp
+        return sentinel
+
+    latest = {}
     for context in pr.get("statusCheckRollup") or []:
+        name = context.get("name") or context.get("context") or "?"
+        when = run_recency(context)
+        current = latest.get(name)
+        if current is None or when > current[0]:
+            latest[name] = (when, context)
+    for context in [entry[1] for entry in latest.values()]:
         name = context.get("name") or context.get("context") or "?"
         url = context.get("detailsUrl") or context.get("targetUrl") or ""
         if context.get("__typename") == "StatusContext":
@@ -298,7 +341,14 @@ elif MODE == "commits":
 elif MODE == "runs":
     verdict = moment(ARGS[1])
     late_runs, late_fails = [], []
+    self_check = os.environ.get("MERGE_PR_VERDICT_CHECK", "")
     for run in pages(ARGS[0], "check_runs"):
+        # The verdict check is created by the label itself, so it is always
+        # "late" by construction. Excluding it is not a loophole: its script
+        # fails without a fresh label, and checks 4/5/6 still see it fail or
+        # the label missing.
+        if self_check and (run.get("name") or "") == self_check:
+            continue
         started, completed = moment(run.get("started_at")), moment(run.get("completed_at"))
         late_start = bool(started and verdict and started > verdict)
         late_end = bool(completed and verdict and completed > verdict)
@@ -420,6 +470,69 @@ fi
 if [ "$MERGE_STATUS" = "BLOCKED" ]; then
   refuse "PR #$PR_NUMBER: GitHub позначив злиття як BLOCKED (захист гілки або потрібні рев'ю) — merge не пройде." \
     "перевір налаштування захисту '$BASE' і вимоги PR; сам гейт цього не обходить."
+fi
+
+# --- 1b) #1338: дерево PR не може підмінити гейт, який його перевіряє --------
+# pull_request біжить у контексті merge-коміта, тож крок у ci.yml і самі
+# скрипти гейтів приходять ІЗ PR. Захист гілки на main закриває частину:
+# видалений обов'язковий чек стає ВІДСУТНІМ, і GitHub блокує мердж. Але дерево
+# PR усе ще може переписати САМ гейт — тому такі PR не зливаються без явного
+# дозволу власника (MERGE_PR_ALLOW_GATE_EDITS=1). `review_gate.py` входить до
+# цих шляхів навмисно (#1492): інакше PR міг би переписати чек, що публікує
+# його власний вердикт, і той «позеленів» би сам.
+GATE_PATHS='^\.github/workflows/|^scripts/merge-pr\.sh$|^scripts/review-pass\.sh$|^scripts/review_gate\.py$'
+if [ "${MERGE_PR_ALLOW_GATE_EDITS:-0}" != "1" ]; then
+  # `gh pr view --json files` caps at 100 files and does not say so (#1490 had
+  # 151 changed files). A gate edit hidden in the tail would pass check 1b, so
+  # the list is read through the paginated REST API and a failed read is an
+  # unknown, not a silent skip.
+  if ! "$GH" api --paginate --slurp "repos/{owner}/{repo}/pulls/$PR_NUMBER/files" \
+      >"$TMP/gate-files.json" 2>"$TMP/gate-files.err"; then
+    sed 's/^/      /' "$TMP/gate-files.err" >&2 || true
+    refuse "PR #$PR_NUMBER: не вдалося прочитати список файлів (gh api) — невідомо, чи PR редагує гейт." \
+      "перевір `gh auth status` і що gh ≥ 2.43 (--slurp); PR не змінено"
+  fi
+  if ! TOUCHED="$(python3 - "$TMP/gate-files.json" <<'PYGATE'
+import json
+import sys
+
+try:
+    pages = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception as error:
+    print("bad files page: %s" % error, file=sys.stderr)
+    raise SystemExit(2)
+if not isinstance(pages, list):
+    print("bad files page: not a list of pages", file=sys.stderr)
+    raise SystemExit(2)
+for page in pages:
+    if not isinstance(page, list):
+        print("bad files page: a page is not a list", file=sys.stderr)
+        raise SystemExit(2)
+    for item in page:
+        if not isinstance(item, dict) or not item.get("filename"):
+            print("bad files page: item without filename", file=sys.stderr)
+            raise SystemExit(2)
+        print(item["filename"])
+        # `item.get()` cannot tell an absent key from a present JSON null, and
+        # a null previous_filename is an unknown shape, not "no rename".
+        if "previous_filename" in item:
+            previous = item["previous_filename"]
+            if not isinstance(previous, str) or not previous:
+                print("bad files page: previous_filename is not a path", file=sys.stderr)
+                raise SystemExit(2)
+            # A rename carries the old path only here: checking `filename`
+            # alone would let `scripts/merge-pr.sh` be renamed to a non-gate
+            # name and still edit the gate.
+            print(previous)
+PYGATE
+  )"; then
+    refuse "PR #$PR_NUMBER: список файлів прочитано, але не розібрано — невідомо, чи PR редагує гейт." \
+      "перевір форму відповіді gh api (--paginate --slurp) і повтори scripts/merge-pr.sh $PR_NUMBER"
+  fi
+  if printf '%s\n' "$TOUCHED" | grep -qE "$GATE_PATHS"; then
+    refuse "PR #$PR_NUMBER змінює сам гейт (.github/workflows/ або scripts/merge-pr.sh|review-pass.sh|review_gate.py): дерево PR не може переписувати те, що його перевіряє (#1338)." \
+      "якщо це справді потрібно — MERGE_PR_ALLOW_GATE_EDITS=1 scripts/merge-pr.sh $PR_NUMBER, і скажи вголос, що гейт змінено"
+  fi
 fi
 
 # --- 2) Робоча копія не посеред операції ------------------------------------
@@ -782,3 +895,19 @@ if ! "${MERGE_CMD[@]}" </dev/null 2>"$TMP/merge.err"; then
   exit 2
 fi
 ok "PR #$PR_NUMBER злито squash-ом у '$BASE'; гілку не видалено."
+
+# Робочу копію смуги гейт НЕ прибирає, і це названа в КОДІ межа, а не
+# забудькуватість: копія може належати іншій смузі, а її дерево — тримати
+# незакомічені правки огляду; «PR злито» не означає «в дереві нема чого
+# втрачати». `git worktree remove` без `--force` відмовляє на брудному дереві,
+# тож автоматичне прибирання з чужого процесу або мовчки не робило б нічого,
+# або вимагало б `--force`, який стирає чужу роботу. Прибирає координатор ЯВНО:
+# `new-lane.sh --release` відмовляє, якщо в копії є що втрачати.
+#
+# Рядок стоїть ПІСЛЯ злиття, а не до нього: вказівка прибрати копію на
+# незлитому PR звільнила б смугу, яку ще нікуди не злито (#1321).
+if [[ "$HEAD_REF" =~ ^t([0-9]+)- ]]; then
+  ok "копію смуги прибирає координатор: scripts/new-lane.sh --release ${BASH_REMATCH[1]}"
+else
+  ok "копію смуги прибирає координатор: scripts/new-lane.sh --release <номер> (гілка PR '$HEAD_REF' не форми t<номер>-<slug>)."
+fi

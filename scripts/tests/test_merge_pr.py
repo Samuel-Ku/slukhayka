@@ -153,6 +153,13 @@ case "$sub" in
       */timeline) cat "$FAKE_GH_DIR/timeline.json" ;;
       *check-runs*) cat "$FAKE_GH_DIR/check-runs.json" ;;
       */commits) cat "$FAKE_GH_DIR/commits.json" ;;
+      */pulls/*/files)
+        if [ "${FAKE_GH_FILES_ERROR:-0}" -ne 0 ]; then
+          printf 'gh: cannot list PR files (HTTP 500)\n' >&2
+          exit "${FAKE_GH_FILES_ERROR}"
+        fi
+        cat "$FAKE_GH_DIR/files.json"
+        ;;
       *) cat "$FAKE_GH_DIR/repo.json" ;;
     esac
     ;;
@@ -255,9 +262,10 @@ def page(*events):
 def pr_payload(*, checks=None, labels=(VERDICT_LABEL,), state="OPEN",
                draft=False, mergeable="MERGEABLE", merge_state="CLEAN",
                base="main", head=HEAD, head_ref=PR_BRANCH, cross_repo=False,
-               number=1215):
+               number=1215, files=()):
     return {
         "number": number,
+        "files": [{"path": one} for one in files],
         "state": state,
         "isDraft": draft,
         "mergeable": mergeable,
@@ -273,6 +281,96 @@ def pr_payload(*, checks=None, labels=(VERDICT_LABEL,), state="OPEN",
 
 
 class MergePrTest(unittest.TestCase):
+    def test_a_pr_that_rewrites_the_gate_is_refused(self):
+        """#1338: дерево PR не може переписати гейт, який його перевіряє."""
+        result = self.gate(pr=pr_payload(files=(".github/workflows/ci.yml",)))
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("переписувати те, що його перевіряє", result.stderr)
+
+    def test_a_pr_that_only_touches_app_code_is_not_refused(self):
+        """Межа не має бити по звичайних PR: лише гейтові шляхи."""
+        result = self.gate(pr=pr_payload(files=("app/src/main/java/X.kt",)))
+        self.assertNotIn("переписувати те, що його перевіряє", result.stderr)
+
+    def test_a_gate_edit_on_a_later_files_page_is_still_refused(self):
+        """#1514: `gh pr view --json files` caps at 100; the gate edit may be 101st."""
+        first_page = [{"filename": "app/src/main/java/com/slukhayka/File%02d.kt" % index}
+                      for index in range(100)]
+        files_pages = [first_page, [{"filename": "scripts/merge-pr.sh"}]]
+
+        result = self.gate(pr=pr_payload(files=()), files_pages=files_pages)
+
+        self.assertEqual(1, result.returncode, result.stdout)
+        self.assertIn("переписувати те, що його перевіряє", result.stderr)
+        self.assertEqual([], self.merge_calls())
+
+    def test_a_renamed_gate_file_is_still_refused(self):
+        """A pure rename carries the gate path only in previous_filename."""
+        files_pages = [[{
+            "filename": "scripts/merge-pr-renamed.sh",
+            "previous_filename": "scripts/merge-pr.sh",
+        }]]
+
+        result = self.gate(pr=pr_payload(files=()), files_pages=files_pages)
+
+        self.assertEqual(1, result.returncode, result.stdout)
+        self.assertIn("переписувати те, що його перевіряє", result.stderr)
+        self.assertEqual([], self.merge_calls())
+
+    def test_a_non_string_previous_filename_is_an_unknown(self):
+        """A field we cannot read is not "no rename" (null included)."""
+        for bad in (None, 123, "", []):
+            with self.subTest(previous=bad):
+                files_pages = [[{
+                    "filename": "app/src/main/java/X.kt",
+                    "previous_filename": bad,
+                }]]
+
+                result = self.gate(pr=pr_payload(files=()), files_pages=files_pages)
+
+                self.assertEqual(1, result.returncode, result.stdout)
+                self.assertIn("previous_filename is not a path", result.stderr)
+                self.assertEqual([], self.merge_calls())
+
+    def test_a_file_list_read_failure_refuses_instead_of_skipping_the_check(self):
+        """A failed files read used to skip check 1b silently — that is fail-open."""
+        result = self.gate(pr=pr_payload(files=("app/src/main/java/X.kt",)),
+                           env_extra={"FAKE_GH_FILES_ERROR": "1"})
+
+        self.assertEqual(1, result.returncode, result.stdout)
+        self.assertIn("не вдалося прочитати список файлів", result.stderr)
+        self.assertIn("PR не змінено", result.stderr)
+        self.assertEqual([], self.merge_calls())
+
+    def test_an_unexpected_files_page_shape_refuses(self):
+        """Unknown shape is an unknown, not "no gate files"."""
+        result = self.gate(pr=pr_payload(files=()), files_pages={"not": "pages"})
+
+        self.assertEqual(1, result.returncode, result.stdout)
+        self.assertIn("не розібрано", result.stderr)
+        self.assertEqual([], self.merge_calls())
+
+    def test_a_pr_that_rewrites_the_verdict_check_is_refused(self):
+        """#1492: скрипт, що публікує вердикт, — частина гейта, не «звичайний код».
+
+        Інакше PR міг би переписати `review_gate.py` так, щоб чек зеленів без
+        мітки; base-checkout у workflow закриває лише скриптову логіку, але не
+        сам факт правки. Явний дозвіл власника лишається: він і є межею.
+        """
+        result = self.gate(pr=pr_payload(files=("scripts/review_gate.py",)))
+        self.assertEqual(1, result.returncode)
+        self.assertIn("переписувати те, що його перевіряє", result.stderr)
+        self.assertEqual([], self.merge_calls())
+
+    def test_the_owner_can_allow_gate_edits_explicitly(self):
+        """Вихід є, але він названий вголос (MERGE_PR_ALLOW_GATE_EDITS=1)."""
+        result = self.gate(
+            pr=pr_payload(files=("scripts/review_gate.py",)),
+            env_extra={"MERGE_PR_ALLOW_GATE_EDITS": "1"},
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn("переписувати те, що його перевіряє", result.stderr)
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name)
@@ -356,17 +454,35 @@ class MergePrTest(unittest.TestCase):
         self.git("worktree", "add", "-q", "-b", branch, str(linked), "main")
         return linked
 
-    def run_script(self, *args, env_extra=None):
-        """Запускає гейт як процес із підставним gh у PATH-незалежній змінній."""
-        environment = os.environ.copy()
-        environment.pop("MERGE_PR_LABEL", None)
-        environment.update({
+    def environment(self, extra=None) -> dict:
+        """Оточення гейта і підставного gh — своє, а не успадковане (#1265).
+
+        CI-раннер приносить у процес власні змінні, і серед них може бути
+        експортована функція (`BASH_FUNC_cat%%`, `BASH_FUNC_printf%%`), яка
+        затіняє команду ВСЕРЕДИНІ підставного gh: він тоді не віддає фікстуру й
+        виходить із кодом 3 — при незмінних файлах фікстури. Саме так фікстура
+        #1260 і почервоніла в CI, хоч локально була зелена.
+
+        `scripts/tests/test_mutate.py` задає оточення так само — свіжим
+        словником, а не `os.environ`. Імена тут — лише свої: `FAKE_GH_*` читає
+        підставний gh, `MERGE_PR_*` — вхід самого гейта.
+        """
+        environment = {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(self.root),
+            "LC_ALL": "C",
             "MERGE_PR_GH": str(self.gh),
             "MERGE_PR_REPO": str(self.repo),
             "FAKE_GH_DIR": str(self.fixtures),
             "FAKE_GH_LOG": str(self.log),
-        })
-        environment.update(env_extra or {})
+        }
+        environment.update(extra or {})
+        return environment
+
+    def run_script(self, *args, env_extra=None):
+        """Запускає гейт як процес із підставним gh у PATH-незалежній змінній."""
+        environment = self.environment(env_extra)
+        environment.pop("MERGE_PR_LABEL", None)
         return subprocess.run(
             ["bash", str(MERGE_PR), *args],
             check=False, capture_output=True, text=True,
@@ -374,7 +490,7 @@ class MergePrTest(unittest.TestCase):
         )
 
     def gate(self, *flags, pr=None, timeline=None, check_runs=None, commits=None,
-             repo=None, label_in_repo=True, env_extra=None):
+             repo=None, label_in_repo=True, env_extra=None, files_pages=None):
         """Записує фікстури й запускає гейт на PR з фікстури.
 
         Типово — зелений PR зі свіжим вердиктом; кожен тест міняє рівно те,
@@ -382,12 +498,15 @@ class MergePrTest(unittest.TestCase):
         збігався з тим, що тест насправді моделює.
         """
         payload = pr_payload() if pr is None else pr
+        if files_pages is None:
+            files_pages = [[{"filename": item["path"]} for item in payload.get("files") or []]]
         fixtures = {
             "pr.json": payload,
             "timeline.json": page(labeled()) if timeline is None else timeline,
             "check-runs.json": check_runs_page(*history()) if check_runs is None else check_runs,
             "commits.json": [[rest_commit()]] if commits is None else commits,
             "repo.json": {"delete_branch_on_merge": False} if repo is None else repo,
+            "files.json": files_pages,
         }
         for name, value in fixtures.items():
             (self.fixtures / name).write_text(json.dumps(value), encoding="utf-8")
@@ -408,6 +527,79 @@ class MergePrTest(unittest.TestCase):
         return [line for line in self.invocations() if line.startswith("pr merge")]
 
     # --- відмови на чеках ---------------------------------------------------
+    def test_a_superseded_failed_run_does_not_block_the_merge(self):
+        """One name, two runs on one HEAD: the LATEST run is the verdict.
+
+        The Review gate is the live case: it fails without a label, then a new
+        `labeled` run succeeds. GitHub keeps both runs in statusCheckRollup, and
+        counting the old failure refuses every correctly reviewed PR forever.
+        """
+        checks = [
+            check("Pure JVM"),
+            check("Review gate", "FAILURE",
+                  started="2026-10-10T19:10:00Z", completed="2026-10-10T19:10:12Z"),
+            check("Review gate", "SUCCESS",
+                  started="2026-10-10T19:44:31Z", completed="2026-10-10T19:44:42Z"),
+        ]
+
+        result = self.gate(pr=pr_payload(checks=checks))
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn("упали", result.stderr)
+
+    def test_a_pending_run_with_the_zero_completed_sentinel_still_blocks(self):
+        """In-progress runs carry `completedAt: "0001-01-01T00:00:00Z"`, not null.
+
+        Parsing that sentinel as a real year-1 moment made the latest-run dedupe
+        keep an older green run and discard the newer pending one — the gate
+        would report CI green while it was still running. Zero means "not
+        completed"; recency falls back to startedAt.
+        """
+        checks = [
+            check("Pure JVM"),
+            check("Room native SDK 36", conclusion="",
+                  started="2026-10-10T19:40:00Z",
+                  completed="0001-01-01T00:00:00Z", status="IN_PROGRESS"),
+        ]
+
+        result = self.gate(pr=pr_payload(checks=checks))
+
+        self.assertEqual(1, result.returncode, result.stderr)
+        self.assertIn("не завершився", result.stderr)
+        self.assertIn("Room native SDK 36", result.stderr)
+
+    def test_a_pending_verdict_check_is_not_hidden_by_an_old_success(self):
+        """Same sentinel on a re-run of the verdict check after `labeled`."""
+        checks = [
+            check("Pure JVM"),
+            check("Review gate", "SUCCESS",
+                  started="2026-10-10T19:30:00Z", completed="2026-10-10T19:30:12Z"),
+            check("Review gate", conclusion="",
+                  started="2026-10-10T19:45:00Z",
+                  completed="0001-01-01T00:00:00Z", status="IN_PROGRESS"),
+        ]
+
+        result = self.gate(pr=pr_payload(checks=checks))
+
+        self.assertEqual(1, result.returncode, result.stderr)
+        self.assertIn("не завершився", result.stderr)
+
+    def test_the_latest_failed_run_still_refuses(self):
+        """The dedupe is by time, not by conclusion: latest fail stays fail."""
+        checks = [
+            check("Pure JVM"),
+            check("Review gate", "SUCCESS",
+                  started="2026-10-10T19:10:00Z", completed="2026-10-10T19:10:12Z"),
+            check("Review gate", "FAILURE",
+                  started="2026-10-10T19:44:31Z", completed="2026-10-10T19:44:42Z"),
+        ]
+
+        result = self.gate(pr=pr_payload(checks=checks))
+
+        self.assertEqual(1, result.returncode)
+        self.assertIn("упали", result.stderr)
+        self.assertIn("Review gate", result.stderr)
+
     def test_refuses_a_failing_check(self):
         checks = [check("Pure JVM"), check("Android Lint", "FAILURE")]
 
@@ -549,6 +741,48 @@ class MergePrTest(unittest.TestCase):
         self.assertIn("старіший за останній прогін CI", result.stderr)
         self.assertIn("Pure JVM", result.stderr)
 
+    def test_the_verdict_check_created_by_the_label_is_not_a_late_run(self):
+        """#1492: `Review gate` стартує ПІСЛЯ мітки — інакше гейт вічно червоний.
+
+        Чек публікує вердикт, тож подія `labeled` запускає його вже після часу
+        мітки. Якщо вважати його «пізнім прогоном CI», кожен правильно
+        оглянутий PR отримує вічну відмову. Виключення не послаблює гейт:
+        без свіжої мітки цей чек сам червоний (див. test_review_gate), а
+        решта чеків і комітів перевіряються як раніше.
+        """
+        check_runs = check_runs_page(
+            *history(),
+            run("Review gate", "success", "2026-10-10T19:50:05Z", "2026-10-10T19:50:20Z"),
+        )
+
+        result = self.gate(check_runs=check_runs)
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertNotIn("старіший за останній прогін CI", result.stderr)
+        self.assertEqual(
+            ["pr merge 1215 --squash --match-head-commit %s" % HEAD],
+            self.merge_calls(),
+        )
+
+    def test_another_check_created_after_the_label_is_still_late(self):
+        """Межа виключення — рівно один названий чек, а не «будь-який новий».
+
+        Цей тест падає, якщо майбутня правка почне виключати «схожі» чеки або
+        весь клас success-прогонів: саме так гейт став би зеленим на CI, який
+        перезапустили після огляду.
+        """
+        check_runs = check_runs_page(
+            *history(),
+            run("Review gate", "success", "2026-10-10T19:50:05Z", "2026-10-10T19:50:20Z"),
+            run("Android Lint", "success", "2026-10-10T19:51:00Z", "2026-10-10T19:52:00Z"),
+        )
+
+        result = self.gate(check_runs=check_runs)
+
+        self.assertEqual(1, result.returncode)
+        self.assertIn("старіший за останній прогін CI", result.stderr)
+        self.assertIn("Android Lint", result.stderr)
+
     def test_refuses_when_the_repository_would_delete_the_branch(self):
         result = self.gate(repo={"delete_branch_on_merge": True})
 
@@ -593,6 +827,9 @@ class MergePrTest(unittest.TestCase):
         self.assertIn("перевірки пройдено, але gh pr merge не злито", result.stderr)
         self.assertIn("not mergeable", result.stderr)
         self.assertNotIn("машиночитного вердикту", result.stderr)
+        # Вказівка прибрати копію — лише ПІСЛЯ злиття: на незлитому PR вона
+        # звільнила б смугу, яку ще нікуди не злито (#1321, F3).
+        self.assertNotIn("new-lane.sh --release", result.stdout)
 
     def test_does_not_claim_the_label_is_missing_when_the_probe_fails(self):
         result = self.gate(pr=pr_payload(labels=()), timeline=page(),
@@ -920,6 +1157,9 @@ class MergePrTest(unittest.TestCase):
         )
         self.assertNotIn("--delete-branch", "\n".join(self.invocations()))
         self.assertIn("злито squash-ом", result.stdout)
+        # Копію смуги гейт не прибирає — і називає КОМАНДУ, якою це робить
+        # координатор (#1321): мовчазне «злито» лишало б смугу назавжди.
+        self.assertIn("scripts/new-lane.sh --release 1205", result.stdout)
 
     def test_dry_run_reports_the_merge_without_running_it(self):
         result = self.gate("--dry-run")
@@ -967,6 +1207,96 @@ class MergePrTest(unittest.TestCase):
         self.assertEqual(0, result.returncode)
         self.assertIn("usage: scripts/merge-pr.sh", result.stdout)
         self.assertEqual([], self.invocations())
+
+
+class GitStandInShapeTest(unittest.TestCase):
+    """Підставні `git` — прозорі обгортки, і це піниться проти справжнього git.
+
+    Обидва підставні вміють рівно те, що вміє справжній git (`exec git "$@"`), і
+    ламають рівно ОДИН його опціон: `FAKE_OLD_GIT` — `--path-format` (git < 2.31),
+    `FAKE_BROKEN_GIT` — `--cherry-mark`. Тож форма тут — не власний argv
+    підставного, а argv справжнього git: опціон, на якому підставний відмовляє,
+    мусить бути справжнім опціоном встановленого git, а решта argv — проходити
+    наскрізь. Інакше фікстура перевіряла б форму, якої в оригіналі немає.
+
+    Копія репозиторію — своя, тимчасова: механізми (`empty_shape_mutants.py`,
+    `verdict_field_mutants.py`) ганяють цей модуль у тимчасовому дереві, де
+    `REPO_ROOT` — не git-репозиторій, і провал там був би провалом не теста, а
+    місця запуску.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.repo = self.root / "repo"
+        self.repo.mkdir()
+        self.stubs = {}
+        for name, program in (("old", FAKE_OLD_GIT), ("broken", FAKE_BROKEN_GIT)):
+            stub = self.root / name / "git"
+            stub.parent.mkdir(parents=True, exist_ok=True)
+            stub.write_text(program, encoding="utf-8")
+            stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
+            self.stubs[name] = str(stub)
+
+        self.run_git("git", "init", "-q", "-b", "main")
+        (self.repo / "README.md").write_text("base\n", encoding="utf-8")
+        self.run_git("git", "add", "-A")
+        self.run_git("git", "commit", "-q", "-m", "chore: основа")
+
+    def environment(self) -> dict:
+        """Оточення git — своє, а не успадковане (#1265)."""
+        return {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(self.root),
+            "LC_ALL": "C",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_AUTHOR_NAME": "Fixture",
+            "GIT_AUTHOR_EMAIL": "fixture@example.com",
+            "GIT_COMMITTER_NAME": "Fixture",
+            "GIT_COMMITTER_EMAIL": "fixture@example.com",
+        }
+
+    def run_git(self, executable: str, *arguments: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [executable, *arguments], cwd=str(self.repo), check=False,
+            capture_output=True, text=True, env=self.environment(),
+        )
+
+    def test_a_stub_refuses_an_option_the_real_git_has(self):
+        """Відмова підставного — на справжньому опціоні, а не на вигаданому."""
+        real = self.run_git("git", "rev-parse", "--path-format=absolute", "--git-common-dir")
+
+        self.assertEqual(0, real.returncode, real.stderr)
+        self.assertEqual(129, self.run_git(self.stubs["old"], "rev-parse",
+                                           "--path-format=absolute",
+                                           "--git-common-dir").returncode)
+
+    def test_a_stub_is_transparent_for_the_rest_of_the_argv(self):
+        """Усе, крім названого опціону, проходить наскрізь — як у справжнього."""
+        for name, arguments in (
+            ("old", ("rev-parse", "--git-common-dir")),
+            ("broken", ("rev-parse", "--git-common-dir")),
+        ):
+            with self.subTest(stub=name):
+                real = self.run_git("git", *arguments)
+                stub = self.run_git(self.stubs[name], *arguments)
+
+                self.assertEqual(0, real.returncode, real.stderr)
+                self.assertEqual(0, stub.returncode, stub.stderr)
+                self.assertEqual(real.stdout, stub.stdout)
+
+    def test_the_patch_comparison_stub_refuses_a_real_git_revision_option(self):
+        real = self.run_git("git", "rev-list", "--cherry-mark", "--no-merges",
+                            "--max-count=1", "HEAD")
+
+        self.assertEqual(0, real.returncode, real.stderr)
+        self.assertEqual(
+            128,
+            self.run_git(self.stubs["broken"], "rev-list", "--cherry-mark",
+                         "--no-merges", "--max-count=1", "HEAD").returncode,
+        )
 
 
 if __name__ == "__main__":

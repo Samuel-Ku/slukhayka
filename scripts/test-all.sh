@@ -3,6 +3,20 @@ set -u
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 gradlew=${SLUKHAYKA_GRADLEW:-"$repo_root/gradlew"}
+# Свою теку прогону створює спільний прибиральник (`scripts/tmp_budget.py`), а не
+# `mktemp`: він же прибирає теку, лишену SIGKILL'ом попереднього прогону, і кладе
+# маркер власника, щоб сусідній прогін не зніс живу (#1305). Прибирання тут
+# лишається як було — у пастці; SIGKILL її не виконує, і саме тому прибиральник
+# мусить бути на СТАРТІ. Своя тека тут — це `TMPDIR` для всього Gradle, тож
+# лишена вона не порожня.
+budget_module=$repo_root/scripts/tmp_budget.py
+
+# Прибирання стоїть ДО перевірок, які можуть відмовити (JDK, аргументи Gradle):
+# тека, лишена SIGKILL'ом, мусить зникнути й тоді, коли цей прогін не відбудеться,
+# — інакше відмова одного прогону лишала б чужу теку в tmpfs назавжди (#1305).
+# Невдача самого прибирання прогін не валить: причина йде в stderr, а робота — далі.
+python3 "$budget_module" sweep --prefix slukhayka-tests. ||
+  printf '%s\n' "test-all.sh: прибирання застарілих тек прогону не вдалося (причина вище)" >&2
 
 is_jdk_21() {
   local candidate=$1
@@ -57,8 +71,8 @@ resolve_jdk_21() {
 }
 
 jdk_home=$(resolve_jdk_21) || exit 2
-temp_base=${TMPDIR:-${TMP:-/tmp}}
-run_temp=$(mktemp -d "$temp_base/slukhayka-tests.XXXXXX") || exit 2
+run_temp=$(python3 "$budget_module" claim --prefix slukhayka-tests. --owner-pid $$) ||
+  { printf '%s\n' "test-all.sh: cannot create a run temp directory (the reason is above)" >&2; exit 2; }
 cleanup() {
   rm -rf -- "$run_temp"
 }

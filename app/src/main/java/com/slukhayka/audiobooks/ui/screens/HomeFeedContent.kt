@@ -2,14 +2,14 @@ package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -44,11 +44,17 @@ import com.slukhayka.audiobooks.ui.catalog.CatalogCardFailure
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.CycleCard
+import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.NavigationChip
 import com.slukhayka.audiobooks.ui.components.OpenWebSourceRow
 import com.slukhayka.audiobooks.ui.components.PosterCard
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.theme.AppDimens
+import com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign
+import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
+import com.slukhayka.audiobooks.ui.theme.PaperInkType
+import kotlinx.coroutines.launch
 
 /**
  * spec-28 (#203) — the Огляд feed body, extracted from HomeScreen as a
@@ -111,6 +117,11 @@ fun LazyListScope.homeFeedContent(
     onOpenFeedFilters: (() -> Unit)? = null,
     feedFilterTriggerModifier: Modifier = Modifier,
     onOpenWebSource: (() -> Unit)? = null,
+    // Spec-51 (#1507): the «Добірки слухачів» rail is curated content, so it
+    // must render BEFORE the endless feed. The slot keeps its placement in
+    // this file (and therefore in the order test) while HomeScreen supplies
+    // the rail's data and callbacks.
+    publicCollectionsRail: (@Composable () -> Unit)? = null,
     onRecommendationFeedback: (RecommendationEngine.Recommendation, String) -> Unit = { _, _ -> },
     showRecommendationConsent: Boolean = false,
     onOpenRecommendationConsent: () -> Unit = {},
@@ -125,7 +136,10 @@ fun LazyListScope.homeFeedContent(
     onPreflightRecommendedBook: (String) -> Unit = {},
     onPreflightWorkFeedRow: (WorkFeedRow) -> Unit = {},
     onOpenGlobalSearchResult: (GlobalSearchResult) -> Unit = { result -> onBookClick(result.key) },
-    onOpenCatalogBook: (CatalogBook) -> Unit = { onBookClick(it.id) }
+    onOpenCatalogBook: (CatalogBook) -> Unit = { onBookClick(it.id) },
+    // F5 — the rare «update available» row is supplied by the screen and
+    // emitted below the first curated shelf, never above the search row.
+    updateBanner: (@Composable () -> Unit)? = null
 ) {
     // Loading spinner while the catalogue syncs on a fresh start.
     if (isCatalogLoading && !hasLibraryBooks && sections.isEmpty()) {
@@ -154,13 +168,62 @@ fun LazyListScope.homeFeedContent(
         }
     }
 
+    // #1509 / #1624 — the feed's own terminal states read these two; they are
+    // declared here because the empty-catalogue gate below needs them too (see
+    // WHY THE CATALOGUE STATE IS CONDITIONAL).
+    val feedRefresh = workFeedItems.loadState.refresh
+    val feedFiltersActive = feedGenreFilters.isNotEmpty() ||
+        feedDurationFilters.isNotEmpty() || feedSharedLibraryOnly
+
     // Empty catalogue (first run, no network): actionable state.
-    if (!isCatalogLoading && sections.isEmpty() && !hasLibraryBooks) {
+    //
+    // #1766 REVIEW REGRESSION — "the catalogue is empty" may only be claimed
+    // when there is genuinely NOTHING to show. `sections.isEmpty() &&
+    // !hasLibraryBooks` is NOT that condition: the endless work feed is a
+    // separate pager over the union catalogue, so it can hold rows while the
+    // curated sections are empty and the listener owns no books. Emitting a
+    // viewport-sized state in front of those rows pushed the sticky
+    // `WorkFeedFilters` toolbar (and every feed row) out of the first screen —
+    // the toolbar was never composed, so a tap could not find it
+    // (`WorkFeedFilterWiringTest`; CI leg «Room native SDK 36»).
+    //
+    // So the state is emitted only when the feed is RESTING-EMPTY as well, and
+    // it is NOT emitted while the feed is loading, failed, or emptied by a
+    // filter: those are the feed's own terminal states (spinner / refresh-error
+    // / «filter matched nothing»), not evidence of an empty catalogue. When the
+    // state IS genuine it is the only content, so giving it the viewport is
+    // honest; the nav row below stays reachable by scrolling.
+    //
+    // NAMED LIMIT: the item starts BELOW the PRECEDING HomeHeader, so its centre
+    // sits one header below the window's centre (unlike Listen/Friends, which
+    // centre in a page Column under their header). It is also not the feed's
+    // last content — the catalogue nav row (and the feed's own terminal state)
+    // follow — so the empty page scrolls with them, it does not own the screen.
+    val catalogGenuinelyEmpty = feedRefresh is LoadState.NotLoading &&
+        workFeedItems.itemCount == 0 &&
+        !feedFiltersActive
+    if (!isCatalogLoading && sections.isEmpty() && !hasLibraryBooks && catalogGenuinelyEmpty) {
         item {
+            // #1766 — the state is handed a whole viewport, so it centres
+            // instead of leaving the bottom two thirds of the page dead.
             EmptyCatalogState(
                 onRefreshClick = onRefreshCatalog,
-                onImportClick = onGoToLibrary
+                onImportClick = onGoToLibrary,
+                modifier = Modifier.fillParentMaxSize(),
             )
+        }
+    }
+
+    // F5 — the update banner is a rare action, so it rides BELOW the first
+    // curated shelf instead of above the search row (spec §4: a rare action
+    // never stands first). Emitted once, at the first shelf that renders; the
+    // caller passes null when everything is current.
+    var updateBannerEmitted = false
+    fun emitUpdateBanner() {
+        if (updateBannerEmitted) return
+        updateBannerEmitted = true
+        updateBanner?.let { banner ->
+            item(key = "app_update_banner") { banner() }
         }
     }
 
@@ -168,10 +231,9 @@ fun LazyListScope.homeFeedContent(
     // Виконавці (narrators) and Автори (authors), plus the spec-28
     // «Серії» (#189) and «Колекції» (#190) indexes. ADR-0018: these
     // NAVIGATE, so they are NavigationChips (filled, no outline) —
-    // never filter-shaped chips.
-    item {
-        AppSectionHeader(title = stringResource(R.string.feed_quick_links))
-    }
+    // never filter-shaped chips. They follow the search row directly: a
+    // separate «Швидкі переходи» caption above five self-describing chips was
+    // pure chrome (F5), so it is gone.
     item {
         CatalogNavRow(
             onTop100Click = onOpenTop100,
@@ -181,34 +243,41 @@ fun LazyListScope.homeFeedContent(
         )
     }
 
+    // F19 — one heading level: screen → section → card. The old GROUP headers
+    // («Для вас», «Відкрити нове») repeated that level without adding
+    // information (and «Відкрити нове» stood right above «Новинки» with no
+    // element between them), so only real shelves are headings now. An empty
+    // group renders nothing at all; while the personal shelves are still being
+    // computed, one quiet line says so.
     val hasForYouContent = personalCycles.isNotEmpty() ||
         similarCycles.isNotEmpty() || recommendedBooks.isNotEmpty() || showRecommendationConsent
-    item { AppSectionHeader(title = stringResource(R.string.feed_for_you), level = com.slukhayka.audiobooks.ui.components.SectionHeaderLevel.GROUP) }
     if (recommendationModelMode != null &&
         recommendationModelMode != com.slukhayka.audiobooks.data.recommend.RecommendationModelMode.FULL
     ) {
         item(key = "recommendation_runtime_status") {
             Text(
                 text = recommendationRuntimeModeText(recommendationModelMode),
-                style = MaterialTheme.typography.bodySmall,
+                style = PaperInkType.Meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                modifier = Modifier.padding(
+                    horizontal = PaperInkDimens.SpacePage,
+                    vertical = PaperInkDimens.SpaceSm,
+                )
                     .testTag("home_recommendations_model_status")
                     .semantics { liveRegion = LiveRegionMode.Polite }
             )
         }
     }
-    if (!hasForYouContent) {
+    if (!hasForYouContent && !recommendationsReady) {
         item {
             Text(
-                text = if (recommendationsReady) {
-                    stringResource(R.string.home_no_personal_picks)
-                } else {
-                    stringResource(R.string.home_personal_picks_loading)
-                },
-                style = MaterialTheme.typography.bodyMedium,
+                text = stringResource(R.string.home_personal_picks_loading),
+                style = PaperInkType.Meta,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                modifier = Modifier.padding(
+                    horizontal = PaperInkDimens.SpacePage,
+                    vertical = PaperInkDimens.SpaceSm,
+                )
             )
         }
     }
@@ -223,7 +292,7 @@ fun LazyListScope.homeFeedContent(
         }
         item {
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
+                contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(personalCycles, key = { it.url }) { cycle ->
@@ -246,6 +315,7 @@ fun LazyListScope.homeFeedContent(
                 }
             }
         }
+        emitUpdateBanner()
     }
 
     // Spec-39 T2 (#262): «схожі цикли» — the recommendation engine's top
@@ -258,7 +328,7 @@ fun LazyListScope.homeFeedContent(
         }
         item {
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
+                contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(similarCycles, key = { it.url }) { cycle ->
@@ -276,6 +346,7 @@ fun LazyListScope.homeFeedContent(
                 }
             }
         }
+        emitUpdateBanner()
     }
 
     // Spec-19 Track A: «Рекомендовано для вас» — on-device, local
@@ -288,7 +359,7 @@ fun LazyListScope.homeFeedContent(
         }
         item {
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
+                contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(recommendedBooks, key = { it.candidate.id }) { rec ->
@@ -303,31 +374,54 @@ fun LazyListScope.homeFeedContent(
                 }
             }
         }
+        emitUpdateBanner()
     }
     if (showRecommendationConsent) {
         item(key = "recommendation_consent_card") {
-            ElevatedCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                Column(Modifier.padding(16.dp)) {
-                    Text(stringResource(R.string.feed_help_recommendations), style = MaterialTheme.typography.titleSmall)
+            // F6 — no generic M3 `ElevatedCard` on the paper root: the consent
+            // prompt is the same quiet page surface as every other paper card.
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = PaperInkDimens.SpacePage),
+                shape = RoundedCornerShape(PaperInkDimens.RadiusMedium),
+                color = MaterialTheme.colorScheme.surface,
+            ) {
+                Column(Modifier.padding(PaperInkDimens.SpaceLg)) {
+                    Text(
+                        stringResource(R.string.feed_help_recommendations),
+                        style = PaperInkType.RowTitle,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
                     Text(
                         stringResource(R.string.feed_recommendation_consent_body),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        style = PaperInkType.Meta,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        TextButton(onClick = onDeclineRecommendationConsent) { Text(stringResource(R.string.recommendation_disclosure_decline)) }
+                        TextButton(onClick = onDeclineRecommendationConsent) {
+                            Text(
+                                stringResource(R.string.recommendation_disclosure_decline),
+                                style = PaperInkType.Label,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         TextButton(
                             onClick = onOpenRecommendationConsent,
                             modifier = recommendationDisclosureTriggerModifier
-                        ) { Text(stringResource(R.string.feed_more)) }
+                        ) {
+                            Text(
+                                stringResource(R.string.feed_more),
+                                style = PaperInkType.Label,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                     }
                 }
             }
         }
+        emitUpdateBanner()
     }
-
-    // Editorial and catalogue shelves form the second top-level group.
-    item { AppSectionHeader(title = stringResource(R.string.feed_discover), level = com.slukhayka.audiobooks.ui.components.SectionHeaderLevel.GROUP) }
 
     if (peopleNewArrivals.results.isNotEmpty()) {
         item {
@@ -338,6 +432,7 @@ fun LazyListScope.homeFeedContent(
                 onMarkSeen = onMarkPeopleNewArrivalsSeen
             )
         }
+        emitUpdateBanner()
     }
 
     // ADR-0041 / #733: «Новинки» — the one library-first new-arrivals rail:
@@ -352,6 +447,7 @@ fun LazyListScope.homeFeedContent(
                 onBookClick = { book -> onBookClick(book.id) }
             )
         }
+        emitUpdateBanner()
     }
 
     // #523 — collective blocks: a locally persisted source snapshot rendered
@@ -361,6 +457,7 @@ fun LazyListScope.homeFeedContent(
         item(key = "collective_block_${block.blockKey}") {
             CollectiveBlockRail(block = block, onCardClick = onOpenCollectiveCard)
         }
+        emitUpdateBanner()
     }
 
     // spec-18 T3: «За тривалістю» — «Короткі» and «Довгі» cover rows
@@ -377,6 +474,7 @@ fun LazyListScope.homeFeedContent(
             onPreflight = onPreflightCatalogBook
         )
     }
+    emitUpdateBanner()
 
     // Catalogue rows parsed from the 4read.org homepage. Spec-9: the
     // Continue-Listening card moved to the Слухати tab. Spec-28
@@ -396,7 +494,7 @@ fun LazyListScope.homeFeedContent(
             }
             item {
                 LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(section.books, key = { it.id.ifBlank { it.url } }) { book ->
@@ -419,6 +517,7 @@ fun LazyListScope.homeFeedContent(
                     }
                 }
             }
+            emitUpdateBanner()
         }
         if (section.series.isNotEmpty()) {
             item {
@@ -426,7 +525,7 @@ fun LazyListScope.homeFeedContent(
             }
             item {
                 LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(section.series, key = { it.url }) { series ->
@@ -440,6 +539,7 @@ fun LazyListScope.homeFeedContent(
                     }
                 }
             }
+            emitUpdateBanner()
         }
     }
 
@@ -460,7 +560,7 @@ fun LazyListScope.homeFeedContent(
             }
             item {
                 LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     items(collection.books, key = { it.key }) { result ->
@@ -477,6 +577,7 @@ fun LazyListScope.homeFeedContent(
                     }
                 }
             }
+            emitUpdateBanner()
         }
     }
 
@@ -492,6 +593,19 @@ fun LazyListScope.homeFeedContent(
             )
         }
     }
+
+    // Spec-51 (#1507): the public-collections rail is the last curated block;
+    // it used to be emitted by HomeScreen AFTER this function, i.e. after the
+    // whole endless feed, and was unreachable until the listener scrolled the
+    // entire catalogue. The feed remains the last element.
+    if (publicCollectionsRail != null) {
+        item(key = "public_collections_rail") { publicCollectionsRail() }
+        emitUpdateBanner()
+    }
+
+    // F5 fallback: a screen with no curated shelf at all still shows the
+    // compact update row once, right above the endless feed.
+    emitUpdateBanner()
 
     // spec-42 T1 (#302): compact controls are the one home for feed sort and
     // genre. The persisted, Room-backed Work Pager remains the LAST element
@@ -513,7 +627,17 @@ fun LazyListScope.homeFeedContent(
             onOpenContentLanguages = onOpenContentLanguages
         )
     }
-    if (workFeedItems.itemCount == 0 && workFeedItems.loadState.refresh is LoadState.Loading) {
+    // #1509: the feed must account for every terminal state, not only the
+    // first-page spinner. An empty pager under the toolbar read as "nothing
+    // here" even when the refresh had failed; and a filter that matched
+    // nothing was indistinguishable from an empty catalogue. Loading keeps
+    // its old spinner (AC3).
+    //
+    // #1624 (F17/F33): these three are ABSENCES, and the 2026 direction states
+    // an absence in type (Literata 20 + Meta) without a placeholder glyph. The
+    // M3 icons that used to stand here (`CloudOff`, `FilterOff`, `Book`) were
+    // the last of the audit's «іконка-заглушка» cases on «Огляд».
+    if (workFeedItems.itemCount == 0 && feedRefresh is LoadState.Loading) {
         item {
             Box(
                 modifier = Modifier
@@ -522,6 +646,83 @@ fun LazyListScope.homeFeedContent(
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+            }
+        }
+    } else if (workFeedItems.itemCount == 0 && feedRefresh is LoadState.Error) {
+        item {
+            EmptyState(
+                title = stringResource(R.string.feed_refresh_error_title),
+                body = stringResource(R.string.feed_refresh_error_empty_body),
+                modifier = Modifier.testTag("feed_refresh_error")
+            ) {
+                FeedRefreshButton(
+                    tag = "feed_refresh_retry",
+                    label = stringResource(R.string.feed_refresh_retry),
+                    items = workFeedItems,
+                    retry = true
+                )
+            }
+        }
+    } else if (workFeedItems.itemCount == 0 && feedFiltersActive) {
+        item {
+            EmptyState(
+                title = stringResource(R.string.feed_filters_empty_title),
+                body = stringResource(R.string.feed_filters_empty_body),
+                modifier = Modifier.testTag("feed_filters_empty")
+            ) {
+                Button(
+                    onClick = {
+                        onSetFeedGenreFilters(emptySet())
+                        onSetFeedDurationFilters(emptySet())
+                        onSetFeedSharedLibraryOnly(false)
+                    },
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("feed_filters_reset")
+                ) {
+                    Text(stringResource(R.string.feed_reset_all))
+                }
+            }
+        }
+    } else if (workFeedItems.itemCount == 0) {
+        item {
+            EmptyState(
+                title = stringResource(R.string.feed_empty_title),
+                body = stringResource(R.string.feed_empty_body),
+                modifier = Modifier.testTag("feed_empty")
+            ) {
+                FeedRefreshButton(
+                    tag = "feed_empty_refresh",
+                    label = stringResource(R.string.feed_empty_refresh),
+                    items = workFeedItems,
+                    retry = false
+                )
+            }
+        }
+    }
+    // A refresh can also fail while rows are already on screen: say so and
+    // keep the rows (AC2) instead of replacing them with an error.
+    if (workFeedItems.itemCount > 0 && feedRefresh is LoadState.Error) {
+        item {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = PaperInkDimens.SpacePage, vertical = 8.dp)
+                    .testTag("feed_refresh_error_banner"),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.feed_refresh_error_body),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier
+                        .weight(1f)
+                        .semantics { liveRegion = LiveRegionMode.Polite }
+                )
+                TextButton(
+                    onClick = { workFeedItems.retry() },
+                    modifier = Modifier.testTag("feed_refresh_error_banner_retry")
+                ) {
+                    Text(stringResource(R.string.feed_refresh_retry))
+                }
             }
         }
     }
@@ -611,7 +812,7 @@ fun LazyListScope.homeFeedContent(
                             modifier = Modifier.size(AppDimens.TouchTarget)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Close,
+                                imageVector = PaperInkIcons.Close,
                                 contentDescription = stringResource(R.string.catalog_card_cancel),
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -622,10 +823,14 @@ fun LazyListScope.homeFeedContent(
                             modifier = Modifier.size(AppDimens.TouchTarget)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.PlayArrow,
+                                imageVector = PaperInkIcons.Play,
                                 contentDescription = listenDescription,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(28.dp)
+                                tint = if (LocalPaperInkDesign.current) {
+                                    MaterialTheme.colorScheme.tertiary
+                                } else {
+                                    MaterialTheme.colorScheme.primary
+                                },
+                                modifier = Modifier.size(if (LocalPaperInkDesign.current) 22.dp else 28.dp)
                             )
                         }
                     }
@@ -702,5 +907,30 @@ fun LazyListScope.homeFeedContent(
             )
         }
         else -> Unit
+    }
+}
+
+/** Retry/refresh action shared by the feed's empty and error states (#1509). */
+@Composable
+private fun FeedRefreshButton(
+    tag: String,
+    label: String,
+    items: LazyPagingItems<WorkFeedRow>,
+    retry: Boolean
+) {
+    val scope = rememberCoroutineScope()
+    Button(
+        onClick = {
+            if (retry) {
+                items.retry()
+            } else {
+                scope.launch { items.refresh() }
+            }
+        },
+        modifier = Modifier.heightIn(min = 48.dp).testTag(tag)
+    ) {
+        Icon(imageVector = PaperInkIcons.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(label)
     }
 }

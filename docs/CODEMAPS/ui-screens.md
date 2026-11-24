@@ -1,6 +1,6 @@
 # UI Screens Module
 
-<!-- Generated: 2026-08-16 | Files scanned: 21 | Kotlin lines: ~8,190 -->
+<!-- Generated: 2026-08-16 | Updated: 2026-10-27 (2026 direction «Папір і голос» merged in #1490) -->
 
 ## Purpose
 
@@ -8,6 +8,15 @@ Every Compose screen plus the `ui/library/` helpers they compose. This is the
 largest module in the app (~30 % of all Kotlin). Per ADR-0008 the screens read
 the deep modules themselves — they receive module instances as constructor
 parameters from the composition root, not through the ViewModel.
+
+**Since #1490 the eight listener-facing surfaces have a «Папір і голос»
+branch:** «Слухати», «Огляд», «Медіатека», «Друзі», «Досягнення»,
+«Налаштування», сторінка книги; плеєр завжди в «Чорнилі» (рішення A, не
+паперова гілка). A screen file usually has
+both branches; the paper one is chosen by `LocalPaperInkDesign`, so keep the
+legacy branch compiling and its test tags stable. The design contract, tokens
+and accepted gaps: `docs/specs/2026-10-26-ui-refresh-2027.md`; component
+inventory and the migration seam: `docs/CODEMAPS/ui-system.md`.
 
 ## Key Files
 
@@ -90,6 +99,8 @@ app/src/main/java/com/slukhayka/audiobooks/ui/library/ResumeStart.kt      53 lin
 | Change a card layout | The v1.4 canonical components in `ui/components/` (PosterCard/BookRow/CycleCard/MetadataChip) — never a new per-screen card |
 | Reorder the Слухати panel | `ListenComposer.kt` block order + `MainViewModel` reorder actions |
 | Add a new section to Огляд | `HomeScreen.kt` + `SourceCatalog` cache for the data |
+| Change a 2026-direction surface | the screen's paper branch + `paperink/` primitives; record that surface's Roborazzi goldens |
+| Move another screen to the 2026 direction | wrap it in `PaperInkThemedContent`, add the paper branch beside the legacy one |
 
 ## Known Issues / Notes
 

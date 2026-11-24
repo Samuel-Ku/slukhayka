@@ -579,28 +579,6 @@
     <issue
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="    ): MediaSession.MediaItemsWithStartPosition {"
-        errorLine2="       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/player/PlaybackResumption.kt"
-            line="40"
-            column="8"/>
-    </issue>
-
-    <issue
-        id="UnsafeOptInUsageError"
-        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="        return MediaSession.MediaItemsWithStartPosition("
-        errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/slukhayka/audiobooks/player/PlaybackResumption.kt"
-            line="74"
-            column="29"/>
-    </issue>
-
-    <issue
-        id="UnsafeOptInUsageError"
-        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
         errorLine1="        override fun onPlaybackResumption("
         errorLine2="                     ~~~~~~~~~~~~~~~~~~~~">
         <location
@@ -1283,16 +1261,6 @@
             column="13"/>
     </issue>
 
-    <issue
-        id="MissingTranslation"
-        message="&quot;home_search_placeholder&quot; is not translated in &quot;pl&quot; (Polish)"
-        errorLine1="    &lt;string name=&quot;home_search_placeholder&quot;>Пошук книги або автора…&lt;/string>"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="39"
-            column="13"/>
-    </issue>
 
     <issue
         id="MissingTranslation"
@@ -1393,27 +1361,7 @@
             column="13"/>
     </issue>
 
-    <issue
-        id="MissingTranslation"
-        message="&quot;feed_quick_links&quot; is not translated in &quot;pl&quot; (Polish)"
-        errorLine1="    &lt;string name=&quot;feed_quick_links&quot;>Швидкі переходи&lt;/string>"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="52"
-            column="13"/>
-    </issue>
 
-    <issue
-        id="MissingTranslation"
-        message="&quot;feed_for_you&quot; is not translated in &quot;pl&quot; (Polish)"
-        errorLine1="    &lt;string name=&quot;feed_for_you&quot;>Для вас&lt;/string>"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="53"
-            column="13"/>
-    </issue>
 
     <issue
         id="MissingTranslation"
@@ -1448,16 +1396,6 @@
             column="13"/>
     </issue>
 
-    <issue
-        id="MissingTranslation"
-        message="&quot;feed_discover&quot; is not translated in &quot;pl&quot; (Polish)"
-        errorLine1="    &lt;string name=&quot;feed_discover&quot;>Відкрити нове&lt;/string>"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="57"
-            column="13"/>
-    </issue>
 
     <issue
         id="MissingTranslation"
@@ -3736,16 +3674,6 @@
             column="13"/>
     </issue>
 
-    <issue
-        id="MissingTranslation"
-        message="&quot;home_no_personal_picks&quot; is not translated in &quot;pl&quot; (Polish)"
-        errorLine1="    &lt;string name=&quot;home_no_personal_picks&quot;>Персональних добірок поки немає.&lt;/string>"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings.xml"
-            line="313"
-            column="13"/>
-    </issue>
 
     <issue
         id="MissingTranslation"
@@ -12302,17 +12230,6 @@
         <location
             file="src/main/res/values/strings_accessibility_settings.xml"
             line="94"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="MissingTranslation"
-        message="&quot;storage_stat_audio_on_device&quot; is not translated in &quot;pl&quot; (Polish)"
-        errorLine1="    &lt;string name=&quot;storage_stat_audio_on_device&quot;>Аудіо на пристрої&lt;/string>"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/res/values/strings_accessibility_settings.xml"
-            line="96"
             column="13"/>
     </issue>
 

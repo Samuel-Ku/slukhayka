@@ -4,6 +4,13 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipe
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.ui.components.ChapterOrderDialog
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
@@ -100,5 +107,130 @@ class ReorderChaptersDialogTest {
         // The dialog works on a local copy: no order may reach the caller.
         assertTrue("скасування мусить закрити діалог", dismissed)
         assertEquals("скасування не пише нічого", null, confirmed)
+    }
+
+    @Test
+    fun `the drag handle is a named accessibility path beside the arrows`() {
+        compose.setContent {
+            AudiobookTheme {
+                ChapterOrderDialog(
+                    chapters = chapters(),
+                    saving = false,
+                    errorMessage = null,
+                    onDismiss = {},
+                    onSave = {}
+                )
+            }
+        }
+
+        val handle = compose.onNodeWithTag("chapter_order_drag_ch-1")
+        handle.assertExists()
+        // The arrows are still present: the gesture is a second path, not a
+        // replacement (owner decision of 2026-10-11).
+        compose.onNodeWithTag("chapter_order_up_ch-3").assertExists()
+
+        val actions = handle.fetchSemanticsNode().config
+            .getOrNull(SemanticsActions.CustomActions)
+            .orEmpty()
+            .map { it.label }
+        assertTrue("TalkBack needs a named move-up action", actions.any { it.contains("вгору", ignoreCase = true) })
+        assertTrue("TalkBack needs a named move-down action", actions.any { it.contains("вниз", ignoreCase = true) })
+    }
+
+    @Test
+    fun `dragging the handle moves the chapter and Save returns the new order`() {
+        var confirmed: List<String>? = null
+        compose.setContent {
+            AudiobookTheme {
+                ChapterOrderDialog(
+                    chapters = chapters(),
+                    saving = false,
+                    errorMessage = null,
+                    onDismiss = {},
+                    onSave = { confirmed = it }
+                )
+            }
+        }
+
+        val rowHeightPx = with(compose.density) { 56.dp.toPx() }
+        compose.onNodeWithTag("chapter_order_drag_ch-1").performTouchInput {
+            // Explicit slop-crossing moves: a single fast swipe can lose the
+            // gesture races in Robolectric, and a lost drag must not read as
+            // "reorder works". The exact one-step order is pinned by the
+            // two-step test below; here the contract is "the dragged chapter
+            // moved and Save returned a permutation".
+            down(center)
+            repeat(6) { moveBy(Offset(0f, rowHeightPx * 0.3f)) }
+            up()
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithTag("chapter_order_save").performClick()
+        compose.waitForIdle()
+        assertEquals(
+            "перетягування мусить віддати перестановку з трьох глав, а не null",
+            3,
+            confirmed?.size
+        )
+        assertTrue(
+            "перетягнута глава мусить змінити позицію, а не лишитися першою",
+            confirmed != null && confirmed != listOf("ch-1", "ch-2", "ch-3")
+        )
+    }
+
+
+    @Test
+    fun `a two-step drag moves the chapter by two places, not by slot`() {
+        var confirmed: List<String>? = null
+        compose.setContent {
+            AudiobookTheme {
+                ChapterOrderDialog(
+                    chapters = chapters(),
+                    saving = false,
+                    errorMessage = null,
+                    onDismiss = {},
+                    onSave = { confirmed = it }
+                )
+            }
+        }
+
+        val step = with(compose.density) { 48.dp.toPx() }
+        compose.onNodeWithTag("chapter_order_drag_ch-1").performTouchInput {
+            swipe(center, center + Offset(0f, step * 2.6f), durationMillis = 300)
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("chapter_order_save").performClick()
+        compose.waitForIdle()
+        assertEquals(
+            "multi-step drag мусить рухати саму главу, а не слот списку",
+            listOf("ch-2", "ch-3", "ch-1"),
+            confirmed
+        )
+    }
+
+    @Test
+    fun `a swipe on the row body does not start a drag`() {
+        var confirmed: List<String>? = null
+        compose.setContent {
+            AudiobookTheme {
+                ChapterOrderDialog(
+                    chapters = chapters(),
+                    saving = false,
+                    errorMessage = null,
+                    onDismiss = {},
+                    onSave = { confirmed = it }
+                )
+            }
+        }
+
+        // The row text is not a drag target: only the handle starts a reorder.
+        compose.onNodeWithText("1. Перший").performTouchInput {
+            swipe(center, center + Offset(0f, with(compose.density) { 96.dp.toPx() }), durationMillis = 200)
+        }
+        compose.waitForIdle()
+        // The order did not move, so Save stays disabled: the row body never
+        // started a drag (that is the assertion — not a Save round-trip).
+        compose.onNodeWithTag("chapter_order_save").assertIsNotEnabled()
+        assertEquals("рядок мусить лишатися скролом, не drag-ціллю", null, confirmed)
     }
 }

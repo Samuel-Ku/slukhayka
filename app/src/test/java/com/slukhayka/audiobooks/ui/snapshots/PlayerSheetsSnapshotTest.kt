@@ -8,7 +8,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
 import com.slukhayka.audiobooks.ui.components.SleepTimerSheet
 import com.slukhayka.audiobooks.ui.components.SpeedSheet
-import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import com.slukhayka.audiobooks.ui.theme.PaperInkTheme
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
@@ -33,7 +33,7 @@ class PlayerSheetsSnapshotTest {
     @Test
     fun sleep_timer_sheet() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     SleepTimerSheet(
                         currentTimerMinutes = 15,
@@ -49,7 +49,7 @@ class PlayerSheetsSnapshotTest {
     @Test
     fun speed_sheet() {
         composeTestRule.setContent {
-            AudiobookTheme(darkTheme = true) {
+            PaperInkTheme(darkTheme = true) {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                     SpeedSheet(
                         currentSpeed = 1.25f,

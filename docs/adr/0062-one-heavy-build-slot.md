@@ -19,7 +19,7 @@ Omarchy), база `d46bf54b`. Однакова збірка — `:app:validateT
 writable `GRADLE_USER_HOME` над спільним **read-only** кешем залежностей, усі
 `--no-daemon`. Прогони **навмисно йшли повз слот** — без `flock`, без
 `--offline`: мірялося саме те, що буває без нього. Команди, метод виміру
-й повна таблиця — у `docs/agents/local-environment.md`, «The measured ceiling».
+й повна таблиця — у `docs/agents/local-environment-measurements.md` («The measured ceiling»).
 
 | Сценарій | Час | Пік JVM RSS (сума) | MemAvailable min | swap max |
 |---|---|---|---|---|
@@ -87,7 +87,7 @@ writable `GRADLE_USER_HOME` над спільним **read-only** кешем з�
 
 - Правило одного слота лишається без змін; воно отримало доказову базу, а не
   заміну.
-- Числа живуть у `docs/agents/local-environment.md` поруч із правилом і
+- Числа живуть у `docs/agents/local-environment-measurements.md` поруч із правилом і
   командами, щоб наступна смуга бачила причину, а не лише заборону; тут
   лишається скорочення, а не копія.
 - Межі, названі чесно:

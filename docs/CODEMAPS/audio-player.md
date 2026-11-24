@@ -79,6 +79,23 @@ the last 30 s, unit-tested boundary math. Timer state lives on `PlayerState`
 | Change sleep-timer fade | `sleepTimerFadeVolume` in `AudioPlayerManager.kt` |
 | Add a playback event | `data.db.PlaybackEvent*` + `PlaybackEventLog` |
 
+## Stream Headers / Session Cookie
+
+Per-source stream headers come from `data.source.headersFor`; only 4read's
+audio hosts also receive the first-party WebView cookie. That cookie is a
+synchronous `CookieManager.getCookie` Binder call, so #1722 keeps it out of the
+player's main-thread path:
+
+- `StreamCookieCache` holds the header in a `@Volatile` field; the player's
+  `cookieProvider` is `cachedHeader`, a pure memory read.
+- `refresh()` reads the live jar on IO. Refresh points: `App.onCreate`, the
+  browser surface closing (`MainViewModel.closeWebSource` /
+  `failAutomaticBrowserRecovery`), and an explicit playback install
+  (`startAudiobookPlaybackNow` / `startRecoveredPlaybackAndAwait`), which hands
+  the freshly read header to `loadAndPlayBook`/`prepareChapter` directly.
+- Pause/resume and auto-advance reuse the cached session value; they never call
+  the provider on the application looper.
+
 ## Known Issues / Notes
 
 - `AudioPlayerManager` is the second-largest file in the app (1,373 lines) —

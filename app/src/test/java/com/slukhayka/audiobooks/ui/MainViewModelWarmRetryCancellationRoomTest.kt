@@ -37,6 +37,7 @@ import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -58,8 +59,9 @@ class MainViewModelWarmRetryCancellationRoomTest {
         try {
             withTimeout(60_000) {
                 val app = ApplicationProvider.getApplicationContext<App>()
-                val db = AudiobookDatabase.getDatabase(app)
                 val dao = app.audiobookDao
+                val db = AudiobookDatabase.getDatabase(app)
+                assertSame("SETUP: transaction and App DAO belong to one Room instance", db.audiobookDao(), dao)
                 val modelDir = File(app.filesDir, "models/e5")
                 assertFalse("SETUP_NOT_REACHED: isolated App has no downloaded E5 files", modelDir.exists())
                 app.recommendationPreferences.setLocalEnabled(false)
@@ -67,7 +69,7 @@ class MainViewModelWarmRetryCancellationRoomTest {
                 val vm = ViewModelProvider(store, object : ViewModelProvider.Factory {
                     override fun <T : ViewModel> create(modelClass: Class<T>): T {
                         require(modelClass == MainViewModel::class.java)
-                        return modelClass.cast(MainViewModel(app, probe.loader))
+                        return modelClass.cast(MainViewModel(app, recommendationBackendLoader = probe.loader))
                     }
                 })[MainViewModel::class.java]
                 observationScope.launch { vm.recommendationContent.collect {} }

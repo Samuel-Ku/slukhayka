@@ -76,6 +76,8 @@ import com.slukhayka.audiobooks.ui.screens.LibrarySearchField
 import com.slukhayka.audiobooks.ui.screens.LibraryStatusRow
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -131,6 +133,24 @@ class LibraryAccessibilityTest {
         ).first()
     }
 
+    /**
+     * #1187 — a local book being listened to whose files were never measured:
+     * no total, but a progress row, so it is the reachable «Продовжити» card
+     * with no duration at all. `percent` is 0f there, a sentinel.
+     */
+    private val unknownDurationBook = run {
+        val books = TestDataFactory.dataBooks().take(1).map { it.copy(totalDurationSeconds = 0L) }
+        buildLibraryBooks(
+            books = books,
+            progressList = TestDataFactory.seedPlaybackProgress(
+                books,
+                chapterIndex = 0,
+                positionSeconds = 3L
+            ),
+            chaptersByBook = mapOf(books.first().id to emptyList())
+        ).first()
+    }
+
     @Test
     fun libraryEntryIsOneContextualActionWithHonestState() {
         composeTestRule.setContent {
@@ -158,6 +178,28 @@ class LibraryAccessibilityTest {
                         "Завантажено для прослуховування без інтернету"
                 )
             )
+    }
+
+    @Test
+    fun anUnknownDurationIsSpokenAsUnknownNotAsZeroPercent() {
+        // #1187 / ADR-0014 — the a11y half of the honesty rule: with no total
+        // the card must announce «Тривалість невідома», never «Прослухано 0%».
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                LibraryBookCard(book = unknownDurationBook, grid = false, onClick = {})
+            }
+        }
+
+        val state = composeTestRule
+            .onNodeWithTag("library_book_item_${unknownDurationBook.book.id}")
+            .fetchSemanticsNode()
+            .config
+            .getOrNull(SemanticsProperties.StateDescription)
+            .orEmpty()
+
+        assertTrue(state.startsWith("Тривалість невідома"))
+        assertFalse(state.contains("Прослухано"))
+        assertFalse(state.contains("0%"))
     }
 
     @Test
@@ -243,7 +285,7 @@ class LibraryAccessibilityTest {
         val preview = MainViewModel.ImportPreviewState(
             plan = ImportPlanner.buildPlan(
                 SourceRef.Files(listOf("content://library-preview/01.mp3")),
-                listOf(LocalAudioEntry("01.mp3", null) { error("Preview must not open audio") })
+                listOf(LocalAudioEntry("01.mp3", null, uri = "content://test/local") { error("Preview must not open audio") })
             ),
             treeUri = "content://library-preview"
         )
@@ -482,8 +524,16 @@ class LibraryAccessibilityTest {
             }
         }
 
+        // F30b — the field is a compact pill inside the tab row now; its
+        // TalkBack name is the same resource, asserted as the node's spoken
+        // description rather than as text inside an M3 label.
         composeTestRule.onNodeWithTag("library_search")
-            .assertTextContains("Пошук у медіатеці")
+            .assert(
+                SemanticsMatcher.expectValue(
+                    SemanticsProperties.ContentDescription,
+                    listOf("Пошук у медіатеці")
+                )
+            )
             .assertIsDisplayed()
         composeTestRule.onNodeWithTag("library_search_toggle").assertDoesNotExist()
     }
@@ -503,9 +553,8 @@ class LibraryAccessibilityTest {
             .assertIsDisplayed()
             .assertHeightIsAtLeast(24.dp)
             .performClick()
-        composeTestRule.onNodeWithTag("library_search")
-            .assertIsDisplayed()
-            .assertTextContains("Пошук у медіатеці")
+        // ✕ emptied the query but the field itself never leaves the screen.
+        composeTestRule.onNodeWithTag("library_search").assertIsDisplayed()
         composeTestRule.onNodeWithTag("library_search_clear").assertDoesNotExist()
     }
 

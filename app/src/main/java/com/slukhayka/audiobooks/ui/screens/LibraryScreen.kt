@@ -14,6 +14,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -29,14 +30,21 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.*
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.Today
+import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.material.icons.outlined.DateRange
+import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import com.slukhayka.audiobooks.ui.components.ChapterDragAutoScroll
+import com.slukhayka.audiobooks.ui.components.ChapterDragHandle
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -57,7 +65,10 @@ import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -65,6 +76,8 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIconSizes
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
@@ -83,7 +96,6 @@ import com.slukhayka.audiobooks.data.imports.ImportPlanner
 import com.slukhayka.audiobooks.data.imports.LocalFolderGrouping
 import com.slukhayka.audiobooks.data.imports.SourceRef
 import com.slukhayka.audiobooks.ui.MainViewModel
-import com.slukhayka.audiobooks.ui.components.AppHeaderAction
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
@@ -91,6 +103,9 @@ import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.SubmissionBadge
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.EmptyStatePanel
+import com.slukhayka.audiobooks.ui.components.EmptyStatePrimaryAction
+import com.slukhayka.audiobooks.ui.components.EmptyStateQuietAction
 import com.slukhayka.audiobooks.ui.components.EmptyStateRow
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.PosterWidth
@@ -101,14 +116,14 @@ import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.library.LibraryBook
 import com.slukhayka.audiobooks.ui.library.LibraryFilter
 import com.slukhayka.audiobooks.ui.library.LibraryGridEntry
-import com.slukhayka.audiobooks.ui.library.libraryGridEntries
 import com.slukhayka.audiobooks.ui.library.LibrarySort
 import com.slukhayka.audiobooks.ui.library.ListeningStatsSummary
 import com.slukhayka.audiobooks.ui.library.clearCacheConfirmText
 import com.slukhayka.audiobooks.ui.library.SHEET_FILTERS
-import com.slukhayka.audiobooks.ui.library.filterAndSortLibrary
-import com.slukhayka.audiobooks.ui.library.workBookCards
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
+import com.slukhayka.audiobooks.ui.library.LibraryReturnFocusEffect
+import com.slukhayka.audiobooks.ui.library.libraryWorkKeysAt
+import com.slukhayka.audiobooks.ui.library.projectLibraryBooks
 import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
 import com.slukhayka.audiobooks.ui.screens.collections.ListenerCollectionPage
 import com.slukhayka.audiobooks.ui.screens.collections.MyCollectionsBlock
@@ -120,7 +135,7 @@ import com.slukhayka.audiobooks.data.ingest.sharedSubmissionUrlOf
 /**
  * Wayfinder #39 — Медіатека as one unified library. Local files and 4read
  * books live side by side; the segmented status row (Усі / Нові / Слухаю /
- * Завершені / Завантажені, spec-28 #193) plus a filter sheet (Обрані /
+ * Завершені / На пристрої, spec-28 #193, #1163) plus a filter sheet (Обрані /
  * Локальні / Онлайн, six sort modes, grid/list toggle) and client-side
  * search sit above a single book card that always shows author,
  * series+volume, progress, remaining time, download status and a small
@@ -136,6 +151,9 @@ fun LibraryScreen(
     // (import, cache) and navigation stay on the ViewModel.
     libraryEntries: LibraryEntries,
     listeningState: ListeningStateStore,
+    // ADR-0046 / #1286 — reading progress: the module owns the writes AND the
+    // active/year projections from one snapshot, so this screen maps no rows.
+    readingProgress: com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder,
     // #401: person bookmarks — Flows read directly (ADR-0008).
     personBookmarks: PersonBookmarks,
     onBookClick: (String) -> Unit,
@@ -165,10 +183,10 @@ fun LibraryScreen(
     val listeningStats by remember { listeningState.getAllListeningStats() }
         .collectAsState(initial = emptyList())
     // #401: bookmarked people Flows collected directly (ADR-0008).
-    val bookmarkedAuthors by personBookmarks.bookmarkedAuthors()
-        .collectAsState(initial = emptyList())
-    val bookmarkedNarrators by personBookmarks.bookmarkedNarrators()
-        .collectAsState(initial = emptyList())
+    // #1706: remembered so a recomposition does not rebuild the cold DAO Flow
+    // and restart both Room observers while playback writes progress.
+    val bookmarkedAuthors = rememberBookmarkedAuthors(personBookmarks)
+    val bookmarkedNarrators = rememberBookmarkedNarrators(personBookmarks)
     val bookmarkedPeople = remember(bookmarkedAuthors, bookmarkedNarrators) {
         (bookmarkedAuthors.map { it to PersonRole.AUTHOR } +
             bookmarkedNarrators.map { it to PersonRole.NARRATOR })
@@ -180,10 +198,23 @@ fun LibraryScreen(
     val scope = rememberCoroutineScope()
 
     // Spec #8 ticket T7: system file picker (SAF) → one picked audio file = one book.
+    // ADR-0061: the picked document URI IS the book's only address, so the grant
+    // must survive a reboot — without this line the file played once and became
+    // unreadable on the next launch (the tree picker below always took it).
     val importLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
-        if (uri != null) viewModel.importLocalAudioFile(uri)
+        if (uri != null) {
+            try {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            } catch (e: SecurityException) {
+                Log.w("LibraryScreen", "Persistable grant refused for $uri", e)
+            }
+            viewModel.importLocalAudioFile(uri)
+        }
     }
 
     // Spec #8 Block 4: SAF tree picker → recursively import every audio file
@@ -209,6 +240,10 @@ fun LibraryScreen(
 
     // Import-result feedback (Block 4): one-shot Snackbar from the ViewModel.
     val snackbarHostState = remember { SnackbarHostState() }
+    // #1286 — the outcome of the last Readthrough record/finish, shown beside
+    // the passes. Every branch (Recorded, Finished, Refused, Failed) is mapped,
+    // so a refusal can never be read as a success.
+    var progressMessageRes by remember { mutableStateOf<Int?>(null) }
     // Spec-53 T3 — awaiting-verdict badges + the quiet publication notice.
     val awaitingSubmissionBookIds by viewModel.awaitingSubmissionBookIds.collectAsState()
     // #837 — the honest per-book submission badge (state, not a promise).
@@ -291,14 +326,10 @@ fun LibraryScreen(
     // after every action), so the list is never a stale promise.
     LaunchedEffect(activeTab) {
         if (activeTab == 3) viewModel.refreshImportedEntries()
-        // #885 — the books tab shows the «Мій рік» hero, so the year must be
-        // loaded for it too; otherwise the card stays hidden until the listener
-        // happens to open the separate year view.
-        if (activeTab == 0) viewModel.refreshReadingYear()
-        if (activeTab == 4) {
-            viewModel.refreshReadingYear()
-            viewModel.refreshActiveReadings()
-        }
+        // #885 / #1286 — the books tab shows the «Мій рік» hero and the year
+        // tab shows the passes; both read the module's one snapshot. The module
+        // supersedes its own older refresh, so this is not two racing reads.
+        if (activeTab == 0 || activeTab == 4) readingProgress.refresh()
     }
     val sectionTitle = when (activeTab) {
         1 -> stringResource(R.string.lib_section_saved)
@@ -317,15 +348,18 @@ fun LibraryScreen(
         else -> R.string.lib_statistics
     }
     val librarySubtitle = librarySizeLabel(libraryBooks)
-    // Browsing the whole library vs narrowing it down: the sections (and the
-    // «Продовжити» card) only make sense while nothing is filtering.
-    val browsing = filter == LibraryFilter.ALL && query.isBlank()
+    // #1284 — whether this is "the whole library" vs "narrowed down" is no
+    // longer a screen variable: the projection owns both rules it used to name
+    // (the entry form and whether the dense header summarises), so they cannot
+    // drift apart here.
     // #885 — the prototype puts «Мій рік» ABOVE the section switch, as the first
     // block of the screen, so the state is read here and not inside the tab body.
-    val yearGoal by viewModel.readingYear.collectAsState()
-    val continueBook = remember(libraryBooks) {
-        libraryBooks.filter { it.isListening }.maxByOrNull { it.lastListenedAt }
-    }
+    // #1286 — the module owns the projections; the hero reads the last good
+    // year from the SAME state the year tab renders. A failed read keeps the
+    // known value (the tab shows the retry), never a fake empty year.
+    val progressState by readingProgress.state.collectAsState()
+    val yearGoal = (progressState as? com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.State.Ready)
+        ?.projection?.year
     // Spec-28 #193: the rare filters, sort and view toggle live in the sheet.
     var showFilterSheet by remember { mutableStateOf(false) }
     // Spec-28 #194: import is one «+ Додати» action opening a sheet; the
@@ -385,85 +419,77 @@ fun LibraryScreen(
         returnFocusRequester = importFocusRequester
     )
 
-    val visibleBooks = remember(libraryBooks, filter, sort, query) {
-        filterAndSortLibrary(libraryBooks, filter, sort, query)
-    }
-
-    // spec-54 T14 (#869) — the listener owns a WORK: the list renders ONE card
-    // per Work, fronted by the narration they are furthest along in, and the
-    // other narrations (with their own progress, bookmarks, downloads and
-    // speed) stay reachable from the card's details.
-    val workCards = remember(visibleBooks) { workBookCards(visibleBooks) }
-    val shownCards = remember(workCards) { workCards.map { it.primary } }
-
-    // The grid as data (v1.5 review): the structure carries the resume card,
-    // the section headers and the shelf, so a lazy-grid index must be mapped
-    // back to a book through these entries — never through `visibleBooks`
-    // (the two stopped aligning the moment the hero and the headers appeared).
-    val denseTrailing = if (browsing) "" else libraryRemainingTotal(shownCards)
     // spec-46 T08 (#569) — resolved outside `remember`: stringResource is a
-    // composable read, the entries builder is a plain function.
+    // composable read, the projection builder is a plain function.
     val denseTitle = if (query.isNotBlank()) {
         stringResource(R.string.lib_search_section_title)
     } else {
         stringResource(filter.labelRes)
     }
-    val gridEntries = remember(browsing, gridMode, visibleBooks, continueBook, denseTrailing, denseTitle) {
-        libraryGridEntries(
-            // #885 — the prototype's «Книги» is a VERTICAL list of rows with a
-            // progress line, not a wall of shelves: shelves belong to «Полиці»
-            // (their own tab above). So the books tab always builds the dense
-            // section+rows shape.
-            browsing = false,
+    // #1284 — ONE projection owns the whole book area: the filter/sort order,
+    // the Work grouping and each card's primary narration, the shape of the
+    // entry list, and both index mappings. The screen reads it and passes the
+    // shape on to the renderer, so the entries and the layout can never be
+    // built from two different assumptions (the old `browsing = false` had to
+    // be written twice and kept in step by hand).
+    val libraryProjection = remember(libraryBooks, filter, sort, query, gridMode, denseTitle) {
+        projectLibraryBooks(
+            books = libraryBooks,
+            filter = filter,
+            sort = sort,
+            query = query,
             gridMode = gridMode,
-            visible = shownCards,
-            continueBook = continueBook,
-            denseTitle = denseTitle,
-            denseTrailing = denseTrailing
+            denseTitle = denseTitle
         )
+    }
+    // The dense header's total is CHROME (a composable read of the string
+    // table); WHICH books it describes and WHETHER it appears are the
+    // projection's rules (spec-46 T08 keeps the words out of the model).
+    val denseTrailing = if (libraryProjection.summarisesRemaining) {
+        libraryRemainingTotal(libraryProjection.shownBooks)
+    } else {
+        ""
+    }
+    val gridEntries = remember(libraryProjection, denseTrailing) {
+        libraryProjection.entries(denseTrailing)
     }
 
     // Spec-56 T3 (#730) — tell the view model which Works are visible so their
-    // availability checks jump the queue; the daily backlog waits.
+    // availability checks jump the queue; the daily backlog waits. The keys come
+    // from the entries THE GRID DRAWS (the projection's own mapping), never from
+    // the pre-grouping book list.
     LaunchedEffect(activeTab, gridEntries) {
         if (activeTab != 0) return@LaunchedEffect
         snapshotFlow { libraryGridState.layoutInfo.visibleItemsInfo.map { it.index } }
             .collectLatest { indices ->
-                val keys = indices
-                    .mapNotNull { index ->
-                        // The hero card is a book too — it must join the queue.
-                        gridEntries.getOrNull(index)?.shownBook?.book?.mergeKey
-                    }
-                    .filter { it.isNotBlank() }
-                viewModel.onAvailabilityVisible(keys)
+                viewModel.onAvailabilityVisible(libraryWorkKeysAt(gridEntries, indices))
             }
     }
 
-    LaunchedEffect(
-        restoreFocusBookId,
-        gridEntries,
-        libraryBooks,
-        activeTab,
-        modalVisible
-    ) {
-        val bookId = restoreFocusBookId ?: return@LaunchedEffect
-        if (activeTab != 0 || modalVisible) return@LaunchedEffect
-        // The book may be the hero card rather than a row — ask the entry.
-        val visibleIndex = gridEntries.indexOfFirst { it.showsBook(bookId) }
-        when {
-            visibleIndex >= 0 -> {
-                libraryGridState.scrollToItem(visibleIndex)
-                withFrameNanos { }
-                bookReturnFocusRequester.requestFocus()
-                onBookFocusRestored(bookId)
-            }
-            libraryBooks.isNotEmpty() -> {
-                withFrameNanos { }
-                libraryHeadingFocusRequester.requestFocus()
-                onBookFocusRestored(bookId)
-            }
-        }
+    // #1285 — ONE resolved anchor for both the effect and the renderer. The
+    // renderer attaches the focus requester to the card it draws, so it must be
+    // told the card's SHOWN narration id; the token may be a narration that is
+    // no longer drawn (the Work's primary changed while the details were open).
+    // Resolving here, once, keeps the attachment and the scroll target equal by
+    // construction instead of letting `requestFocus()` throw on an uninitialised
+    // requester.
+    val returnAnchorIndex = remember(restoreFocusBookId, gridEntries, libraryProjection) {
+        restoreFocusBookId?.let { libraryProjection.indexOfReturnAnchor(gridEntries, it) } ?: -1
     }
+    val returnAnchorBookId = gridEntries.getOrNull(returnAnchorIndex)?.shownBook?.book?.id
+    // The effects stay in the UI adapter; the RULES (which entry is the anchor,
+    // including a Work whose primary narration changed) live in the projection.
+    LibraryReturnFocusEffect(
+        anchorIndex = returnAnchorIndex,
+        restoreFocusBookId = restoreFocusBookId,
+        activeTab = activeTab,
+        modalVisible = modalVisible,
+        hasBooks = libraryBooks.isNotEmpty(),
+        gridState = libraryGridState,
+        bookFocusRequester = bookReturnFocusRequester,
+        headingFocusRequester = libraryHeadingFocusRequester,
+        onBookFocusRestored = onBookFocusRestored
+    )
 
     Box(modifier = Modifier.fillMaxSize()) {
         LibraryModalUnderlay(
@@ -497,7 +523,7 @@ fun LibraryScreen(
             // ~150 dp of chrome before the first book. They live in the ⋮ menu
             // now (one tap, just as discoverable) and the screen became a
             // single scroll of books.
-            com.slukhayka.audiobooks.ui.components.AppTabHeader(
+            com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader(
                 // spec-54 T06 (#873) — the root's name is the ONE resource the
                 // bottom bar also uses; a hardcoded literal could drift from it.
                 title = if (activeTab == 0) stringResource(R.string.nav_library) else sectionTitle,
@@ -507,9 +533,8 @@ fun LibraryScreen(
                 headingTestTag = "library_heading",
                 returnFocusRequester = libraryHeadingFocusRequester,
                 compact = landscapePhone,
+                onSettingsClick = onOpenSettings,
                 actions = {
-                    // #860 — the gear sits in the SAME place on every root.
-                    com.slukhayka.audiobooks.ui.components.AppSettingsGear(onClick = onOpenSettings)
                     if (activeTab != 0) {
                         // A section is open: one explicit way back to the books
                         // (system back does the same).
@@ -520,7 +545,7 @@ fun LibraryScreen(
                                 .testTag("library_section_back")
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                imageVector = PaperInkIcons.ChevronLeft,
                                 contentDescription = stringResource(
                                     com.slukhayka.audiobooks.R.string.a11y_library_back_to_books
                                 )
@@ -557,7 +582,6 @@ fun LibraryScreen(
                 libraryChrome(
                     activeTab = activeTab,
                     sectionTitleRes = sectionTitleRes,
-                    yearGoal = yearGoal,
                     query = query,
                     onQueryChange = { query = it },
                     filter = filter,
@@ -573,8 +597,7 @@ fun LibraryScreen(
                     publishedCollections = publishedCollections,
                     onOpenCollection = { openCollectionId = it },
                     onOpenPublishedCollection = { openPublishedDocumentId = it },
-                    onRenamePseudonym = { renamingPseudonym = true },
-                    compact = landscapePhone
+                    onRenamePseudonym = { renamingPseudonym = true }
                 )
             }
 
@@ -594,6 +617,31 @@ fun LibraryScreen(
                 chromeContent()
             }
 
+            // #1384 — the status strip is PINNED here, between the chrome band
+            // and the book list, so the five statuses never slide up and down
+            // with the header. Its own horizontal scroll is untouched (#885 /
+            // #1165 keep the edge chip as the scroll affordance), and the
+            // vertical padding gives it room to breathe from the band above and
+            // the list below.
+            if (activeTab == 0) {
+                // F30b — 36 dp chips + 4 dp breathing above/below = a 44 dp
+                // strip instead of 52; the chips keep their 48 dp touch zone
+                // (`AppDimens.MinTouchTarget` in LibraryStatusRow).
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                ) {
+                    libraryStatusStrip(
+                        filter = filter,
+                        onFilterChange = { filter = it },
+                        scrollState = statusRowScrollState,
+                        filterFocusRequester = filterFocusRequester,
+                        onShowFilterSheet = { showFilterSheet = true }
+                    )
+                }
+            }
+
             when (activeTab) {
                 0 -> {
                     when {
@@ -608,18 +656,22 @@ fun LibraryScreen(
                             CircularProgressIndicator()
                         }
                         libraryBooks.isEmpty() -> {
+                            // #1766 — the state takes the height the chrome
+                            // leaves over, so it sits in the middle of the
+                            // page instead of hugging the filter strip.
                             LibraryEmptyState(
                                 onImportClick = {
                                     importLauncher.launch(
                                         arrayOf("audio/*", "application/ogg", "application/mpeg")
                                     )
                                 },
-                                onBrowseClick = onBrowseClick
+                                onBrowseClick = onBrowseClick,
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
                             )
                         }
 
-                        visibleBooks.isEmpty() -> EmptyState(
-                            icon = Icons.Default.Search,
+                        libraryProjection.shownBooks.isEmpty() -> EmptyState(
+                            icon = PaperInkIcons.Search,
                             title = stringResource(R.string.lib_no_results_title),
                             body = stringResource(R.string.lib_no_results_body)
                         )
@@ -628,17 +680,17 @@ fun LibraryScreen(
                         // composable the snapshot test drives: the screen and
                         // the harness must not be able to disagree about the
                         // shape of the book area.
+                        // #1284 — and the shape comes from the SAME projection
+                        // that built the entries, so this call site no longer
+                        // restates `browsing = false`.
                         else -> LibraryBookGrid(
                             entries = gridEntries,
-                            // #885 — must match the shape `libraryGridEntries`
-                            // built above (always the dense rows on «Книги»),
-                            // otherwise the renderer falls back to the wall of
-                            // cards and none of the row work shows up.
-                            browsing = false,
-                            gridMode = gridMode,
+                            shape = libraryProjection.shape,
                             availability = libraryAvailability,
                             downloadCounts = bookDownloadCounts,
-                            restoreFocusBookId = restoreFocusBookId,
+                            // #1285 — the RESOLVED card's shown narration, not
+                            // the raw token: see returnAnchorBookId above.
+                            restoreFocusBookId = returnAnchorBookId,
                             bookReturnFocusRequester = bookReturnFocusRequester,
                             awaitingSubmissionBookIds = awaitingSubmissionBookIds,
                             submissionBadges = submissionBadges,
@@ -669,12 +721,9 @@ fun LibraryScreen(
                         contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
                     ) {
                         item {
-                            Text(
+                            LibrarySavedSectionHeader(
                                 text = stringResource(R.string.lib_section_people),
-                                style = MaterialTheme.typography.titleSmall,
-                                modifier = Modifier
-                                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                                    .testTag("library_saved_people_header")
+                                testTag = "library_saved_people_header",
                             )
                         }
                         if (bookmarkedPeople.isEmpty()) {
@@ -683,7 +732,7 @@ fun LibraryScreen(
                             // canonical compact state, never a bare Text column.
                             item {
                                 EmptyStateRow(
-                                    icon = Icons.Default.Group,
+                                    icon = PaperInkIcons.Friends,
                                     title = stringResource(R.string.lib_saved_empty_people_title),
                                     body = stringResource(R.string.lib_saved_empty_people_body),
                                     modifier = Modifier.testTag("library_saved_people_empty"),
@@ -736,19 +785,16 @@ fun LibraryScreen(
                             }
                         }
                         item {
-                            Text(
+                            LibrarySavedSectionHeader(
                                 text = stringResource(R.string.lib_section_bookmarks),
-                                style = MaterialTheme.typography.titleSmall,
-                                modifier = Modifier
-                                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                                    .testTag("library_saved_bookmarks_header")
+                                testTag = "library_saved_bookmarks_header",
                             )
                         }
                         if (allBookmarks.isEmpty()) {
                             item {
                                 // spec-46 T16 (#577): canonical compact state.
                                 EmptyStateRow(
-                                    icon = Icons.Default.Bookmark,
+                                    icon = PaperInkIcons.Bookmark,
                                     title = stringResource(R.string.lib_saved_empty_bookmarks_title),
                                     body = stringResource(R.string.lib_saved_empty_bookmarks_body),
                                     modifier = Modifier.testTag("library_saved_bookmarks_empty"),
@@ -787,6 +833,22 @@ fun LibraryScreen(
                         modifier = Modifier.weight(1f).fillMaxWidth(),
                         contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer)
                     ) {
+                        // F30b (spec §5) — «Мій рік» moved here from the top of
+                        // the books list: the year is a STATISTIC, so it opens
+                        // the statistics section instead of crowding the shelf.
+                        item {
+                            yearGoal?.let { goal ->
+                                Box(
+                                    modifier = Modifier.padding(
+                                        start = PaperInkDimens.SpacePage,
+                                        end = PaperInkDimens.SpacePage,
+                                        top = 8.dp
+                                    )
+                                ) {
+                                    LibraryYearHero(goal = goal)
+                                }
+                            }
+                        }
                         item {
                             ListeningStatsCard(listeningStats = listeningStats, totalBooks = libraryBooks.size)
                         }
@@ -794,67 +856,29 @@ fun LibraryScreen(
                 }
 
                 4 -> {
-                    // #876 — «Мій рік»: the yearly goal, counted in PASSES and
-                    // reported per format, because pages, percent and seconds
-                    // cannot be summed into one number (ADR-0046 §5).
-                    val goal by viewModel.readingYear.collectAsState()
-                    val activeReadings by viewModel.activeReadings.collectAsState()
-                    val current = goal
-                    if (current == null) {
-                        EmptyState(
-                            icon = Icons.Default.CalendarMonth,
-                            title = stringResource(R.string.lib_year_empty_title),
-                            body = stringResource(R.string.lib_year_empty_body)
-                        )
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .testTag("library_year"),
-                            contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
-                        ) {
-                            item {
-                                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                    Text(
-                                        text = stringResource(R.string.lib_year_heading, current.year),
-                                        style = MaterialTheme.typography.titleMedium
-                                    )
-                                    Text(
-                                        text = stringResource(R.string.lib_year_total, current.totalFinished),
-                                        style = MaterialTheme.typography.bodyLarge
-                                    )
-                                    current.finishedByFormat.toSortedMap().forEach { (format, count) ->
-                                        Text(
-                                            text = stringResource(
-                                                R.string.lib_year_format,
-                                                readingFormatLabel(format),
-                                                count
-                                            ),
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Text(
-                                        text = stringResource(R.string.lib_year_rule),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                    // #876 / #1286 — «Мій рік»: the module publishes the yearly
+                    // goal AND the active passes from ONE snapshot, so the two
+                    // can never disagree here; this surface only renders them.
+                    // The tab keeps the weight so the list takes the leftover
+                    // height the way the original body did.
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        LibraryReadingYearSection(
+                            state = progressState,
+                            message = progressMessageRes?.let { stringResource(it) },
+                            onRecord = { pass, value ->
+                                scope.launch {
+                                    progressMessageRes =
+                                        readingProgressMessageRes(readingProgress.record(pass.id, value = value))
                                 }
-                            }
-                            // #876 — the passes still in the listener's hands:
-                            // ONE journal record per action, in the format's own
-                            // unit, and finishing belongs to that pass alone.
-                            items(activeReadings, key = { it.id }) { pass ->
-                                ReadingProgressRow(
-                                    pass = pass,
-                                    onRecord = { value ->
-                                        viewModel.recordReadingProgress(pass.id, value)
-                                    },
-                                    onFinish = { viewModel.finishReading(pass.id) }
-                                )
-                            }
-                        }
+                            },
+                            onFinish = { pass ->
+                                scope.launch {
+                                    progressMessageRes =
+                                        readingProgressMessageRes(readingProgress.finish(pass.id))
+                                }
+                            },
+                            onRetry = { scope.launch { readingProgress.refresh() } }
+                        )
                     }
                 }
 
@@ -866,7 +890,7 @@ fun LibraryScreen(
                     val importedEntries by viewModel.importedEntries.collectAsState()
                     if (importedEntries.isEmpty()) {
                         EmptyState(
-                            icon = Icons.Default.Inbox,
+                            icon = Icons.Outlined.Inbox,
                             title = stringResource(R.string.lib_imported_empty_title),
                             body = stringResource(R.string.lib_imported_empty_body)
                         )
@@ -886,21 +910,27 @@ fun LibraryScreen(
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                                 )
                             }
-                            items(importedEntries, key = { it.id }) { entry ->
-                                val title = allBooks.firstOrNull { it.id == entry.id }?.title ?: entry.id
+                            items(importedEntries, key = { it.bookId }) { entry ->
                                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                    Text(text = title, style = MaterialTheme.typography.titleSmall)
+                                    Text(
+                                        text = entry.title,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        // #1673 (same class): without an explicit role
+                                        // the title inherits the default black
+                                        // LocalContentColor and vanishes on ink.
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
                                     Row {
                                         OutlinedButton(
                                             onClick = {
                                                 viewModel.triageImported(
-                                                    entry.id,
+                                                    entry.bookId,
                                                     com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy.TriageAction.CONFIRM_PERSONAL
                                                 )
                                             },
                                             modifier = Modifier
                                                 .heightIn(min = 48.dp)
-                                                .testTag("library_imported_confirm_${entry.id}")
+                                                .testTag("library_imported_confirm_${entry.bookId}")
                                         ) {
                                             Text(stringResource(R.string.lib_imported_confirm))
                                         }
@@ -908,13 +938,13 @@ fun LibraryScreen(
                                         OutlinedButton(
                                             onClick = {
                                                 viewModel.triageImported(
-                                                    entry.id,
+                                                    entry.bookId,
                                                     com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy.TriageAction.REMOVE_LINK
                                                 )
                                             },
                                             modifier = Modifier
                                                 .heightIn(min = 48.dp)
-                                                .testTag("library_imported_remove_${entry.id}")
+                                                .testTag("library_imported_remove_${entry.bookId}")
                                         ) {
                                             Text(stringResource(R.string.lib_imported_remove))
                                         }
@@ -1042,6 +1072,8 @@ fun LibraryScreen(
                 // Spec-53 T10 — the whole-channel selection card.
                 channelCard = channelCard,
                 isChannelLink = viewModel::isChannelLink,
+                isKnownSourceLink = viewModel::isKnownSourceLink,
+                onOpenBrowser = viewModel::openWebFallback,
                 onOpenChannel = { viewModel.openChannelCard(it) },
                 channelCallbacks = ChannelCardCallbacks(
                     onClose = { viewModel.closeChannelCard() },
@@ -1094,9 +1126,14 @@ fun LibraryScreen(
     // its tap into `openCollectionId`, and nothing read it, so a collection
     // could be created and listed but never opened. The state lives here, in the
     // screen's own scope, because this page covers the screen.
+    val collectionBooksById = remember(libraryBooks) {
+        libraryBooks.associate { it.book.id to it.book }
+    }
     ListenerCollectionPage(
         collections = listenerCollections,
         openId = openCollectionId,
+        booksById = collectionBooksById,
+        onOpenBook = onBookClick,
         onClose = { openCollectionId = null },
         onRemoveBook = viewModel::removeBookFromCollection,
         onDelete = { collectionId ->
@@ -1146,34 +1183,36 @@ internal fun LibraryModalUnderlay(
 @Composable
 fun LibraryEmptyState(
     onImportClick: () -> Unit,
-    onBrowseClick: () -> Unit
+    onBrowseClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    EmptyState(
-        icon = Icons.Default.MenuBook,
+    // #1766 (audit U9/U13): the 2026 empty-state anatomy — Literata title, one
+    // line, ONE primary action, the catalogue path demoted to a quiet link. The
+    // legacy glyph is gone; the caller hands the panel the height it may own.
+    EmptyStatePanel(
         title = stringResource(R.string.library_empty_title),
-        body = stringResource(R.string.library_empty_body)
-    ) {
-        Button(
-            onClick = onImportClick,
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-            shape = RoundedCornerShape(AppDimens.RadiusCard),
-            modifier = Modifier
-                .heightIn(min = 48.dp)
-                .testTag("library_empty_import")
-        ) {
-            Text(stringResource(R.string.lib_add_own_files))
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedButton(
-            onClick = onBrowseClick,
-            shape = RoundedCornerShape(AppDimens.RadiusCard),
-            modifier = Modifier
-                .heightIn(min = 48.dp)
-                .testTag("library_empty_browse")
-        ) {
-            Text(stringResource(R.string.lib_find_book))
-        }
-    }
+        body = stringResource(R.string.library_empty_body),
+        modifier = modifier,
+        action = {
+            // #1775 (unslop U1) — the shared primary CTA. This surface used to
+            // draw the same invitation at 12 dp while «Слухати» drew a full pill
+            // and the book page 24 dp; the radius now has one owner.
+            EmptyStatePrimaryAction(
+                text = stringResource(R.string.lib_add_own_files),
+                onClick = onImportClick,
+                testTag = "library_empty_import",
+            )
+        },
+        quietAction = {
+            // #1775 — the shared quiet action (16 dp radius, 48 dp target),
+            // so the second path is the same control as on «Слухати»/«Огляд».
+            EmptyStateQuietAction(
+                text = stringResource(R.string.lib_find_book),
+                onClick = onBrowseClick,
+                testTag = "library_empty_browse",
+            )
+        },
+    )
 }
 
 /**
@@ -1256,12 +1295,21 @@ internal fun LibraryHeaderActionsInner(
     importFocusRequester: FocusRequester
 ) {
     Box {
-        AppHeaderAction(
-            icon = Icons.Default.MoreVert,
-            contentDescription = stringResource(R.string.a11y_library_more_actions),
+        // F34 (audit 28.10.2026): the header carried three different
+        // affordances — ⋮ and «+» in tonal discs, the gear bare. The direction
+        // draws every header action as a quiet 48 dp glyph, so the disc goes;
+        // the tag and the spoken label stay.
+        IconButton(
             onClick = { onMenuOpenChange(true) },
-            testTag = "library_sections_menu"
-        )
+            modifier = Modifier
+                .size(AppDimens.TouchTarget)
+                .testTag("library_sections_menu")
+        ) {
+            Icon(
+                imageVector = PaperInkIcons.More,
+                contentDescription = stringResource(R.string.a11y_library_more_actions)
+            )
+        }
         DropdownMenu(
             expanded = menuOpen,
             onDismissRequest = { onMenuOpenChange(false) }
@@ -1326,23 +1374,149 @@ internal fun LibraryHeaderActionsInner(
     }
     // UI (v1.5 review): the import action is the compact «+» icon in the
     // top-end corner — three equal 48 dp targets, no labelled pill stealing
-    // the width the title needs.
-    AppHeaderAction(
-        icon = Icons.Default.Add,
-        contentDescription = stringResource(R.string.a11y_library_add),
+    // the width the title needs. F34 — and no disc: a quiet glyph like the
+    // gear beside it.
+    IconButton(
         onClick = onAdd,
-        modifier = Modifier.focusRequester(importFocusRequester),
-        testTag = "library_add_button",
-        tint = MaterialTheme.colorScheme.primary
-    )
+        modifier = Modifier
+            .focusRequester(importFocusRequester)
+            .size(AppDimens.TouchTarget)
+            .testTag("library_add_button")
+    ) {
+        Icon(
+            imageVector = PaperInkIcons.Plus,
+            contentDescription = stringResource(R.string.a11y_library_add),
+            tint = MaterialTheme.colorScheme.primary
+        )
+    }
 }
 
 /**
- * Бібліотека's local search field (ADR-0033 amended 2026-09-18 / IA §4): it is
- * permanently visible — no 🔍 toggle reveals it and no state hides it. ✕ only
- * empties the query in place, and the system Back clears a typed query while an
- * empty field leaves Back to the navigation contract. There is deliberately no
- * auto-focus: opening the root must not raise the keyboard.
+ * F30b — the Книги tab's tab row and its permanently visible search, in ONE
+ * band: three tabs on the left, the compact search pill (≥140 dp) on the right.
+ *
+ * Why one row. The audited chrome reached the first book at ≈400 dp; moving
+ * «Мій рік» to «Статистика» and trimming paddings was not enough with the
+ * search on its own 52 dp line. An icon-that-reveals-the-field would fit, but
+ * ADR-0033 (amended 2026-09-18) forbids a reveal action: the single pattern is
+ * the always-visible field, and spec §5's literal "рядок табів з іконкою
+ * пошуку" is superseded by that ADR. So the field stays visible and moves INTO
+ * the tab row.
+ *
+ * The row is inline from 400 dp — and only while three EQUAL tabs can hold the
+ * widest label at the current fontScale (#1627 measures «Збережене»/«Shelves»
+ * with a TextMeasurer, not with a guess). The search pill is 140 dp, its floor,
+ * so the tabs get `maxWidth − 32 − 4 − 140` and one line is guaranteed only
+ * when `3 × widest ≤ that`. Below 400 dp, or when the labels do not fit at
+ * enlarged text, the search takes its own 48 dp line under the tabs (the same
+ * fallback; #1627 also lets a label wrap there rather than be ellipsized).
+ * Both branches keep the field visible without any action.
+ */
+@Composable
+internal fun LibraryTabsWithSearch(
+    booksSelected: Boolean,
+    savedSelected: Boolean,
+    onBooks: () -> Unit,
+    onShelves: () -> Unit,
+    onSaved: () -> Unit,
+    query: String,
+    onQueryChange: (String) -> Unit,
+) {
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        // #1627 — the inline band draws three EQUAL tabs, so each one needs
+        // the width of the WIDEST label. Measuring the label at the current
+        // fontScale is the only honest way to know: at 411 dp/fontScale 1.15
+        // «Збережене» needs ~86 dp per tab, which the 140 dp search pill leaves
+        // no room for — the same row that works at fontScale 1.0 would ellipsize
+        // it. When it does not fit, the search takes its own line (as it
+        // already does below 400 dp) instead of truncating a tab.
+        val textMeasurer = rememberTextMeasurer()
+        val widestTab = with(LocalDensity.current) {
+            val style = if (LocalPaperInkDesign.current) {
+                com.slukhayka.audiobooks.ui.theme.PaperInkType.Tab
+            } else {
+                MaterialTheme.typography.titleSmall
+            }
+            // #1627 — the WIDEST of the three labels, not just the last one:
+            // in English «Shelves» is wider than «Saved», so measuring by key
+            // order would miss the real overflow at large font scales.
+            listOf(
+                R.string.lib_section_books,
+                R.string.lib_section_shelves,
+                R.string.lib_section_saved
+            ).maxOf { label ->
+                textMeasurer.measure(
+                    text = AnnotatedString(stringResource(label)),
+                    style = style
+                ).size.width
+            }.toDp()
+        }
+        val inline = maxWidth >= 400.dp && widestTab * 3 <= maxWidth - 32.dp - 4.dp - 140.dp
+        if (inline) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                LibrarySectionTabs(
+                    booksSelected = booksSelected,
+                    savedSelected = savedSelected,
+                    onBooks = onBooks,
+                    onShelves = onShelves,
+                    onSaved = onSaved,
+                    modifier = Modifier.weight(1f),
+                    horizontalPadding = 0.dp,
+                    topPadding = 0.dp
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                // The 140 dp floor, not a wider pill: the three tab labels keep
+                // one line at 411 dp, and below 400 the row falls back to two
+                // bands anyway.
+                LibrarySearchField(
+                    query = query,
+                    onQueryChange = onQueryChange,
+                    modifier = Modifier.width(140.dp)
+                )
+            }
+        } else {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                LibrarySectionTabs(
+                    booksSelected = booksSelected,
+                    savedSelected = savedSelected,
+                    onBooks = onBooks,
+                    onShelves = onShelves,
+                    onSaved = onSaved,
+                    // #1627 — with the search on its own line the tabs own the
+                    // row; at very large font scales a label may still need a
+                    // second line. Wrapping keeps it readable; one-line
+                    // ellipsis was the defect.
+                    tabLabelMaxLines = 2
+                )
+                LibrarySearchField(
+                    query = query,
+                    onQueryChange = onQueryChange,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = PaperInkDimens.SpacePage)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Бібліотека's local search (ADR-0033 amended 2026-09-18 / IA §4): **permanently
+ * visible, with no reveal toggle**, because the single search pattern is the
+ * always-visible field. F30b draws it as a compact pill INSIDE the section-tab
+ * row (spec §5's "рядок табів з іконкою пошуку" is superseded by the ADR: the
+ * action keeps no toggle and the field stays one tap cheaper), which is what
+ * lets the books list start ≤240 dp from the top.
+ *
+ * Shape: a 44 dp pill inside a 48 dp touch zone, leading magnifier, short
+ * localized hint («Пошук» / «Search» / «Szukaj»), a 40 dp ✕ only while a query
+ * exists. TalkBack names it with [R.string.a11y_library_search]; typing and the
+ * system-Back-clears rule are unchanged (IME Back still owns the first press).
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -1353,64 +1527,104 @@ internal fun LibrarySearchField(
 ) {
     // The IME owns the first system Back; only the next one clears the query.
     val keyboardVisible = WindowInsets.isImeVisible
+    val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
+    val colorScheme = MaterialTheme.colorScheme
     BackHandler(enabled = query.isNotEmpty() && !keyboardVisible) { onQueryChange("") }
-    OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
+    val searchLabel = stringResource(R.string.a11y_library_search)
+    val hint = stringResource(R.string.lib_search_short_hint)
+    val shape = RoundedCornerShape(
+        if (paperInk) com.slukhayka.audiobooks.ui.theme.PaperInkDimens.RadiusFull
+        else AppDimens.RadiusPill
+    )
+    val textStyle = if (paperInk) {
+        com.slukhayka.audiobooks.ui.theme.PaperInkType.Body
+    } else {
+        MaterialTheme.typography.bodyMedium
+    }
+    Box(
         modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = AppDimens.PageSides, vertical = AppDimens.SpaceSm)
-            .testTag("library_search"),
-        label = { Text(stringResource(R.string.a11y_library_search)) },
-        placeholder = { Text(stringResource(R.string.lib_search_placeholder)) },
-        leadingIcon = {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary
-            )
-        },
-        trailingIcon = if (query.isNotEmpty()) {
-            {
-                IconButton(
-                    onClick = { onQueryChange("") },
-                    modifier = Modifier.testTag("library_search_clear")
+            // The touch target is 48 dp even though the pill draws 44 dp.
+            .height(48.dp)
+            .testTag("library_search_zone"),
+        contentAlignment = Alignment.Center
+    ) {
+        // The pill itself: a painted surface, not the text field, so the
+        // 44 dp visual sits centred in the 48 dp target without shrinking it.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(44.dp)
+                .clip(shape)
+                .background(
+                    if (paperInk) colorScheme.surface else colorScheme.surfaceContainerHighest
+                )
+                .border(1.dp, colorScheme.outlineVariant, shape)
+        )
+        BasicTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            singleLine = true,
+            textStyle = textStyle.copy(color = colorScheme.onSurface),
+            cursorBrush = SolidColor(colorScheme.primary),
+            modifier = Modifier
+                .fillMaxWidth()
+                // A FIXED height, not `heightIn`: the decoration box below
+                // fills its constraints, so an unbounded allowance from the
+                // tab row's BoxWithConstraints stretched the field to the whole
+                // window (F30b review). 48 dp is the touch target; the pill
+                // draws 44 inside it.
+                .height(48.dp)
+                .testTag("library_search")
+                .semantics { contentDescription = searchLabel },
+            decorationBox = { innerTextField ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .padding(start = 10.dp, end = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Clear,
-                        contentDescription = stringResource(R.string.a11y_library_clear_search)
+                        imageVector = PaperInkIcons.Search,
+                        contentDescription = null,
+                        tint = colorScheme.primary,
+                        modifier = Modifier.size(PaperInkIconSizes.Inline)
                     )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Box(
+                        modifier = Modifier.weight(1f),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (query.isEmpty()) {
+                            Text(
+                                text = hint,
+                                style = textStyle,
+                                color = colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        innerTextField()
+                    }
+                    if (query.isNotEmpty()) {
+                        IconButton(
+                            onClick = { onQueryChange("") },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .testTag("library_search_clear")
+                        ) {
+                            Icon(
+                                imageVector = PaperInkIcons.Close,
+                                contentDescription = stringResource(R.string.a11y_library_clear_search),
+                                tint = colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(PaperInkIconSizes.Inline)
+                            )
+                        }
+                    }
                 }
             }
-        } else null,
-        // #885 (wave 3) — the same FILL as Огляд. #1087 unified the radius,
-        // but the two fields still looked different: this one had no explicit
-        // colours, so M3's default gave it a transparent container, while
-        // Огляд was filled (`surfaceContainerHighest`). The prototype fills
-        // the field (`.sl-search`, `:1141-1143`), so the filled variant is the
-        // written design and this one was the outlier.
-        //
-        // The BORDER stays for now: it is the focus indicator, and removing it
-        // (the prototype draws no border) needs a decision about what replaces
-        // it. So this change removes the drift without answering that.
-        colors = OutlinedTextFieldDefaults.colors(
-            // MD3: input fills sit on the highest tonal container.
-            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-            focusedBorderColor = MaterialTheme.colorScheme.primary,
-            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-        ),
-        singleLine = true,
-        // #885 (wave 3) — ONE search field, ONE shape. The prototype draws it
-        // as a pill (`:1141-1143`, radius 999), and the app had the same
-        // control at 12 dp here and 24 dp in Огляд — two answers to one
-        // question. `RadiusPill` is the token wave 1 added for exactly this.
-        //
-        // Still open from the same prototype rule (item 2 of Огляд): the field
-        // should be FILLED with no border, and 54 px tall. This change fixes
-        // the disagreement between the two fields, not yet the border.
-        shape = RoundedCornerShape(AppDimens.RadiusPill)
-    )
+        )
+    }
 }
 
 /**
@@ -1453,17 +1667,20 @@ internal fun LibraryContinueCard(
         modifier = Modifier
             .fillMaxWidth()
             .testTag("library_continue_card"),
-        shape = RoundedCornerShape(AppDimens.RadiusHero),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)
+        shape = RoundedCornerShape(PaperInkDimens.RadiusLarge),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
         Column(modifier = Modifier.padding(AppDimens.SpaceLg)) {
             Text(
+                // F12 (audit 2026-10-28) — the direction forbids caps (§3.2),
+                // and the resource is sentence case now; `.uppercase()` would
+                // put the loudest register on the smallest size again.
                 text = stringResource(R.string.lib_continue_label),
-                style = MaterialTheme.typography.labelSmall.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                ),
-                color = MaterialTheme.colorScheme.primary
+                style = PaperInkType.TrackingLabel,
+                // F4 — amber AS TEXT: `tertiary` (Lamp #A96A12) is the graphic
+                // accent and measures 3.80:1 on paper; the text role is 6.2:1.
+                color = PaperInkColors.lampText
             )
             Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
             Row(
@@ -1496,14 +1713,14 @@ internal fun LibraryContinueCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = book.book.title,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        style = PaperInkType.BookTitleHero,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = book.book.displayAuthor,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = PaperInkType.Meta,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
@@ -1513,39 +1730,48 @@ internal fun LibraryContinueCard(
                         Spacer(modifier = Modifier.height(AppDimens.SpaceSm))
                         Text(
                             text = subtitle,
-                            style = MaterialTheme.typography.labelMedium,
+                            style = PaperInkType.Label,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                    Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
-                    LinearProgressIndicator(
-                        progress = { book.percent },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
-                        color = MaterialTheme.colorScheme.primary,
-                        trackColor = MaterialTheme.colorScheme.outlineVariant,
-                        // #292: the M3 stop dot sat at the track's end like a
-                        // second, unexplained marker (device review, 2026-09-16).
-                        drawStopIndicator = {}
-                    )
-                    Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
-                    // The remaining time lives in the CTA right below — repeating
-                    // it here made the two labels fight for one line on a phone
-                    // (on-device check, 2026-09-15: «Прослухано 1%» wrapped).
-                    Text(
-                        text = stringResource(
-                            R.string.lib_progress_percent,
-                            (book.percent * 100f).roundToInt()
-                        ),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    // #1187 — ADR-0014: an unknown duration renders as NOTHING.
+                    // `knownPercent` is null when no total proves one, and the
+                    // card drew an empty bar plus «Прослухано 0%» for such a
+                    // book — the sentinel read as a reading. The bar keeps
+                    // `percent` (unchanged for the totals that ARE known); only
+                    // its visibility is gated here.
+                    val knownPercent = book.knownPercent
+                    if (knownPercent != null) {
+                        Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
+                        LinearProgressIndicator(
+                            progress = { book.percent },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
+                            color = MaterialTheme.colorScheme.tertiary,
+                            trackColor = MaterialTheme.colorScheme.outlineVariant,
+                            // #292: the M3 stop dot sat at the track's end like a
+                            // second, unexplained marker (device review, 2026-09-16).
+                            drawStopIndicator = {}
+                        )
+                        Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
+                        // The remaining time lives in the CTA right below — repeating
+                        // it here made the two labels fight for one line on a phone
+                        // (on-device check, 2026-09-15: «Прослухано 1%» wrapped).
+                        Text(
+                            text = stringResource(
+                                R.string.lib_progress_percent,
+                                knownPercent
+                            ),
+                            style = PaperInkType.Micro,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(AppDimens.SpaceLg))
@@ -1553,15 +1779,19 @@ internal fun LibraryContinueCard(
                 onClick = onPlay,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 52.dp)
+                    .heightIn(min = 56.dp)
                     .testTag("library_continue_play"),
-                shape = RoundedCornerShape(AppDimens.RadiusPanel)
+                shape = RoundedCornerShape(PaperInkDimens.RadiusLarge),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.tertiary,
+                    contentColor = MaterialTheme.colorScheme.onTertiary,
+                ),
             ) {
                 Icon(
-                    imageVector = Icons.Default.PlayArrow,
+                    imageVector = PaperInkIcons.Play,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.size(22.dp)
+                    tint = MaterialTheme.colorScheme.onTertiary,
+                    modifier = Modifier.size(PaperInkIconSizes.Chrome)
                 )
                 Spacer(modifier = Modifier.width(AppDimens.SpaceSm))
                 Text(
@@ -1570,8 +1800,8 @@ internal fun LibraryContinueCard(
                     } else {
                         stringResource(R.string.lib_listen_continue)
                     },
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onPrimary
+                    style = PaperInkType.Label,
+                    color = MaterialTheme.colorScheme.onTertiary
                 )
             }
         }
@@ -1617,7 +1847,6 @@ internal fun libraryGridColumns(gridMode: Boolean): GridCells =
  */
 internal fun LazyGridScope.libraryGridContent(
     entries: List<LibraryGridEntry>,
-    browsing: Boolean,
     gridMode: Boolean,
     availability: Map<String, AvailabilityView>,
     downloadCounts: Map<String, com.slukhayka.audiobooks.data.db.BookDownloadCount>,
@@ -1702,30 +1931,14 @@ internal fun LazyGridScope.libraryGridContent(
             is LibraryGridEntry.Shelf -> LibraryShelf(gridEntry.books) { card(it, true) }
 
             is LibraryGridEntry.BookEntry -> {
-                // Narrowed down (a filter or a search): dense rows.
-                // Browsing the whole library: the rich card.
-                if (!browsing && !gridMode) {
-                    LibraryDenseRow(
-                        book = gridEntry.book,
-                        availability = availability[gridEntry.book.book.mergeKey],
-                        onRecheck = { onRecheck(gridEntry.book.book.id) },
-                        downloadCount = downloadCounts[gridEntry.book.book.id],
-                        onOpen = { onBookClick(gridEntry.book.book.id) },
-                        // Same contract as the card above: one requester, ONE
-                        // node — the book we are returning to. Attaching it to
-                        // every row made focus unresolvable, and the a11y
-                        // journey timed out waiting for `Focused`.
-                        bookReturnFocusRequester = if (
-                            gridEntry.book.book.id == restoreFocusBookId
-                        ) {
-                            bookReturnFocusRequester
-                        } else {
-                            null
-                        }
-                    )
-                } else {
-                    card(gridEntry.book, gridMode)
-                }
+                // F30a — the Книги tab's list form is the canonical cover row
+                // (BookRow: 58×87 cover, 112 dp row) in BOTH shapes. The shipped
+                // tab is the list (`denseTab`), so the timeline dense row that
+                // used to draw it is gone: a library list without covers was the
+                // audit's F30. `card(…, gridMode)` is the one renderer call the
+                // screen and the snapshots share, so the list and the tile can
+                // no longer be built from different branches.
+                card(gridEntry.book, gridMode)
             }
         }
     }
@@ -1793,12 +2006,6 @@ private fun libraryRemainingTotal(books: List<LibraryBook>): String {
     )
 }
 
-/**
- * A section header inside the book grid: uppercase label + pluralised count
- * (design guide §6.3's section style), with no page padding of its own — the
- * grid already carries it.
- */
-
 /** A full-width, horizontally scrolling shelf of cover tiles. */
 @Composable
 internal fun LibraryShelf(
@@ -1814,206 +2021,6 @@ internal fun LibraryShelf(
             Box(modifier = Modifier.width(124.dp)) { tile(book) }
         }
     }
-}
-
-/**
- * The dense row of a narrowed-down library (no cover, a timeline rail, the
- * honest time left on the right). Same a11y contract as [LibraryBookCard]:
- * one node for the row body, one real play node next to the offline badge.
- *
- * #1165 — that one node spans the WHOLE row: the timeline rail and the
- * trailing column («новий»/«18 хв» + the offline badge) are inside the
- * interaction area, so its indication never draws an edge through the title.
- */
-@Composable
-internal fun LibraryDenseRow(
-    book: LibraryBook,
-    availability: AvailabilityView?,
-    onRecheck: () -> Unit,
-    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount?,
-    onOpen: () -> Unit,
-    // #885 — the books tab renders EVERY book as this row now, so the row must
-    // carry the return-focus contract the card used to own; without it the
-    // "come back from the book" logic requested focus on an unattached
-    // requester and the a11y journey crashed.
-    bookReturnFocusRequester: FocusRequester? = null
-) {
-    val units = stringRemainingTimeUnits()
-    val remaining = if (book.totalDurationSeconds > 0L) {
-        formatRemainingTime(book.remainingSeconds, units)
-    } else {
-        null
-    }
-    val state = libraryEntryStateDescription(book, availability)
-    val openLabel = stringResource(R.string.a11y_library_open_book, book.book.title)
-    val description = if (book.book.displayAuthor.isBlank()) {
-        book.book.title
-    } else {
-        stringResource(
-            R.string.a11y_library_entry_description,
-            book.book.title,
-            book.book.displayAuthor
-        )
-    }
-    val progressLabel = when {
-        book.isCompleted -> stringResource(R.string.lib_progress_done)
-        book.isNew -> stringResource(R.string.lib_progress_new)
-        else -> "${(book.percent * 100f).roundToInt()}%"
-    }
-    Row(
-        modifier = Modifier
-            // #885 — the card attaches the return-focus requester FIRST in
-            // the chain; the row must do the same, otherwise the focus never
-            // lands and the a11y journey times out waiting for `Focused`.
-            .then(
-                if (bookReturnFocusRequester != null) {
-                    Modifier.focusRequester(bookReturnFocusRequester)
-                } else {
-                    Modifier
-                }
-            )
-            .fillMaxWidth()
-            .height(IntrinsicSize.Min)
-            // #1165 — the interaction area is the WHOLE row, not the text
-            // column: the clip used to sit on the title/author block, so the
-            // press/focus indication stopped exactly where the trailing column
-            // («новий»/«18 хв» + the cloud) begins and the listener read that
-            // hard edge as the title being cut off by the badge. The row's
-            // boundary is the row's own box now, so the indication can only
-            // ever end where the row does.
-            .clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
-            .focusProperties { canFocus = true }
-            .clickable(onClick = onOpen)
-            // #885 — the dense row IS the library book item: keep the
-            // long-standing contract tag the journeys click, so the
-            // accessibility and playback tests keep their anchor.
-            .testTag("library_book_item_${book.book.id}")
-            .clearAndSetSemantics {
-                contentDescription = description
-                stateDescription = state
-                role = Role.Button
-                onClick(label = openLabel) {
-                    onOpen()
-                    true
-                }
-            },
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // The timeline thread: one continuous hairline per row, a fill dot on
-        // the in-progress book. Stacked rows read as a single queue.
-        Box(
-            modifier = Modifier
-                .width(20.dp)
-                .fillMaxHeight(),
-            contentAlignment = Alignment.Center
-        ) {
-            Box(
-                modifier = Modifier
-                    .width(2.dp)
-                    .fillMaxHeight()
-                    .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            )
-            Box(
-                modifier = Modifier
-                    .size(if (book.isListening) 10.dp else 7.dp)
-                    .clip(CircleShape)
-                    .background(
-                        if (book.isListening) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.outlineVariant
-                        }
-                    )
-            )
-        }
-        Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(vertical = AppDimens.SpaceMd)
-        ) {
-            Text(
-                text = book.book.title,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                color = if (book.isCompleted) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            val subtitle = listOfNotNull(
-                book.book.displayAuthor.takeIf { it.isNotBlank() },
-                libraryChapterLabel(book) ?: librarySeriesLabel(book)
-            ).joinToString(" · ")
-            if (subtitle.isNotBlank()) {
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            // ADR-0042 §1 — a problem Work states it here too, and a tap asks
-            // for a fresh bounded re-check (spec-56 T2).
-            availabilityLabel(availability)?.let { label ->
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.clickable(enabled = onRecheck != null) { onRecheck() }
-                )
-            }
-            // #885 — the prototype shows a thin progress line under every row, so
-            // the queue reads at a glance without opening the book.
-            if (book.totalDurationSeconds > 0L && !book.isNew) {
-                Spacer(modifier = Modifier.height(6.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(3.dp)
-                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(2.dp))
-                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                        .testTag("library_row_progress_${book.book.id}")
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(book.percent.coerceIn(0f, 1f))
-                            .fillMaxHeight()
-                            .background(MaterialTheme.colorScheme.primary)
-                    )
-                }
-            }
-        }
-        Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
-        Column(horizontalAlignment = Alignment.End) {
-            if (remaining != null) {
-                Text(
-                    text = remaining,
-                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                    color = if (book.isListening) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    }
-                )
-            }
-            Text(
-                text = progressLabel,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        LibraryInlineOfflineBadge(book, downloadCount)
-    }
-    HorizontalDivider(
-        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
-        modifier = Modifier.padding(start = 32.dp)
-    )
 }
 
 /** Which offline marker a book carries (#397), or none. */
@@ -2067,10 +2074,10 @@ private fun LibraryCoverOfflineBadge(
                     )
             )
             Icon(
-                imageVector = Icons.Default.CloudDone,
+                imageVector = PaperInkIcons.Downloaded,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(15.dp)
+                modifier = Modifier.size(PaperInkIconSizes.Inline)
             )
         }
 
@@ -2086,45 +2093,13 @@ private fun LibraryCoverOfflineBadge(
                     downloadCount?.downloaded ?: 0,
                     downloadCount?.total ?: 0
                 ),
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
             )
         }
 
         OfflineState.NONE -> Unit
-    }
-}
-
-/**
- * The same marker where there is no cover to lay it on — the dense row keeps
- * it as a quiet icon beside the time left.
- */
-@Composable
-private fun LibraryInlineOfflineBadge(
-    book: LibraryBook,
-    downloadCount: com.slukhayka.audiobooks.data.db.BookDownloadCount?
-) {
-    when (offlineStateOf(book, downloadCount)) {
-        OfflineState.NONE -> Unit
-        OfflineState.PARTIAL -> Text(
-            text = stringResource(
-                R.string.offline_partial_badge,
-                downloadCount?.downloaded ?: 0,
-                downloadCount?.total ?: 0
-            ),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.secondary,
-            modifier = Modifier.testTag("library_partial_badge_${book.book.id}")
-        )
-        OfflineState.FULL -> Icon(
-            imageVector = Icons.Default.CloudDone,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.secondary,
-            modifier = Modifier
-                .size(15.dp)
-                .testTag("library_inline_offline_badge_${book.book.id}")
-        )
     }
 }
 
@@ -2249,11 +2224,21 @@ fun LibraryBookCard(
     // see the offline state — are real sibling nodes next to it, inside the
     // same surface. A card that swallowed its own play button would leave that
     // shortcut unreachable for TalkBack.
+    val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
     Card(
         modifier = (if (grid) modifier else Modifier)
             .fillMaxWidth()
-            .clip(MaterialTheme.shapes.medium),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+            .clip(if (paperInk && !grid) RoundedCornerShape(0.dp) else MaterialTheme.shapes.medium),
+        colors = CardDefaults.cardColors(
+            // List rows and grid tiles are paper surfaces in the direction;
+            // the legacy schemes keep their tonal container.
+            containerColor = if (paperInk) {
+                MaterialTheme.colorScheme.background
+            } else {
+                MaterialTheme.colorScheme.surfaceContainer
+            }
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         if (grid) {
             Box(
@@ -2274,24 +2259,28 @@ fun LibraryBookCard(
                 LibraryBookGridContent(book, availability, onRecheck, downloadCount, showAbandoned)
             }
         } else {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = modifier
-                        .weight(1f)
-                        // Route-return focus must also work on touch-only devices.
-                        .focusProperties { canFocus = true }
-                        .clickable(onClick = performOpen)
-                        .testTag("library_book_item_${book.book.id}")
-                        .clearAndSetSemantics {
-                            contentDescription = description
-                            stateDescription = state
-                            role = Role.Button
-                            onClick(label = openLabel) {
-                                performOpen()
-                                true
-                            }
+            // F30a — the list form is ONE canonical row that owns its whole
+            // interaction area: no sibling spacer after the clickable block,
+            // so #1165's "the press indication is the row" holds for the cover
+            // row too (the geometry is pinned by
+            // `LibraryListRowInteractionBoundsTest`).
+            Box(
+                modifier = modifier
+                    .fillMaxWidth()
+                    // Route-return focus must also work on touch-only devices.
+                    .focusProperties { canFocus = true }
+                    .clickable(onClick = performOpen)
+                    .testTag("library_book_item_${book.book.id}")
+                    .clearAndSetSemantics {
+                        contentDescription = description
+                        stateDescription = state
+                        role = Role.Button
+                        onClick(label = openLabel) {
+                            performOpen()
+                            true
                         }
-                ) {
+                    }
+            ) {
                     // v1.4 E3 (ADR-0033): the library list row IS the canonical
                     // BookRow — #569 deleted the old library row wrapper (the
                     // library's own sixth row style) and moved its only consumer
@@ -2307,6 +2296,16 @@ fun LibraryBookCard(
                         // rides the stats slot (label line under the author).
                         stats = librarySeriesLabel(book),
                         progress = book.percent,
+                        // F30a — the same tag the dense row carried, so the two
+                        // suites that use it as the "this is the LIST, not a
+                        // one-column grid of tiles" marker keep their anchor
+                        // (LibraryGridBreakpointTest, LibraryUnknownDurationTest).
+                        progressTestTag = "library_row_progress_${book.book.id}",
+                        // A named row gives its title a `${tag}_title` test
+                        // tag inside BookRow; the geometry test uses it instead
+                        // of a text query, which also matches the cover's
+                        // fallback title now that the cover is back.
+                        testTag = "library_book_row_${book.book.id}",
                         coverBadge = {
                             LibraryCoverOfflineBadge(
                                 book = book,
@@ -2332,7 +2331,7 @@ fun LibraryBookCard(
                                 Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
                                 Text(
                                     text = stringResource(com.slukhayka.audiobooks.R.string.submission_awaiting_badge),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    style = MaterialTheme.typography.labelSmall,
                                     maxLines = 1,
                                     softWrap = false,
                                     color = MaterialTheme.colorScheme.primary,
@@ -2348,10 +2347,11 @@ fun LibraryBookCard(
                                 Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
                                 Text(
                                     text = stringResource(R.string.submission_watching_source),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    style = MaterialTheme.typography.labelSmall,
                                     maxLines = 1,
                                     softWrap = false,
-                                    color = MaterialTheme.colorScheme.tertiary,
+                                    // F4 — text, so the text role; `tertiary` is the graphic lamp.
+                                    color = PaperInkColors.lampText,
                                     modifier = Modifier.testTag("submission_watching_badge_${book.book.id}")
                                 )
                             }
@@ -2363,7 +2363,7 @@ fun LibraryBookCard(
                                 Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
                                 Text(
                                     text = stringResource(R.string.submission_deferred_publication_badge),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    style = MaterialTheme.typography.labelSmall,
                                     maxLines = 1,
                                     softWrap = false,
                                     color = MaterialTheme.colorScheme.secondary,
@@ -2378,10 +2378,13 @@ fun LibraryBookCard(
                                 Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
                                 Text(
                                     text = stringResource(submissionBadgeRes(submissionBadge)),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = when (submissionBadge) {
                                         SubmissionBadge.REJECTED -> MaterialTheme.colorScheme.error
-                                        SubmissionBadge.IN_SHARED_BASE -> MaterialTheme.colorScheme.tertiary
+                                        // F4 — the amber cue as TEXT: `tertiary` is the
+                                        // graphic Lamp (3:1), 11 sp on paper measured
+                                        // 3.80:1; lampText is the readable amber.
+                                        SubmissionBadge.IN_SHARED_BASE -> PaperInkColors.lampText
                                         else -> MaterialTheme.colorScheme.secondary
                                     },
                                     maxLines = 1,
@@ -2428,12 +2431,6 @@ fun LibraryBookCard(
                             )
                         }
                     )
-                }
-                // UI (v1.5 review, on-device): a play disc on every row put the
-                // screen's accent on eight identical circles and stole it from
-                // the «Продовжити» CTA. The row opens the book; the hero CTA
-                // resumes; a new book starts on its own page.
-                Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
             }
         }
     }
@@ -2448,6 +2445,7 @@ private fun LibraryBookGridContent(
     /** spec-52 US28 (#1174) — the live «Покинуто» mark of this book. */
     abandoned: Boolean = false
 ) {
+    val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
     Column {
         Box {
             BookCoverImage(
@@ -2455,7 +2453,7 @@ private fun LibraryBookGridContent(
                 semantics = BookCoverSemantics.Decorative,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(3f / 4f),
+                    .aspectRatio(if (paperInk) 2f / 3f else 3f / 4f),
                 contentScale = ContentScale.Crop
             )
             LibraryCoverOfflineBadge(
@@ -2481,10 +2479,14 @@ private fun LibraryBookGridContent(
         // shelf or a grid row has one height instead of a ragged staircase.
         // A tile shorter than its neighbour looked like a bug, not like a book
         // with less metadata. What varies now is only the text inside a slot.
-        Column(modifier = Modifier.padding(10.dp)) {
+        Column(modifier = Modifier.padding(if (paperInk) 12.dp else 10.dp)) {
             Text(
                 text = book.book.title,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                style = if (paperInk) {
+                    PaperInkType.Meta.copy(fontWeight = FontWeight.SemiBold)
+                } else {
+                    MaterialTheme.typography.titleSmall
+                },
                 color = MaterialTheme.colorScheme.onSurface,
                 minLines = 2,
                 maxLines = 2,
@@ -2493,33 +2495,57 @@ private fun LibraryBookGridContent(
             Text(
                 // An empty string still occupies its line — that is the point.
                 text = book.book.displayAuthor,
-                style = MaterialTheme.typography.bodySmall,
+                style = if (paperInk) PaperInkType.Micro else MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 text = librarySeriesLabel(book).orEmpty(),
-                style = MaterialTheme.typography.labelMedium,
+                style = if (paperInk) PaperInkType.Micro else MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(6.dp))
-            LinearProgressIndicator(
-                progress = { book.percent },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusProgress))
-                    .clearAndSetSemantics { },
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = MaterialTheme.colorScheme.outlineVariant,
-                // #292 carried to the shelf: the M3 stop dot read as a stray
-                // amber marker crowding the provenance chip right below it
-                // (device review, 2026-09-16).
-                drawStopIndicator = {}
-            )
+            // #1187 — an unknown book length must not be drawn as a bar. At
+            // `percent == 0f` an empty track reads exactly like "nothing
+            // listened", while the same tile's a11y description says the
+            // duration is unknown. The slot stays reserved either way, so the
+            // provenance chip below does not jump.
+            if (book.knownPercent != null) {
+                // The tag lives on a WRAPPER: `clearAndSetSemantics` below clears
+                // the bar's own semantics, so a tag placed on the indicator is
+                // invisible to the test tree — and the absence test would then
+                // pass for the wrong reason (#1187 review).
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .testTag("library_tile_progress_${book.book.id}")
+                ) {
+                    LinearProgressIndicator(
+                        progress = { book.percent },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(AppDimens.RadiusProgress))
+                            .clearAndSetSemantics { },
+                        color = if (paperInk) {
+                            MaterialTheme.colorScheme.tertiary
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
+                        trackColor = MaterialTheme.colorScheme.outlineVariant,
+                        // #292 carried to the shelf: the M3 stop dot read as a stray
+                        // amber marker crowding the provenance chip right below it
+                        // (device review, 2026-09-16).
+                        drawStopIndicator = {}
+                    )
+                }
+            } else {
+                Spacer(modifier = Modifier.height(4.dp))
+            }
             // The provenance chip sits directly under this bar. 4 dp merged
             // the two amber elements into one smudge; the chip needs air.
             Spacer(modifier = Modifier.height(10.dp))
@@ -2535,7 +2561,7 @@ private fun LibraryBookGridContent(
                 availabilityLabel(availability)?.let { label ->
                     Text(
                         text = label,
-                        style = MaterialTheme.typography.labelSmall,
+                        style = if (paperInk) PaperInkType.Micro else MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -2579,7 +2605,7 @@ fun ListeningStatsCard(
     ) {
         Text(
             text = stringResource(R.string.lib_stats_heading),
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+            style = PaperInkType.Heading.Section,
             color = MaterialTheme.colorScheme.onSurface
         )
 
@@ -2592,14 +2618,14 @@ fun ListeningStatsCard(
             StatItemCard(
                 title = stringResource(R.string.lib_stats_today),
                 value = stringResource(R.string.lib_stats_today_value, todayMinutes),
-                icon = Icons.Default.Today,
+                icon = Icons.Outlined.Today,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f)
             )
             StatItemCard(
                 title = stringResource(R.string.lib_stats_week),
                 value = stringResource(R.string.lib_stats_week_value, weekHours),
-                icon = Icons.Default.DateRange,
+                icon = Icons.Outlined.DateRange,
                 color = MaterialTheme.colorScheme.secondary,
                 modifier = Modifier.weight(1f)
             )
@@ -2614,14 +2640,14 @@ fun ListeningStatsCard(
             StatItemCard(
                 title = stringResource(R.string.lib_stats_streak),
                 value = stringResource(R.string.lib_stats_streak_value, streakDays),
-                icon = Icons.Default.Whatshot,
+                icon = PaperInkIcons.Flame,
                 color = AppStatStreak,
                 modifier = Modifier.weight(1f)
             )
             StatItemCard(
                 title = stringResource(R.string.lib_stats_total),
                 value = stringResource(R.string.lib_stats_total_value, totalBooks),
-                icon = Icons.AutoMirrored.Filled.MenuBook,
+                icon = PaperInkIcons.Book,
                 color = AppStatLibrary,
                 modifier = Modifier.weight(1f)
             )
@@ -2651,12 +2677,12 @@ fun StatItemCard(
                 imageVector = icon,
                 contentDescription = null,
                 tint = color,
-                modifier = Modifier.size(28.dp)
+                modifier = Modifier.size(PaperInkIconSizes.Header)
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = value,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Text(
@@ -2703,10 +2729,10 @@ fun GlobalBookmarkItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Default.Bookmark,
+                imageVector = PaperInkIcons.Bookmark,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(PaperInkIconSizes.Header)
             )
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -2714,7 +2740,7 @@ fun GlobalBookmarkItem(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = bookTitle,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -2744,7 +2770,7 @@ fun GlobalBookmarkItem(
                     .testTag("bookmark_jump_${bookmark.id}")
             ) {
                 Icon(
-                    imageVector = Icons.Default.PlayArrow,
+                    imageVector = PaperInkIcons.Play,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary
                 )
@@ -2758,7 +2784,7 @@ fun GlobalBookmarkItem(
                     .testTag("bookmark_delete_${bookmark.id}")
             ) {
                 Icon(
-                    imageVector = Icons.Default.Delete,
+                    imageVector = PaperInkIcons.Trash,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.error
                 )
@@ -2863,8 +2889,11 @@ fun ImportPreviewDialog(
     var lastMergingBookId by remember { mutableStateOf<String?>(null) }
     val mergeFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
     val mergeHeadingFocusRequester = remember { FocusRequester() }
+    val applying = preview.applying
     if (renamingBookId == null && pendingGrouping == null && mergingBookId == null) AlertDialog(
-        onDismissRequest = onDismiss,
+        // #1242 — while the confirmed write is in flight, closing the window is
+        // not a cancel: the plan is frozen and the writes are not rolled back.
+        onDismissRequest = { if (!applying) onDismiss() },
         modifier = Modifier
             .accessibilityPane(stringResource(R.string.a11y_library_import_preview_pane))
             .testTag("library_import_preview_dialog"),
@@ -2894,11 +2923,27 @@ fun ImportPreviewDialog(
             )
         },
         text = {
+            Box {
+
+            val previewScrollState = rememberScrollState()
+            val previewAutoScroll = remember {
+                ChapterDragAutoScroll(
+                    previewScrollState,
+                    viewportTop = 0f,
+                    viewportBottom = 0f,
+                    edgePx = 72f,
+                    stepPx = 48f
+                )
+            }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = 420.dp)
-                    .verticalScroll(rememberScrollState())
+                    .onGloballyPositioned { coordinates ->
+                        val bounds = coordinates.boundsInWindow()
+                        previewAutoScroll.update(bounds.top, bounds.bottom)
+                    }
+                    .verticalScroll(previewScrollState)
             ) {
                 Text(
                     text = stringResource(
@@ -2908,6 +2953,15 @@ fun ImportPreviewDialog(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (preview.retryable) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = stringResource(R.string.lib_import_retry_body),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.testTag("library_import_preview_retry_body")
+                    )
+                }
                 if (folder != null && hasRootFiles) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
@@ -2955,7 +3009,7 @@ fun ImportPreviewDialog(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = book.title.ifBlank { untitled },
-                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    style = MaterialTheme.typography.titleSmall,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.weight(1f)
                                 )
@@ -2993,6 +3047,7 @@ fun ImportPreviewDialog(
                             // guess of ours.
                             BookCorrectionRow(
                                 book = book,
+                                autoScroll = previewAutoScroll,
                                 onMoveChapter = { from, to ->
                                     onReorderChapters(
                                         book.id,
@@ -3038,10 +3093,25 @@ fun ImportPreviewDialog(
                                         suggestion?.existingTitle ?: existingBook
                                     ),
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.tertiary
+                                    // F4 — body text: the lamp graphic role fails 4.5:1.
+                                    color = PaperInkColors.lampText
                                 )
                             }
                         }
+                    }
+                }
+            }
+
+                if (applying) {
+                    Box(
+                        modifier = Modifier
+                            .matchParentSize()
+                            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.35f))
+                            .clickable(enabled = true) { }
+                            .testTag("library_import_preview_busy"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
                     }
                 }
             }
@@ -3049,13 +3119,17 @@ fun ImportPreviewDialog(
         confirmButton = {
             TextButton(
                 onClick = onConfirm,
-                enabled = preview.plan.books.isNotEmpty() && preview.plan.books.none { it.title.isBlank() && it.mergedIntoBookId == null },
+                enabled = !applying &&
+                    preview.plan.books.isNotEmpty() &&
+                    preview.plan.books.none { it.title.isBlank() && it.mergedIntoBookId == null },
                 modifier = Modifier
                     .heightIn(min = 48.dp)
                     .testTag("library_import_preview_confirm")
             ) {
                 Text(
-                    if (mergedCount > 0) {
+                    if (preview.retryable) {
+                        stringResource(R.string.lib_import_retry)
+                    } else if (mergedCount > 0) {
                         stringResource(
                             R.string.lib_import_confirm_merged,
                             preview.plan.books.size - mergedCount,
@@ -3070,7 +3144,10 @@ fun ImportPreviewDialog(
         dismissButton = {
             TextButton(
                 onClick = onDismiss,
-                modifier = Modifier.heightIn(min = 48.dp)
+                enabled = !applying,
+                modifier = Modifier
+                    .heightIn(min = 48.dp)
+                    .testTag("library_import_preview_cancel")
             ) {
                 Text(stringResource(R.string.action_cancel))
             }
@@ -3187,6 +3264,7 @@ fun ImportPreviewDialog(
 @Composable
 private fun BookCorrectionRow(
     book: com.slukhayka.audiobooks.data.imports.PlannedBook,
+    autoScroll: ChapterDragAutoScroll?,
     onMoveChapter: (Int, Int) -> Unit,
     onRename: () -> Unit,
     editFocusRequester: FocusRequester,
@@ -3209,13 +3287,32 @@ private fun BookCorrectionRow(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            val dragDensity = androidx.compose.ui.platform.LocalDensity.current
             book.chapters.forEachIndexed { index, chapter ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // #1188 — key by the file identity so a continuing drag
+                // follows the CHAPTER, not the list slot.
+                key(chapter.file.uri ?: chapter.file.fileName) {
+                var dragRowHeightPx by remember { mutableFloatStateOf(with(dragDensity) { 48.dp.toPx() }) }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.onGloballyPositioned { dragRowHeightPx = it.size.height.toFloat() }
+                ) {
                     Text(
                         text = "${index + 1}. ${chapter.title.ifBlank { chapter.file.fileName }}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f)
+                    )
+                    // #1188 — drag starts only from this handle; the rest of
+                    // the row keeps scrolling, and the arrows stay.
+                    ChapterDragHandle(
+                        index = index,
+                        count = book.chapters.size,
+                        onMove = onMoveChapter,
+                        enabled = true,
+                        autoScroll = autoScroll,
+                        rowHeightPx = dragRowHeightPx,
+                        modifier = Modifier.testTag("import_preview_drag_${book.id}_$index")
                     )
                     TextButton(
                         onClick = { onMoveChapter(index, index - 1) },
@@ -3242,6 +3339,7 @@ private fun BookCorrectionRow(
                         modifier = Modifier.heightIn(min = 48.dp).testTag("import_preview_split_${book.id}_$index")
                     ) { Text(stringResource(R.string.lib_import_split_here)) }
                 }
+                }
             }
         }
     }
@@ -3259,6 +3357,31 @@ internal fun movedOrder(size: Int, from: Int, to: Int): List<Int> {
     val moved = order.removeAt(from)
     order.add(to, moved)
     return order
+}
+
+/**
+ * #1673 (F3/F4 contrast) — a section heading on «Моє → Збережене».
+ *
+ * The two headings used to set only a typography style and no `color`, so they
+ * inherited `LocalContentColor`. In the Ink theme nothing on that path sets it,
+ * so it stayed the default black on a near-black page — the headings were
+ * almost invisible (visible in the Paper theme, where black on paper works).
+ * The heading now names its role explicitly, and [LibrarySavedHeaderInkTest]
+ * pins both the role and an ink snapshot.
+ */
+@Composable
+internal fun LibrarySavedSectionHeader(
+    text: String,
+    testTag: String,
+) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.titleSmall,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .testTag(testTag),
+    )
 }
 
 /**
@@ -3325,10 +3448,10 @@ fun BookmarkedPersonRow(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Person,
+                        imageVector = PaperInkIcons.Person,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(PaperInkIconSizes.Inline)
                     )
                 }
 
@@ -3337,7 +3460,7 @@ fun BookmarkedPersonRow(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = displayName,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurface
@@ -3355,10 +3478,10 @@ fun BookmarkedPersonRow(
                 }
 
                 Icon(
-                    imageVector = Icons.Default.Bookmark,
+                    imageVector = PaperInkIcons.Bookmark,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(PaperInkIconSizes.Inline)
                 )
             }
         }
@@ -3465,6 +3588,170 @@ private fun ReadingProgressRow(
 }
 
 /**
+ * #1286 — the «Мій рік» surface, rendered from the module's ONE state.
+ *
+ * `Loading` is not the empty state: nothing has been read yet. A first read
+ * failure gets an explicit retry instead of the «no finished passes» lie; a
+ * later failure keeps the known projection and only adds the retry line. The
+ * active passes and the year come from the SAME snapshot, so the list the
+ * listener can still move and the goal above it cannot disagree.
+ */
+@Composable
+fun LibraryReadingYearSection(
+    state: com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.State,
+    message: String?,
+    onRecord: (com.slukhayka.audiobooks.data.entries.Readthrough, Int) -> Unit,
+    onFinish: (com.slukhayka.audiobooks.data.entries.Readthrough) -> Unit,
+    onRetry: () -> Unit
+) {
+    when (state) {
+        com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.State.Loading -> {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag("reading_year_loading"),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        }
+
+        is com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.State.Failed -> {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+                    .testTag("reading_year_failed"),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                EmptyState(
+                    icon = Icons.Outlined.CalendarMonth,
+                    title = stringResource(R.string.lib_year_error_title),
+                    body = stringResource(R.string.lib_year_error_body)
+                )
+                Button(
+                    onClick = onRetry,
+                    modifier = Modifier
+                        .heightIn(min = 48.dp)
+                        .testTag("reading_year_retry")
+                ) {
+                    Text(stringResource(R.string.feedback_retry))
+                }
+            }
+        }
+
+        is com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.State.Ready -> {
+            val projection = state.projection
+            // A successful read with nothing to show keeps the original empty
+            // words — this is a real empty library, not a failed read.
+            if (projection.year.totalFinished == 0 && projection.active.isEmpty()) {
+                EmptyState(
+                    icon = Icons.Outlined.CalendarMonth,
+                    title = stringResource(R.string.lib_year_empty_title),
+                    body = stringResource(R.string.lib_year_empty_body)
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .testTag("library_year"),
+                    contentPadding = PaddingValues(bottom = AppDimens.SpaceAboveMiniPlayer, top = 8.dp)
+                ) {
+                    item {
+                        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                            Text(
+                                text = stringResource(R.string.lib_year_heading, projection.year.year),
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.testTag("reading_year_heading")
+                            )
+                            Text(
+                                text = stringResource(R.string.lib_year_total, projection.year.totalFinished),
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.testTag("reading_year_total")
+                            )
+                            projection.year.finishedByFormat.toSortedMap().forEach { (format, count) ->
+                                Text(
+                                    text = stringResource(
+                                        R.string.lib_year_format,
+                                        readingFormatLabel(format),
+                                        count
+                                    ),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text(
+                                text = stringResource(R.string.lib_year_rule),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            // #1286 — the honest outcome of the last action, INCLUDING
+                            // the refusal and the storage failure; never only a success.
+                            if (message != null) {
+                                Text(
+                                    text = message,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .padding(top = 8.dp)
+                                        .testTag("reading_progress_message")
+                                )
+                            }
+                            if (state.refreshFailed) {
+                                Text(
+                                    text = stringResource(R.string.lib_year_refresh_failed),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier
+                                        .padding(top = 8.dp)
+                                        .testTag("reading_year_stale")
+                                )
+                                OutlinedButton(
+                                    onClick = onRetry,
+                                    modifier = Modifier
+                                        .heightIn(min = 48.dp)
+                                        .testTag("reading_year_retry")
+                                ) {
+                                    Text(stringResource(R.string.feedback_retry))
+                                }
+                            }
+                        }
+                    }
+                    // #876 — the passes still in the listener's hands: ONE journal
+                    // record per action, in the format's own unit, and finishing
+                    // belongs to that pass alone.
+                    items(projection.active, key = { it.id }) { pass ->
+                        ReadingProgressRow(
+                            pass = pass,
+                            onRecord = { value -> onRecord(pass, value) },
+                            onFinish = { onFinish(pass) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** #1286 — every mutation outcome has its own words; a refusal is not a success. */
+internal fun readingProgressMessageRes(
+    result: com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.Result
+): Int = when (result) {
+    is com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.Result.Recorded ->
+        R.string.lib_year_recorded
+    is com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.Result.Finished ->
+        R.string.lib_year_finished
+    is com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.Result.Failed ->
+        R.string.lib_year_save_failed
+    is com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.Result.Refused ->
+        when (result.reason) {
+            com.slukhayka.audiobooks.data.entries.ReadingProgressRecorder.REASON_UNKNOWN_PASS ->
+                R.string.lib_year_refused_unknown
+            else -> R.string.lib_year_refused_closed
+        }
+}
+
+/**
  * #962 — the ceiling the chrome band may take in a wide-and-short window.
  *
  * The band is the ONLY scrollable thing above the list, so it must never be
@@ -3476,83 +3763,27 @@ private fun ReadingProgressRow(
 private val ChromeMaxHeight: Dp = 280.dp
 
 /**
- * #962 — the Library's CHROME: everything above the book list, and nothing
- * else.
+ * #1384 — the status strip, PINNED outside the scrolling chrome band.
  *
- * Extracted from [LibraryScreen] so the wide-and-short (landscape phone)
- * window can put it in its own bounded, scrollable band without a second copy
- * of the header, the year hero, the section switch, the search field, the
- * status chips and the collections blocks. The screen keeps ownership of the
- * state ([yearGoal], [query], [filter], the scroll state and the focus
- * requesters); this composable only draws it, so the portrait path and the
- * landscape path can never drift apart.
+ * The row used to live inside `libraryChrome`, which sits in a 280 dp
+ * `verticalScroll` band (#962). That made the five statuses slide up and down
+ * with the rest of the chrome — a horizontal control that visibly moves
+ * vertically when the listener scrolls the header, which reads as the row
+ * drifting rather than the page scrolling.
  *
- * Collections state comes in as values because the SAME state also drives the
- * full-screen collection pages, which stay in the screen's scope.
+ * The row is now rendered by the screen AFTER the chrome band and BEFORE the
+ * book list: it never moves vertically, while the horizontal scroll of the
+ * chips themselves is unchanged (the half-visible chip at the edge stays the
+ * scroll affordance #885/#1165 documented).
  */
 @Composable
-private fun libraryChrome(
-    activeTab: Int,
-    sectionTitleRes: Int,
-    yearGoal: com.slukhayka.audiobooks.data.entries.YearlyReadingGoal?,
-    query: String,
-    onQueryChange: (String) -> Unit,
+private fun libraryStatusStrip(
     filter: LibraryFilter,
     onFilterChange: (LibraryFilter) -> Unit,
-    statusRowScrollState: androidx.compose.foundation.ScrollState,
+    scrollState: androidx.compose.foundation.ScrollState,
     filterFocusRequester: FocusRequester,
-    onShowFilterSheet: () -> Unit,
-    onBooks: () -> Unit,
-    onShelves: () -> Unit,
-    onSaved: () -> Unit,
-    libraryBooks: List<LibraryBook>,
-    listenerCollections: List<com.slukhayka.audiobooks.data.collections.ListenerCollection>,
-    publishedCollections: List<com.slukhayka.audiobooks.data.collections.PublishedCollection>,
-    onOpenCollection: (String) -> Unit,
-    onOpenPublishedCollection: (String) -> Unit,
-    /** Spec-51 (#691) — opens the public-name dialog; the dialog itself lives in the screen. */
-    onRenamePseudonym: () -> Unit,
-    /** #962 — true on the wide-and-short window; drops the year hero. */
-    compact: Boolean
+    onShowFilterSheet: () -> Unit
 ) {
-    // #885 — the prototype («Нічна бібліотека») switches between
-    // «Книги / Полиці / Збережене» with a visible control at the top,
-    // instead of hiding two of the three behind the overflow menu.
-    // #962 — «Мій рік» is the single largest piece of chrome on this screen
-    // (388 px of a 1438 px window on the device) and the least load-bearing:
-    // it reports a yearly count, it does not lead anywhere. On the
-    // wide-and-short window it is dropped, so the listener gets a real book
-    // list instead of a hero card; portrait and tablet keep it exactly as
-    // before. Nothing is lost — «Мій рік» remains its own destination in the
-    // section switch, one tap away.
-    if (activeTab == 0 && !compact) {
-        yearGoal?.let { goal ->
-            Box(modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)) {
-                LibraryYearHero(goal = goal)
-            }
-        }
-    }
-
-    if (activeTab == 0 || activeTab == 1) {
-        LibrarySectionTabs(
-            booksSelected = activeTab == 0,
-            savedSelected = activeTab == 1,
-            onBooks = onBooks,
-            onShelves = onShelves,
-            onSaved = onSaved
-        )
-    }
-
-    if (activeTab != 0) return
-
-    // Library chrome (wayfinder #39): the permanently visible search
-    // (ADR-0033 amended 2026-09-18 — the same pattern as Огляд),
-    // quick filters, sort + view toggle.
-    LibrarySearchField(
-        query = query,
-        onQueryChange = onQueryChange
-    )
-
     // Spec-28 #193 + design guide §6.3: the five one-tap statuses
     // on ONE horizontally scrolled line — never wrapped onto a
     // second row. The rare-filter launcher (Обрані / Локальні /
@@ -3563,14 +3794,14 @@ private fun libraryChrome(
     // selection (the active status, or this launcher while a rare
     // filter is active). The screen used to scroll the line here,
     // and for every one-tap status that meant «back to the start»:
-    // the LAST chip, «Завантажені», stayed under the right window
-    // edge while selected — the #390 defect the #885 redesign
-    // brought back.
+    // the LAST chip — «Завантажені» when #1165 was filed, «На пристрої»
+    // since #1163 — stayed under the right window edge while selected: the
+    // #390 defect the #885 redesign brought back.
     val isSheetFilterActive = filter in SHEET_FILTERS
     LibraryStatusRow(
         selected = filter,
         onSelect = onFilterChange,
-        scrollState = statusRowScrollState,
+        scrollState = scrollState,
         trailing = {
             FilterChip(
                 selected = isSheetFilterActive,
@@ -3586,7 +3817,7 @@ private fun libraryChrome(
                 },
                 leadingIcon = {
                     Icon(
-                        imageVector = Icons.Default.Tune,
+                        imageVector = PaperInkIcons.Filter,
                         contentDescription = null,
                         modifier = Modifier.size(FilterChipDefaults.IconSize)
                     )
@@ -3610,6 +3841,78 @@ private fun libraryChrome(
             )
         }
     )
+}
+
+/**
+ * #962 — the Library's CHROME: everything above the book list, and nothing
+ * else.
+ *
+ * Extracted from [LibraryScreen] so the wide-and-short (landscape phone)
+ * window can put it in its own bounded, scrollable band without a second copy
+ * of the header, the year hero, the section switch, the search field, the
+ * status chips and the collections blocks. The screen keeps ownership of the
+ * state ([yearGoal], [query], [filter], the scroll state and the focus
+ * requesters); this composable only draws it, so the portrait path and the
+ * landscape path can never drift apart.
+ *
+ * Collections state comes in as values because the SAME state also drives the
+ * full-screen collection pages, which stay in the screen's scope.
+ */
+@Composable
+internal fun libraryChrome(
+    activeTab: Int,
+    sectionTitleRes: Int,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    filter: LibraryFilter,
+    onFilterChange: (LibraryFilter) -> Unit,
+    statusRowScrollState: androidx.compose.foundation.ScrollState,
+    filterFocusRequester: FocusRequester,
+    onShowFilterSheet: () -> Unit,
+    onBooks: () -> Unit,
+    onShelves: () -> Unit,
+    onSaved: () -> Unit,
+    libraryBooks: List<LibraryBook>,
+    listenerCollections: List<com.slukhayka.audiobooks.data.collections.ListenerCollection>,
+    publishedCollections: List<com.slukhayka.audiobooks.data.collections.PublishedCollection>,
+    onOpenCollection: (String) -> Unit,
+    onOpenPublishedCollection: (String) -> Unit,
+    /** Spec-51 (#691) — opens the public-name dialog; the dialog itself lives in the screen. */
+    onRenamePseudonym: () -> Unit
+) {
+    // #885 — the prototype («Нічна бібліотека») switches between
+    // «Книги / Полиці / Збережене» with a visible control at the top,
+    // instead of hiding two of the three behind the overflow menu.
+    // F30b — «Мій рік» no longer opens the screen: the audited chrome was
+    // ≈400 dp to the first row and the hero was 97 of it, reporting a count
+    // that does not lead anywhere. It now lives in «Статистика» (spec §5), so
+    // the books list starts one bar lower and the year is still two taps away.
+    if (activeTab == 0) {
+        // F30b — tabs + the permanently visible search in ONE band (ADR-0033:
+        // no reveal toggle), so the books list starts ≤240 dp from the top.
+        LibraryTabsWithSearch(
+            booksSelected = true,
+            savedSelected = false,
+            onBooks = onBooks,
+            onShelves = onShelves,
+            onSaved = onSaved,
+            query = query,
+            onQueryChange = onQueryChange
+        )
+    } else if (activeTab == 1) {
+        // The saved section has no search of its own; its tabs stay exactly as
+        // before and the books-tab band above is the only search.
+        LibrarySectionTabs(
+            booksSelected = false,
+            savedSelected = true,
+            onBooks = onBooks,
+            onShelves = onShelves,
+            onSaved = onSaved
+        )
+    }
+
+    if (activeTab != 0) return
+
 
     // Spec-51 (#690) — the listener's own collections, right in the
     // Library. Local-first, and honestly empty when there are none.
@@ -3660,37 +3963,61 @@ private fun libraryChrome(
 }
 
 /**
- * #885 — «Мій рік» as a hero card on top of «Мої книги» (prototype:
- * docs/prototypes/slukhayka-expressive.html). Reuses the SAME year data the
+ * #885 — «Мій рік у книжках», now the top of the «Статистика» tab (F30b,
+ * #1580/#1617, moved it out of the books list). Reuses the SAME year data the
  * separate year view shows, so the two can never disagree.
+ *
+ * F28 of the 2026-10-28 device audit (issue #1625): the card was still amber
+ * M3 — `primaryContainer` + `displaySmall`. The direction's statistic is a
+ * printed INK plate, the same language as the achievements hero panel
+ * (`AchievementHeroPanel`): ink stays ink in both app themes because a number
+ * that anchors the screen reads as print, not as another tinted card. So
+ * `StatXL` (Literata 48/52) carries the finished count, the year uses the
+ * lamp TEXT role (`LampNight`: 10.37:1 on the paper plate, 9.28:1 on the ink
+ * plate — F4; the 6.2:1 figure is `LampInk` as text on paper, a different
+ * pairing that never lands on this plate) and the units use `Meta`.
+ *
+ * No progress bar: a yearly TARGET does not exist in the domain
+ * ([com.slukhayka.audiobooks.data.entries.YearlyReadingGoal] carries only what
+ * was finished), so no invented "12".
  */
 @Composable
-private fun LibraryYearHero(goal: com.slukhayka.audiobooks.data.entries.YearlyReadingGoal) {
-    // Prototype («Нічна бібліотека») shows the year as a TONAL hero card: the
-    // amber container, the year as a small label, the finished count big.
-    // A progress bar would need a yearly TARGET, which the domain does not have
-    // (YearlyReadingGoal carries only what was finished) — so no invented "12".
+internal fun LibraryYearHero(
+    goal: com.slukhayka.audiobooks.data.entries.YearlyReadingGoal
+) {
     Surface(
-        color = MaterialTheme.colorScheme.primaryContainer,
-        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-        shape = MaterialTheme.shapes.extraLarge,
+        color = libraryYearPlateColor(inkTheme = isPaperInkInkTheme()),
+        contentColor = PaperInkPalette.Chalk,
+        shape = RoundedCornerShape(PaperInkDimens.RadiusXl),
         modifier = Modifier
             .fillMaxWidth()
             .testTag("library_year_hero")
     ) {
-        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
+        Column(modifier = Modifier.padding(PaperInkDimens.SpaceXl)) {
             Text(
                 text = stringResource(R.string.lib_year_hero_title, goal.year),
-                style = MaterialTheme.typography.labelLarge
+                style = PaperInkType.Label,
+                color = PaperInkPalette.LampNight,
+                modifier = Modifier.testTag("library_year_hero_title")
             )
-            Text(
-                text = goal.totalFinished.toString(),
-                style = MaterialTheme.typography.displaySmall
-            )
-            Text(
-                text = stringResource(R.string.lib_year_hero_units),
-                style = MaterialTheme.typography.bodyMedium
-            )
+            Spacer(modifier = Modifier.height(PaperInkDimens.SpaceSm))
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = goal.totalFinished.toString(),
+                    style = PaperInkType.StatXL,
+                    color = PaperInkPalette.Chalk,
+                    modifier = Modifier.testTag("library_year_hero_count")
+                )
+                Spacer(modifier = Modifier.width(PaperInkDimens.SpaceMd))
+                Text(
+                    text = stringResource(R.string.lib_year_hero_units),
+                    style = PaperInkType.Meta,
+                    color = PaperInkPalette.DustNight,
+                    modifier = Modifier
+                        .padding(bottom = 2.dp)
+                        .testTag("library_year_hero_units")
+                )
+            }
         }
     }
 }
@@ -3706,6 +4033,13 @@ internal fun LibrarySectionTabs(
     onBooks: () -> Unit,
     onShelves: () -> Unit,
     onSaved: () -> Unit,
+    modifier: Modifier = Modifier,
+    // F30b — the inline tab+search row owns the page padding, so the tabs get
+    // zero here; standalone callers keep the historical 16.
+    horizontalPadding: Dp = 16.dp,
+    topPadding: Dp = 4.dp,
+    /** #1627 — 1 in the inline band (must fit), 2 in the two-band fallback. */
+    tabLabelMaxLines: Int = 1,
 ) {
     val items = listOf(
         Triple(stringResource(R.string.lib_section_books), booksSelected, "library_tab_books" to onBooks),
@@ -3713,9 +4047,9 @@ internal fun LibrarySectionTabs(
         Triple(stringResource(R.string.lib_section_saved), savedSelected, "library_tab_saved" to onSaved),
     )
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, top = 4.dp),
+            .padding(start = horizontalPadding, end = horizontalPadding, top = topPadding),
         verticalAlignment = Alignment.CenterVertically
     ) {
         items.forEach { (label, selected, action) ->
@@ -3734,9 +4068,16 @@ internal fun LibrarySectionTabs(
                     .testTag(action.first)
                     .clickable(onClick = action.second)
             ) {
+                val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
                 Text(
                     text = label,
-                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = tabLabelMaxLines,
+                    overflow = TextOverflow.Ellipsis,
+                    style = if (paperInk) {
+                        com.slukhayka.audiobooks.ui.theme.PaperInkType.Tab
+                    } else {
+                        MaterialTheme.typography.titleSmall
+                    },
                     color = if (selected) {
                         MaterialTheme.colorScheme.onSurface
                     } else {
@@ -3753,8 +4094,12 @@ internal fun LibrarySectionTabs(
                             else Modifier.width(0.dp)
                         )
                         .background(
-                            if (selected) MaterialTheme.colorScheme.primary
-                            else Color.Transparent
+                            // Unslop audit 2026-11-01 (U3): the lamp role belongs to
+                            // sound, not to navigation. A selected tab is a quiet
+                            // action state, so it uses verdigris in both vocabularies;
+                            // amber here made «Książki» look like playback next to the
+                            // verdigris filter chip right below it.
+                            if (selected) MaterialTheme.colorScheme.primary else Color.Transparent
                         )
                 )
             }

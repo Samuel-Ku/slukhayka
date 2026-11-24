@@ -17,8 +17,19 @@ import kotlinx.coroutines.launch
  * player observed is persisted in ONE order — a stop cannot overtake the
  * interval that preceded it.
  */
-class AchievementRecorder(scope: CoroutineScope, private val store: AchievementStore,
-    private val recordListeningTime: suspend (ListeningObservation) -> Unit, private val onFailure: (Throwable) -> Unit = {}) {
+class AchievementRecorder(
+    scope: CoroutineScope,
+    private val store: AchievementStore,
+    private val recordListeningTime: suspend (ListeningObservation) -> Unit,
+    private val onFailure: (Throwable) -> Unit = {},
+    /**
+     * #1574 — called AFTER each successful write, so the achievements snapshot
+     * is pulled exactly at the discrete transitions that move its metrics
+     * (observation checkpoint, fact, durable counter) instead of on every Room
+     * invalidation. A failure here is reported and never kills the FIFO.
+     */
+    private val onWritten: suspend () -> Unit = {}
+) {
     private sealed interface Write {
         data class Observation(val observation: ListeningObservation) : Write
         data class Fact(val fact: AchievementFact) : Write
@@ -34,6 +45,13 @@ class AchievementRecorder(scope: CoroutineScope, private val store: AchievementS
                             is Write.Observation -> recordListeningTime(write.observation)
                             is Write.Fact -> store.recordFact(write.fact)
                             is Write.Counter -> store.incrementCounter(write.key)
+                        }
+                        try {
+                            onWritten()
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            onFailure(failure)
                         }
                         break
                     } catch (cancelled: CancellationException) {

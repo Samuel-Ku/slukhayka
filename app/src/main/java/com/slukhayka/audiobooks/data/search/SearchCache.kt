@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.search
 
+import com.slukhayka.audiobooks.data.sha256Hex
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.GlobalSearchSource
 import java.util.Locale
@@ -7,16 +8,22 @@ import java.util.Locale
 /**
  * Spec-33 T1 (#229) — the shared search-result cache behind a pure JVM seam:
  * a merged search result (covers, narrators, durations included — spec-33
- * US-4) keyed by the normalized query, served to every listener instead of
- * hammering the 4read / sluhayua search endpoints again.
+ * US-4) keyed by a stable pseudonymised id of the normalized query, served
+ * to every listener instead of hammering the 4read / sluhayua search
+ * endpoints again.
  *
- * The policy lives IN the seam as default methods — key normalization,
- * the ~24-hour freshness window and the no-negative-cache rule — so the
- * seam is pure JVM and fixture-testable over a fake document store (spec-33
- * Testing Decisions; prior art: the universe store fixture tests). The
- * transport ([readDocument] / [writeDocument]) is the only part an
- * implementation supplies — [FirestoreSearchCache] is thin glue, exactly
- * like the shared-book-metadata seam.
+ * #1735 — the shared collection is publicly readable, so the transport is
+ * handed a [SearchDocumentId]-derived id, never the query text: the raw
+ * search history cannot be read straight off the Firestore document path
+ * (the honest limit of that pseudonymisation is documented there).
+ *
+ * The policy lives IN the seam as default methods — key normalization, the
+ * document-id derivation, the ~24-hour freshness window and the
+ * no-negative-cache rule — so the seam is pure JVM and fixture-testable over
+ * a fake document store (spec-33 Testing Decisions; prior art: the universe
+ * store fixture tests). The transport ([readDocument] / [writeDocument]) is
+ * the only part an implementation supplies — [FirestoreSearchCache] is thin
+ * glue, exactly like the shared-book-metadata seam.
  *
  * Degrade-never by contract: a miss, a stale entry, a failing or corrupt
  * store all yield null / a silent no-op — the caller falls through to the
@@ -29,33 +36,37 @@ interface SearchCache {
      * corrupt document or a failing store — never an exception.
      */
     suspend fun getResults(query: String): List<GlobalSearchResult>? {
-        val key = SearchQueryKey.normalize(query) ?: return null
-        val entry = runCatching { readDocument(key) }
+        val documentId = SearchDocumentId.of(query) ?: return null
+        val entry = runCatching { readDocument(documentId) }
             .getOrNull()?.let { SearchResultCodec.fromMap(it) } ?: return null
         return if (SearchFreshness.isFresh(entry.fetchedAt, nowMillis())) entry.results else null
     }
 
     /**
-     * Best-effort write-back of a merged result, keyed by the SAME normalized
-     * query the read path uses, so the next listener reads it instead of
-     * re-resolving. Write-path sanitation (spec-33 T3 #228) runs BEFORE the
-     * no-negative decision: junk cards are dropped and the list is bounded
-     * ([SearchResultCodec.sanitize]) — an empty survivor is a negative result
-     * and is never cached (spec-33 US-8: the long tail of unique miss queries
-     * stays unbounded-free). A failing write contributes nothing.
+     * Best-effort write-back of a merged result under the SAME derived
+     * document id the read path uses, so the next listener reads it instead
+     * of re-resolving. Write-path sanitation (spec-33 T3 #228) runs BEFORE
+     * the no-negative decision: junk cards are dropped and the list is
+     * bounded ([SearchResultCodec.sanitize]) — an empty survivor is a
+     * negative result and is never cached (spec-33 US-8: the long tail of
+     * unique miss queries stays unbounded-free). A failing write contributes
+     * nothing.
      */
     suspend fun putResults(query: String, results: List<GlobalSearchResult>) {
-        val key = SearchQueryKey.normalize(query) ?: return
+        val documentId = SearchDocumentId.of(query) ?: return
         val usable = SearchResultCodec.sanitize(results)
         if (usable.isEmpty()) return
-        runCatching { writeDocument(key, SearchResultCodec.toMap(nowMillis(), usable)) }
+        runCatching { writeDocument(documentId, SearchResultCodec.toMap(nowMillis(), usable)) }
     }
 
-    /** The raw document for a normalized query key, or null on miss/failure. */
-    suspend fun readDocument(queryKey: String): Map<String, Any>?
+    /**
+     * The raw document for a [SearchDocumentId] — never the query text — or
+     * null on miss/failure.
+     */
+    suspend fun readDocument(documentId: String): Map<String, Any>?
 
     /** One raw document write, best-effort — the transport may not throw. */
-    suspend fun writeDocument(queryKey: String, document: Map<String, Any>)
+    suspend fun writeDocument(documentId: String, document: Map<String, Any>)
 
     /** The clock the freshness window is measured against; overridable in tests. */
     fun nowMillis(): Long = System.currentTimeMillis()
@@ -77,6 +88,40 @@ object SearchQueryKey {
         // split one query into two keys — the same reason MergeKey folds ROOT).
         val key = query.trim().replace(WHITESPACE, " ").lowercase(Locale.ROOT)
         return key.ifBlank { null }
+    }
+}
+
+/**
+ * #1735 — the Firestore document id of one cache entry: a stable SHA-256
+ * (lowercase hex) of the normalized query, so the publicly readable
+ * `search_results` collection never spells out a listener's search text.
+ *
+ * This is pseudonymisation, NOT anonymisation. Search must work before (and
+ * without) sign-in, so reads stay public and `NAMESPACE` ships inside the
+ * APK; anyone can hash their own guess and read that one document. What the
+ * derivation removes is the plaintext history: a reader who lists the
+ * collection sees opaque ids, not the queries everyone searched for. Closing
+ * the guessing door needs an auth/rules design change — moving the cache
+ * under the listener's uid (or a server-derived key) — deliberately out of
+ * #1735's scope, which keeps the public-read model intact.
+ *
+ * `NAMESPACE` is a version/domain separator, not a secret: bumping it
+ * re-keys every entry, which turns the previous generation (including the
+ * old plaintext-keyed documents) into unreachable misses. Read and write go
+ * through this ONE derivation, so a hit and its write-back always address
+ * the same document.
+ */
+object SearchDocumentId {
+
+    private const val NAMESPACE = "slukhayka/search-cache/v1"
+
+    /**
+     * The document id for [query] — 64 lowercase hex chars — or null for a
+     * blank query, which is never a cache question.
+     */
+    fun of(query: String): String? {
+        val normalized = SearchQueryKey.normalize(query) ?: return null
+        return sha256Hex("$NAMESPACE\u0000$normalized".toByteArray(Charsets.UTF_8))
     }
 }
 

@@ -50,6 +50,29 @@ def build_repo(base: Path, files: dict[str, str], gitignore: str = "") -> Path:
     )
     subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
     subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    # #1420 — the fixture must OWN its git state, not borrow the machine's.
+    #
+    # `git init` on a path that already sits INSIDE another repository is a
+    # re-init: it creates no new `.git`, and every later call with `cwd=repo`
+    # walks up the tree and finds the REAL repository. In a worktree that
+    # turned into commits named «base» on the working branch — three of them
+    # on the release lane, twice reproduced (#1420).
+    #
+    # The check sits HERE, before the first `git` call that could touch
+    # anything: if isolation ever breaks again for any other reason, the test
+    # fails loudly instead of committing into a checkout.
+    resolved_git_dir = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "--absolute-git-dir"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    if not Path(resolved_git_dir).resolve().is_relative_to(base.resolve()):
+        raise AssertionError(
+            f"build_repo: `{repo}` is not its own repository — git resolves to "
+            f"`{resolved_git_dir}`, which is outside `{base}`. The fixture "
+            f"would commit into a foreign checkout (#1420)."
+        )
     run("config", "user.email", "test@example.com", cwd=repo)
     run("config", "user.name", "Test", cwd=repo)
     for relative, content in files.items():
@@ -82,6 +105,21 @@ ISSUE_1261_BODY = """## What to build
 - None (can start immediately).
 """
 
+# Тіло тікета #982 — справжній приклад межі, яку закриває #1281: тікет пише
+# «тега `tab_settings` у `main/` немає», а ґард знаходив у дереві **теку**
+# `app/src/main` (на довільній глибині) і казав «премиса є». Текст той самий, що
+# в тілі issue (перші два абзаци, де названо шлях); у тесті він фікстурою, бо
+# тест мусить бігти без мережі й без `gh`. Прогін по справжньому #982 — у звіті
+# тікета.
+ISSUE_982_BODY = """**Знайдено під час аудиту патерну очікування — але це НЕ гонка, а той самий клас, що #956 і #958: тест посилається на UI, якого вже немає.**
+
+`SearchReturnNavigationTest.kt:48` клікає `onNodeWithTag("tab_settings")`, **а тега `tab_settings` у `main/` немає від #860** (перевірено `grep`-ом). Тобто тест або **падає**, або **не запускається** взагалі.
+"""
+
+# Дерево, у якому #982 дав хибне «премиса є»: єдина коротка форма `main` —
+# **тека** `app/src/main` (перевірено: `git ls-tree -r -t origin/main`).
+TREE_OF_982 = {"app/src/main", "app/src/main/AndroidManifest.xml"}
+
 # Тікет, чия премиса в `main` є: `AGENTS.md`, `CONTRIBUTING.md`,
 # `docs/agents/work-coordination.md`, `docs/voice.md` — усі в main.
 VALID_PREMISE_BODY = """## What to build
@@ -111,19 +149,53 @@ case "$1 $2" in
 esac
 """
 
+# Підставний `gh` для виміру чисел у ПРОЗІ (#1329): чотири тіла, кожне — на свій
+# щабель драбини. #1 несе число перед іменником РЕЄСТРУ, #2 — перед звичайним
+# іменником-одиницею, #3 — число ЛИШЕ в бектиках (не рахується: бектики — це те,
+# що тікет НАВОДИТЬ, а не твердження про дерево), #4 — ГОЛИЙ іменник БЕЗ числа
+# («у тілі немає жодного шляху»): він не сміє давати жодної фігури, і саме на
+# ньому перша версія виміру брехала (список альтернатив без групи ловив
+# «шляху»/«копій» як числа — знахідка огляду).
+PROSE_GH_STUB = """#!/bin/sh
+case "$1 $2" in
+  "issue list") printf '1\\n2\\n3\\n4\\n' ;;
+  "issue view")
+    case "$3" in
+      1) printf 'реєстр має 22 сторожі\\n' ;;
+      2) printf 'у дереві 900 шляхів\\n' ;;
+      3) printf 'у бектиках `40` — цитата\\n' ;;
+      4) printf 'у тілі немає жодного шляху, і копій теж\\n' ;;
+      *) exit 1 ;;
+    esac ;;
+  *) exit 1 ;;
+esac
+"""
+
 
 class FakeTree:
-    """Дерево `origin/main` як множина шляхів.
+    """Дерево `origin/main` як множина шляхів — із ТИПОМ запису (#1281).
 
     Ґард судить стан `main`, тож тест підставляє саме дерево: без цього кожен
     тест залежав би від того, що лежить у робочій копії, — тобто від того
-    самого, з чого народився #1261.
+    самого, з чого народився #1261. Тип (`blob`/`tree`) — не подробиця: вердикт
+    про коротку форму залежить від нього, і підставка без типу підставляла б не
+    те дерево, яке дає `git ls-tree`.
     """
 
-    def __init__(self, paths):
+    def __init__(self, paths, trees=()):
         self.paths = set(paths)
+        self.trees = set(trees)
+        if not self.trees <= self.paths:
+            # Тека, якої немає в дереві, — фікстура про інше дерево: без цієї
+            # відмови тест тихо пінив би не те, що назвав.
+            raise AssertionError("тека, якої немає в дереві: %s" % (self.trees - self.paths))
         self.calls = []
         self.top = frozenset(p.split("/")[0] for p in self.paths)
+
+    def _kind(self, path):
+        # Тип мусить бути названий явно: мовчазний `blob` за замовчуванням
+        # зробив би з підставленої теки блоб і тихо вимкнув правило (#1281).
+        return ip.TREE if path in self.trees else ip.BLOB
 
     def __call__(self, ref, path, repo=None):
         self.calls.append(path)
@@ -131,22 +203,29 @@ class FakeTree:
 
     def suffixes(self, ref, suffix, repo=None):
         self.calls.append(f"suffix:{suffix}")
-        return sorted(p for p in self.paths if p == suffix or p.endswith("/" + suffix))
+        return sorted(
+            (ip.Match(p, self._kind(p)) for p in self.paths
+             if p == suffix or p.endswith("/" + suffix)),
+            key=lambda match: match.path,
+        )
 
     def top_level(self, ref, repo):
         self.calls.append(f"top:{ref}")
         return self.top
 
 
-def judge_body(body, paths, ref="origin/main"):
+def judge_body(body, paths, ref="origin/main", trees=()):
     """Вердикт по тілу, де дерево `main` підставне, а не взяте з машини.
+
+    `trees` — ті шляхи, які в дереві є **теками**, а не блобами: тип віддає
+    `git ls-tree`, і вердикт про коротку форму залежить саме від нього (#1281).
 
     Патчиться й `_top_level_entries`: у CI `origin/main` не існує (раннер
     фетчить merge-ref), тож справжній виклик повернув би порожню множину — і
     `docs/agents` прочитався б як проза. Саме це й упало в CI PR #1268:
     локально тест був зелений, бо на машині `origin/main` є.
     """
-    tree = FakeTree(paths)
+    tree = FakeTree(paths, trees)
     with mock.patch.object(ip, "resolve_main_ref", return_value=(True, "0" * 40)), mock.patch.object(
         ip, "main_has_path", tree
     ), mock.patch.object(ip, "main_matches_suffix", tree.suffixes), mock.patch.object(
@@ -292,9 +371,17 @@ class ExtractionTest(unittest.TestCase):
         gh = stub / "gh"
         gh.write_text(GH_STUB, encoding="utf-8")
         gh.chmod(0o755)
-        environment = dict(
-            os.environ, PATH=os.pathsep.join([str(stub), os.environ.get("PATH", "")])
-        )
+        # Оточення — своє, а не успадковане (#1265): раннер приносить експортовані
+        # функції (`BASH_FUNC_printf%%`), а `/bin/sh` підставного `gh` — це bash,
+        # який їх імпортує; підставний тоді не друкує списку, і ґард бачить
+        # «не вдалося перелічити issue» при незмінному файлі. Спадок `os.environ`
+        # тут був рівно цим; `PATH` підставного і `HOME` для `git` — усе, що
+        # потрібно самому `issue_premise.py`.
+        environment = {
+            "PATH": os.pathsep.join([str(stub), "/usr/bin:/bin"]),
+            "HOME": str(base),
+            "LC_ALL": "C",
+        }
 
         proc = subprocess.run(
             [
@@ -333,6 +420,7 @@ class ExtractionTest(unittest.TestCase):
             return subprocess.CompletedProcess(args, 0, bodies.get(number, ""), "")
 
         with mock.patch.object(ip, "resolve_main_ref", return_value=(True, "0" * 40)), \
+                mock.patch.object(ip, "gh_executable", lambda: "gh"), \
                 mock.patch.object(ip, "_top_level_entries", lambda ref, repo: frozenset({"app"})), \
                 mock.patch.object(ip.subprocess, "run", fake_run):
             printed = io.StringIO()
@@ -450,6 +538,36 @@ class ExtractionTest(unittest.TestCase):
         found = ip.candidates("NEW: `docs/agents/premise.md` з'явиться")
         self.assertEqual([(c.path, c.marked_new) for c in found], [("docs/agents/premise.md", False)])
 
+    def test_a_path_with_arguments_in_the_same_span_is_a_candidate(self):
+        """Сторож #1329: шлях з аргументами судиться як шлях, а не зникає.
+
+        Тікет #1326 писав свій центральний шлях як
+        `scripts/review-clone.sh <гілка> [--dir <шлях>]`, і механізм не бачив
+        його взагалі: `_is_path_like` відкидає інтервал із пробілом. Через це
+        «ПРЕМИСА Є» стояло там, де `git cat-file -e
+        origin/main:scripts/review-clone.sh` казав «немає» — хибно зелене на
+        справжньому тікеті. Ворота при цьому не слабшають: команда лишається
+        командою, проза з пробілом — прозою, `NEW:` працює як працював.
+        """
+        found = ip.candidates("`scripts/review-clone.sh <гілка> [--dir <шлях>]`")
+        self.assertEqual([c.path for c in found], ["scripts/review-clone.sh"])
+        self.assertEqual(ip.candidates("`gh issue view <n> --comments`"), [])
+        self.assertEqual(ip.candidates("`python3 scripts/x.py --flag`"), [])
+        self.assertEqual(ip.candidates("`це шлях до файлу`"), [])
+        marked = ip.candidates("`NEW:scripts/x.sh <arg>`")
+        self.assertEqual([(c.path, c.marked_new) for c in marked], [("scripts/x.sh", True)])
+        # І сам вердикт: неіснуючий шлях з аргументами — ВІДМОВА, а не зелене.
+        code, verdicts, _ = judge_body(
+            "центральний шлях — `scripts/review-clone.sh <гілка> [--dir <шлях>]`, "
+            "поруч наявний `AGENTS.md`",
+            {"AGENTS.md"},
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(
+            [(v.candidate.path, v.code) for v in verdicts],
+            [("scripts/review-clone.sh", 1), ("AGENTS.md", 0)],
+        )
+
 
 class JudgeTest(unittest.TestCase):
     def test_missing_path_without_marker_is_refused(self):
@@ -540,6 +658,444 @@ class JudgeTest(unittest.TestCase):
         self.assertIn("docs/agents", tree.calls)
 
 
+class TreeEvidenceTest(unittest.TestCase):
+    """#1281: коротка форма, що знайшла ТЕКУ, не доводить «той самий файл».
+
+    Твердження «одне входження = той самий файл» істинне для блоба й хибне для
+    дерева: односегментне ім'я без розширення (`main`, `tab_settings`) майже
+    завжди є тегом, символом чи ключем, а тека з таким ім'ям на довільній
+    глибині — збіг імені, не доказ. Правило вузьке навмисно: воно не чіпає ні
+    точний шлях, ні теку, знайдену за хвостом БАГАТОСЕГМЕНТНОГО імені.
+    """
+
+    def test_a_bare_name_that_matches_only_a_tree_is_ambiguous(self):
+        # Живий приклад тікета: #982 пише «тега `tab_settings` у `main/` немає»,
+        # а ґард знаходив `app/src/main` — теку на довільній глибині — і казав
+        # «премиса є». Хибний бік був безпечний (пропуск, не відмова), але
+        # твердження «це той самий файл» про теку хибне.
+        code, verdicts, tree = judge_body(
+            "тега `tab_settings` у `main/` немає",
+            {"app/src/main", "app/src/main/AndroidManifest.xml"},
+            trees={"app/src/main"},
+        )
+        self.assertEqual(code, 2)
+        self.assertEqual(verdicts[0].candidate.path, "main")
+        self.assertEqual(verdicts[0].code, 2)
+        self.assertIn("неоднозначне", verdicts[0].detail)
+        self.assertIn("app/src/main", verdicts[0].detail)
+        self.assertIn("suffix:main", tree.calls)
+
+    def test_the_982_body_is_ambiguous_where_it_used_to_say_the_premise_exists(self):
+        # Той самий вхід, що в шапці механізму: справжнє тіло #982 і дерево, у
+        # якому `main` — тека `app/src/main`. Прогін по справжньому #982 —
+        # `--issue 982` — дає той самий вердикт.
+        code, verdicts, _ = judge_body(ISSUE_982_BODY, TREE_OF_982, trees=TREE_OF_982)
+        self.assertEqual(code, 2)
+        self.assertEqual([v.candidate.path for v in verdicts], ["main"])
+        self.assertIn("неоднозначне", verdicts[0].detail)
+        self.assertIn("app/src/main", verdicts[0].detail)
+
+    def test_a_bare_name_that_matches_one_blob_still_passes(self):
+        # Те саме односегментне ім'я без розширення, але знайдений **блоб**:
+        # «одне входження = той самий файл» — саме те, що коротка форма й
+        # обіцяє, і правило про теку цього не відбирає.
+        code, verdicts, _ = judge_body("клич `setup-env/`", {"scripts/setup-env"})
+        self.assertEqual(code, 0)
+        self.assertIn("scripts/setup-env", verdicts[0].detail)
+
+    def test_a_multi_segment_tree_found_by_suffix_still_passes(self):
+        # Свідоме рішення огляду PR #1268 лишається: тека, знайдена за хвостом
+        # багатосегментного імені (`ui/components`), — премиса, а не
+        # неоднозначність. Звузити до неї правило й означало б зламати те, що
+        # вже працює.
+        code, verdicts, _ = judge_body(
+            "тека `ui/components` тут",
+            {"app/src/main/java/com/slukhayka/audiobooks/ui/components"},
+            trees={"app/src/main/java/com/slukhayka/audiobooks/ui/components"},
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(verdicts[0].code, 0)
+        self.assertIn("(тека)", verdicts[0].detail)
+
+    def test_an_exact_tree_path_is_still_the_premise(self):
+        # Точний шлях питається першим і короткої форми не потребує: тікет, який
+        # назвав теку повним шляхом, премису має — і вердикт це каже без
+        # здогадів. Межа правила проходить тут, і проходить явно.
+        code, verdicts, _ = judge_body(
+            "тека `main/` у корені", {"main", "main/app.kt"}, trees={"main"}
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(verdicts[0].detail, "є в origin/main")
+
+    def test_a_bare_name_marked_new_that_matches_a_tree_is_still_refused(self):
+        # Друге плече позначки не слабшає: `NEW:` на ім'я, яке вже є текою в
+        # `main`, лишається відмовою (код 1), а не стає невідомістю. Це межа
+        # правила, названа в коді: питається «чи є щось із таким ім'ям», а не
+        # «чи це той самий файл».
+        code, verdicts, _ = judge_body(
+            "`NEW:main/` створить теку", {"app/src/main"}, trees={"app/src/main"}
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("уже є", verdicts[0].detail)
+
+    def test_the_two_kinds_are_named_in_the_verdict(self):
+        # «Одне входження» для блоба й для теки — різні твердження, тож вердикт
+        # мусить називати, ЩО саме знайдено. Інакше оглядач не відрізнить
+        # премису-файл від премиси-теки, а саме на цьому спіткнувся #982.
+        blob_code, blob_verdicts, _ = judge_body("клич `ci.yml`", {".github/workflows/ci.yml"})
+        tree_code, tree_verdicts, _ = judge_body(
+            "клич `ui/components`", {"web/src/ui/components"}, trees={"web/src/ui/components"}
+        )
+        self.assertEqual((blob_code, tree_code), (0, 0))
+        self.assertNotIn("(тека)", blob_verdicts[0].detail)
+        self.assertIn("web/src/ui/components (тека)", tree_verdicts[0].detail)
+
+    def test_the_same_trailing_slash_is_premise_at_the_root_and_ambiguous_deep(self):
+        # #1301: форма та сама — `docs/` і `drawable/` — а вердикт різний.
+        # Дискримінатор не глибина, а ТОЧНИЙ запис дерева: `docs` знаходить
+        # `main_has_path`, `drawable` — ні, і коротка форма лишає код 2. Звідси
+        # й доказ, що «прибрати асиметрію» формою неможливо: те саме розширення
+        # робить премисою й `main/` із #982, тіло якого пише його З ТИМ САМИМ
+        # хвостовим слешем.
+        root_code, root_verdicts, _ = judge_body(
+            "тека `docs/` у корені", {"docs", "docs/voice.md"}, trees={"docs"}
+        )
+        self.assertEqual(root_code, 0)
+        self.assertEqual(root_verdicts[0].detail, "є в origin/main")
+
+        deep_code, deep_verdicts, _ = judge_body(
+            "тека `drawable/` тут",
+            {"app/src/main/res/drawable", "app/src/main/res/drawable/img.jpg"},
+            trees={"app/src/main/res/drawable"},
+        )
+        self.assertEqual(deep_code, 2)
+        self.assertIn("app/src/main/res/drawable", deep_verdicts[0].detail)
+
+        self.assertIn("`main/`", ISSUE_982_BODY)
+        code, _, _ = judge_body(ISSUE_982_BODY, TREE_OF_982, trees=TREE_OF_982)
+        self.assertEqual(code, 2)
+
+        # Розширення, яке «прибирає» асиметрію, відкриває #982 назад: без
+        # правила про теку те саме тіло дає 0 — тобто хибну премису там, де
+        # тікет казав про тег, а не про теку.
+        with mock.patch.object(ip, "_is_bare_name", lambda _path: False):
+            widened, widened_verdicts, _ = judge_body(
+                ISSUE_982_BODY, TREE_OF_982, trees=TREE_OF_982
+            )
+        self.assertEqual(widened, 0)
+        self.assertIn("app/src/main", widened_verdicts[0].detail)
+
+
+class BareTreeMeasureTest(unittest.TestCase):
+    """Ціна правила про теку (#1301) — числом, яке виводить сам механізм.
+
+    Клас — не «теки взагалі», а рівно те, що `judge` переносить із 0 у 2:
+    односегментне ім'я без розширення, не кореневе, чия коротка форма дає рівно
+    один збіг, і це ДЕРЕВО. Тест жене документовану команду на ВЛАСНОМУ
+    репозиторії (у CI `origin/main` не існує — раннер фетчить merge-ref, тож
+    чекаут тут питати не можна) і звіряє її вивід із вердиктом `check_body`:
+    вимір і вердикт мусять міряти те саме правило, а не два схожі.
+    """
+
+    def test_the_documented_command_counts_the_same_class_the_verdict_makes_ambiguous(self):
+        base = Path(tempfile.mkdtemp(prefix="issue-premise-bare-trees-"))
+        self.addCleanup(shutil.rmtree, base, True)
+        repo = build_repo(
+            base,
+            {
+                "docs/voice.md": "voice\n",
+                "assets/drawable/img.jpg": "jpg\n",
+                "libs/twins/a.kt": "a\n",
+                "web/twins/b.kt": "b\n",
+                "scripts/marker": "блоб, не тека\n",
+                "notes.txt": "файл\n",
+            },
+        )
+        proc = subprocess.run(
+            [
+                sys.executable, str(REPO_ROOT / "scripts" / "issue_premise.py"),
+                "--measure-bare-trees", "--ref", "origin/main", "--repo", str(repo),
+            ],
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        printed = [
+            line.strip() for line in proc.stdout.splitlines() if line.startswith("    ")
+        ]
+        # Рівно те, що вердикт робить неоднозначним: глибока тека `drawable` —
+        # так; кореневе `docs` — ні (точний шлях знаходить його першим);
+        # `twins` — ні (два збіги, воно було неоднозначним і до правила);
+        # `marker` — ні (блоб, а не дерево); `notes.txt` — ні (розширення).
+        self.assertEqual(printed, ["drawable"])
+        # Ті самі предикати, інші фільтри — і режим називає числа сам, а не лише
+        # ціну: `twins` входить у «будь-який збіг-дерево», кореневі (`assets`,
+        # `docs`, `libs`, `scripts`, `web`) — у «разом із кореневими», і саме їх
+        # п'ять і є ціною симетрії вниз.
+        for line in (
+            "єдина коротка форма — дерево): 1",
+            "без крапки в імені, не кореневі, єдина коротка форма — дерево: 1",
+            "разом із кореневими, єдина коротка форма — дерево: 6",
+            "без крапки в імені, разом із кореневими, єдина коротка форма — дерево: 6",
+            "не кореневі, будь-який збіг — дерево: 2",
+            "без крапки в імені, не кореневі, будь-який збіг — дерево: 2",
+            "стільки імен перейде 0 → 2: 5",
+        ):
+            self.assertIn(line, proc.stdout)
+
+        for name in printed:
+            # Слеш обов'язковий: голе ім'я без розширення кандидатом не стає
+            # взагалі (`_is_path_like`), тож у тілі тікета така тека пишеться
+            # саме як `drawable/`.
+            code, verdicts = ip.check_body(f"тека `{name}/`", "origin/main", repo)
+            self.assertEqual(code, 2)
+            self.assertIn("неоднозначне", verdicts[0].detail)
+        # Кореневий кінець не платить — і це не «симетрія», а точний запис.
+        root_code, root_verdicts = ip.check_body("тека `docs/`", "origin/main", repo)
+        self.assertEqual(root_code, 0)
+        self.assertEqual(root_verdicts[0].detail, "є в origin/main")
+
+        with mock.patch.object(ip, "resolve_main_ref", return_value=(False, "nope")):
+            self.assertEqual(ip.measure_bare_trees("origin/main"), 2)
+
+
+def price_drift_note(recorded: dict, printed: dict, ref: str, revision: str) -> str:
+    """Причина розходження виміру з реєстром — у ТЕКСТІ, а не в здогаді (огляд PR #1311, C).
+
+    Застарілий локальний `origin/main` дає червоне з числами, які **виглядають
+    справжніми** (73/72/78/76/127/126 замість 75/74/80/78/132/131): винен не
+    код, а джерело. Діагноз «ref застарілий» не можна лишати оглядачеві — інакше
+    це той самий клас «червоне, яке виглядає як знахідка», проти якого стоїть
+    весь реєстр. Тому відмова називає **виміряну ревізію** й ревізію реєстру, а
+    не лише те, що числа не зійшлися.
+    """
+    if recorded == printed:
+        return "шапки звіряються з реєстром, а реєстр — із прогоном команди"
+    differences = ", ".join(
+        "«%s»: реєстр %s, вимір %s" % (key, recorded.get(key), printed.get(key))
+        for key in dict.fromkeys([key for key, _ in ip.PRICES] + sorted(printed))
+        if recorded.get(key) != printed.get(key)
+    )
+    return (
+        "вимір на %s (%s) дав інші числа, ніж реєстр (ref %s, %s): %s. "
+        "Або дерево змінилося, або локальний ref застарілий — тоді "
+        "`git fetch origin main`."
+        % (ref, revision[:8], ip.PRICE_REF, ip.PRICE_DATE, differences)
+    )
+
+
+class PriceRecordTest(unittest.TestCase):
+    """Реєстр ціни (#1308): числа шапок — дані, і їх відтворює названа команда.
+
+    Гейт (`doc_numbers.py`) читає РЕЄСТР `PRICES`, а не git: копія дерева, у
+    якій біжить кожен сторож, `.git` не містить, а в CI чекаут не має
+    `origin/main` (раннер фетчить merge-ref) — джерело, яке кличе git, дало б
+    там нуль і почервонило б усе, що на нього спирається. Тому правдивість
+    реєстру доводить прогоном ЦЕЙ тест — там, де ref читається. Де не читається,
+    він каже це вголос, а не видає неперевірене за зелене.
+
+    Розходження через застарілий ref — теж **червоне**, і воно мусить називати
+    винуватця в тексті (`price_drift_note`): ревізію, яку міряли, і ревізію
+    реєстру. Інакше оглядач бачить справжні на вигляд числа й шукає вину в коді.
+    """
+
+    def test_the_recorded_prices_are_what_the_documented_command_prints(self):
+        ok, revision = ip.resolve_main_ref(ip.MAIN_REF, REPO_ROOT)
+        if not ok:
+            self.skipTest("ref %s не читається — реєстр тут не перевірено" % ip.MAIN_REF)
+        proc = subprocess.run(
+            [
+                sys.executable, str(REPO_ROOT / "scripts" / "issue_premise.py"),
+                "--measure-bare-trees",
+                "--ref", ip.MAIN_REF, "--repo", str(REPO_ROOT),
+            ],
+            capture_output=True, text=True, check=False,
+        )
+        # Код 2 — це саме «ref не читається, міряти нічого»: так інструмент
+        # відповідає на дерево, у якому git-виклик не бачить ref. Скіп тут
+        # обовʼязковий, бо перевірка вище (`resolve_main_ref`) у КОПІЇ дерева
+        # проходить: git піднімається вгору до справжнього `.git`, а вимір у
+        # копії — ні. Без цієї гілки набір-свідок `test_empty_shape_mutants`
+        # ставав червоним «без мутації» на будь-якій машині (перевірено: і на
+        # стані `main` із реєстром 75, і з 76).
+        if proc.returncode == 2:
+            self.skipTest("ref %s не читається в цьому дереві — міряти нічого" % ip.MAIN_REF)
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        printed = {}
+        for line in proc.stdout.splitlines():
+            entry = line.strip()
+            if not entry.startswith("— "):
+                continue
+            key, _, value = entry[2:].rpartition(": ")
+            printed[key.strip("«»")] = int(value)
+        self.assertEqual(
+            dict(ip.PRICES), printed,
+            price_drift_note(dict(ip.PRICES), printed, ip.MAIN_REF, revision),
+        )
+
+    def test_a_stale_ref_is_named_in_the_refusal_note(self):
+        """Межа (C): «червоне, яке виглядає як знахідка» мусить називати винуватця.
+
+        Той самий червоний, але в тексті — виміряна ревізія, ревізія реєстру й
+        підказка `git fetch origin main`; без них діагноз доводилося б угадувати.
+        """
+        recorded = dict(ip.PRICES)
+        stale = {key: value - 2 for key, value in ip.PRICES}
+        note = price_drift_note(recorded, stale, ip.MAIN_REF, "deadbeefcafe1234")
+        self.assertIn("deadbeef", note)
+        self.assertIn(ip.PRICE_REF, note)
+        self.assertIn(ip.PRICE_DATE, note)
+        self.assertIn("git fetch origin main", note)
+        # Різниця названа ПО КЛАСУ, і числа тут не хардкодяться: реєстр рухається
+        # разом із деревом `main`, а тест мусить пережити його оновлення.
+        first_key, first_value = ip.PRICES[0]
+        self.assertIn(
+            "«%s»: реєстр %d, вимір %d" % (first_key, first_value, first_value - 2),
+            note,
+        )
+        self.assertEqual(
+            "шапки звіряються з реєстром, а реєстр — із прогоном команди",
+            price_drift_note(recorded, recorded, ip.MAIN_REF, "deadbeefcafe1234"),
+        )
+
+    def test_the_record_names_the_revision_it_was_measured_on(self):
+        """Реєстр без ревізії — число, якому нема з чим звіритися."""
+        self.assertTrue(ip.PRICE_REF, "реєстр мусить називати ревізію")
+        self.assertTrue(ip.PRICE_DATE, "реєстр мусить називати дату")
+        self.assertIn("--measure-bare-trees", ip.PRICE_COMMAND)
+
+    def test_the_record_is_about_the_main_ref_the_guard_judges(self):
+        """Реєстр — про той самий ref, який судить ґард: інакше він не про те."""
+        self.assertEqual(ip.MAIN_REF, "origin/main")
+
+    def test_a_class_without_a_record_is_an_error_not_a_silent_truncation(self):
+        """Реєстр і вимір звіряються по позиції — і розійтися за довжиною не сміють."""
+        with mock.patch.object(ip, "PRICES", ip.PRICES[:-1]):
+            with self.assertRaises(ValueError):
+                ip.measured_prices(ip.MAIN_REF)
+
+
+class ScanWindowRecordTest(unittest.TestCase):
+    """Запис `gh`-вікна (#1328): числа кроку премиси — дані, а не проза.
+
+    Гейт (`doc_numbers.py`) читає РЕЄСТР `SCAN_WINDOW` із ДЖЕРЕЛА (`ast`), як
+    `PRICES`: у нього немає ні `gh`, ні мережі. Різниця між реєстрами названа в
+    самому `SCAN_WINDOW`, і вона одна: `PRICES` відтворюється на нерухомому
+    ref-і, а вікно — ЗНІМОК рухомого списку тікетів.
+
+    Тому живого виклику тут немає, і ціна названа виміром, а не обіцянкою:
+    окремий `--scan 200` — це 201 виклик `gh` і 112 с на цій машині; коли цей
+    виклик стояв у тесті, він коштував 114.6 с і підіймав набір до 456 с при
+    ліміті джоби `script-tests` у 480 с — впритул; під ПІДСТАВНИМ `gh` набір іде
+    283 с на 741 тест. Живий виклик тут червонив би в CI ЗАВЖДИ (`GH_TOKEN`
+    джоба не виставляє). Свідок — сама команда `--scan 200`: вона друкує вимір у
+    формі запису й називає розходження (`scan_drift_note`), і оновлює реєстр
+    руками той, хто її прогнав. Список тікетів при цьому завжди ПОТОЧНИЙ: жоден
+    ref його не обмежує, `ref`/`repo` судять лише ШЛЯХИ (`check_body`).
+    """
+
+    def test_the_record_names_the_revision_date_limit_and_command(self):
+        self.assertTrue(ip.SCAN_REF, "реєстр мусить називати ревізію")
+        self.assertTrue(ip.SCAN_DATE, "реєстр мусить називати дату")
+        self.assertEqual(200, ip.SCAN_LIMIT)
+        self.assertIn("--scan 200", ip.SCAN_COMMAND)
+
+    def test_the_classes_partition_the_window(self):
+        """Сума класів — це і є вікно: інакше запис не про вікно, а про зріз."""
+        self.assertEqual(
+            ip.SCAN_LIMIT, sum(value for _, value in ip.SCAN_WINDOW),
+            "чотири класи мусять ділити вікно без решти",
+        )
+
+    def test_the_record_and_the_measurement_cannot_diverge_in_length(self):
+        """Клас без місця у вимірі — помилка, а не мовчазне усічення `zip`.
+
+        Вимір тут — ПІДСТАВКА, а не живий `gh`: довжини — чиста властивість, і
+        тест, який кликав би мережу, червонив би в CI ЗАВЖДИ (джоба
+        `script-tests` не виставляє `GH_TOKEN`, і `gh` там не працює) — рівно
+        той клас, проти якого стоїть реєстр.
+        """
+        printed = (1, 2, 3)  # коротший за реєстр
+        with mock.patch.object(
+            ip, "measure_scan_window", return_value=(printed, ())
+        ):
+            with self.assertRaises(ValueError):
+                ip.measured_scan_window()
+
+    def test_the_documented_scan_command_reports_the_record_under_a_stub_gh(self):
+        """Живий вимір — під ПІДСТАВНИМ `gh`, як і решта набору (#1328).
+
+        `GH_STUB` дає два тікети, у тілі яких названо шлях дерева: форма запису
+        мусить надрукувати КЛЮЧІ `SCAN_WINDOW` з виміряними числами, а нота —
+        НАЗВАТИ ревізію реєстру й виміряну. Мережі й облікових даних тут немає,
+        тож тест працює і в CI.
+        """
+        base = Path(tempfile.mkdtemp(prefix="issue-premise-scan-"))
+        self.addCleanup(shutil.rmtree, base, True)
+        repo = build_repo(base, {"docs/voice.md": "voice\n"})
+        stub = base / "bin"
+        stub.mkdir()
+        gh = stub / "gh"
+        gh.write_text(GH_STUB, encoding="utf-8")
+        gh.chmod(0o755)
+        environment = {
+            "PATH": os.pathsep.join([str(stub), "/usr/bin:/bin"]),
+            "HOME": str(base),
+            "LC_ALL": "C",
+        }
+        proc = subprocess.run(
+            [
+                sys.executable, str(REPO_ROOT / "scripts" / "issue_premise.py"),
+                "--scan", "2", "--ref", "origin/main", "--repo", str(repo),
+            ],
+            capture_output=True, text=True, check=False, env=environment,
+        )
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        for key, _ in ip.SCAN_WINDOW:
+            self.assertIn("— «%s»:" % key, proc.stdout, proc.stdout)
+        self.assertIn(ip.SCAN_REF, proc.stdout)
+        self.assertIn("РУХОМЕ", proc.stdout)
+        self.assertIn("переміряй і онови", proc.stdout)
+
+    def test_a_missing_gh_is_an_unknown_not_a_zero(self):
+        """Немає `gh` — невідомість, а не «нуль тікетів» (та сама межа, що в `ci_job_time`)."""
+        with mock.patch.object(ip.subprocess, "run", side_effect=FileNotFoundError):
+            with self.assertRaises(ip.ScanError):
+                ip.measure_scan_window(ip.SCAN_LIMIT, "HEAD")
+
+    def test_an_unmeasurable_window_is_code_two(self):
+        with mock.patch.object(ip, "resolve_main_ref", return_value=(True, "deadbeef")):
+            with mock.patch.object(
+                ip, "measure_scan_window", side_effect=ip.ScanError("немає `gh` у PATH")
+            ):
+                with contextlib.redirect_stderr(io.StringIO()) as err:
+                    code = ip.scan(ip.SCAN_LIMIT, ip.MAIN_REF)
+        self.assertEqual(2, code)
+        self.assertIn("gh", err.getvalue())
+
+    def test_the_drift_note_names_the_revision_and_the_record(self):
+        """Розходження мусить називати винуватця — інакше це «червоне, схоже на знахідку».
+
+        Вікно рухається ЗАВЖДИ, тож «числа не зійшлися» без ревізії й дати
+        реєстру змушувало б оглядача шукати вину в коді.
+        """
+        recorded = dict(ip.SCAN_WINDOW)
+        printed = dict(recorded)
+        key = ip.SCAN_WINDOW[0][0]
+        printed[key] = recorded[key] + 2
+        note = ip.scan_drift_note(recorded, printed, ip.MAIN_REF, "584dda73abcdef")
+        self.assertIn(ip.SCAN_REF, note)
+        self.assertIn(ip.SCAN_DATE, note)
+        self.assertIn("584dda73", note)
+        self.assertIn(
+            "«%s»: реєстр %d, вимір %d" % (key, recorded[key], recorded[key] + 2),
+            note,
+        )
+        self.assertIn(
+            "вікно збіглося",
+            ip.scan_drift_note(recorded, recorded, ip.MAIN_REF, "x"),
+        )
+
+
 class RealIssueTest(unittest.TestCase):
     """Обидва прогони вимоги 1 — на справжньому тілі #1261 і на валідній премисі."""
 
@@ -565,6 +1121,254 @@ class RealIssueTest(unittest.TestCase):
         passed, _, _ = judge_body(VALID_PREMISE_BODY, tree)
         self.assertEqual(refused, 1)
         self.assertEqual(passed, 0)
+
+
+class GhTest(unittest.TestCase):
+    """`gh` немає — названа невідомість (код 2), а не стек (#1329).
+
+    Той самий клас, що `ci_job_time.RefusalTest.test_a_missing_gh_is_an_unknown_not_a_zero`.
+    Тут він навантажений дужче: `new-lane.sh` кличе цей механізм на КОЖНІЙ смузі,
+    тож `FileNotFoundError` з надр `subprocess` зупиняв координатора стеком
+    замість причини.
+    """
+
+    def run_without_gh(self, *arguments: str):
+        """Прогін механізму там, де `gh` у `PATH` немає зовсім.
+
+        `git` при цьому лишається — символічним посиланням, а не спадком
+        `PATH`: `--scan` питає дерево ПЕРШИМ, і порожній `PATH` зламав би
+        `git_output` раніше за питання про `gh` — тобто сторож міряв би не ту
+        діру. Так само зроблено в `test_ci_job_time` (порожня тека замість
+        спадку), але там `gh` питається першим, і `git` не потрібен.
+        """
+        base = Path(tempfile.mkdtemp(prefix="issue-premise-nogh-"))
+        self.addCleanup(shutil.rmtree, base, True)
+        empty = base / "bin"
+        empty.mkdir()
+        git = shutil.which("git")
+        if git is None:
+            self.skipTest("немає `git` — до питання про `gh` не дійти")
+        (empty / "git").symlink_to(git)
+        environment = {"PATH": str(empty), "HOME": str(base), "LC_ALL": "C"}
+        return subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "issue_premise.py"), *arguments],
+            capture_output=True, text=True, check=False, env=environment,
+        )
+
+    def test_a_missing_gh_is_an_unknown_not_a_stack(self):
+        """Сторож #1329: без `gh` — код 2 із названою причиною, не трасування.
+
+        Перевіряються всі три режими, які питають `gh`: `--issue`, `--scan` і
+        вимір. Причина спільна — `gh_executable`, — але шляхи до неї різні, і
+        саме `--scan`/вимір питають дерево ПЕРШИМ: якби вони зверталися до `gh`
+        повз `gh_executable`, сторож бачив би лише `--issue`.
+
+        `--ref HEAD` і свій `--repo` — не декор: у CI чекаут не має
+        `origin/main` (раннер фетчить merge-ref), і без них `--scan` спинився б
+        на недійсному ref-і, а не на відсутньому `gh` — тобто сторож міряв би
+        не ту діру.
+        """
+        base = Path(tempfile.mkdtemp(prefix="issue-premise-nogh-repo-"))
+        self.addCleanup(shutil.rmtree, base, True)
+        repo = build_repo(base, {"AGENTS.md": "# Agent instructions\n"})
+        for mode in (
+            ["--quiet", "--issue", "1329"],
+            ["--scan", "3", "--ref", "HEAD", "--repo", str(repo)],
+            ["--measure-prose-numbers", "--scan-limit", "3",
+             "--ref", "HEAD", "--repo", str(repo)],
+        ):
+            with self.subTest(mode=mode):
+                proc = self.run_without_gh(*mode)
+                self.assertEqual(2, proc.returncode, "stdout=%r stderr=%r" % (proc.stdout, proc.stderr))
+                self.assertIn("немає `gh`", proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
+                # Порожній stdout — не косметика: `new-lane.sh` читає саме його
+                # як «вердикту немає» і НЕ створює смуги. Названа причина не
+                # мусить виглядати як вердикт.
+                self.assertEqual("", proc.stdout)
+
+    def test_a_gh_that_cannot_read_the_ticket_is_an_unknown_not_a_refusal(self):
+        """Наявний, але помилковий `gh` (403, rate limit) — код 2, не код 1.
+
+        Код 1 у контракті — «ВІДМОВА: премиси немає». `read_body` на проваленому
+        `gh issue view` кидав `SystemExit`, тобто рівно 1: «не зміг прочитати
+        тікет» виглядало як «тікет застарів» (знахідка огляду #1329).
+
+        Ламається РІВНО гілка `issue view` зареєстрованої фікстури `GH_STUB`:
+        окремої програми не заводимо, це та сама програма з іншим виходом.
+        """
+        broken = GH_STUB.replace(
+            '''  "issue view") printf 'читай `docs/voice.md`\\n' ;;''',
+            '''  "issue view") printf 'Bad credentials\\n' >&2; exit 1 ;;''',
+        )
+        self.assertNotEqual(broken, GH_STUB, "фікстура змінилася — правка не діє")
+        base = Path(tempfile.mkdtemp(prefix="issue-premise-ghfail-"))
+        self.addCleanup(shutil.rmtree, base, True)
+        stub = base / "bin"
+        stub.mkdir()
+        gh = stub / "gh"
+        gh.write_text(broken, encoding="utf-8")
+        gh.chmod(0o755)
+        environment = {
+            "PATH": os.pathsep.join([str(stub), "/usr/bin:/bin"]),
+            "HOME": str(base),
+            "LC_ALL": "C",
+        }
+        proc = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "issue_premise.py"),
+             "--quiet", "--issue", "1329"],
+            capture_output=True, text=True, check=False, env=environment,
+        )
+        self.assertEqual(2, proc.returncode, "stdout=%r stderr=%r" % (proc.stdout, proc.stderr))
+        self.assertIn("Bad credentials", proc.stderr)
+        self.assertNotIn("Traceback", proc.stderr)
+        # І вердикту немає: причина названа, а не видана за «премиси немає».
+        self.assertEqual("", proc.stdout)
+
+
+class GitTest(unittest.TestCase):
+    """`git` немає — названа невідомість (код 2), а не стек (#1329).
+
+    Той самий клас, що діра 2 для `gh`, і та сама конвенція, що в
+    `ci_job_time.py` (`shutil.which("git")`). Через `new-lane.sh` ця діра
+    недосяжна — крок сам потребує `git`, — але «назвав відсутній `gh` і не
+    назвав відсутній `git`» лишало б у коді два способи робити одне (знахідка
+    доогляду).
+    """
+
+    def test_a_missing_git_is_an_unknown_not_a_stack(self):
+        """Без `git` — код 2 із названою причиною на всіх трьох шляхах до нього.
+
+        `--body-file` доходить до `git` у `check_body` (`resolve_main_ref`),
+        `--scan` і вимір — одразу; `--issue` першим питає `gh`, і тут `gh` теж
+        немає, тож він назве `gh` — і це так само код 2, а не стек.
+        """
+        base = Path(tempfile.mkdtemp(prefix="issue-premise-nogit-"))
+        self.addCleanup(shutil.rmtree, base, True)
+        empty = base / "bin"
+        empty.mkdir()
+        body = base / "body.md"
+        body.write_text("читай `AGENTS.md`\n", encoding="utf-8")
+        environment = {"PATH": str(empty), "HOME": str(base), "LC_ALL": "C"}
+        for arguments, named in (
+            (("--body-file", str(body)), "немає `git`"),
+            (("--scan", "3"), "немає `git`"),
+            (("--measure-prose-numbers", "--scan-limit", "3"), "немає `git`"),
+            (("--quiet", "--issue", "1329"), "немає `gh`"),
+        ):
+            with self.subTest(arguments=arguments):
+                proc = subprocess.run(
+                    [sys.executable, str(REPO_ROOT / "scripts" / "issue_premise.py"),
+                     *arguments],
+                    capture_output=True, text=True, check=False, env=environment,
+                )
+                self.assertEqual(2, proc.returncode, "stdout=%r stderr=%r" % (proc.stdout, proc.stderr))
+                self.assertIn(named, proc.stderr)
+                self.assertNotIn("Traceback", proc.stderr)
+                # Причина названа, а не видана за вердикт: stdout порожній.
+                self.assertEqual("", proc.stdout)
+
+
+class ProseNumberMeasureTest(unittest.TestCase):
+    """Вимір чисел у ПРОЗІ (#1329) — межа з числом, а не мовчазна діра.
+
+    Сторож ВИКЛИКАЄ команду з документа, а не читає `--help` (той самий
+    прийом, що для `--measure-head`): вирізана опція мусить червонити сторожа, а
+    не лишати підрядок у help.
+    """
+
+    def run_with_gh_stub(self, stub_text: str, *arguments: str):
+        """Прогін механізму на підставленому `gh` і своєму дереві з `origin/main`."""
+        base = Path(tempfile.mkdtemp(prefix="issue-premise-prose-"))
+        self.addCleanup(shutil.rmtree, base, True)
+        repo = build_repo(base, {"AGENTS.md": "# Agent instructions\n"})
+        stub = base / "bin"
+        stub.mkdir()
+        gh = stub / "gh"
+        gh.write_text(stub_text, encoding="utf-8")
+        gh.chmod(0o755)
+        environment = {
+            "PATH": os.pathsep.join([str(stub), "/usr/bin:/bin"]),
+            "HOME": str(base),
+            "LC_ALL": "C",
+        }
+        return subprocess.run(
+            [
+                sys.executable, str(REPO_ROOT / "scripts" / "issue_premise.py"),
+                *arguments, "--ref", "origin/main", "--repo", str(repo),
+            ],
+            capture_output=True, text=True, check=False, env=environment,
+        )
+
+    def test_a_bare_noun_without_a_number_is_not_a_figure(self):
+        """Сторож СЕМАНТИКИ метрики, а не існування опції (знахідка огляду).
+
+        Перша версія #1329 збирала клас як `\\d{1,4}\\s+` + список альтернатив
+        БЕЗ групи, і `|шлях…` виносило альтернативи на верхній рівень усього
+        регекса: «у тілі немає жодного шляху» — рядок без жодної цифри — давав
+        дві фігури, а вимір на 200 тілах — 172 замість 17. Сторож, який лише
+        ВИКЛИКАЄ команду, цього не бачив: він лишався зелений і на зламаному
+        групуванні. Тут питання поставлено прямо до метрики.
+        """
+        bare = ip.prose_number_tickets("у тілі немає жодного шляху, і копій теж")
+        self.assertEqual(bare, {name: 0 for name, _ in ip.PROSE_NUMBER_CLASSES},
+                         "голий іменник без числа — не фігура: %r" % (bare,))
+        # І навпаки: число перед тим самим іменником — фігура того самого класу.
+        counted = ip.prose_number_tickets("у дереві 900 шляхів")
+        self.assertEqual(counted["число + іменник-одиниця"], 1)
+        self.assertEqual(counted["число + іменник РЕЄСТРУ"], 0)
+
+    def test_a_bare_registry_noun_without_a_number_is_not_a_figure(self):
+        """СУСІДНІЙ рядок драбини — той самий дефект (знахідка доогляду).
+
+        Групу мають ОБИДВА рядки `PROSE_NUMBER_CLASSES`, і сторож пінив лише
+        «іменник-одиниця»: знята `(?:…)` з РЕЄСТР-рядка лишала всі 736 тестів
+        зеленими, а метрика стрибала 4/7 → 121/314 — та сама хибна фігура, лише
+        на сусідньому рядку. Тут питання поставлено до РЕЄСТР-рядка: рядок без
+        жодної цифри, у якому є самі лише іменники реєстру.
+        """
+        bare = ip.prose_number_tickets("у тілі немає жодного запису, ні межі, ні сторожів")
+        self.assertEqual(bare, {name: 0 for name, _ in ip.PROSE_NUMBER_CLASSES},
+                         "голий іменник РЕЄСТРУ без числа — не фігура: %r" % (bare,))
+        # І навпаки: число перед тим самим іменником — фігура класу РЕЄСТРУ.
+        counted = ip.prose_number_tickets("реєстр має 22 сторожі")
+        self.assertEqual(counted["число + іменник РЕЄСТРУ"], 1)
+
+    def test_the_documented_command_counts_prose_numbers(self):
+        proc = self.run_with_gh_stub(
+            PROSE_GH_STUB, "--measure-prose-numbers", "--scan-limit", "4"
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        # Драбина ціла; число в бектиках (#3) і голий іменник без числа (#4) не
+        # рахуються — саме #4 червонить зламане групування (було б 3 тікети).
+        self.assertIn("будь-яке число в прозі: 2 тікетів, 2 фігур", proc.stdout)
+        self.assertIn("число + іменник-одиниця: 2 тікетів, 2 фігур", proc.stdout)
+        self.assertIn("число + іменник РЕЄСТРУ: 1 тікетів, 1 фігур", proc.stdout)
+        self.assertIn("«число + іменник РЕЄСТРУ»: #1", proc.stdout)
+
+    def test_an_unread_ticket_is_named_and_not_a_zero(self):
+        """Провалений fetch — не «0 фігур» і не «шляхів немає» (знахідка огляду).
+
+        `gh issue view` віддавав `.stdout` без перевірки коду виходу, тож тікет,
+        якого `gh` не віддав (403, rate limit, обрив), падав у відро «шляхів у
+        бектиках немає» в `--scan` і давав нуль фігур у вимірі — «не прочитав»
+        було не відрізнити від «прочитав, шляхів немає». Тут ламається РІВНО
+        гілка #2 зареєстрованої фікстури `PROSE_GH_STUB`: окремої програми не
+        заводимо, це та сама програма з одним зламаним виходом.
+        """
+        broken = PROSE_GH_STUB.replace(
+            "      2) printf 'у дереві 900 шляхів\\n' ;;", "      2) exit 1 ;;"
+        )
+        self.assertNotEqual(broken, PROSE_GH_STUB, "фікстура змінилася — правка не діє")
+        for arguments in (
+            ("--scan", "4"),
+            ("--measure-prose-numbers", "--scan-limit", "4"),
+        ):
+            with self.subTest(arguments=arguments):
+                proc = self.run_with_gh_stub(broken, *arguments)
+                self.assertEqual(2, proc.returncode, "stdout=%r stderr=%r" % (proc.stdout, proc.stderr))
+                # #2 НАЗВАНИЙ, а не розчинений у «шляхів немає» / «0 фігур».
+                self.assertIn("НЕ ПРОЧИТАНО (gh не віддав тіло): 1 — #2", proc.stdout)
 
 
 class MainRefTest(unittest.TestCase):
@@ -598,21 +1402,54 @@ class MainRefTest(unittest.TestCase):
 
         def fake_git(args, repo=None):
             calls.append(args)
-            return 0, "a/b/ci.yml\nc/ci.yml\n", ""
+            return 0, "100644 blob aaa\ta/b/ci.yml\n100644 blob bbb\tc/ci.yml\n", ""
 
         with mock.patch.object(ip, "git_output", fake_git):
             matches = ip.main_matches_suffix("origin/main", "ci.yml")
-        self.assertEqual(matches, ["a/b/ci.yml", "c/ci.yml"])
+        self.assertEqual(
+            [(match.path, match.kind) for match in matches],
+            [("a/b/ci.yml", "blob"), ("c/ci.yml", "blob")],
+        )
         # `-t` обов'язковий: без нього каталог у `main` не знаходився ніколи
-        # (знахідка огляду PR #1268).
-        self.assertEqual(calls[0][:4], ["ls-tree", "-r", "-t", "--name-only"])
-        self.assertEqual(calls[0][4], "origin/main")
+        # (знахідка огляду PR #1268). `--name-only` прибрано навмисно: він
+        # відкидає тип, а без типу вердикт не відрізняє блоб від дерева (#1281).
+        self.assertEqual(calls[0][:3], ["ls-tree", "-r", "-t"])
+        self.assertNotIn("--name-only", calls[0])
+        self.assertEqual(calls[0][3], "origin/main")
+
+    def test_the_suffix_lookup_reads_the_object_type(self):
+        # Тип береться з поля об'єкта (`<mode> <type> <sha>\t<path>`), а не
+        # вгадується з імені: тека `ci.yml` — теж тека, хоч і виглядає файлом.
+        def fake_git(args, repo=None):
+            return 0, ("100644 blob aaa\tsrc/ci.yml\n"
+                       "040000 tree bbb\tfixtures/ci.yml\n"), ""
+
+        with mock.patch.object(ip, "git_output", fake_git):
+            matches = ip.main_matches_suffix("origin/main", "ci.yml")
+        self.assertEqual(
+            [(match.path, match.kind) for match in matches],
+            [("fixtures/ci.yml", "tree"), ("src/ci.yml", "blob")],
+        )
+
+    def test_a_ls_tree_line_without_a_type_is_not_a_match(self):
+        # Незрозумілий рядок не сміє вдати блоб: «премиса є» з нього було б
+        # тихіше за відмову. Рядок, якого механізм не розібрав, не стає збігом
+        # — тож вердикт іде в бік відмови, а не в бік пропуску.
+        def fake_git(args, repo=None):
+            return 0, "a/b/ci.yml\n", ""
+
+        with mock.patch.object(ip, "git_output", fake_git):
+            self.assertEqual(ip.main_matches_suffix("origin/main", "ci.yml"), [])
 
     def test_suffix_lookup_sees_directories_not_only_blobs(self):
         # Справжній приклад: `ui/components` у дереві є, але лише як теки.
         code, verdicts, _ = judge_body(
             "`ui/components` і `ui/adaptive`",
             {
+                "app/src/main/java/com/slukhayka/audiobooks/ui/components",
+                "app/src/main/java/com/slukhayka/audiobooks/ui/adaptive",
+            },
+            trees={
                 "app/src/main/java/com/slukhayka/audiobooks/ui/components",
                 "app/src/main/java/com/slukhayka/audiobooks/ui/adaptive",
             },
@@ -704,7 +1541,19 @@ class RealGitTest(unittest.TestCase):
     def test_suffix_lookup_sees_directories_through_real_git(self):
         # `-t` на справжньому дереві: тека є лише деревом, не блобом.
         matches = ip.main_matches_suffix("origin/main", "ui/components", self.repo)
-        self.assertEqual(matches, ["ui/components"])
+        self.assertEqual([(match.path, match.kind) for match in matches],
+                         [("ui/components", "tree")])
+
+    def test_a_bare_directory_name_is_ambiguous_through_real_git(self):
+        # Той самий ланцюг, що #982, але справжнім git: `components/` —
+        # односегментне ім'я без розширення, і єдина коротка форма — ТЕКА.
+        code, verdicts = ip.check_body(
+            "тега `x` у `components/` немає", "origin/main", self.repo
+        )
+        self.assertEqual(code, 2)
+        self.assertEqual(verdicts[0].candidate.path, "components")
+        self.assertIn("неоднозначне", verdicts[0].detail)
+        self.assertIn("ui/components", verdicts[0].detail)
 
     def test_ignored_path_goes_through_the_repository_gitignore(self):
         self.assertTrue(ip._is_ignored(".mutations", self.repo))
@@ -749,8 +1598,12 @@ class RealGitTest(unittest.TestCase):
         real_run = subprocess.run
 
         def git_only(args, *rest, **kwargs):
-            if list(args)[:1] != ["git"]:
-                raise AssertionError(f"gh на нечитабельному ref-і кликати нічого: {args}")
+            # Шлях до `git` тепер РОЗВ'ЯЗАНИЙ (`git_executable` → `shutil.which`),
+            # тож звіряється ім'я, а не рядок `"git"`. Заборона лишається та
+            # сама: на нечитабельному ref-і кличеться `git` — і жодного `gh`.
+            called = os.path.basename(str(list(args)[0]))
+            if called != "git":
+                raise AssertionError(f"кликати нічого, крім git: {args}")
             return real_run(args, *rest, **kwargs)
 
         printed, errors = io.StringIO(), io.StringIO()

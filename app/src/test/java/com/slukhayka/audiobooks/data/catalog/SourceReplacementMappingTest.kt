@@ -2,7 +2,7 @@ package com.slukhayka.audiobooks.data.catalog
 
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.search.SearchCache
-import com.slukhayka.audiobooks.data.search.SearchQueryKey
+import com.slukhayka.audiobooks.data.search.SearchDocumentId
 import com.slukhayka.audiobooks.data.search.SearchResultCodec
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.source.SourceBook
@@ -35,11 +35,11 @@ class SourceReplacementMappingTest {
         val documents = HashMap<String, Map<String, Any>>()
         val written = mutableListOf<String>()
 
-        override suspend fun readDocument(queryKey: String): Map<String, Any>? = documents[queryKey]
+        override suspend fun readDocument(documentId: String): Map<String, Any>? = documents[documentId]
 
-        override suspend fun writeDocument(queryKey: String, document: Map<String, Any>) {
-            written += queryKey
-            documents[queryKey] = document
+        override suspend fun writeDocument(documentId: String, document: Map<String, Any>) {
+            written += documentId
+            documents[documentId] = document
         }
 
         override fun nowMillis(): Long = 1_000_000L
@@ -128,7 +128,7 @@ class SourceReplacementMappingTest {
         val results = mergeGlobalSearchResults(
             listOf(directBook("sluhayua", "https://sluhay.com.ua/42"))
         )
-        cache.documents[SearchQueryKey.normalize("Книга Автор")!!] =
+        cache.documents[SearchDocumentId.of("Книга Автор")!!] =
             SearchResultCodec.toMap(1_000_000L, results)
         val resolver = SourceReplacementMapping(
             directSearches = searches.searches,
@@ -435,7 +435,7 @@ class SourceReplacementMappingTest {
         )
         val cache = FakeCache()
         val cachedResults = mergeGlobalSearchResults(listOf(fourReadBook()))
-        cache.documents[SearchQueryKey.normalize("Книга Автор")!!] =
+        cache.documents[SearchDocumentId.of("Книга Автор")!!] =
             SearchResultCodec.toMap(1_000_000L, cachedResults)
         val resolver = SourceReplacementMapping(
             directSearches = searches.searches,
@@ -461,7 +461,7 @@ class SourceReplacementMappingTest {
         val mixed = mergeGlobalSearchResults(
             listOf(fourReadBook(), directBook("sluhayua", "https://sluhay.com.ua/42"))
         )
-        cache.documents[SearchQueryKey.normalize("Книга Автор")!!] =
+        cache.documents[SearchDocumentId.of("Книга Автор")!!] =
             SearchResultCodec.toMap(1_000_000L, mixed)
         val resolver = SourceReplacementMapping(
             directSearches = searches.searches,
@@ -562,11 +562,11 @@ class SourceReplacementMappingTest {
                 awaitCancellation()
             }
 
-            override suspend fun readDocument(queryKey: String): Map<String, Any>? {
+            override suspend fun readDocument(documentId: String): Map<String, Any>? {
                 awaitCancellation()
             }
 
-            override suspend fun writeDocument(queryKey: String, document: Map<String, Any>) = Unit
+            override suspend fun writeDocument(documentId: String, document: Map<String, Any>) = Unit
         }
         val resolver = SourceReplacementMapping(
             directSearches = searches.searches,

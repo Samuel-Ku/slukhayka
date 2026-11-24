@@ -37,8 +37,10 @@ import java.util.concurrent.Executor
  *
  * Honest states (#362 AC): a book whose current chapter has no stream Source
  * cannot cast — the takeover aborts with an explanation, never a mystery;
- * a lost receiver ends the session and the local engine re-prepares PAUSED
- * at the mirrored position (no silent fallback — #363 refines the UX).
+ * a successful takeover stops the phone engine (#1750); a lost receiver ends
+ * the session, the local engine re-prepares PAUSED at the mirrored position,
+ * and the hand-back is a distinct ended/lost notice (#1752), never a silent
+ * pause.
  */
 class CastPlaybackController(
     private val context: Context,
@@ -111,7 +113,10 @@ class CastPlaybackController(
     override fun onSessionResuming(session: CastSession, sessionId: String) = Unit
     override fun onSessionResumeFailed(session: CastSession, error: Int) = clearReceiverObservation(preserveTerminalPosition = true)
     override fun onSessionEnded(session: CastSession, error: Int) {
-        endCasting()
+        // #1752 — CastStatusCodes.SUCCESS (0) is a deliberate end; anything
+        // else is a dropped receiver connection. They must not read the same
+        // to the listener.
+        endCasting(castSessionOutcomeFor(error))
     }
 
     private fun beginCasting(session: CastSession) {
@@ -123,6 +128,14 @@ class CastPlaybackController(
         val startUrl = playable.getOrNull(startIndex)?.track?.url
         if (book == null || startUrl == null || startIndex !in state.chapters.indices) {
             abortTakeover(session, NO_STREAM_EXPLANATION)
+            return
+        }
+        // ADR-0043 §5 / #1185 T6 — a local book (or a mixed one with local
+        // chapters) has no address the receiver could fetch: refuse honestly,
+        // before a proxy is raised or a session pretends to start.
+        val chapterAddresses = playable.map { it.track?.url }
+        CastAvailability.refusal(chapterAddresses)?.let { refusal ->
+            abortTakeover(session, refusal)
             return
         }
         val wifiAddress = PlaybackProxy(PlaybackProxy.Upstream { _, _ -> null }).wifiBindAddress()
@@ -176,6 +189,10 @@ class CastPlaybackController(
             endCasting()
             return
         }
+        // #1750 — the snapshot above captured the local position. Only now,
+        // once the takeover is committed, stop the phone engine. Public pause()
+        // is deliberately NOT used: it would record a PAUSE event and a
+        // smart-rewind marker for a stop the listener did not ask for.
         val player = CastPlayer(castContext)
         player.addListener(object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) {
@@ -183,6 +200,7 @@ class CastPlaybackController(
             }
         })
         castPlayer = player
+        manager.activateCastTakeover()
         receiverChapters = items.associate { it.localConfiguration!!.uri.toString() to it.mediaId.toInt() }
         lastFinishedReceiverItem = null
         observeReceiver(session.remoteMediaClient)
@@ -202,7 +220,15 @@ class CastPlaybackController(
         runCatching { castContextOrNull()?.sessionManager?.endCurrentSession(true) }
     }
 
-    private fun endCasting() {
+    /**
+     * Ends the active cast session and hands playback back to the phone.
+     *
+     * [outcome] is null when a takeover never became active (no listener-facing
+     * message); otherwise it records whether the listener disconnected
+     * deliberately or the receiver was lost. The hand-back method writes it
+     * AFTER its `prepareChapter`, because that prepare clears `lastErrorMsg`.
+     */
+    private fun endCasting(outcome: CastSessionOutcome? = null) {
         val resume = castPlayer?.let { player ->
             manager.captureCastResumePosition(
                 runCatching { player.currentMediaItemIndex }.getOrDefault(0),
@@ -227,12 +253,8 @@ class CastPlaybackController(
 
         sessionPlayerSwapper?.invoke(null)
 
-        val lossMsg = "Пристрій втрачено — натисніть «Продовжити тут», щоб слухати на телефоні."
-        manager.mirrorCastState {
-            it.copy(isPlaying = false, isBuffering = false, playbackSpeed = speed, lastErrorMsg = lossMsg)
-        }
-        runCatching { manager.prepareChapter(chapterIndex, positionMs, autoPlay = false) }
-        Log.i(TAG, "Cast ended → local paused at ch$chapterIndex @$positionMs")
+        manager.finishCastHandback(outcome, chapterIndex, positionMs, speed)
+        Log.i(TAG, "Cast ended (${outcome ?: "aborted"}) → local paused at ch$chapterIndex @$positionMs")
     }
 
     /** CastPlayer masks play requests optimistically. Only a received receiver status is evidence. */

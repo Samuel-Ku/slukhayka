@@ -4,8 +4,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -15,6 +13,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.collections.CollectionMatcher
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.ui.MainViewModel
@@ -23,6 +22,7 @@ import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.IndexScreenScaffold
 import com.slukhayka.audiobooks.ui.theme.*
+import kotlinx.coroutines.launch
 
 /**
  * spec-28 (#190) — the «Колекції» index: every matched smart collection
@@ -39,6 +39,7 @@ fun CollectionsIndexScreen(
     onBookClick: (GlobalSearchResult) -> Unit
 ) {
     val collections by viewModel.collectionsIndex.collectAsState()
+    val scope = rememberCoroutineScope()
 
     // spec-28 (#202): the chrome is the shared index scaffold — title, back
     // arrow, insets and container colour live in one place; only the content
@@ -50,6 +51,13 @@ fun CollectionsIndexScreen(
         CollectionsIndexContent(
             collections = collections,
             onBookClick = onBookClick,
+            // #1606 — the honest next action for an empty index: the same
+            // union refresh the Огляд composition runs.
+            onRefreshCatalog = {
+                scope.launch {
+                    com.slukhayka.audiobooks.App.instance.sourceCatalog.refreshUnifiedCatalog()
+                }
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
@@ -68,16 +76,24 @@ fun CollectionsIndexScreen(
 fun CollectionsIndexContent(
     collections: List<CollectionMatcher.MatchedCollection>,
     onBookClick: (GlobalSearchResult) -> Unit,
+    onRefreshCatalog: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (collections.isEmpty()) {
         // No matched collections: the shared index placeholder, never a crash
-        // — the union may simply not have synced yet (spec-28 #202).
+        // — the union may simply not have synced yet (spec-28 #202). #1606:
+        // an empty index must offer the way out, not just tell the listener to
+        // wait; one action, the same union refresh the Огляд runs.
         EmptyState(
-            icon = Icons.AutoMirrored.Filled.MenuBook,
+            icon = PaperInkIcons.Book,
             title = stringResource(R.string.collections_index_empty),
             body = "",
-            modifier = modifier.testTag("collections_index_screen")
+            modifier = modifier.testTag("collections_index_screen"),
+            actions = {
+                TextButton(onClick = onRefreshCatalog) {
+                    Text(stringResource(R.string.collections_index_refresh))
+                }
+            }
         )
         return
     }

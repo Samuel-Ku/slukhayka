@@ -1,4 +1,3 @@
-import os
 import stat
 import subprocess
 import tempfile
@@ -48,6 +47,36 @@ class AndroidEmulatorReadinessTest(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
+    def environment(self, *, ready_after: int, attempts: int, wait_seconds: str,
+                    device_timeout_seconds: str) -> dict:
+        """Оточення підставного adb — своє, а не успадковане (#1265).
+
+        CI-раннер приносить у процес власні змінні, і серед них може бути
+        експортована функція (`BASH_FUNC_printf%%`, `BASH_FUNC_cat%%`), яка
+        затіняє команду ВСЕРЕДИНІ підставного adb: він тоді не рахує спроби й
+        не віддає `Service package`, а скрипт падає з діагностикою — при
+        незмінних файлах фікстури. Саме так фікстура #1260 і почервоніла в CI,
+        хоч локально була зелена.
+
+        `scripts/tests/test_mutate.py` задає оточення так само — свіжим
+        словником, а не `os.environ`. Змінні тут — лише свої: `FAKE_ADB_*`
+        читає підставний adb, решта — вхід самого скрипта.
+        """
+        return {
+            # Тека підставного adb називається через САМ інструмент, а не через
+            # `self.root`: значення те саме — adb лежить у корені, — але видно,
+            # ЩО кожен тест туди кладе.
+            "PATH": f"{self.fake_adb.parent}:/usr/bin:/bin",
+            "HOME": str(self.root),
+            "LC_ALL": "C",
+            "FAKE_ADB_STATE": str(self.state),
+            "FAKE_ADB_READY_AFTER": str(ready_after),
+            "FAKE_ADB_WAIT_SECONDS": wait_seconds,
+            "ANDROID_DEVICE_READY_TIMEOUT_SECONDS": device_timeout_seconds,
+            "ANDROID_PACKAGE_READY_ATTEMPTS": str(attempts),
+            "ANDROID_PACKAGE_READY_SLEEP_SECONDS": "0",
+        }
+
     def run_readiness(
         self,
         *,
@@ -56,24 +85,14 @@ class AndroidEmulatorReadinessTest(unittest.TestCase):
         wait_seconds: str = "0",
         device_timeout_seconds: str = "2",
     ):
-        environment = os.environ.copy()
-        environment.update(
-            {
-                "PATH": f"{self.root}:/usr/bin:/bin",
-                "FAKE_ADB_STATE": str(self.state),
-                "FAKE_ADB_READY_AFTER": str(ready_after),
-                "FAKE_ADB_WAIT_SECONDS": wait_seconds,
-                "ANDROID_DEVICE_READY_TIMEOUT_SECONDS": device_timeout_seconds,
-                "ANDROID_PACKAGE_READY_ATTEMPTS": str(attempts),
-                "ANDROID_PACKAGE_READY_SLEEP_SECONDS": "0",
-            }
-        )
         return subprocess.run(
             ["bash", str(READY_SCRIPT)],
             check=False,
             capture_output=True,
             text=True,
-            env=environment,
+            env=self.environment(ready_after=ready_after, attempts=attempts,
+                                 wait_seconds=wait_seconds,
+                                 device_timeout_seconds=device_timeout_seconds),
         )
 
     def test_waits_until_android_package_service_is_usable(self):

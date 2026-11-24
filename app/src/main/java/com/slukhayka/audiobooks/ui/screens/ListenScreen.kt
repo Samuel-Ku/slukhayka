@@ -1,8 +1,6 @@
 package com.slukhayka.audiobooks.ui.screens
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -10,17 +8,17 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.VisibilityOff
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.SettingsBackupRestore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
@@ -32,10 +30,13 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIconSizes
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
@@ -43,9 +44,20 @@ import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.adaptive.rememberIsLandscapePhoneWindow
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.AppTabHeader
+import com.slukhayka.audiobooks.ui.components.BookCoverImage
+import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
 import com.slukhayka.audiobooks.ui.components.PosterCard
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.EmptyStatePanel
+import com.slukhayka.audiobooks.ui.components.EmptyStatePrimaryAction
+import com.slukhayka.audiobooks.ui.components.EmptyStateQuietAction
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
+import com.slukhayka.audiobooks.ui.components.formatRowDuration
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkBookRow
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkHeroCard
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkPosterCard
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkSectionHeader
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.library.ListenComposer
@@ -53,7 +65,6 @@ import com.slukhayka.audiobooks.ui.library.LibraryBook
 import com.slukhayka.audiobooks.ui.library.RemainingTimeUnits
 import com.slukhayka.audiobooks.ui.library.deduplicateListenShelves
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
-import com.slukhayka.audiobooks.ui.library.nextSeriesPartCaption
 import com.slukhayka.audiobooks.ui.theme.*
 
 /**
@@ -80,6 +91,12 @@ fun ListenScreen(
     onPlayClick: (AudiobookEntity) -> Unit,
     onBrowseClick: () -> Unit,
     onImportClick: () -> Unit,
+    /**
+     * #1703 — «Не цікаво» is only an INTENT here: the root `AudiobookApp`
+     * pairs it with the «Повернути» snackbar (and scopes it past a tab
+     * switch), so this screen stays a pure renderer of the shelf action.
+     */
+    onDismissBook: (String) -> Unit,
     /** ADR-0049 / #860 — the gear opens Settings from THIS root. */
     onOpenSettings: () -> Unit = {}
 ) {
@@ -92,6 +109,14 @@ fun ListenScreen(
     // unrendered here.
     val listenBlocks by viewModel.listenBlocks.collectAsState()
     val hiddenBlocks by viewModel.hiddenListenBlocks.collectAsState()
+    // #1704 review — composer published vs not; see ListenContentState.
+    val blocksReady by viewModel.listenBlocksReady.collectAsState()
+    // #1704 — "empty" and "not read yet" are different states. The list above
+    // starts as `emptyList()` on every cold start; without this flag the tab
+    // claimed the fresh-install empty state (and, once blocks lag, that every
+    // shelf was hidden) before the first real read. The same #1066 contract
+    // the Медіатека uses.
+    val libraryLoaded by viewModel.isLibraryLoaded.collectAsState()
 
     // Refresh the "continue the series" suggestion whenever the hero book
     // changes (keyed on its id so position updates don't refetch).
@@ -103,6 +128,58 @@ fun ListenScreen(
     // #962 — a landscape phone is wide but short; the header drops to its name
     // and actions on one line there, exactly as the other three roots do.
     val landscapePhone = rememberIsLandscapePhoneWindow()
+
+    // Wayfinder #62 — the rule-based block list. Every eligible block
+    // renders with its reason; hidden blocks are skipped (still computed).
+    val visibleBlocks = listenBlocks.filter { it.id !in hiddenBlocks }
+
+    // spec-28 (#191 + #200): full cross-shelf dedup — a book renders in
+    // at most ONE shelf, the highest on screen. deduplicateListenShelves
+    // owns the entire claimed set (hero book included): it claims the
+    // hero's book first (US-3), then each visible block claims in display
+    // order, so the user's reorder re-prioritises which shelf claims a
+    // book. A block emptied by dedup renders nothing (no empty header).
+    val dedupedBlocks = deduplicateListenShelves(visibleBlocks)
+
+    // #1704 — what the tab may claim right now. `Loading` is the cold
+    // start: the library flow still holds its `emptyList()` initial value
+    // and the block composer starts empty too, so NEITHER empty state is
+    // allowed to speak for the listener yet — only the header renders.
+    val content = listenContentFor(
+        libraryLoaded = libraryLoaded,
+        blocksReady = blocksReady,
+        allBooksEmpty = allBooks.isEmpty(),
+        composedBlocks = listenBlocks.size,
+        dedupedBlocks = dedupedBlocks.size,
+    )
+    // #1766 — the fresh install is a PAGE, not a one-item scroll. The header
+    // and the empty state share a Column, so the panel centres in the height
+    // BELOW the header (half a header under the window's geometric centre)
+    // instead of a viewport-sized lazy item that starts below the header and
+    // therefore ends one whole header past the bottom. The same shape Медіатека
+    // and «Досягнення» use for their empty states.
+    if (content == ListenContent.FreshInstall) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .testTag("listen_screen")
+        ) {
+            ListenTabHeader(landscapePhone = landscapePhone, onOpenSettings = onOpenSettings)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                // The state owns exactly the height left under the header.
+                ListenEmptyState(
+                    onBrowseClick = onBrowseClick,
+                    onImportClick = onImportClick
+                )
+            }
+        }
+        return
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -121,41 +198,9 @@ fun ListenScreen(
         //
         // The title comes from the SAME resource the bottom bar uses
         // (spec-54 T06 / #873), so a literal here cannot drift from the tab.
-        item {
-            AppTabHeader(
-                title = stringResource(R.string.nav_listen),
-                // #885 (wave 3) — the prototype puts the wordmark on EVERY
-                // root (`isRoot`), not only on Огляд.
-                showBrandMark = true,
-                headingTestTag = "listen_heading",
-                compact = landscapePhone,
-                actions = {
-                    com.slukhayka.audiobooks.ui.components.AppSettingsGear(onClick = onOpenSettings)
-                }
-            )
-        }
-        // Fresh install: placeholder hero + clear next actions.
-        if (allBooks.isEmpty()) {
-            item {
-                ListenEmptyState(
-                    onBrowseClick = onBrowseClick,
-                    onImportClick = onImportClick
-                )
-            }
-            return@LazyColumn
-        }
+        item { ListenTabHeader(landscapePhone = landscapePhone, onOpenSettings = onOpenSettings) }
 
-        // Wayfinder #62 — the rule-based block list. Every eligible block
-        // renders with its reason; hidden blocks are skipped (still computed).
-        val visibleBlocks = listenBlocks.filter { it.id !in hiddenBlocks }
-
-        // spec-28 (#191 + #200): full cross-shelf dedup — a book renders in
-        // at most ONE shelf, the highest on screen. deduplicateListenShelves
-        // owns the entire claimed set (hero book included): it claims the
-        // hero's book first (US-3), then each visible block claims in display
-        // order, so the user's reorder re-prioritises which shelf claims a
-        // book. A block emptied by dedup renders nothing (no empty header).
-        val dedupedBlocks = deduplicateListenShelves(visibleBlocks)
+        if (content == ListenContent.Loading) return@LazyColumn
 
         for (block in dedupedBlocks) {
             when (block.id) {
@@ -185,22 +230,25 @@ fun ListenScreen(
                 else -> {
                     if (block.books.isEmpty()) continue
                     item(key = "block-${block.id.name}") {
-                        AppSectionHeader(
+                        ListenBlockHeading(
                             title = block.title,
                             subtitle = block.reason,
-                            modifier = Modifier.testTag("listen_block_heading_${block.id.name}")
+                            testTag = "listen_block_heading_${block.id.name}"
                         )
                     }
                     item(key = "block-${block.id.name}-shelf") {
                         ListenBlockShelf(
                             books = block.books,
                             onBookClick = onBookClick,
-                            onNotInterested = { viewModel.dismissListenBook(it) },
+                            // #1703 — every dismissal is answered by the
+                            // root «Повернути» snackbar; the tab only reports
+                            // the intent.
+                            onNotInterested = onDismissBook,
                             // spec-28 (#201): the «Далі у серії» shelf restores
                             // the series context — each card names which part
                             // is next. No one-tap play triangle (ADR-0018).
                             captionFor = if (block.id == ListenComposer.BlockId.NEXT_IN_SERIES) {
-                                { entry -> nextSeriesPartCaption(entry) }
+                                { entry -> viewModel.listenPartCaption(entry) }
                             } else {
                                 null
                             }
@@ -215,10 +263,14 @@ fun ListenScreen(
         // header and the manage door, so a listener who hid all shelves saw
         // what looked like a broken screen rather than a choice they had made.
         // The door below stays visible either way — it is the way back.
-        if (dedupedBlocks.isEmpty()) {
+        //
+        // #1704 — only AFTER composition can this state be claimed:
+        // `composedBlocks == 0` is the composer's initial value, not a choice,
+        // and `listenContentFor` keeps it in `Loading` above.
+        if (content == ListenContent.AllShelvesHidden) {
             item(key = "all-shelves-hidden") {
                 EmptyState(
-                    icon = Icons.Default.VisibilityOff,
+                    icon = Icons.Outlined.VisibilityOff,
                     title = stringResource(R.string.listen_all_shelves_hidden_title),
                     body = stringResource(R.string.listen_all_shelves_hidden_body)
                 )
@@ -251,6 +303,33 @@ fun ListenScreen(
 }
 
 /**
+ * #1766 — the tab's header, in ONE place.
+ *
+ * The fresh-install page and the ordinary LazyColumn render the very same
+ * composable with the same parameters, so the two branches cannot drift in
+ * title, compact rule or gear while their empty-state anchoring differs.
+ */
+@Composable
+private fun ListenTabHeader(
+    landscapePhone: Boolean,
+    onOpenSettings: () -> Unit
+) {
+    // v1.4 C5 (#568) — the LAST tab to get the one header model. It used to
+    // render a bare gear in a Row: no title, so «Слухати» was the only root
+    // that did not name itself, and its gear sat on a line of its own instead
+    // of beside the name as on Огляд, Мої книги and Друзі.
+    //
+    // The title comes from the SAME resource the bottom bar uses (spec-54 T06 /
+    // #873), so a literal here cannot drift from the tab.
+    PaperInkTabHeader(
+        title = stringResource(R.string.nav_listen),
+        headingTestTag = "listen_heading",
+        compact = landscapePhone,
+        onSettingsClick = onOpenSettings,
+    )
+}
+
+/**
  * v1.4 E1 — the single «Керувати полицями» door (tab header or after-hero
  * per the spec): opens the shelf-management sheet. The eight per-block ⋮
  * menus are gone; the blocks themselves render the canonical
@@ -267,10 +346,10 @@ fun ListenShelvesManageEntry(
             .fillMaxWidth()
             // Рівні проміжки зверху і знизу: кнопка сама дає обидва, тож
             // відступ над нею (до полиці) дорівнює відступу під нею (до панелі).
-            .padding(horizontal = 16.dp, vertical = 16.dp)
+            .padding(horizontal = ListenPageInset, vertical = 16.dp)
             .testTag("listen_manage_shelves")
     ) {
-        Icon(Icons.Default.Tune, contentDescription = null, modifier = Modifier.size(18.dp))
+        Icon(PaperInkIcons.Filter, contentDescription = null, modifier = Modifier.size(PaperInkIconSizes.Inline))
         Spacer(modifier = Modifier.width(8.dp))
         Text(stringResource(R.string.listen_manage_shelves))
     }
@@ -407,7 +486,7 @@ fun ListenShelvesSheetContent(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = stringResource(R.string.listen_manage_shelves),
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                style = PaperInkType.Heading.Sub,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .weight(1f)
@@ -419,7 +498,7 @@ fun ListenShelvesSheetContent(
             if (onClose != null) {
                 IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
                     Icon(
-                        imageVector = Icons.Default.Close,
+                        imageVector = PaperInkIcons.Close,
                         contentDescription = stringResource(R.string.a11y_listen_shelves_close)
                     )
                 }
@@ -446,9 +525,9 @@ fun ListenShelvesSheetContent(
                     .testTag("listen_shelves_restore_all")
             ) {
                 Icon(
-                    imageVector = Icons.Default.SettingsBackupRestore,
+                    imageVector = Icons.Outlined.SettingsBackupRestore,
                     contentDescription = null,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(PaperInkIconSizes.Inline)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(stringResource(R.string.listen_shelves_restore_all))
@@ -478,7 +557,7 @@ private fun ListenShelfRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = block.title,
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -499,7 +578,7 @@ private fun ListenShelfRow(
                 .testTag("listen_shelf_up_${block.id.name}")
         ) {
             Icon(
-                imageVector = Icons.Default.ArrowUpward,
+                imageVector = PaperInkIcons.ArrowUp,
                 contentDescription = stringResource(R.string.a11y_listen_shelf_move_up, block.title)
             )
         }
@@ -511,7 +590,7 @@ private fun ListenShelfRow(
                 .testTag("listen_shelf_down_${block.id.name}")
         ) {
             Icon(
-                imageVector = Icons.Default.ArrowDownward,
+                imageVector = PaperInkIcons.ArrowDown,
                 contentDescription = stringResource(R.string.a11y_listen_shelf_move_down, block.title)
             )
         }
@@ -522,7 +601,7 @@ private fun ListenShelfRow(
                 .testTag("listen_shelf_toggle_${block.id.name}")
         ) {
             Icon(
-                imageVector = if (hidden) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                imageVector = if (hidden) Icons.Outlined.Visibility else Icons.Outlined.VisibilityOff,
                 contentDescription = stringResource(
                     if (hidden) R.string.a11y_listen_shelf_show else R.string.a11y_listen_shelf_hide,
                     block.title
@@ -533,11 +612,15 @@ private fun ListenShelfRow(
 }
 
 /**
- * spec-28 (#191) — one Listen block as a horizontal shelf of compact posters
- * ([PosterCard] in a LazyRow), replacing the old full-width vertical
- * rows. No default play triangle: tapping a poster opens the book page (the
- * hero card is the resume CTA); the Listen-only «Не цікаво» dismiss stays on
- * each poster.
+ * spec-28 (#191) — one Listen block as a horizontal shelf of compact posters,
+ * now on the «Папір і голос» card: 132×198 cover, UI-sans title, 3 dp progress
+ * and the «слухаєш» pill. No one-tap play triangle (ADR-0018): the hero is the
+ * resume CTA, a poster opens the book page.
+ *
+ * The reversible «Не цікаво» action stays, but it is NOT a cross over the
+ * artwork (the reference design removed that): it is a quiet 32 dp disc inside
+ * a 48 dp target (#1703) at the end of the meta line, named after the book for
+ * a screen reader, and paired with the «Повернути» snackbar by the tab.
  */
 @Composable
 fun ListenBlockShelf(
@@ -549,25 +632,68 @@ fun ListenBlockShelf(
     // shelf keeps the bare canonical card.
     captionFor: ((LibraryBook) -> String?)? = null
 ) {
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.testTag("listen_block_shelf")
-    ) {
-        // Ключ не має бути порожнім: дві книжки з порожнім id валять список
-        // («Key "" was already used»). Індекс гарантує унікальність.
-        itemsIndexed(books, key = { index, entry -> entry.book.id.ifBlank { "shelf-$index" } }) { _, entry ->
-            PosterCard(
-                book = entry.book,
-                onClick = { onBookClick(entry.book.id) },
-                onNotInterested = { onNotInterested(entry.book.id) },
-                // US-3 (spec-28 #199): the card's hairline is fed by the
-                // REAL listening percent the library module computed from the
-                // playback-progress rows — a started book shows the line, an
-                // unstarted one keeps a clean cover.
-                progress = entry.percent,
-                caption = captionFor?.invoke(entry)
-            )
+    PaperInkThemedContent {
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = ListenPageInset),
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.testTag("listen_block_shelf")
+        ) {
+            // Ключ не має бути порожнім: дві книжки з порожнім id валять список
+            // («Key "" was already used»). Індекс гарантує унікальність.
+            itemsIndexed(books, key = { index, entry -> entry.book.id.ifBlank { "shelf-$index" } }) { _, entry ->
+                val book = entry.book
+                val progressDescription = entry.percent
+                    .takeIf { it > 0f }
+                    ?.let { percent -> stringResource(R.string.a11y_listened_percent, (percent * 100).toInt()) }
+                val availability = if (book.isDownloaded || book.sourceUrl.isBlank()) {
+                    stringResource(R.string.a11y_available_offline)
+                } else {
+                    stringResource(R.string.a11y_connection_required)
+                }
+                val workState = listOfNotNull(progressDescription, availability).joinToString(". ")
+                val caption = captionFor?.invoke(entry)
+                    ?: entry.totalDurationSeconds
+                        .takeIf { it > 0L }
+                        ?.let { formatRowDuration(it) }
+                        .orEmpty()
+                // Unslop audit 2026-11-01 (U16): the shelf now shows the Work's
+                // real artwork when it has one, the same shared Coil route the
+                // hero uses. A Work without art keeps the paper letter, so the
+                // fallback branch does not move.
+                val shelfCover: (@Composable () -> Unit)? =
+                    if (!book.coverImageUrl.isNullOrBlank()) {
+                        {
+                            BookCoverImage(
+                                book = book,
+                                semantics = BookCoverSemantics.Decorative,
+                                modifier = Modifier.fillMaxSize(),
+                                // A shelf tile states title/author UNDER the
+                                // cover, so a typographic fallback would print
+                                // the same words twice.
+                                typographicFallback = false,
+                            )
+                        }
+                    } else {
+                        null
+                    }
+                PaperInkPosterCard(
+                    title = book.title,
+                    author = book.displayAuthor,
+                    meta = caption,
+                    cover = shelfCover,
+                    progress = entry.percent,
+                    onClick = { onBookClick(book.id) },
+                    onNotInterested = { onNotInterested(book.id) },
+                    dismissContentDescription = stringResource(
+                        R.string.a11y_not_interested_work,
+                        book.title
+                    ),
+                    dismissTestTag = "not_interested_${book.id}",
+                    stateDescription = workState,
+                    testTag = "compact_book_${book.id}",
+                    progressTestTag = "compact_book_progress_${book.id}",
+                )
+            }
         }
     }
 }
@@ -590,249 +716,94 @@ fun ListenHeroCard(
     // Local imports have no duration metadata: percent/remaining would be
     // meaningless (0/1 -> 100%), so fall back to the bare position instead.
     val hasDuration = totalSec > 0
-    val progressFraction = if (hasDuration) (positionSec.toFloat() / totalSec.toFloat()).coerceIn(0f, 1f) else 0f
+    val progressFraction = if (hasDuration) {
+        (positionSec.toFloat() / totalSec.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
 
-    // #885 (wave 3) — the accessible name of the primary action. The VISIBLE
-    // text is the generic «Слухати далі», which does not say WHICH book, so a
-    // screen reader would hear the same four words on every hero in the app.
-    // The contextual description is therefore carried explicitly, exactly as
-    // the previous icon-only button did.
+    // #885 (wave 3) — the accessible name of the primary action carries the
+    // WORK, not just the verb: a screen reader must not hear the same
+    // «Слухати далі» on every hero in the app.
     val resumeDescription = stringResource(R.string.a11y_resume_work, book.title)
 
-    // #885 (wave 3) — the hero is a COMPOSITION, not a card with values.
-    //
-    // The prototype's `.sl-hero` (:1078-1090) is a full-width panel with a
-    // gradient ground, the cover hanging ROTATED in the top-right corner, and
-    // the title pinned to the BOTTOM — which is exactly why its title can be
-    // large: there are 332 px of height and the full width under it. The old
-    // shape here was a compact card (88 dp cover on the left, text column on
-    // the right), and dropping the prototype's 40 px title into that column
-    // would have produced two 40 sp lines (~100 dp) beside an 88 dp cover — a
-    // broken card, not a closer match. So the whole structure moves, not one
-    // number.
-    //
-    // The panel carries its OWN foreground palette (`AppHeroOnPanel` and
-    // friends): its ground is a warm brown-black, and measuring the theme's
-    // `onSurface` against it would be measuring the wrong backdrop. Every pair
-    // clears 4.5:1 (title 13.26:1, eyebrow 10.20:1, author 10.08:1).
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp)
-            .heightIn(min = HeroPanelMinHeight)
-            .clip(RoundedCornerShape(AppDimens.RadiusHero))
-            .background(AppHeroPanel)
-            .semantics(mergeDescendants = true) { }
-            .testTag("listen_hero_panel")
-    ) {
-        // The decorative cover, rotated and corner-anchored. `Decorative`
-        // semantics: it repeats the title that the panel states in words, so
-        // announcing it would read the book twice.
-        com.slukhayka.audiobooks.ui.components.BookCoverImage(
-            book = book,
-            semantics = com.slukhayka.audiobooks.ui.components.BookCoverSemantics.Decorative,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = HeroCoverTop, end = HeroCoverEnd)
-                .width(HeroCoverWidth)
-                .aspectRatio(2f / 3f)
-                .graphicsLayer { rotationZ = HeroCoverRotation }
-                .clip(RoundedCornerShape(AppDimens.RadiusCard))
-                .testTag("listen_hero_cover"),
-            contentScale = ContentScale.Crop
-        )
-
-        // The eyebrow sits top-LEFT, opposite the cover — the prototype's
-        // absolute `.sl-eyebrow` (:1081). It is a heading: a screen reader
-        // navigating by headings must land on "Продовжити слухати".
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                // The eyebrow may use everything LEFT of the cover. The
-                // prototype caps it at 100 px (:1081), but that is sized for a
-                // short English eyebrow; «ПРОДОВЖИТИ СЛУХАТИ» is two long
-                // Ukrainian words and wrapped onto three lines at that width,
-                // colliding with the cover. The honest bound is geometric —
-                // stop before the cover starts — not a literal.
-                .padding(start = HeroSides, top = HeroSides, end = HeroCoverWidth + HeroCoverEnd)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Headphones,
-                contentDescription = null,
-                tint = AppHeroEyebrow,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = stringResource(R.string.listen_hero_overline),
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                ),
-                color = AppHeroEyebrow,
-                modifier = Modifier
-                    .semantics { heading() }
-                    .testTag("listen_hero_heading")
-            )
+    // F29 of the 2026-10-28 device audit — the hero is the app's MAIN card, and
+    // it drew a letter tile while the same Work had real art on the shelves,
+    // the book page and the player. The card now takes the artwork from the
+    // same sources (`coverDrawableRes` for local imports, the shared Coil route
+    // for remote covers) and keeps the paper letter only as the real fallback.
+    // The hero takes the SAME shared Coil route every other surface uses. A
+    // raw `painterResource(coverDrawableRes)` is NOT used here on purpose: a
+    // seeded drawable can fail to decode on device (verified: a bad JPG in the
+    // import fixture threw ResourceResolutionException and killed the app on
+    // launch), while Coil degrades to the placeholder instead. Drawable-backed
+    // imports keep the paper letter until the hero loader handles resource ids.
+    val heroCover: (@Composable () -> Unit)? =
+        if (!book.coverImageUrl.isNullOrBlank()) {
+            {
+                BookCoverImage(
+                    book = book,
+                    semantics = BookCoverSemantics.Decorative,
+                    modifier = Modifier.fillMaxSize(),
+                    // The hero states title/author beside the art; a typographic
+                    // fallback there would repeat them (and collide at 200 %).
+                    typographicFallback = false,
+                )
+            }
+        } else {
+            null
         }
 
-        // Everything that carries meaning is bottom-anchored, in the
-        // prototype's order: progress row → title → chapter → actions.
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(HeroSides)
-        ) {
-            // The prototype's order (markup :1319) is title → author →
-            // progress → actions, top to bottom inside the bottom-anchored
-            // block. The percent rides the PROGRESS row there, not a line of
-            // its own above the title.
-            Text(
-                text = book.title,
-                style = MaterialTheme.typography.headlineLarge.copy(
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = (-1.5).sp
-                ),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                color = AppHeroOnPanel,
-                modifier = Modifier.testTag("listen_hero_title")
-            )
-            Spacer(modifier = Modifier.height(3.dp))
-            Text(
-                text = stringResource(
+    // Plan 2026-2027, step 3: the hero is the first block migrated block by
+    // block. It carries its own «Папір і голос» theme until the whole tab
+    // switches at the root.
+    PaperInkThemedContent {
+        PaperInkHeroCard(
+            title = book.title,
+            author = book.displayAuthor,
+            narrator = if (book.narrator.isNotBlank()) {
+                stringResource(R.string.book_detail_narrator_label, book.narrator)
+            } else {
+                ""
+            },
+            chapterLabel = if (hasDuration) {
+                stringResource(
                     R.string.listen_chapter_of,
                     progress.currentChapterIndex + 1,
                     book.totalChapters.coerceAtLeast(1)
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = AppHeroOnPanelMuted
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Progress row: a hairline track with the remaining time beside it
-            // (`.sl-hero-progress`, :1086). The percent leads the row so the
-            // listener sees "84%" before the bar, exactly as before — the
-            // fact is unchanged, only its shape (one glued string → two nodes)
-            // follows the prototype.
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = if (hasDuration) {
-                        stringResource(
-                            R.string.listen_progress_percent,
-                            (progressFraction * 100).toInt()
-                        )
-                    } else {
-                        MainViewModel.formatTime(positionSec)
-                    },
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = AppHeroOnPanel,
-                    // Never ellipsised: a half-shown "84…" is worse than a
-                    // shorter track. The track absorbs the squeeze.
-                    maxLines = 1,
-                    softWrap = false
                 )
-                Spacer(modifier = Modifier.width(10.dp))
-                // 4 dp hairline: a whisper of progress, not a divider
-                // (#1065). Its track is white-on-panel, not a theme outline,
-                // because the panel is not a themed surface. It sits at
-                // `z-index:-1` in the prototype, i.e. the rotated cover may
-                // pass over it — faithful, not a collision.
-                LinearProgressIndicator(
-                    progress = { progressFraction },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = AppHeroTrack
+            } else {
+                MainViewModel.formatTime(positionSec)
+            },
+            remainingLabel = if (hasDuration) {
+                formatRemainingLocalized((totalSec - positionSec).coerceAtLeast(0L))
+            } else {
+                ""
+            },
+            progress = progressFraction.takeIf { hasDuration },
+            onPlayClick = onResumeClick,
+            modifier = Modifier
+                .padding(horizontal = ListenPageInset, vertical = 10.dp)
+                .testTag("listen_hero_panel"),
+            // #885 — the percent leads the progress row, exactly as before;
+            // the fact is unchanged, only its shape follows the new card.
+            progressLabel = if (hasDuration) {
+                stringResource(
+                    R.string.listen_progress_percent,
+                    (progressFraction * 100).toInt()
                 )
-                if (hasDuration) {
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = formatRemainingLocalized((totalSec - positionSec).coerceAtLeast(0L)),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = AppHeroOnPanelMuted,
-                        // Same rule as the percent: the time is the fact the
-                        // listener came for, so it is never the thing that
-                        // gets cut.
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // The prototype's primary action FILLS the row
-                // (`.sl-actions > .sl-primary {flex:1}`) and is a pill with
-                // its own on-colour.
-                Button(
-                    onClick = onResumeClick,
-                    shape = RoundedCornerShape(AppDimens.RadiusPill),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .heightIn(min = AppDimens.TouchTarget)
-                        // The accessible name carries the WORK, not just the
-                        // verb — see `resumeDescription` above.
-                        .semantics { contentDescription = resumeDescription }
-                        .testTag("listen_hero_resume")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = stringResource(R.string.lib_listen_continue),
-                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                // The secondary action rides a translucent scrim on the panel
-                // (`.sl-icon {background:#FFFFFF16}`), never a theme surface.
-                IconButton(
-                    onClick = onBookClick,
-                    modifier = Modifier
-                        .size(AppDimens.TouchTarget)
-                        .clip(CircleShape)
-                        .background(AppHeroIconScrim)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Info,
-                        contentDescription = stringResource(R.string.a11y_open_work, book.title),
-                        tint = AppHeroOnPanel,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-        }
+            } else {
+                null
+            },
+            onClick = onBookClick,
+            playContentDescription = resumeDescription,
+            cardContentDescription = stringResource(R.string.a11y_open_work, book.title),
+            eyebrow = stringResource(R.string.listen_hero_overline),
+            eyebrowHeading = true,
+            cover = heroCover
+        )
     }
 }
-
-/**
- * #885 (wave 3) — the hero panel's composition constants.
- *
- * Named here rather than inlined so the prototype's numbers have one home and
- * a test can state the CONTRACT ("the panel is at least this tall", "the cover
- * hangs in the corner") instead of a magic value appearing twice.
- */
-private val HeroSides = 24.dp
-private val HeroPanelMinHeight = 332.dp
-private val HeroCoverWidth = 128.dp
-private val HeroCoverTop = 22.dp
-private val HeroCoverEnd = 28.dp
-private const val HeroCoverRotation = 9f
 
 /** One recently-listened book with its resume progress. */
 @Composable
@@ -845,78 +816,33 @@ fun RecentlyListenedRow(
 ) {
     val totalSec = book.totalDurationSeconds
     val positionSec = cumulativePositionSeconds.coerceAtLeast(0L)
-    // Duration-less local imports: keep the bar empty instead of a full bar.
+    // #1353 — duration-less local imports keep a bare position and no bar.
     val hasDuration = totalSec > 0
-    val progressFraction = if (hasDuration) (positionSec.toFloat() / totalSec.toFloat()).coerceIn(0f, 1f) else 0f
+    val progressFraction = if (hasDuration) {
+        (positionSec.toFloat() / totalSec.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    val chapterPosition = stringResource(
+        R.string.listen_chapter_position,
+        progress.currentChapterIndex + 1,
+        MainViewModel.formatTime(positionSec)
+    )
 
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 5.dp)
-            .semantics(mergeDescendants = true) { }
-            .clip(RoundedCornerShape(AppDimens.RadiusCardLg))
-            .clickable { onClick() }
-            .testTag("recently_listened_${book.id}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Column(modifier = Modifier.padding(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                com.slukhayka.audiobooks.ui.components.BookCoverImage(
-                    book = book,
-                    semantics = com.slukhayka.audiobooks.ui.components.BookCoverSemantics.Decorative,
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(AppDimens.RadiusInner)),
-                    contentScale = ContentScale.Crop
-                )
-                Spacer(modifier = Modifier.width(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = book.title,
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = stringResource(
-                            R.string.listen_chapter_position,
-                            progress.currentChapterIndex + 1,
-                            MainViewModel.formatTime(positionSec)
-                        ),
-                        // Spec-22 T2: tabular figures — the live position ticks
-                        // without shifting the row's digit widths.
-                        style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                IconButton(
-                    onClick = onPlayClick,
-                    modifier = Modifier
-                        .size(AppDimens.TouchTarget)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.primaryContainer)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = stringResource(R.string.a11y_play_work, book.title),
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(6.dp))
-            LinearProgressIndicator(
-                progress = { progressFraction },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
-                color = MaterialTheme.colorScheme.secondary,
-                trackColor = MaterialTheme.colorScheme.outlineVariant
-            )
-        }
+    PaperInkThemedContent {
+        PaperInkBookRow(
+            title = book.title,
+            author = book.displayAuthor,
+            series = chapterPosition,
+            modifier = Modifier
+                .padding(horizontal = 16.dp, vertical = 5.dp)
+                .testTag("recently_listened_${book.id}"),
+            progress = progressFraction.takeIf { hasDuration },
+            showDivider = false,
+            onClick = onClick,
+            onPlayClick = onPlayClick,
+            playContentDescription = stringResource(R.string.a11y_play_work, book.title)
+        )
     }
 }
 
@@ -924,50 +850,72 @@ fun RecentlyListenedRow(
  * Fresh-install state: a placeholder hero card ("your current book will appear
  * here") plus two CTAs — browse the catalogue or import your own files.
  */
+/**
+ * The tab's page inset — the SAME [PaperInkDimens.SpacePage] the tab header and
+ * the other roots use (#1724). The hero panel, the shelf `contentPadding` and
+ * the «Керувати полицями» door all sit on it; a block heading that starts at
+ * x=0 or on another inset is the device regression this seam pins (#1615).
+ */
+internal val ListenPageInset = PaperInkDimens.SpacePage
+
+/**
+ * One shelf heading: the canonical [PaperInkSectionHeader] with [ListenPageInset]
+ * applied. The header component deliberately carries no horizontal padding of
+ * its own (a shelf owns its inset through `contentPadding`), so the heading
+ * takes it here, next to the shelf it heads — and the snapshot test captures
+ * THIS composable, not a hand-built copy of it.
+ */
+@Composable
+internal fun ListenBlockHeading(
+    title: String,
+    subtitle: String?,
+    testTag: String,
+) {
+    PaperInkSectionHeader(
+        title = title,
+        subtitle = subtitle,
+        modifier = Modifier
+            .padding(horizontal = ListenPageInset)
+            .testTag(testTag),
+    )
+}
+
 @Composable
 fun ListenEmptyState(
     onBrowseClick: () -> Unit,
-    onImportClick: () -> Unit
+    onImportClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    EmptyState(
-        icon = Icons.Default.PlayCircle,
-        // spec-46 T16 (#577): the Слухати empty state had hardcoded Ukrainian
-        // in an otherwise translated screen — the chrome comes from resources.
-        title = stringResource(R.string.listen_empty_title),
-        body = stringResource(R.string.listen_empty_body)
-    ) {
-        Button(
-            onClick = onBrowseClick,
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-            shape = RoundedCornerShape(AppDimens.RadiusCard),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(AppDimens.TouchTarget)
-        ) {
-            Icon(imageVector = Icons.Default.Explore, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(stringResource(R.string.profile_view_catalogue), fontWeight = FontWeight.Bold)
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        OutlinedButton(
-            onClick = onImportClick,
-            shape = RoundedCornerShape(AppDimens.RadiusCard),
-            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(AppDimens.TouchTarget)
-        ) {
-            Icon(
-                imageVector = Icons.Default.FileUpload,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(18.dp)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(stringResource(R.string.profile_import_from_device), color = MaterialTheme.colorScheme.onSurface)
-        }
+    // The fresh install is not an error state: a quiet paper page, one Literata
+    // line and the two honest next steps — a circle-less, glyph-less statement
+    // of the absence (2026 direction §4, #1766) with ONE primary action and the
+    // import path demoted to a quiet text link.
+    PaperInkThemedContent {
+        EmptyStatePanel(
+            title = stringResource(R.string.listen_empty_title),
+            body = stringResource(R.string.listen_empty_body),
+            modifier = modifier,
+            action = {
+                // #1775 (unslop U1) — the primary CTA is the shared primitive:
+                // one radius (24 dp), one height, the paper primary pair. This
+                // screen used to hand-roll a full pill, the fourth form of the
+                // same action.
+                EmptyStatePrimaryAction(
+                    text = stringResource(R.string.profile_view_catalogue),
+                    onClick = onBrowseClick,
+                    icon = PaperInkIcons.Compass,
+                )
+            },
+            quietAction = {
+                // #1766 review — the quiet path is the SAME control on all three
+                // surfaces. #1775 gave it its own primitive, so its 16 dp radius
+                // and 48 dp target no longer depend on the ambient M3 shape set.
+                EmptyStateQuietAction(
+                    text = stringResource(R.string.profile_import_from_device),
+                    onClick = onImportClick,
+                )
+            },
+        )
     }
 }
 

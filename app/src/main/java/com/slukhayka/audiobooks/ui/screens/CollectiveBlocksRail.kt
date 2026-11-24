@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
@@ -25,7 +24,7 @@ import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.PosterCard
-import com.slukhayka.audiobooks.ui.components.PosterWidth
+import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
 
 /**
  * #523 / ADR-0041 — one collective Огляд block: the source's freshly observed
@@ -45,14 +44,15 @@ fun CollectiveBlockRail(
         // стоїть у заголовку, а повний URL лише дублював її й займав рядок.
         AppSectionHeader(title = block.name)
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
+            contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(block.cards, key = { "${it.sourceId}|${it.sourceUrl}" }) { card ->
-                Column(
-                    modifier = Modifier.width(PosterWidth),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+                // The card sizes itself (120 dp legacy / 132 dp paper shelf),
+                // so the wrapper must not pin the legacy width on it: a fixed
+                // `width(PosterWidth)` squeezed the paper cover to 120×198 and
+                // stretched its 2:3 ratio.
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     PosterCard(
                         title = card.title,
                         coverUrl = card.coverUrl,

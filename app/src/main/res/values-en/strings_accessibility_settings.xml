@@ -85,15 +85,22 @@
     <string name="app_locale_system">Same as system</string>
     <string name="app_locale_ukrainian">Ukrainian</string>
     <string name="app_locale_english">English</string>
+    <string name="app_locale_polish">Polski</string>
 
     <string name="storage_title">Downloads and storage</string>
-    <!-- #885 (wave 3) — the storage stat pair, from `.sl-stat-pair`. -->
-    <string name="storage_stat_audio_on_device">Audio on device</string>
+    <!-- #885 (wave 3) — the storage stat pair, from `.sl-stat-pair`.
+         #1163 — the first number is the SOURCE downloads the manager lists, and
+         the private copies of local imports are their own figure below; naming
+         that number "Audio on device" was how 0 MB answered for 3.23 GB. -->
+    <string name="storage_stat_downloads">Downloads</string>
     <string name="storage_stat_free">Free</string>
+    <string name="storage_stat_local_copies">Local copies</string>
     <string name="storage_device_heading">Device storage</string>
     <string name="storage_rescan_action">Rescan local files</string>
     <string name="storage_danger_heading">Danger zone</string>
-    <string name="storage_delete_consequence">Deletes all downloaded files from the device. This cannot be undone.</string>
+    <!-- #1163 — the clear's scope is source downloads; the copy that came from a
+         local folder is not one and stays where it is. -->
+    <string name="storage_delete_consequence">Deletes every file downloaded from sources. Local copies stay. This cannot be undone.</string>
     <string name="storage_delete_action">Delete downloaded files</string>
     <string name="storage_delete_dialog_title">Delete downloaded files?</string>
 
@@ -101,4 +108,35 @@
          no EN twin, so the English run fell back to Ukrainian. -->
     <string name="download_manager_empty_title">No downloads</string>
     <string name="download_manager_empty_body">When you download a book from its page, it will appear here with its status, size and controls.</string>
+
+    <!-- #1551 — the crash-consent copy had no EN twin, so the English run fell
+         back to Ukrainian (ADR-0033). -->
+    <string name="crash_reporting_prompt_title">Help make Slukhayka more stable</string>
+    <string name="crash_reporting_prompt_body">I build Slukhayka on my own. If you would like to help me make the app more stable, allow anonymous technical crash reports. They contain no book titles, source addresses or listening history. You can change this decision in Settings at any time.</string>
+    <string name="crash_reporting_allow">Send reports</string>
+    <string name="crash_reporting_deny">Don’t send</string>
+    <string name="crash_reporting_section_title">Crash reports</string>
+    <string name="crash_reporting_switch_title">Send crash reports</string>
+    <string name="crash_reporting_switch_description">Anonymous technical reports without book titles, source addresses or listening history.</string>
+
+    <!-- #1551 — the download manager's queue, status and confirmation copy;
+         before this the whole manager spoke Ukrainian on an English phone. -->
+    <string name="download_manager_queue_heading">Download queue</string>
+    <string name="download_manager_status_queued">Queued</string>
+    <string name="download_manager_status_downloading">Downloading</string>
+    <string name="download_manager_status_paused">Paused</string>
+    <string name="download_manager_status_done">Done</string>
+    <string name="download_manager_status_error">Error: source update needed</string>
+    <string name="download_manager_pause">Pause</string>
+    <string name="download_manager_continue">Continue</string>
+    <string name="download_manager_remove">Remove</string>
+    <string name="download_manager_cancel">Cancel</string>
+    <string name="download_manager_cancel_description">Cancel the download. Downloaded files stay on the device.</string>
+    <string name="download_manager_delete_files">Delete files</string>
+    <string name="download_manager_delete_title">Delete downloaded files?</string>
+    <string name="download_manager_keep">Don’t delete</string>
+    <string name="download_manager_remove_completed">Remove completed</string>
+    <string name="download_manager_remove_title">Remove the download?</string>
+    <string name="download_manager_remove_message">Downloaded files for “%1$s” will be deleted from the device. This can’t be undone.</string>
+    <string name="download_manager_remove_completed_title">Remove completed downloads?</string>
 </resources>

@@ -3,6 +3,8 @@ package com.slukhayka.audiobooks.widget
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -29,5 +31,18 @@ class AudiobookGlanceWidgetAccessibilityLabelsTest {
         assertEquals("Відтворити «Тіні забутих предків»", paused.playPause)
         assertEquals("Поставити «Тіні забутих предків» на паузу", playing.playPause)
         assertEquals("Перемотати «Тіні забутих предків» на 15 секунд уперед", playing.forward)
+    }
+
+    @Test
+    fun theClickableRootOpensTheAppAndIsNamedForTalkBack() {
+        val labels = widgetAccessibilityLabels(context, GlanceWidgetState())
+
+        assertEquals("Відкрити Слухайку", labels.openApp)
+    }
+
+    @Test
+    fun anEmptyWidgetHasNoTransportButtonsToAnnounce() {
+        assertFalse(GlanceWidgetState().showsTransportControls())
+        assertTrue(GlanceWidgetState(hasActiveBook = true).showsTransportControls())
     }
 }

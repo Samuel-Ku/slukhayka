@@ -1,0 +1,53 @@
+#!/bin/sh
+# Pre-commit, адаптований під slukhayka.
+#
+# У репозиторії немає єдиного форматера: Kotlin не має ktlint/detekt/spotless,
+# Python — ruff/black. Тому хук не вдає, що форматує все, а робить те, що тут
+# справді є швидким і локальним:
+#   web/**            -> Prettier (лише закомічені файли) + tsc --noEmit
+#   scripts/*.py|sh   -> py_compile / bash -n + власний модульний тест, якщо є
+#   *.md              -> doc_numbers.py (числа в документації)
+#   решта (Kotlin, gradle, ресурси) -> нічого: Android Lint, jvm-partitions,
+#   script-tests і vitest — це CI та merge-гейт, локально вони занадто повільні.
+set -e
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+
+staged() { git diff --cached --name-only --diff-filter=ACMR | grep -E "$1" || true; }
+
+# --- web/: форматування закомічених файлів + типізація ----------------------
+if [ -n "$(staged '^web/')" ]; then
+  echo "[pre-commit] web/: prettier + tsc --noEmit"
+  ( cd "$root/web" && npx --no-install lint-staged && npm run typecheck )
+fi
+
+# --- scripts/: синтаксис і модульний тест зміненого модуля -------------------
+changed_scripts="$(staged '^scripts/.*\.(py|sh|mjs)$')"
+if [ -n "$changed_scripts" ]; then
+  echo "[pre-commit] scripts/: синтаксис + відповідний тест"
+  for f in $changed_scripts; do
+    [ -f "$f" ] || continue
+    case "$f" in
+      *.py) python3 -m py_compile "$f" ;;
+      *.sh) bash -n "$f" ;;
+    esac
+    base="$(basename "$f")"; base="${base%.*}"
+    mod="$(printf '%s' "$base" | tr '-' '_')"
+    test_file="scripts/tests/test_${mod}.py"
+    if [ -f "$test_file" ]; then
+      python3 -m unittest "scripts.tests.test_${mod}" -q
+    elif [ -f scripts/tests/test_swarm_dispatch.py ] && [ "${f#scripts/swarm/}" != "$f" ]; then
+      python3 -m unittest scripts.tests.test_swarm_dispatch -q
+    fi
+  done
+fi
+
+# --- документація: числа мусять збігатися з деревом -------------------------
+if [ -n "$(staged '\.md$')" ]; then
+  if [ -f scripts/doc_numbers.py ]; then
+    echo "[pre-commit] docs: doc_numbers.py"
+    python3 scripts/doc_numbers.py
+  else
+    echo "[pre-commit] docs: scripts/doc_numbers.py відсутній у цьому дереві — пропускаю" >&2
+  fi
+fi

@@ -25,7 +25,11 @@ object PublishedCollectionFactory {
 
     /**
      * @return the publishable document, or null when this collection can never
-     * be published (no real identity, no usable pseudonym).
+     * be published (no real identity, no usable pseudonym, or **no books**).
+     * An empty collection is not a publication: readers render an empty
+     * collection as «0 книг», so no such document may be written. The gate must
+     * refuse it before the network — the UI sheet is not the only caller this
+     * guard protects (see #1405).
      */
     fun of(
         collection: ListenerCollection,
@@ -39,6 +43,10 @@ object PublishedCollectionFactory {
         val cleanPseudonym = pseudonym.trim().take(PublishedCollectionCodec.MAX_PSEUDONYM_LEN)
         if (cleanPseudonym.isEmpty()) return null
         val items = collection.items.take(PublishedCollectionCodec.MAX_BOOKS)
+        // #1405 — a published collection is a real composition, never an empty
+        // document: the reader renders an empty collection as «0 книг», and a
+        // live publication cannot be emptied later either (#1410).
+        if (items.isEmpty()) return null
         return PublishedCollection(
             authorId = authorId,
             collectionId = collection.id,

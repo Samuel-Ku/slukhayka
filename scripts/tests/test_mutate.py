@@ -56,6 +56,12 @@ class Fixture:
     def __init__(self, root: Path, logs: Path, script_source: Path, trace_source: Path):
         self.root = root
         self.logs = logs
+        # Свій `TMPDIR` — ПОЗА копією дерева: тека прогону не сміє робити дерево
+        # брудним (тоді `mutate.sh` відмовив би сам собі), і вона не сміє ділити
+        # `$TMPDIR` із рештою набору — саме так теки прогону й течуть у спільний
+        # `/tmp`, де їх потім прибирає вже інший прогін (#1300).
+        self.tmp = logs / "tmp"
+        self.tmp.mkdir(parents=True, exist_ok=True)
         self.script = root / "scripts" / "mutate.sh"
         self.build(script_source, trace_source)
 
@@ -68,7 +74,9 @@ class Fixture:
         # keeps the JUnit XML out of `git status`.
         shutil.copy(REPO_ROOT / ".gitignore", self.root / ".gitignore")
         shutil.copy(REPO_ROOT / "app/.gitignore", self.root / "app/.gitignore")
-        for name in ("test_partitions.py", "test-all.sh"):
+        # `tmp_budget.py` — сусід скрипта, якого той кличе за техою прогону
+        # (#1300): копія дерева мусить мати все, що скрипт шукає поряд із собою.
+        for name in ("test_partitions.py", "test-all.sh", "tmp_budget.py"):
             shutil.copy(REPO_ROOT / "scripts" / name, self.root / "scripts" / name)
         shutil.copy(trace_source, self.root / "scripts" / "mutation_trace.py")
         shutil.copy(script_source, self.script)
@@ -110,6 +118,9 @@ class Fixture:
             "SLUKHAYKA_JAVA_HOME": str(self.jdk),
             "SLUKHAYKA_GRADLEW": str(self.root / "gradlew"),
             "MUTATE_TEST_GRADLE_LOG": str(self.logs / "gradle.log"),
+            # Свій `TMPDIR`, а не успадкований: інакше тека прогону лягає в
+            # спільний `/tmp` і лишається там після SIGKILL (#1300).
+            "TMPDIR": str(self.tmp),
         }
         environment.update(overrides)
         return environment
@@ -346,6 +357,26 @@ class MutationRunTest(MutateFixtureTest):
         self.assertIn("sha256", result.stderr)
         self.assertClean()
 
+    def test_runs_a_class_that_shares_its_file_with_another_test(self):
+        # #1636 — the changed file may declare several test classes (#1634).
+        # Requiring `classes == [target]` refused both of them; the named class
+        # only has to be one of the declared ones.
+        self.fixture.write(
+            SAMPLE_TEST,
+            "package com.slukhayka.fixture\n\nclass SampleTest\n\nclass SecondTest\n",
+        )
+        self.fixture.git("add", "-A")
+        self.fixture.git("commit", "-q", "-m", "multi-class test file")
+
+        result = self.fixture.run_class(self.fixture.answer_patch, tests=1, failures=1)
+
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn(":app:testPureJvm", self.fixture.gradle_invocations())
+        self.assertIn(f"-Ptest.selectedClasses={SAMPLE_CLASS}", self.fixture.gradle_invocations())
+        record = self.last_record()
+        self.assertEqual(SAMPLE_CLASS, record["class"])
+        self.assertEqual("pure-jvm", record["partition"])
+
     def test_records_a_surviving_mutation_and_exits_one(self):
         result = self.fixture.run_class(self.fixture.answer_patch, tests=3, failures=0)
 
@@ -449,6 +480,30 @@ class MutationRunTest(MutateFixtureTest):
         self.assertEqual(dirty, self.fixture.read(SAMPLE))
         self.assertEqual("", self.fixture.gradle_invocations())
         self.assertEqual([], self.fixture.records())
+
+    def test_a_refused_run_still_reaps_the_scratch_a_sigkill_left(self):
+        """Відмова цього прогону не сміє лишати чужу теку в tmpfs назавжди.
+
+        SIGKILL лишає ДВІ речі: теку прогону і застосовану мутацію в дереві. Тож
+        наступний прогін відмовляє саме на брудному дереві — і якби прибирання
+        стояло після перевірок, воно не виконалося б ніколи (#1300). Сторож
+        ставить саме цей стан: брудне дерево (як після SIGKILL) і залишок у
+        `$TMPDIR`, який мусить зникнути, хоч прогін і відмовляє.
+        """
+        leftover = self.fixture.tmp / "slukhayka-mutation.SIGKILL"
+        leftover.mkdir()
+        (leftover / "gradle-arguments").write_text(":app:testPureJvm\n", encoding="utf-8")
+        os.utime(leftover, (1, 1))
+        self.fixture.write(SAMPLE, self.fixture.read(SAMPLE) + "\n// a working edit\n")
+
+        result = self.fixture.run_class(self.fixture.answer_patch)
+
+        self.assertEqual(2, result.returncode, result.stderr)
+        self.assertIn("dirty", result.stderr)
+        self.assertFalse(leftover.exists(),
+                         "тека, лишена SIGKILL'ом, мусила зникнути на старті прогону")
+        self.assertIn(leftover.name, result.stderr)
+        self.assertIn("прибрано застарілу теку прогону", result.stderr)
 
     def test_refuses_an_unknown_class(self):
         result = self.fixture.run_script(
@@ -876,6 +931,16 @@ class MutationSensitivityTest(unittest.TestCase):
             "test_mutate.MutationRollbackTest.test_rolls_back_when_the_run_is_interrupted",
         ),
         (
+            # #1636: a changed test file may declare several test classes; the
+            # mutant puts back the exact-list comparison that refused every one
+            # of them, and the witness below must go red on it.
+            "the multi-class file acceptance",
+            "script",
+            "if target not in classes:",
+            "if classes != [target]:",
+            "test_mutate.MutationRunTest.test_runs_a_class_that_shares_its_file_with_another_test",
+        ),
+        (
             "the rollback trap",
             "script",
             "trap finalize EXIT",
@@ -884,7 +949,7 @@ class MutationSensitivityTest(unittest.TestCase):
         ),
     )
     # Друге джерело правди про розмір `CASES` — див. коментар у тесті.
-    EXPECTED_CASES = 7
+    EXPECTED_CASES = 8
 
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()

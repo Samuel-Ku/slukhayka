@@ -52,7 +52,7 @@ class LocalSourceAppendTest {
     private fun imports() = LibraryImport(dao, context, emptyList())
 
     private fun entry(name: String, byte: Int, folder: String = "Кобзар") =
-        LocalAudioEntry(name, folder) { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
+        LocalAudioEntry(name, folder, uri = "content://test/local") { ByteArrayInputStream(ByteArray(16) { byte.toByte() }) }
 
     private suspend fun importKobzar(vararg files: Pair<String, Int>): String {
         imports().importAudioEntries(
@@ -196,6 +196,82 @@ class LocalSourceAppendTest {
         val bookId = importKobzar("02.mp3" to 2, "01.mp3" to 1, "10.mp3" to 10)
 
         assertEquals(listOf("01", "02", "10"), chapters(bookId).map { it.title })
+    }
+
+    @Test
+    fun `a second rescan reuses remembered metadata and opens no stream`() = runBlocking {
+        val bookId = importKobzar("01.mp3" to 1, "02.mp3" to 2)
+        var opened = 0
+        fun counted(name: String, byte: Int) = LocalAudioEntry(
+            fileName = name,
+            parentFolder = "Кобзар",
+            uri = "content://test/$name",
+            sizeBytes = 16L,
+            lastModifiedMs = 1_000L + byte
+        ) {
+            opened++
+            ByteArrayInputStream(ByteArray(16) { byte.toByte() })
+        }
+
+        // Перший скан після імпорту бачить пам'ять без метаданих — читає файли
+        // один раз і записує свіжі (розмір, дата).
+        imports().rescanAudioEntries(listOf(counted("01.mp3", 1), counted("02.mp3", 2)), TREE)
+        assertTrue("перший скан мусить прочитати файли", opened >= 2)
+
+        opened = 0
+        val second = imports().rescanAudioEntries(
+            listOf(counted("01.mp3", 1), counted("02.mp3", 2)),
+            TREE
+        )
+
+        assertEquals("незмінені файли не мусять читатися на другому скані", 0, opened)
+        assertEquals(0, second.newChapters)
+        assertEquals(2, chapters(bookId).size)
+    }
+
+    @Test
+    fun `a changed file is re-read and then reused by its new metadata`() = runBlocking {
+        importKobzar("01.mp3" to 1, "02.mp3" to 2) // обидва по 16 байт — як у скані
+        val opens = mutableMapOf<String, Int>()
+        fun counted(name: String, byte: Int, size: Int, lastModified: Long) = LocalAudioEntry(
+            fileName = name,
+            parentFolder = "Кобзар",
+            uri = "content://test/$name",
+            sizeBytes = size.toLong(),
+            lastModifiedMs = lastModified
+        ) {
+            opens[name] = (opens[name] ?: 0) + 1
+            ByteArrayInputStream(ByteArray(size) { byte.toByte() })
+        }
+
+        // 1) Перший скан: метадані ще невідомі — читає обидва файли по одному разу.
+        imports().rescanAudioEntries(
+            listOf(counted("01.mp3", 1, 16, 100L), counted("02.mp3", 2, 16, 200L)),
+            TREE
+        )
+        assertEquals("перший скан мусить прочитати обидва файли", mapOf("01.mp3" to 1, "02.mp3" to 1), opens)
+
+        // 2) 01.mp3 змінився (інший вміст, розмір і дата): читається лише він,
+        //    і рівно один раз — нового файла більше не копіюють (ADR-0061),
+        //    тож хеш і є єдина причина відкрити потік.
+        opens.clear()
+        val changed = imports().rescanAudioEntries(
+            listOf(counted("01.mp3", 9, 20, 300L), counted("02.mp3", 2, 16, 200L)),
+            TREE
+        )
+        assertEquals("незмінений файл не мусить відкриватися", null, opens["02.mp3"])
+        assertEquals("змінений файл читається один раз — лише заради хешу", 1, opens["01.mp3"])
+        assertEquals(1, changed.newChapters)
+        assertEquals("старий вміст 01.mp3 зник із теки", 1, changed.missingFiles)
+
+        // 3) Після зміни обидва шляхи мають поточний хеш і свіжі метадані —
+        //    наступний скан не читає жодного файла.
+        opens.clear()
+        imports().rescanAudioEntries(
+            listOf(counted("01.mp3", 9, 20, 300L), counted("02.mp3", 2, 16, 200L)),
+            TREE
+        )
+        assertEquals("після перезапису метаданих читати нічого", emptyMap<String, Int>(), opens)
     }
 
     companion object {

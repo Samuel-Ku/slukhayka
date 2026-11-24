@@ -97,3 +97,16 @@ functions with JVM tests (prior art: LibraryModel, ListenComposer):
 - #399 adds Person Bookmarks as the sixth deep module. `App` owns its one
   process-scoped instance; it follows the same direct-Flow/direct-suspend-call
   boundary and stays fully local when Firebase or network access is absent.
+
+## #1240 clarification — where explicit-playback orchestration lives
+
+The shared ViewModel remains the one orchestrator of an explicit playback
+attempt, and the new `ExplicitPlaybackAttempts` module is its owned state
+helper, not a screen-facing door: it concentrates the order of the two shared
+start actions (drop the previous session's failure, set the automatic-recovery
+allowance for the gesture's intent) and hands back an attempt identity for
+later result ownership (#1241). Screens still call the ViewModel and still read
+module flows directly; no per-screen ViewModel and no navigation change is
+introduced. A module that only forwarded these calls without owning that order
+would be the forbidden forwarding module — this one owns it and is tested as
+such.

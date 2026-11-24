@@ -1,0 +1,368 @@
+package com.slukhayka.audiobooks.data.achievements
+
+import com.slukhayka.audiobooks.data.db.AchievementDao
+import com.slukhayka.audiobooks.data.db.ListeningStatEntity
+import java.io.File
+import java.time.LocalDate
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
+
+/** Composition adapter over actual local data; the evaluator owns no Room or source registry. */
+class AchievementSnapshotSource(
+    dao: AchievementDao,
+    store: AchievementStore,
+    registeredSourceIds: Set<String>,
+    /**
+     * #1175 (US42) — the Source Registry's appearance date, as a reader.
+     *
+     * A parameter for the same reason [zoneId] is one: the date lives in the
+     * registry (ADR-0038), and a test has to be able to pin a DATED source
+     * while none of the fifteen real sources may be given an invented date
+     * (#1175). Production reads the registry, which answers unknown ids with
+     * null — an unknown date is never read as today (ADR-0014).
+     */
+    private val appearedOnOf: (String) -> LocalDate? =
+        com.slukhayka.audiobooks.data.source.SourceRegistry::appearedOn,
+    fileReady: (String) -> Boolean = { File(it).let { file -> file.isFile && file.length() > 0L } },
+    /**
+     * #703 (T5) — the zone that decides "night" and "holiday".
+     *
+     * A parameter, not a global, so a test can pin it. Without that the awards
+     * would depend on the machine running the tests, and "between 02:00 and
+     * 04:00" would mean different instants in CI and on a phone.
+     */
+    private val zoneId: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+    /**
+     * #1174 (друга смуга, US28) — the books carrying a LIVE «покинуто» mark, as
+     * the mark owner's own flow
+     * ([com.slukhayka.audiobooks.data.entries.AbandonedBooks.observeLiveAbandonedBookIds]).
+     *
+     * Injected rather than re-queried here for the reason the «завершено» edge
+     * was moved into one function: a second copy of "what counts as abandoned"
+     * would let the badge and the award drift apart. Every surface reads the
+     * same flow, so the award cannot stay shut over a mark the listener is no
+     * longer shown — which is what a completion arriving from another device
+     * used to leave behind.
+     *
+     * There is deliberately NO default: "nobody told me" must not quietly mean
+     * "nothing is abandoned", because that answer is the one that OPENS the
+     * award. A caller that truly knows there are no marks says so with
+     * `flowOf(emptySet())`.
+     */
+    private val abandonedBookIds: Flow<Set<String>>,
+    /**
+     * #701 (US37, US38) — the curated lists the app ships: the `collections/`
+     * and `universes/` assets, as data.
+     *
+     * Injected for the same reason [registeredSourceIds] is: the composition
+     * owns the asset read (`CollectionAssets.load` / `UniverseAssets.load` in
+     * `App.kt`), and a test can then pin a two-entry collection or a
+     * one-series universe without inventing one in the shipped assets.
+     *
+     * The EMPTY default is the honest direction, not a convenience: with no
+     * curated list nobody can say what "the whole collection" is, and both
+     * awards stay shut instead of guessing (ADR-0014).
+     */
+    private val curatedCollections: List<com.slukhayka.audiobooks.data.collections.CollectionList> = emptyList(),
+    private val curatedUniverses: List<com.slukhayka.audiobooks.data.universe.UniverseList> = emptyList(),
+    /**
+     * #1723 — the same curated lists, read at MATCH time rather than captured
+     * at construction. Production passes the startup batch's values, so the
+     * engine can be built on main while the JSON is still being parsed on IO;
+     * the first refresh runs after the batch and therefore sees the real lists.
+     * Tests that pass [curatedCollections]/[curatedUniverses] keep their
+     * behaviour because these default to the captured lists.
+     */
+    private val curatedCollectionsProvider: () -> List<com.slukhayka.audiobooks.data.collections.CollectionList> =
+        { curatedCollections },
+    private val curatedUniversesProvider: () -> List<com.slukhayka.audiobooks.data.universe.UniverseList> =
+        { curatedUniverses },
+    /**
+     * #701 (US40) — whether a registered source is a scam door.
+     *
+     * A reader rather than a second set, so the registry stays the ONE carrier
+     * of that fact (ADR-0038) and a test can mark one of its own ids as scam.
+     * The required door set is [registeredSourceIds] minus these, which is what
+     * makes «Усі двері» dynamic: a source added to the registry raises the bar
+     * with no code change, while 4read (whose audio is not the book) is never
+     * required.
+     */
+    private val isScamSource: (String) -> Boolean =
+        com.slukhayka.audiobooks.data.source.SourceRegistry::isScam,
+    /**
+     * #1612 — the OWN-library derivation behind #1589 lever 2, as a seam.
+     *
+     * The shipped default is the real rule over the injected curated lists, so
+     * production is unchanged. The seam exists so a witness can count the
+     * derivations THROUGH the real composition: it proves the placement (the
+     * matching runs once per distinct library snapshot, not on every tick),
+     * which the helper-level test alone cannot see.
+     */
+    private val deriveLibraryFacts: (List<OwnLibraryBook>) -> OwnLibraryFacts = { own ->
+        deriveOwnLibraryFacts(own, curatedUniversesProvider(), curatedCollectionsProvider())
+    }
+) : AchievementProgressSource, AchievementSnapshot {
+    /** #701 — the doors «Усі двері» asks about: every registered source but the scam ones. */
+    private val requiredDoors: Set<String> = registeredSourceIds.filterNot(isScamSource).toSet()
+    private val counters = combine(dao.observeExplicitBooks(), dao.observeVerifiedListeningMillis(),
+        dao.observeNotInterestedChoices(), dao.observeCompletedBooks()) { books, millis, choices, completed ->
+        AchievementProgress(explicitBooks = books, verifiedListeningMillis = millis,
+            notInterestedChoices = choices, completedBooks = completed)
+    }
+    // #700/#701/#702 — the rest of the snapshot, folded in ONE FIELD AT A TIME.
+    //
+    // `combine` stops at five arguments, and the previous version nested pairs
+    // three deep to work around that (`prev.first.first.first`). It compiled,
+    // but it was unreadable and every new metric made it worse. Each step below
+    // adds its fields to a growing copy instead, so adding the next metric is
+    // one obvious line.
+    private val shape = combine(dao.observeShortCompletedBooks(), dao.observeEpicCompletedBooks()) { short, epic ->
+        short to epic
+    }
+    private val speeds = combine(dao.observeFastBooks(), dao.observeSlowBooks()) { fast, slow -> fast to slow }
+    private val marks = combine(dao.observeBookmarks(), dao.observeNotes()) { marks, notes -> marks to notes }
+    private val returns = combine(dao.observeTimerStops(), dao.observeRelistens()) { stops, relistens -> stops to relistens }
+
+    private val withShape = combine(counters, shape) { base, (short, epic) ->
+        base.copy(shortCompletedBooks = short, epicCompletedBooks = epic)
+    }
+    private val withSpeeds = combine(withShape, speeds) { base, (fast, slow) ->
+        base.copy(fastBooks = fast, slowBooks = slow)
+    }
+    private val withMarks = combine(withSpeeds, marks) { base, (marks, notes) ->
+        base.copy(bookmarks = marks, notes = notes)
+    }
+    private val withReturns = combine(withMarks, returns) { base, (stops, relistens) ->
+        base.copy(timerStops = stops, relistens = relistens)
+    }
+    private val withSecondWind = combine(withReturns, dao.observeBooksFinishedTwice()) { base, twice ->
+        base.copy(booksFinishedTwice = twice)
+    }
+    private val withDoors = combine(withSecondWind, dao.observeUsedSourceDoors()) { base, doors ->
+        base.copy(usedSourceDoors = doors)
+    }
+    private val withLanguages = combine(withDoors, dao.observeKnownLanguages()) { base, languages ->
+        base.copy(knownLanguages = languages)
+    }
+    private val withBrowser = combine(withLanguages, dao.observeBrowserBooks()) { base, browser ->
+        base.copy(browserBooks = browser)
+    }
+    private val withGenres = combine(withBrowser, dao.observeGenreBookCounts()) { base, genres ->
+        base.copy(genreCounts = genres.associate { it.genreId to it.works })
+    }
+    private val withSeries = combine(withGenres, dao.observeSeriesInLibrary()) { base, series ->
+        base.copy(seriesInLibrary = series)
+    }
+    private val completionTimes = dao.observeCompletionTimes()
+    private val sessionStartTimes = dao.observeSessionStartTimes()
+    private val withTimes = combine(withSeries, completionTimes, sessionStartTimes) {
+            base, completions, sessions ->
+        base.copy(
+            nightCompletions = completions.count { hourOf(it) in 2..3 }.toLong(),
+            owlLarkBalance = minOf(
+                sessions.count { hourOf(it) < 6 },
+                sessions.count { hourOf(it) >= 22 }
+            ).toLong(),
+            holidayCompletions = completions.count(::isHoliday).toLong()
+        )
+    }
+    private val ages = combine(dao.observeVintageCompletions(), dao.observeReturnsAfterBreak()) {
+            vintage, returns ->
+        vintage to returns
+    }
+    private val withAges = combine(withTimes, ages) { base, (vintage, returns) ->
+        base.copy(vintageCompletions = vintage, returnsAfterBreak = returns)
+    }
+    private val countersWithShape = combine(withAges, dao.observeLateCompletions()) { base, late ->
+        base.copy(lateCompletions = late)
+    }
+    // #701 — the two awards the ticket's own tail added on top of the merged T3
+    // slices: the series RUN (five in a row) and the English start. Each is one
+    // more field on the growing copy, exactly like every step above.
+    private val withSeriesRun = combine(countersWithShape, dao.observeSeriesCompletions()) {
+            base, completions ->
+        base.copy(longestSeriesRun = SeriesRun.longest(completions))
+    }
+    private val withEnglishStart = combine(withSeriesRun, dao.observeStartLanguages()) { base, claims ->
+        base.copy(englishStartBooks = EnglishStart.count(claims))
+    }
+    // #1166 (T8) — the day sequence behind the regularity awards. The rows are
+    // mapped once here, so the arithmetic itself stays pure (`ListeningRhythm`).
+    private val rhythmDays = dao.observeListeningDays()
+        .map { rows -> rows.mapNotNull(::listeningDay) }
+        .distinctUntilChanged()
+    private val withRhythm = combine(withEnglishStart, rhythmDays) { base, days ->
+        base.copy(
+            bestDayMillis = ListeningRhythm.bestDayMillis(days),
+            longestDayStreak = ListeningRhythm.longestStreak(days).toLong(),
+            bestMonthDays = ListeningRhythm.bestMonthDays(days).toLong(),
+            mondaysListened = ListeningRhythm.mondays(days).toLong(),
+            // #1166 (T8, story 13) — «Слухацький рік» reads the SAME day
+            // sequence: one read of `listening_stats`, one rule for what a day
+            // with listening is (`ListeningRhythm.DAY_MILLIS`).
+            listeningDays = ListeningRhythm.listeningDays(days).toLong()
+        )
+    }
+
+    // #1183 (T9b) — the measurement layer's own rows (#1173): the longest
+    // session and the longest OFFLINE one (one query), plus every session start
+    // for «Світанок». Both answers move only when a session really grows or
+    // appears, while the table is invalidated on every written tick, so an equal
+    // repeat stops here instead of rebuilding the snapshot above — the same
+    // guard the download proof uses for its file inspection.
+    private val sessionExtremes = dao.observeLongestSessions().distinctUntilChanged()
+    private val sessionStarts = dao.observePlaybackSessionStarts().distinctUntilChanged()
+    private val withSessions = combine(withRhythm, sessionExtremes, sessionStarts) {
+            base, extremes, starts ->
+        base.copy(
+            longestSessionMillis = extremes.longestSessionMillis,
+            longestOfflineSessionMillis = extremes.longestOfflineSessionMillis,
+            morningDays = morningDays(starts)
+        )
+    }
+    private val withMeasuredHours = combine(
+        withSessions,
+        dao.observeOfflineListeningMillis(),
+        dao.observeCastListeningMillis(),
+        dao.observeNightListeningMillis()
+    ) { base, offline, cast, night ->
+        base.copy(offlineMillis = offline, castMillis = cast, nightMillis = night)
+    }
+    private val withArms = combine(
+        withMeasuredHours,
+        dao.observeCounter(AchievementCounter.END_OF_CHAPTER_ARM)
+    ) { base, arms ->
+        base.copy(endOfChapterArms = arms)
+    }
+    // #1175 (US42) — the arrivals behind «Нова хвиля». The window is decided in
+    // Kotlin because the other end of the pair lives in the Source Registry,
+    // not in Room; the injected reader keeps the date a fact and never a guess.
+    private val withNewWave = combine(withArms, dao.observeSourceArrivals()) { base, arrivals ->
+        base.copy(newWaveBooks = NewWave.books(arrivals, appearedOnOf, zoneId))
+    }
+    // #1174 (друга смуга, US28) — the LIVE «покинуто» marks standing right now.
+    // The SAME flow feeds the library badge and the book page, so the award and
+    // the surfaces cannot disagree about which books are abandoned — including
+    // the marks only the database still carries (`markIsLive`: a finished book
+    // is not an abandoned one). The count is per BOOK, and the mark owner
+    // already answers that way.
+    private val withAbandoned = combine(withNewWave, abandonedBookIds) { base, marked ->
+        base.copy(abandonedBooks = marked.size.toLong())
+    }
+    // #701 (T3) — the curated rules, folded in like every step above. ONE Room
+    // read answers all four of them: the own books carry the series identity,
+    // the universe claim and the title/author pair the collection matcher
+    // reads. The curated lists themselves are Kotlin (assets), so the matching
+    // happens here rather than in SQL.
+    //
+    // #1589 (lever 2) — the four matching rules run ONCE per distinct library
+    // snapshot. They used to run inside the `combine` arm, which also re-emits
+    // on every written playback second, so an unchanged library was re-matched
+    // at 1 Hz; [ownLibraryFacts] swallows those identical emissions before any
+    // matching happens (and swallows a changed row whose facts did not move).
+    private val libraryFacts = dao.observeOwnLibraryBooks().ownLibraryFacts(deriveLibraryFacts)
+    private val withOwnLibrary = combine(withAbandoned, libraryFacts) { base, facts ->
+        base.copy(
+            completedSeries = facts.completedSeries,
+            orderedSeries = facts.orderedSeries,
+            universeBooks = facts.universeBooks,
+            passedCollections = facts.passedCollections
+        )
+    }
+    // #701 (US40) — «Усі двері»: the doors really used against the registry's
+    // own list. The list is Kotlin (ADR-0038), so the comparison is too.
+    private val withAllDoors = combine(withOwnLibrary, dao.observeUsedSourceTypes()) { base, used ->
+        base.copy(allDoorsReached = SourceDoors.allUsed(used, requiredDoors))
+    }
+    // #701 (US46) — «Той самий голос»: no fact and no new write, just the
+    // editionId two sources already share.
+    private val withSharedNarrations = combine(withAllDoors, dao.observeSharedNarrations()) { base, shared ->
+        base.copy(sharedNarrations = shared)
+    }
+
+    /**
+     * A row whose date cannot be read is not a day we can count, so it is
+     * skipped rather than guessed (ADR-0014). `dateIso` is written as
+     * `yyyy-MM-dd` by the recorder, so this only drops genuinely broken rows.
+     */
+    private fun listeningDay(row: ListeningStatEntity): ListeningRhythm.Day? =
+        ListeningRhythm.of(row.dateIso, row.verifiedListenedMillis)
+
+    private fun hourOf(epochMillis: Long): Int =
+        java.time.Instant.ofEpochMilli(epochMillis).atZone(zoneId).hour
+
+    /**
+     * #1183 (T9b) — «Світанок» counts MORNINGS, not sessions: the local date of
+     * a session that STARTED between 06:00 and 08:00, each date once.
+     *
+     * Five short breaks inside one dawn are still one morning (owner's decision,
+     * #1166), and a session that merely runs THROUGH the window was not started
+     * in it. A session is dated by its own start in the listener's zone, exactly
+     * like the night and holiday awards above.
+     */
+    private fun morningDays(startedAt: List<Long>): Long = startedAt
+        .map { java.time.Instant.ofEpochMilli(it).atZone(zoneId) }
+        .filter { it.hour in 6..7 }
+        .map { it.toLocalDate() }
+        .distinct()
+        .size
+        .toLong()
+
+    /**
+     * New Year and Christmas. Both Christmas dates are included on purpose: this
+     * is a Ukrainian app, and 7 January is as much Christmas here as 25
+     * December. The listener's own zone decides which calendar day an instant
+     * belongs to.
+     */
+    private fun isHoliday(epochMillis: Long): Boolean {
+        val date = java.time.Instant.ofEpochMilli(epochMillis).atZone(zoneId).toLocalDate()
+        return (date.monthValue == 1 && (date.dayOfMonth == 1 || date.dayOfMonth == 7)) ||
+            (date.monthValue == 12 && date.dayOfMonth == 25)
+    }
+    // Files are inspected only when the track/topology rows change, never on every listening tick.
+    private val downloads = dao.observeDownloadedTracks().distinctUntilChanged()
+        .map { DownloadedBookProof.count(it, fileReady) }.flowOn(Dispatchers.IO)
+    private val topology = combine(downloads, dao.observeKnownSeriesMemberships()) { downloaded, members ->
+        downloaded to members.map { AchievementSeriesMembership(it.seriesId, it.workId, it.position) }.toSet()
+    }
+    private val aggregates = combine(withSharedNarrations, topology) { counters, topology ->
+        counters.copy(downloadedBooks = topology.first, registeredSourceIds = registeredSourceIds,
+            knownSeriesMemberships = topology.second)
+    }
+    private val local = LocalAchievementProgressSource(aggregates, store.observeFacts())
+
+    /**
+     * #1574 — the owned snapshot. Starts empty and moves ONLY through
+     * [refresh]; nothing observes the tower hot any more, so a Room write that
+     * no caller pulled changes neither the board nor the title.
+     */
+    private val snapshotState = MutableStateFlow(AchievementProgress())
+    override val snapshot: StateFlow<AchievementProgress> = snapshotState.asStateFlow()
+
+    /**
+     * #1574 — ONE whole-snapshot pass. The cold tower is collected exactly
+     * once (`first()`), so all fields are computed in one run over the same
+     * Room state and published together. This is not a database transaction
+     * (the tower issues separate reads), just one pass instead of one per
+     * write; a concurrent write lands in the NEXT refresh.
+     *
+     * Kept as the single `observe()` implementation too: the existing award
+     * tests read this cold seam directly, and [refresh] is defined in terms of
+     * it rather than a second copy of the pipeline.
+     */
+    override suspend fun refresh(): AchievementProgress {
+        val next = local.observe().distinctUntilChanged().first()
+        snapshotState.value = next
+        return next
+    }
+
+    override fun observe() = local.observe().distinctUntilChanged()
+}

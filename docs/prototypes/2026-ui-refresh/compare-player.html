@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Плеєр: два варіанти</title>
+<link rel="stylesheet" href="assets/fonts/fonts.css">
+<link rel="stylesheet" href="assets/app.css">
+
+<style>
+/* ---- comparison page only: the light variant of the player ---- */
+body{background:#0a0c0a;color:#e9e5d8;font-family:'Onest',sans-serif;margin:0;padding:56px 0 80px}
+.cmp{display:flex;gap:64px;justify-content:center;align-items:flex-start;flex-wrap:wrap}
+.cmp-col{width:412px}
+.cmp h2{font:600 22px/1.2 'Literata',serif;margin:0 0 6px;color:#f0ecdf}
+.cmp p{font:400 14px/1.55 'Onest',sans-serif;margin:0 0 18px;color:#9aa093;min-height:66px}
+.cmp .tag{display:inline-block;font:600 11px/1 'Onest',sans-serif;letter-spacing:.06em;color:#e9be6e;margin-bottom:10px}
+.phone.small{box-shadow:0 30px 80px -30px #000}
+/* day player: same geometry, paper material */
+.player.day{background:var(--bg);color:var(--ink)}
+.player.day .player-bg{opacity:.16;filter:blur(70px) saturate(.9)}
+.player.day .player-scrim{background:linear-gradient(180deg,rgba(241,238,228,.5) 0%,rgba(241,238,228,.88) 44%,#f1eee4 76%)}
+.player.day .p-top .label{color:var(--muted)}
+.player.day .p-cover img{box-shadow:0 30px 60px -34px rgba(27,30,24,.6)}
+.player.day .p-cover::after{box-shadow:inset 0 0 0 1px rgba(20,24,20,.06)}
+.player.day .p-title{color:var(--ink)}
+.player.day .p-author{color:var(--muted)}
+.player.day .p-chapter{color:var(--lamp-ink)}
+.player.day .p-elapsed{color:var(--ink)}
+.player.day .p-total{color:var(--muted)}
+.player.day .scrub-track{background:rgba(27,30,24,.14)}
+.player.day .scrub-fill,.player.day .scrub-thumb{background:var(--lamp)}
+.player.day .scrub-thumb{box-shadow:0 0 0 7px rgba(169,106,18,.13)}
+.player.day .book-track{background:rgba(27,30,24,.13)}
+.player.day .book-track i{background:rgba(27,30,24,.38)}
+.player.day .btick{background:rgba(27,30,24,.3)}
+.player.day .book-label{color:var(--muted)}
+.player.day .tbtn{color:var(--ink-2)}
+.player.day .q{background:var(--surface);border:1px solid var(--line);color:var(--ink-2)}
+.player.day .q span{color:var(--muted)}
+.player.day .play-btn{background:var(--lamp);color:#241a00}
+.player.day .gesture{background:var(--ink)}
+</style>
+
+</head><body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="ic-play" viewBox="0 0 24 24"><path d="M8.5 5.2v13.6L19 12z" fill="currentColor"/></symbol>
+<symbol id="ic-pause" viewBox="0 0 24 24"><rect x="7" y="5" width="3.4" height="14" rx="1.2" fill="currentColor"/><rect x="13.6" y="5" width="3.4" height="14" rx="1.2" fill="currentColor"/></symbol>
+<symbol id="ic-headphones" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15v-3a8 8 0 0 1 16 0v3"/><path d="M4 14.5h2.2a1.3 1.3 0 0 1 1.3 1.3v3.4a1.3 1.3 0 0 1-1.3 1.3H5.4A1.4 1.4 0 0 1 4 19.1z"/><path d="M20 14.5h-2.2a1.3 1.3 0 0 0-1.3 1.3v3.4a1.3 1.3 0 0 0 1.3 1.3h.8a1.4 1.4 0 0 0 1.4-1.4z"/></symbol>
+<symbol id="ic-compass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.2"/><path d="M15.2 8.8l-1.9 5-4.5 1.4 1.9-5z" fill="currentColor" stroke="none"/></symbol>
+<symbol id="ic-library" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 5.5h4v14h-4z"/><path d="M10 5.5h4v14h-4z"/><path d="M15.6 6.3l3.4-1 4 13.5-3.4 1z"/></symbol>
+<symbol id="ic-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.1"/><path d="M19.4 13.4a7.6 7.6 0 0 0 0-2.8l2-1.5-2-3.4-2.4.9a7.7 7.7 0 0 0-2.4-1.4L14.2 2.5h-4.4l-.4 2.7a7.7 7.7 0 0 0-2.4 1.4l-2.4-.9-2 3.4 2 1.5a7.6 7.6 0 0 0 0 2.8l-2 1.5 2 3.4 2.4-.9a7.7 7.7 0 0 0 2.4 1.4l.4 2.7h4.4l.4-2.7a7.7 7.7 0 0 0 2.4-1.4l2.4.9 2-3.4z"/></symbol>
+<symbol id="ic-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.3"/><path d="M15.4 15.4L20 20"/></symbol>
+<symbol id="ic-filter" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h16M7 12h10M10 17h4"/></symbol>
+<symbol id="ic-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 9.5L12 15l5.5-5.5"/></symbol>
+<symbol id="ic-chevron-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 6.5L9 12l5.5 5.5"/></symbol>
+<symbol id="ic-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9.5 6.5L15 12l-5.5 5.5"/></symbol>
+<symbol id="ic-more" viewBox="0 0 24 24"><circle cx="12" cy="5.6" r="1.7" fill="currentColor"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/><circle cx="12" cy="18.4" r="1.7" fill="currentColor"/></symbol>
+<symbol id="ic-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5.5v13M5.5 12h13"/></symbol>
+<symbol id="ic-arrow-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12h14"/><path d="M13 6.5L19 12l-6 5.5"/></symbol>
+<symbol id="ic-skip-back" viewBox="0 0 24 24"><path d="M6.4 5.6v12.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M18.6 6.1v11.8L8.9 12z" fill="currentColor"/></symbol>
+<symbol id="ic-skip-fwd" viewBox="0 0 24 24"><path d="M17.6 5.6v12.8" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/><path d="M5.4 6.1v11.8L15.1 12z" fill="currentColor"/></symbol>
+<symbol id="ic-rew15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.6 10.2A7.6 7.6 0 1 1 7 17.6"/><path d="M4.2 5.6v4.8h4.8"/><text x="12.1" y="16" font-family="Onest,sans-serif" font-size="7.4" font-weight="700" fill="currentColor" stroke="none" text-anchor="middle">15</text></symbol>
+<symbol id="ic-fwd30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M19.4 10.2A7.6 7.6 0 1 0 17 17.6"/><path d="M19.8 5.6v4.8h-4.8"/><text x="11.9" y="16" font-family="Onest,sans-serif" font-size="7.2" font-weight="700" fill="currentColor" stroke="none" text-anchor="middle">30</text></symbol>
+<symbol id="ic-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.3A8 8 0 1 1 9.7 4a6.4 6.4 0 0 0 10.3 10.3z"/></symbol>
+<symbol id="ic-bookmark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4.5h10V20l-5-3.8L7 20z"/></symbol>
+<symbol id="ic-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 6.5h11M9 12h11M9 17.5h11"/><circle cx="4.6" cy="6.5" r="1.25" fill="currentColor" stroke="none"/><circle cx="4.6" cy="12" r="1.25" fill="currentColor" stroke="none"/><circle cx="4.6" cy="17.5" r="1.25" fill="currentColor" stroke="none"/></symbol>
+<symbol id="ic-speed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.4 17.5a8 8 0 1 1 15.2 0"/><path d="M12 13.6l3.4-3.4"/><circle cx="12" cy="14" r="1.25" fill="currentColor" stroke="none"/></symbol>
+<symbol id="ic-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.5v10"/><path d="M8 11l4 4 4-4"/><path d="M5 16.5v2a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2"/></symbol>
+<symbol id="ic-star" viewBox="0 0 24 24"><path d="M12 3.9l2.5 5.1 5.6.8-4 3.9 1 5.6-5.1-2.7-5.1 2.7 1-5.6-4-3.9 5.6-.8z" fill="currentColor"/></symbol>
+<symbol id="ic-star-o" viewBox="0 0 24 24"><path d="M12 3.9l2.5 5.1 5.6.8-4 3.9 1 5.6-5.1-2.7-5.1 2.7 1-5.6-4-3.9 5.6-.8z" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+<symbol id="ic-star-half" viewBox="0 0 24 24"><path d="M12 3.9l2.5 5.1 5.6.8-4 3.9 1 5.6-5.1-2.7-5.1 2.7 1-5.6-4-3.9 5.6-.8z" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 3.9v13.6l-5.1 2.7 1-5.6-4-3.9 5.6-.8z" fill="currentColor"/></symbol>
+<symbol id="ic-flame" viewBox="0 0 24 24"><path d="M12.4 3c.6 3.2-1 4.8-2.4 6.2-1.5 1.5-3 3-3 5.5A5.2 5.2 0 0 0 12.4 20a5 5 0 0 0 5-4.9c0-4.2-3.6-6.2-4.2-9.3-.2-.9-.5-1.8-.8-2.8z" fill="currentColor"/></symbol>
+<symbol id="ic-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.8 12.4l4.6 4.6L19.4 7"/></symbol>
+<symbol id="ic-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="10.5" width="13" height="9" rx="2.2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/></symbol>
+<symbol id="ic-book" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 5.2A2.2 2.2 0 0 1 6.7 3H19v16.4H6.7a2.2 2.2 0 0 0-2.2 2.2z"/><path d="M4.5 5.2V19"/></symbol>
+<symbol id="ic-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M12 7.6V12l2.9 1.9"/></symbol>
+<symbol id="ic-wave" viewBox="0 0 24 24"><rect x="3" y="10" width="2.4" height="4" rx="1.2" fill="currentColor"/><rect x="7.2" y="7" width="2.4" height="10" rx="1.2" fill="currentColor"/><rect x="11.4" y="4.5" width="2.4" height="15" rx="1.2" fill="currentColor"/><rect x="15.6" y="8" width="2.4" height="8" rx="1.2" fill="currentColor"/><rect x="19.8" y="10.5" width="2.4" height="3" rx="1.2" fill="currentColor"/></symbol>
+<symbol id="ic-palette" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.5a8.5 8.5 0 1 1 8.4-9.9c.2 1.6-1 2.9-2.6 2.9h-1.6a2 2 0 0 0-1.7 3c.4.7.2 1.6-.5 2a2 2 0 0 1-2-.3 8.4 8.4 0 0 1 0-.7z"/><circle cx="8.2" cy="10.2" r="1.1" fill="currentColor" stroke="none"/><circle cx="12" cy="7.6" r="1.1" fill="currentColor" stroke="none"/><circle cx="15.8" cy="10.2" r="1.1" fill="currentColor" stroke="none"/></symbol>
+<symbol id="ic-ruler" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.8 14.6L14.6 3.8a1.4 1.4 0 0 1 2 0l3.6 3.6a1.4 1.4 0 0 1 0 2L9.4 20.2a1.4 1.4 0 0 1-2 0l-3.6-3.6a1.4 1.4 0 0 1 0-2z"/><path d="M7.6 11.4l2 2M10.4 8.6l2 2M13.2 5.8l2 2"/></symbol>
+<symbol id="ic-friends" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.2" cy="8.4" r="3.3"/><path d="M3.6 19.4a5.8 5.8 0 0 1 11.2 0"/><path d="M16.2 5.6a3.1 3.1 0 0 1 0 5.9"/><path d="M17.6 14.2a5.4 5.4 0 0 1 3.1 4.9"/></symbol>
+<symbol id="ic-heart" viewBox="0 0 24 24"><path d="M12 20.2c-5.3-3.2-8-6.4-8-9.6a4.4 4.4 0 0 1 8-2.5 4.4 4.4 0 0 1 8 2.5c0 3.2-2.7 6.4-8 9.6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+<symbol id="ic-comment" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.6 5.2h14.8v10.4H12l-4.4 3.2v-3.2H4.6z" rx="2"/></symbol>
+<symbol id="ic-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="3.6"/><path d="M12 3.4v2M12 18.6v2M3.4 12h2M18.6 12h2M5.9 5.9l1.4 1.4M16.7 16.7l1.4 1.4M18.1 5.9l-1.4 1.4M7.3 16.7l-1.4 1.4"/></symbol>
+<symbol id="ic-motion" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 8.5h9.5M4 12h13M4 15.5h7.5"/><path d="M17.5 6.5l2.5 5.5-2.5 5.5"/></symbol>
+</defs></svg>
+<div class="cmp">
+  <div class="cmp-col">
+    <div class="tag">ВАРІАНТ A</div>
+    <h2>Плеєр завжди «Чорнило»</h2>
+    <p>Екран відтворення не залежить від теми: у день навколо папір, у плеєрі — ніч. Обкладинка домінує, око не відволікається. Мінус — різкий перехід зі світлого екрана.</p>
+          <div class="phone ink">
+      <div class="statusbar"><span>9:41</span><div class="sb-right"><svg viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:12px"><path d="M3 17.5h2v-3H3zm4 0h2v-6H7zm4 0h2V8h-2zm4 0h2V5h-2zm4 0h2V2h-2z"/></svg><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 19.4l-1.1-1.1a1.55 1.55 0 0 1 2.2 0zM8.5 15.9l1.1 1.1a3.4 3.4 0 0 1 4.8 0l1.1-1.1a5 5 0 0 0-7 0zM5.2 12.3l1.1 1.1a8.1 8.1 0 0 1 11.4 0l1.1-1.1a9.8 9.8 0 0 0-13.6 0z"/></svg><svg viewBox="0 0 26 12" fill="none" style="width:22px;height:11px"><rect x="1" y="1.5" width="21" height="9" rx="2.4" stroke="currentColor" stroke-width="1.3"/><rect x="3" y="3.5" width="15" height="5" rx="1.2" fill="currentColor"/><path d="M23.6 4.2v3.6a2 2 0 0 0 0-3.6z" fill="currentColor"/></svg></div></div>
+        <div class="screen">
+          <div class="player">
+            <div class="player-bg" style="background-image:url(assets/covers/trochy.webp)"></div>
+            <div class="player-scrim"></div>
+            <div class="p-top">
+              <button class="icon-btn" style="color:#ece8db" aria-label="Згорнути"><svg class="ico"><use href="#ic-chevron-down"/></svg></button>
+              <div class="label">Зараз звучить</div>
+              <button class="icon-btn" style="color:#ece8db" aria-label="Ще"><svg class="ico"><use href="#ic-more"/></svg></button>
+            </div>
+            <div class="p-body">
+              <div class="p-cover"><img src="assets/covers/trochy.webp" alt="Обкладинка «Трохи ненависті»"></div>
+              <div class="p-title">Трохи ненависті</div>
+              <div class="p-author">Джо Аберкромбі · читає Рік САН4Е3</div>
+              <div class="p-chapter"><svg><use href="#ic-wave"/></svg>Розділ 30 · Останній рубака</div>
+              <div class="p-times"><span class="p-elapsed">12:08</span><span class="p-total">42:59</span></div>
+              <div class="scrubber">
+                <div class="scrub-track"><div class="scrub-fill" style="width:28%"></div></div>
+                <div class="scrub-thumb" style="left:28%"></div>
+              </div>
+              <div class="book-lines">
+                <div class="book-track"><i></i><span class="btick" style="left:25%"></span><span class="btick" style="left:50%"></span><span class="btick" style="left:75%"></span></div>
+                <div class="book-label"><span>Книга · 7 год 18 хв із 16 год 41 хв</span><span>44 %</span></div>
+              </div>
+              <div class="transport">
+                <button class="tbtn" aria-label="Назад 15 секунд"><svg><use href="#ic-rew15"/></svg></button>
+                <button class="play-btn" aria-label="Пауза"><svg><use href="#ic-pause"/></svg></button>
+                <button class="tbtn" aria-label="Вперед 30 секунд"><svg><use href="#ic-fwd30"/></svg></button>
+              </div>
+              <div class="quick">
+                <div class="q"><svg><use href="#ic-speed"/></svg><span>1,0×</span></div>
+                <div class="q"><svg><use href="#ic-moon"/></svg><span>Таймер</span></div>
+                <div class="q"><svg><use href="#ic-bookmark"/></svg><span>Закладка</span></div>
+                <div class="q"><svg><use href="#ic-list"/></svg><span>Розділи</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="gesture"></div>
+      </div>
+  </div>
+  <div class="cmp-col">
+    <div class="tag">ВАРІАНТ B</div>
+    <h2>Плеєр у темі застосунку</h2>
+    <p>У день плеєр теж паперовий, увечері — чорнильний. Послідовно, без стрибка. Мінус — світлий плеєр менш «сценічний», а обкладинка конкурує з фоном.</p>
+          <div class="phone paper">
+      <div class="statusbar"><span>9:41</span><div class="sb-right"><svg viewBox="0 0 24 24" fill="currentColor" style="width:16px;height:12px"><path d="M3 17.5h2v-3H3zm4 0h2v-6H7zm4 0h2V8h-2zm4 0h2V5h-2zm4 0h2V2h-2z"/></svg><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 19.4l-1.1-1.1a1.55 1.55 0 0 1 2.2 0zM8.5 15.9l1.1 1.1a3.4 3.4 0 0 1 4.8 0l1.1-1.1a5 5 0 0 0-7 0zM5.2 12.3l1.1 1.1a8.1 8.1 0 0 1 11.4 0l1.1-1.1a9.8 9.8 0 0 0-13.6 0z"/></svg><svg viewBox="0 0 26 12" fill="none" style="width:22px;height:11px"><rect x="1" y="1.5" width="21" height="9" rx="2.4" stroke="currentColor" stroke-width="1.3"/><rect x="3" y="3.5" width="15" height="5" rx="1.2" fill="currentColor"/><path d="M23.6 4.2v3.6a2 2 0 0 0 0-3.6z" fill="currentColor"/></svg></div></div>
+        <div class="screen">
+          <div class="player day">
+            <div class="player-bg" style="background-image:url(assets/covers/trochy.webp)"></div>
+            <div class="player-scrim"></div>
+            <div class="p-top">
+              <button class="icon-btn" aria-label="Згорнути"><svg class="ico"><use href="#ic-chevron-down"/></svg></button>
+              <div class="label">Зараз звучить</div>
+              <button class="icon-btn" aria-label="Ще"><svg class="ico"><use href="#ic-more"/></svg></button>
+            </div>
+            <div class="p-body">
+              <div class="p-cover"><img src="assets/covers/trochy.webp" alt="Обкладинка «Трохи ненависті»"></div>
+              <div class="p-title">Трохи ненависті</div>
+              <div class="p-author">Джо Аберкромбі · читає Рік САН4Е3</div>
+              <div class="p-chapter"><svg><use href="#ic-wave"/></svg>Розділ 30 · Останній рубака</div>
+              <div class="p-times"><span class="p-elapsed">12:08</span><span class="p-total">42:59</span></div>
+              <div class="scrubber">
+                <div class="scrub-track"><div class="scrub-fill" style="width:28%"></div></div>
+                <div class="scrub-thumb" style="left:28%"></div>
+              </div>
+              <div class="book-lines">
+                <div class="book-track"><i></i><span class="btick" style="left:25%"></span><span class="btick" style="left:50%"></span><span class="btick" style="left:75%"></span></div>
+                <div class="book-label"><span>Книга · 7 год 18 хв із 16 год 41 хв</span><span>44 %</span></div>
+              </div>
+              <div class="transport">
+                <button class="tbtn" aria-label="Назад 15 секунд"><svg><use href="#ic-rew15"/></svg></button>
+                <button class="play-btn" aria-label="Пауза"><svg><use href="#ic-pause"/></svg></button>
+                <button class="tbtn" aria-label="Вперед 30 секунд"><svg><use href="#ic-fwd30"/></svg></button>
+              </div>
+              <div class="quick">
+                <div class="q"><svg><use href="#ic-speed"/></svg><span>1,0×</span></div>
+                <div class="q"><svg><use href="#ic-moon"/></svg><span>Таймер</span></div>
+                <div class="q"><svg><use href="#ic-bookmark"/></svg><span>Закладка</span></div>
+                <div class="q"><svg><use href="#ic-list"/></svg><span>Розділи</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="gesture"></div>
+      </div>
+  </div>
+</div>
+</body></html>

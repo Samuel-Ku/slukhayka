@@ -84,7 +84,7 @@ class EnglishStartAwardTest {
         event(database, bookId, PlaybackEventKind.RESUME, at)
 
     private suspend fun snapshot(database: AudiobookDatabase): AchievementProgress =
-        RoomAchievementProgressSource(
+        AchievementSnapshotSource(
             database.achievementDao(), RoomAchievementStore(database.achievementDao()), emptySet(),
             abandonedBookIds = flowOf(emptySet())
         ).observe().first()

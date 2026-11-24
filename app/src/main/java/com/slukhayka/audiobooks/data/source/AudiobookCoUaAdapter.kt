@@ -1,6 +1,9 @@
 package com.slukhayka.audiobooks.data.source
 
 import com.slukhayka.audiobooks.data.catalog.FeedSnapshotPolicy
+import com.slukhayka.audiobooks.data.merge.SlugMatch
+import com.slukhayka.audiobooks.data.privacy.PacingPolicy
+import kotlinx.coroutines.delay
 
 /**
  * audiobook.co.ua [SourceAdapter] (spec-47 T2; endpoints verified live in the
@@ -22,8 +25,13 @@ import com.slukhayka.audiobooks.data.catalog.FeedSnapshotPolicy
  *
  * Measured absences (ADR-0014 — never fabricated):
  * - **Search:** the post-grid keyword form does not filter server-side
- *   (T1 spike: 18 items on plain and `?keyword=` pages alike) → [search] is
- *   an honest empty list; discovery rides [fetchNew]/[fetchCatalog].
+ *   (T1 spike: 18 items on plain and `?keyword=` pages alike) AND robots.txt
+ *   disallows `*?s=`, `/search/` and `/?`. Since #1486 [search] therefore
+ *   rides the ALLOWED taxonomy — `post_tag-sitemap.xml` + `/tag/<slug>/`
+ *   pages, transliterated slugs matched through [SlugMatch] — while a
+ *   title-only lookup still falls back to the recent feed ([fetchNew] via
+ *   `SourceCatalog.searchSourceWithStatus`); [fetchCatalog] serves the
+ *   catalogue walk, not search.
  * - **Series, duration, rating, blurb:** the book page carries none of them
  *   in the captured shape — series pages (`/seria/…`) are taxonomy-level,
  *   not per-book links, and og:description is site boilerplate («…скачать,
@@ -34,8 +42,24 @@ import com.slukhayka.audiobooks.data.catalog.FeedSnapshotPolicy
  *   parser rewrite.
  */
 class AudiobookCoUaAdapter(
-    private val fetcher: HttpFetcher = HttpFetcher()
+    private val fetcher: HttpFetcher = HttpFetcher(),
+    /** Injectable pause so tests pin the rhythm without sleeping (spec-38). */
+    private val pauseMillis: suspend (Long) -> Unit = { delay(it) },
+    /** Human rhythm between continuation requests (spec-38). */
+    private val pacing: PacingPolicy = PacingPolicy(),
+    /** #1486 — matched tags one query may use. */
+    private val searchTagLimit: Int = SEARCH_TAG_LIMIT,
+    /** #1486 — tag-page requests one query may spend. */
+    private val searchPageLimit: Int = SEARCH_PAGE_LIMIT,
+    /** #1486 — books one query returns at most. */
+    private val searchResultLimit: Int = SEARCH_RESULT_LIMIT,
+    /** Injectable clock so the tag-index freshness is testable (policy convention). */
+    private val now: () -> Long = System::currentTimeMillis
 ) : SourceAdapter {
+
+    /** In-memory tag index: the sitemap moves slowly, a keystroke must stay cheap. */
+    @Volatile
+    private var tagIndexCache: Pair<Long, List<Tag>>? = null
 
     override val sourceId: String = "audiobookcoua"
 
@@ -43,11 +67,165 @@ class AudiobookCoUaAdapter(
     override val contentLanguage = "uk"
 
     /**
-     * The site's keyword search does not filter server-side (T1 spike) — the
-     * honest refusal the seam contract allows; unified search covers the
-     * source through the other sources' results and the catalogue union.
+     * #1486 — the site's own keyword search is robots-disallowed (robots.txt:
+     * `*?s=`, `/search/`, `/?`) and does not filter server-side (T1 spike), so
+     * [search] turns to the ALLOWED taxonomy instead: `post_tag-sitemap.xml`
+     * lists the author/series/genre tags (952 at the 2026-10-27 spike, slugs
+     * transliterated — `tag/king-stiven/`), and a tag page lists that author's
+     * books.
+     *
+     * Cyrillic queries meet transliterated slugs through the repository's
+     * [SlugMatch] variant set («кінг» → `king`), never through a new
+     * transliteration table. The budget is bounded like sound-books': one
+     * sitemap read (catalogue TTL), at most [searchTagLimit] tags and
+     * [searchPageLimit] tag-page requests, every page getting its first turn
+     * before any gets a second; at most [searchResultLimit] books, each
+     * continuation paced ([PacingPolicy]).
      */
-    override suspend fun search(query: String): List<SourceBook> = emptyList()
+    override suspend fun search(query: String): List<SourceBook> {
+        val clean = query.trim()
+        if (clean.isBlank()) return emptyList()
+        val matched = tagIndex()
+            .mapNotNull { tag -> tagScore(tag.slug, clean)?.let { tag to it } }
+            .sortedWith(compareByDescending<Pair<Tag, Int>> { it.second }.thenBy { it.first.slug.length })
+            .map { it.first }
+            .take(searchTagLimit)
+        if (matched.isEmpty()) return emptyList()
+
+        val books = LinkedHashMap<String, SourceBook>()
+        val nextPage = mutableMapOf<Tag, String?>()
+        matched.forEach { nextPage[it] = it.url }
+        var pagesOpened = 0
+        var requests = 0
+        var pending = true
+        while (pending && pagesOpened < searchPageLimit && books.size < searchResultLimit) {
+            pending = false
+            for (tag in matched) {
+                if (pagesOpened >= searchPageLimit || books.size >= searchResultLimit) break
+                val pageUrl = nextPage[tag] ?: continue
+                pending = true
+                if (requests > 0) pauseMillis(pacing.nextPauseMillis())
+                requests++
+                val html = fetcher.getText(
+                    pageUrl,
+                    emptyMap(),
+                    SourceRequestClass.LISTENER_ACTION,
+                    FeedSnapshotPolicy.CATALOG_TTL_MS
+                )
+                pagesOpened++
+                if (html.isEmpty()) {
+                    nextPage[tag] = null
+                    continue
+                }
+                tagCards(html, searchResultLimit - books.size).forEach { books.putIfAbsent(it.url, it) }
+                nextPage[tag] = nextTagPage(pageUrl, html)
+            }
+        }
+        return books.values.toList()
+    }
+
+    /**
+     * How well one transliterated tag slug answers the Cyrillic query: null
+     * when it does not. Every query TOKEN must find a slug token among its
+     * transliteration variants ([SlugMatch.variants]) — one chance match is not
+     * an author — with a full, same-length match ranked first.
+     */
+    private fun tagScore(slug: String, query: String): Int? {
+        val slugTokens = SlugMatch.tokens(slug)
+        val queryTokens = SlugMatch.tokens(query)
+        if (slugTokens.isEmpty() || queryTokens.isEmpty()) return null
+        val forms = queryTokens.flatMap { SlugMatch.variants(it) }.toSet()
+        val matched = slugTokens.count { it in forms }
+        // Half a name is not an author: EVERY query token must land on a slug
+        // token, otherwise «кінг овен» would open `king-stiven`.
+        if (matched < queryTokens.size) return null
+        return if (slugTokens.size == queryTokens.size) 100 + matched else 50 + matched
+    }
+
+    /**
+     * The allowed author/series/genre tags from `post_tag-sitemap.xml`, cached
+     * in memory for the catalogue TTL. Freshness is the repo's one decision
+     * ([FeedSnapshotPolicy.isFresh] — a future stamp never freezes the index).
+     */
+    private suspend fun tagIndex(): List<Tag> {
+        val cached = tagIndexCache
+        val nowMillis = now()
+        if (cached != null && FeedSnapshotPolicy.isFresh(cached.first, nowMillis, TAG_INDEX_TTL_MS)) {
+            return cached.second
+        }
+        val xml = fetcher.getText(
+            TAG_SITEMAP_URL,
+            emptyMap(),
+            SourceRequestClass.TTL_REFRESH,
+            FeedSnapshotPolicy.CATALOG_TTL_MS
+        )
+        if (xml.isEmpty()) return cached?.second.orEmpty()
+        val tags = TAG_LOC.findAll(xml).mapNotNull { match ->
+            val url = match.groupValues[1].trim()
+            if (!url.startsWith(TAG_URL_PREFIX)) return@mapNotNull null
+            val slug = url.removeSuffix("/").substringAfterLast('/')
+            slug.takeIf { it.isNotBlank() }?.let { Tag(it, url) }
+        }.distinctBy { it.slug }.toList()
+        if (tags.isNotEmpty()) tagIndexCache = nowMillis to tags
+        return tags.ifEmpty { cached?.second.orEmpty() }
+    }
+
+    /**
+     * The listing cards of one tag page. The theme's list layout carries one
+     * `<article id="post-N">` per book, its title anchor «Назва — Автор» and
+     * the WordPress cover — a DIFFERENT markup than the grid the news feed
+     * uses, so it is parsed here, never through [gridCards].
+     */
+    private fun tagCards(html: String, limit: Int): List<SourceBook> {
+        if (limit <= 0) return emptyList()
+        val books = mutableListOf<SourceBook>()
+        for (block in html.split(ARTICLE_START).drop(1)) {
+            if (books.size >= limit) break
+            val link = TITLE_LINK.find(block) ?: continue
+            val url = link.groupValues[1]
+            if (!url.startsWith("https://audiobook.co.ua/")) continue
+            val label = decodeEntities(link.groupValues[2]).trim()
+            if (label.isBlank()) continue
+            val cover = COVER.find(block)?.groupValues?.get(1)
+            val (title, author) = splitDisplayTitle(label)
+            books += SourceBook(
+                title = title,
+                author = author,
+                url = url,
+                sourceId = sourceId,
+                coverImageUrl = cover
+            )
+        }
+        return books
+    }
+
+    /** «Назва — Автор» (em dash on the list theme) or «Назва - Автор». */
+    private fun splitDisplayTitle(label: String): Pair<String, String> {
+        for (separator in listOf(" \u2014 ", " - ")) {
+            val index = label.indexOf(separator)
+            if (index > 0) {
+                return label.substring(0, index).trim() to label.substring(index + separator.length).trim()
+            }
+        }
+        return label to ""
+    }
+
+    /** The next page of the SAME tag listing, or null on the last page. */
+    private fun nextTagPage(current: String, html: String): String? {
+        val path = current.removePrefix("https://audiobook.co.ua")
+        val base = path.substringBefore("/page/").trimEnd('/')
+        if (base.isBlank()) return null
+        val currentPage = PAGE_NUMBER.find(path)?.groupValues?.get(1)?.toIntOrNull() ?: 1
+        val next = TAG_PAGE_LINK.findAll(html).mapNotNull { match ->
+            val linkedBase = match.groupValues[1].substringBefore("/page/").trimEnd('/')
+            val linkedPage = match.groupValues[2].toIntOrNull()
+            if (linkedPage != null && linkedBase == base && linkedPage > currentPage) linkedPage else null
+        }.minOrNull() ?: return null
+        return "https://audiobook.co.ua$base/page/$next/"
+    }
+
+    /** One allowed book-list tag: its transliterated slug and page url. */
+    private data class Tag(val slug: String, val url: String)
 
     override suspend fun fetchNew(limit: Int): List<SourceBook> {
         val html = fetcher.getText(NOVELTIES_URL, emptyMap(), SourceRequestClass.TTL_REFRESH, FeedSnapshotPolicy.NEW_ARRIVALS_TTL_MS)
@@ -267,7 +445,13 @@ class AudiobookCoUaAdapter(
     }
 
     private fun decodeEntities(s: String): String =
-        s.replace("&lt;", "<")
+        s.replace(NUMERIC_HEX_ENTITY) { match ->
+            match.groupValues[1].toIntOrNull(16)?.toChar()?.toString() ?: match.value
+        }
+            .replace(NUMERIC_ENTITY) { match ->
+                match.groupValues[1].toIntOrNull()?.toChar()?.toString() ?: match.value
+            }
+            .replace("&lt;", "<")
             .replace("&gt;", ">")
             .replace("&quot;", "\"")
             .replace("&#039;", "'")
@@ -346,6 +530,32 @@ class AudiobookCoUaAdapter(
 
     private companion object {
         const val NOVELTIES_URL = "https://audiobook.co.ua/novinki-ozvuchivaniya/"
+
+        /** #1486 — the site's own tag taxonomy sitemap (allowed by robots). */
+        const val TAG_SITEMAP_URL: String = "https://audiobook.co.ua/post_tag-sitemap.xml"
+        const val TAG_URL_PREFIX: String = "https://audiobook.co.ua/tag/"
+        /** Keep the in-memory tag index for the same day the catalogue keeps. */
+        const val TAG_INDEX_TTL_MS: Long = FeedSnapshotPolicy.CATALOG_TTL_MS
+        /** #1486 — matched tags one query may use; the rest wait for the next query. */
+        const val SEARCH_TAG_LIMIT: Int = 3
+        /** #1486 — tag-page requests per query (first pages of every tag before any second). */
+        const val SEARCH_PAGE_LIMIT: Int = 3
+        /** #1486 — bounded result: at most three tag pages of ten books. */
+        const val SEARCH_RESULT_LIMIT: Int = 30
+        /** One `<loc>` of a WordPress sitemap. */
+        val TAG_LOC = Regex("""<loc>\s*([^<\s]+)\s*</loc>""", RegexOption.IGNORE_CASE)
+        /** A pagination link of one tag listing (relative or absolute). */
+        private val TAG_PAGE_LINK = Regex("""href="(?:https://audiobook\.co\.ua)?(/tag/[^"]+/page/(\d+)/)""", RegexOption.IGNORE_CASE)
+        private val PAGE_NUMBER = Regex("""/page/(\d+)/""")
+        /** One book article of the list theme. */
+        private const val ARTICLE_START: String = """<article id="post-"""
+        /** The list card's title anchor («Назва — Автор»). */
+        private val TITLE_LINK = Regex("""<h2[^>]*class="entry-title[^"]*"[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>""", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
+        /** The WordPress cover of one card. */
+        private val COVER = Regex("""<img[^>]*(?:src|data-src)="(https://audiobook\.co\.ua/wp-content/uploads/[^"]+)""", RegexOption.IGNORE_CASE)
+        /** Numeric HTML entities the live titles carry (e.g. `&#8212;` — the em dash). */
+        private val NUMERIC_ENTITY = Regex("""&#(\d+);""")
+        private val NUMERIC_HEX_ENTITY = Regex("""&#x([0-9a-fA-F]+);""")
 
         /** T1 spike: the three post-sitemaps enumerate the book catalogue. */
         val POST_SITEMAPS = listOf(

@@ -16,6 +16,37 @@
   дерева. Причина — нижче, порядок і доказ — у розділі «Гейт, який тепер
   працює».
 
+## Однією командою: `scripts/goldens.sh`
+
+Флаги `record`/`verify` легко переплутати (без них снапшот просто нічого не
+робить і виглядає зеленим), а повний перезапис не має ставатися випадково.
+Тому щоденний шлях — один скрипт:
+
+```sh
+scripts/goldens.sh record com.slukhayka.audiobooks.ui.snapshots.LibraryScreenSnapshotTest
+scripts/goldens.sh verify com.slukhayka.audiobooks.ui.snapshots.LibraryScreenSnapshotTest
+scripts/goldens.sh record --all        # свідомий повний запис, друкує попередження
+scripts/goldens.sh pin library_redesign_grid.png   # sha256 + пара 32+32 для guard
+```
+
+- `record`/`verify` ідуть через `scripts/test-all.sh` з
+  `SLUKHAYKA_GRADLE_ARGS_FILE`, тобто той самий JDK-21/резолвер і слот, що й
+  решта прогонів; `-Ptest.selectedClasses=…` обмежує набір, `--all` його
+  знімає лише за явним прапорцем. Режим ставить **свою** властивість:
+  `-Proborazzi.test.record=true` або `-Proborazzi.test.verify=true`;
+  `record=false` сам по собі — це `None`, тобто тихий no-op, а не перевірка.
+- Після прогону скрипт друкує `git status` по `app/src/test/snapshots/` —
+  включно з **новими** нетрекнутими PNG (`git diff` їх не бачить), і робить це
+  навіть коли прогін упав: саме тоді список переписаних еталонів і є доказом.
+- `pin` лише друкує digest і готову пару для
+  `SnapshotGoldenBytesGuardTest`; сам guard-файл він не редагує: оновлення
+  піна лишається окремим свідомим рішенням у тому ж коміті.
+- Відмови: невідома підкоманда, порожній список класів без `--all`, `--all`
+  разом із класами, `pin` поза текою еталонів або на неіснуючий файл.
+- Запис на воркері: запускай скрипт **у тій смузі на тій машині**, де
+  записуються еталони (`../gt scripts/goldens.sh …`); PNG лишаються в дереві
+  смуги, і назад їх забирає той, хто робить коміт. Скрипт не робить `scp`.
+
 ## Гейт, який тепер працює (перевірено 2026-09-20)
 
 Лег `compose-roborazzi` спершу **записує** набір (`./gradlew … $EXTRA_FLAGS`
@@ -85,6 +116,8 @@
 ## Локальний запис
 
 ```
+scripts/goldens.sh record com.slukhayka.audiobooks.ui.snapshots.<Клас>
+# те саме вручну, якщо скрипт недоступний:
 ./gradlew testDebugUnitTest --tests "com.slukhayka.audiobooks.ui.snapshots.<Клас>" \
   -Proborazzi.test.record=true
 ```

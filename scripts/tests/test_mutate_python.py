@@ -136,6 +136,11 @@ class Fixture:
     def __init__(self, root: Path, logs: Path, sources: dict[str, Path]):
         self.root = root
         self.logs = logs
+        # Свій `TMPDIR` — ПОЗА копією дерева і свій, а не успадкований: інакше
+        # тека прогону лягає в спільний `/tmp` і лишається там після SIGKILL
+        # (#1300), а в самому дереві вона робила б його брудним.
+        self.tmp = logs / "tmp"
+        self.tmp.mkdir(parents=True, exist_ok=True)
         self.build(sources)
 
     def build(self, sources: dict[str, Path]) -> None:
@@ -148,6 +153,12 @@ class Fixture:
         )
         (self.root / "scripts" / "mutation_python_runner.py").write_text(
             sources["runner"].read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        # Сусід скрипта, якого той кличе за текою прогону (#1300): копія дерева
+        # мусить мати все, що `mutate.sh` шукає поряд із собою.
+        (self.root / "scripts" / "tmp_budget.py").write_text(
+            (REPO_ROOT / "scripts" / "tmp_budget.py").read_text(encoding="utf-8"),
+            encoding="utf-8",
         )
         # The root ignore file keeps .mutations/ invisible: without it the tool's
         # own record and artifact would make the tree dirty for the next run.
@@ -184,6 +195,7 @@ class Fixture:
             "LC_ALL": "C",
             "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_CONFIG_GLOBAL": str(self.logs / "gitconfig"),
+            "TMPDIR": str(self.tmp),
         }
         environment.update(overrides)
         return environment

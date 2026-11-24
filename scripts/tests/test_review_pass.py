@@ -181,6 +181,9 @@ if arguments[:1] == ["api"]:
     if "/pulls/" in path and path.endswith("/commits"):
         print(json.dumps(load("commits.json", [])))
         sys.exit(0)
+    if "/pulls/" in path and path.endswith("/files"):
+        print(json.dumps(load("files.json", [[]])))
+        sys.exit(0)
     if method == "POST" and path.endswith("/labels"):
         mode = os.environ.get("FAKE_GH_ADD_MODE", "")
         if mode == "error":
@@ -308,6 +311,7 @@ class ReviewPassTest(unittest.TestCase):
                 *[run(name, conclusion.lower(), started, completed)
                   for name, conclusion, started, completed in GREEN_CHECKS]),
             "repo.json": {"delete_branch_on_merge": False},
+            "files.json": [[{"filename": "app/src/main/java/X.kt"}]],
         }
         for name, value in fixtures.items():
             (self.fixtures / name).write_text(json.dumps(value), encoding="utf-8")
@@ -318,16 +322,27 @@ class ReviewPassTest(unittest.TestCase):
             label_file.unlink(missing_ok=True)
 
     def environment(self, extra=None):
-        environment = os.environ.copy()
-        environment.pop("REVIEW_PASS_LABEL", None)
-        environment.pop("MERGE_PR_LABEL", None)
-        environment.update({
+        """Оточення скриптів і підставного gh — своє, а не успадковане (#1265).
+
+        CI-раннер приносить у процес власні змінні, і серед них може бути
+        будь-що: `PYTHONPATH` з чужою текою, `PYTHONSTARTUP`, змінна, яку читає
+        підставний gh, — і він віддає не ту фікстуру при незмінних файлах. Саме
+        так фікстура #1260 і почервоніла в CI, хоч локально була зелена.
+
+        `scripts/tests/test_mutate.py` задає оточення так само — свіжим
+        словником, а не `os.environ`. Імена тут — лише свої: `FAKE_GH_*` читає
+        підставний gh, `REVIEW_PASS_*`/`MERGE_PR_*` — вхід самих скриптів.
+        """
+        environment = {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(self.root),
+            "LC_ALL": "C",
             "REVIEW_PASS_GH": str(self.gh),
             "MERGE_PR_GH": str(self.gh),
             "FAKE_GH_DIR": str(self.fixtures),
             "FAKE_GH_LOG": str(self.log),
             "FAKE_GH_NOW": NOW,
-        })
+        }
         environment.update(extra or {})
         return environment
 

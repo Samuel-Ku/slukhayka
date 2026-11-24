@@ -1,32 +1,30 @@
 <resources>
-    <!-- fix(accessibility): #371 — override Material3 Polish strings so TalkBack
-         voices the filter sheet in Ukrainian even on a Polish-system device.
-         The app's UI is Ukrainian (CONTEXT.md) and the sheet is decorative;
-         Polish "Zamknij arkusz / Uchwyt do przeciągania" must never be voiced. -->
-    <string name="m3c_bottom_sheet_collapse_description">Згорнути аркуш</string>
-    <string name="m3c_bottom_sheet_dismiss_description">Закрити аркуш</string>
-    <string name="m3c_bottom_sheet_drag_handle_description">Маркер переміщення</string>
-    <string name="m3c_bottom_sheet_expand_description">Розгорнути аркуш</string>
-    <string name="m3c_bottom_sheet_pane_title">Аркуш</string>
-    <string name="lib_year_hero_title">Mój rok w książkach, %1$d</string>
-    <string name="lib_year_hero_units">ukończonych podejść</string>
-    <string name="lib_section_books">Książki</string>
-    <string name="lib_import_folder_unknown">Wybrany folder</string>
-    <string name="lib_import_folder_name">Folder „%1$s”</string>
-    <string name="lib_import_folder_grouping_hint">Ten wybór dotyczy plików bezpośrednio w folderze. Podfoldery pozostają osobnymi książkami.</string>
-    <string name="lib_import_grouping_reset_title">Zmienić grupowanie?</string>
-    <string name="lib_import_grouping_reset_message">Nazwy, kolejność rozdziałów, podziały i połączenia książek zawierających pliki w głównym folderze zostaną zresetowane. Zmiany w innych podfolderach pozostaną.</string>
-    <string name="lib_import_grouping_reset_confirm">Zmień i zresetuj zmiany</string>
-    <string name="lib_import_merge_planned">Połącz z inną książką</string>
-    <string name="lib_import_merge_choose_title">Do której książki dodać rozdziały?</string>
-    <string name="lib_import_merge_choose_hint">Wybrana książka zachowa tytuł i pozostałe dane. Te rozdziały zostaną dodane na końcu.</string>
-    <string name="lib_import_title_required">Podaj tytuł książki przed importem.</string>
-    <string name="chapter_order_edit">Edytuj kolejność rozdziałów</string>
-    <string name="chapter_order_reverse">Odwróć kolejność</string>
-    <string name="chapter_order_saving">Zapisywanie…</string>
-    <string name="chapter_order_changed">Lista rozdziałów się zmieniła. Zamknij edytor i otwórz go ponownie.</string>
-    <string name="chapter_order_failed">Nie udało się zapisać kolejności rozdziałów. Spróbuj ponownie.</string>
-    <string name="lib_import_split_here">Podziel przed tym rozdziałem</string>
-    <string name="metadata_edit_series">Seria</string>
-    <string name="metadata_edit_series_index">Numer w serii</string>
+    <!-- POLISH — the Material3 overrides, in the app's own accent language.
+
+         HISTORY. This file started as a UKRAINIAN override (#371): while the
+         app UI was Ukrainian, Android would otherwise voice Material3's own
+         Polish strings ("Zamknij arkusz", "Uchwyt do przeciągania") through
+         TalkBack on a Polish device, mixing two languages in the ear. A `pl`
+         qualifier holding Ukrainian text won over the library's Polish.
+
+         #1385/#1387–#1389 changed the premise: the app itself is now fully
+         translated into Polish (`strings_app.xml`, `strings_rest.xml`), the
+         language switch is ON, and a Polish device resolves the `pl` qualifier
+         everywhere. A Ukrainian override HERE would now be the exact defect it
+         was invented to prevent — Polish UI with Ukrainian bottom-sheet
+         announcements.
+
+         So the file keeps its purpose (match the library's own phrasing, not
+         a machine translation of our own) but flips its language: the values
+         are the same Polish sentences Compose Material3 1.3.2 ships in
+         `material3-release.aar`, kept in sync by
+         `scripts/tests/test_polish_locale.py` (which fails on Cyrillic here and
+         on a drifted/extra override). App-owned strings never belong in this
+         file: they live in `strings_app.xml` and `strings_rest.xml`, and a key
+         may be defined in exactly one file of the `pl` qualifier. -->
+    <string name="m3c_bottom_sheet_collapse_description">Zwiń planszę dolną</string>
+    <string name="m3c_bottom_sheet_dismiss_description">Zamknij planszę dolną</string>
+    <string name="m3c_bottom_sheet_drag_handle_description">Uchwyt do przeciągania</string>
+    <string name="m3c_bottom_sheet_expand_description">Rozwiń planszę dolną</string>
+    <string name="m3c_bottom_sheet_pane_title">Plansza dolna</string>
 </resources>

@@ -4,12 +4,11 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.slukhayka.audiobooks.App
-import com.slukhayka.audiobooks.MainActivity
+import com.slukhayka.audiobooks.NotificationIntents
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.imports.KnownBookIdentity
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
@@ -168,8 +167,8 @@ object SourceWatchNotifier {
     /** Where one Work's tap leads: an existing Library Entry or an importable Source. */
     private data class OpenTarget(
         val entryId: String? = null,
-        val sourceId: String? = null,
-        val sourceUrl: String? = null
+        val sourceId: String = "",
+        val sourceUrl: String = ""
     )
 
     /**
@@ -204,27 +203,20 @@ object SourceWatchNotifier {
         target: OpenTarget,
         identity: KnownBookIdentity?
     ): PendingIntent {
-        val intent = Intent(context, MainActivity::class.java)
-        if (target.entryId != null) {
+        val intent = if (target.entryId != null) {
             // The ordinary book-detail door (the same extras the download
             // notification uses) — the tap imports/opens like any other.
-            intent.putExtra("openBookDetail", true).putExtra("bookId", target.entryId)
+            NotificationIntents.bookDetail(context, target.entryId)
         } else {
             // ADR-0052 §7 — no Library Entry yet: the tap imports the Source
-            // that just appeared through the ordinary import door (the extras
-            // MainActivity parses and hands to MainViewModel) and then opens
-            // the imported book. The identity only enables the shared-profile
-            // read-skip; an absent one still imports by live fetch.
-            intent.putExtra(MainActivity.EXTRA_OPEN_SOURCE_WORK, true)
-                .putExtra(MainActivity.EXTRA_SOURCE_ID, target.sourceId)
-                .putExtra(MainActivity.EXTRA_SOURCE_URL, target.sourceUrl)
-            if (identity != null) {
-                intent.putExtra(MainActivity.EXTRA_SOURCE_WORK_TITLE, identity.title)
-                    .putExtra(MainActivity.EXTRA_SOURCE_WORK_AUTHOR, identity.author)
-                    .putExtra(MainActivity.EXTRA_SOURCE_WORK_NARRATOR, identity.narrator)
-            }
+            // that just appeared through the ordinary import door and then
+            // opens the imported book. The identity only enables the
+            // shared-profile read-skip; an absent one still imports by live
+            // fetch.
+            NotificationIntents.sourceWork(
+                context, target.sourceId, target.sourceUrl, identity
+            )
         }
-        intent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         return PendingIntent.getActivity(
             context,
             workId.hashCode(),

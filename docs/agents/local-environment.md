@@ -3,6 +3,22 @@
 The facts a lane needs on this machine. Commands are the source of truth; this
 file says which ones exist and why they are shaped that way.
 
+## At a glance
+
+The rules that decide whether a command runs at all. Each one has cost a run;
+each links to the section that explains it.
+
+| before you… | the rule | see |
+|---|---|---|
+| run anything heavy | the slot wants **3500 MB free** and **swap growth ≤ 2000 MB** | [The memory guard](#the-memory-guard) |
+| run anything heavy | **kill the idle Gradle daemon first, by PID**: `jps -l \| grep GradleDaemon`, then `kill <pid>`. **Never `pkill -f 'GradleDaemon'`** — that pattern also matches the shell invoking it and kills the caller | [Mutations](#mutations) |
+| run a mutation | **lower the daemon's heap, not the client's**: `GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx3g"`. `GRADLE_OPTS="-Xmx3g"` leaves the build at `-Xmx4g` and only raises the client ceiling | [Mutations](#mutations) |
+| check a build's result | **write the exit code to a file**, not through a pipe: `(cmd > log 2>&1; echo $? > exit)`. `cmd \| tail` reports `tail`'s status, so `exit 0` can sit beside `BUILD FAILED` | [Mutations](#mutations) |
+| compile anything | a lane **inherits** `local.properties` from the copy that created it — a stale `sdk.dir` (this machine has seen `/opt/android-sdk`, which does not exist) makes Gradle answer `SDK location not found`. The SDK here is `/home/stealth/android-sdk`, or set `ANDROID_HOME` | [Worktrees](#worktrees) |
+| trust a mutation | `outcome: killed` is caught; `no-verdict` and `interrupted` are **not** verdicts | [Mutations](#mutations) |
+| run Gradle | only through `.worktrees/gt` — **a file**, not a directory, not on `PATH` | [The build slot](#the-build-slot) |
+| trust `AGENTS.md` / `docs/agents/` in this copy | run `scripts/check_guidance_freshness.py` — it fetches `origin/main` and names every covered guidance file that differs | [Guidance freshness](#guidance-freshness) |
+
 ## Worktrees
 
 The main checkout is **not** `main`: it sits on whatever branch another chat
@@ -15,9 +31,24 @@ worktree, and never commit in the main checkout.
 One lane, one worktree, one branch, off `origin/main`:
 
 ```sh
+scripts/new-lane.sh <issue> <slug>
+```
+
+That command is the manual sequence below, all of it — and the second line is
+why the first line alone is not enough (#1332): `local.properties` is
+git-excluded, so it never arrives in a fresh worktree by itself, and an Android
+build there dies with `SDK location not found` (lane #1187 lost a run to it).
+The manual pair stays written down as what the command must replace, not as a
+recipe to run by hand:
+
+```sh
 git worktree add .worktrees/<lane> -b <branch> origin/main
 cp local.properties .worktrees/<lane>/local.properties
 ```
+
+If the file is not in the checkout root, `new-lane.sh` still creates the lane
+and says in its facts that an Android build will not work in that copy, and
+why. It never invents the file.
 
 Worktrees live under `.worktrees/` (git-excluded) and leave with
 `git worktree remove --force .worktrees/<lane>` once their PR is merged.
@@ -30,6 +61,30 @@ change the way it was built.
 A rebase rewrites the commit hashes, so a PR body that cited one now cites a
 commit nobody can find. After a rebase, refresh the hash in the PR body — or
 cite the branch's `HEAD` instead of a hash.
+
+## Guidance freshness
+
+Guidance is read from the copy in front of you, so a long-lived lane or the
+repository root left on another branch can serve a stale `AGENTS.md`. That is
+not hypothetical: a session read a root copy that still named `GLOSSARY.md`
+while `origin/main` had `CONTEXT.md`, `docs/agents/local-environment.md` and the
+merge gate — and merged a PR with `gh pr merge`, never knowing the gate
+existed. The same session's checkout also had uncommitted guidance copies, so
+the always-loaded file described a repository that did not exist.
+
+```sh
+scripts/check_guidance_freshness.py            # 0 = matches origin/main, 1 = drift
+scripts/check_guidance_freshness.py --no-fetch # offline: only as fresh as the local ref
+git show origin/main:AGENTS.md                  # the version that matters
+```
+
+It fetches `origin/main` first (comparing against a stale remote-tracking ref is
+the false PASS the tool exists to prevent; an unreadable remote is exit 2, not
+freshness). It covers `AGENTS.md`, `CONTRIBUTING.md`, `docs/agents/**` and
+`docs/CODEMAPS/**`, and it only reads: a lane may legitimately change guidance
+in its own PR, and that is drift until the PR merges. Run it at the start of a
+session in a copy you did not create from fresh `origin/main`, and whenever a
+rule seems to be missing.
 
 ## The build slot
 
@@ -51,58 +106,30 @@ changes, no test results. `pgrep -af 'gradlew --offline'` says whose run holds
 the slot, and the waiting lane's own command line names the worktree it belongs
 to.
 
-### The measured ceiling
-
-The one-run rule is not caution, it is arithmetic. On 2026-10-12 this machine
-(i5-7300HQ, 4 cores / 4 threads, 16 GB) ran one identical build — the two tasks
-`:app:validateTestPartitions :app:testPureJvm` narrowed to
-`com.slukhayka.audiobooks.data.achievements.AchievementEngineTest` through
-`-Ptest.selectedClasses` — in detached worktrees off `origin/main` (`d46bf54b`):
+One read answers both halves — free or busy, and everyone naming the slot:
 
 ```sh
-git worktree add --detach <dir> origin/main
-GRADLE_USER_HOME=<per-run dir> GRADLE_RO_DEP_CACHE=$HOME/.gradle/caches \
-  TMPDIR=<dir on disk, not tmpfs> SLUKHAYKA_GRADLE_ARGS_FILE=<args-file> \
-  scripts/test-all.sh
-# <args-file>: :app:validateTestPartitions / :app:testPureJvm / -Ptest.selectedClasses=<FQCN>
+python3 scripts/build-slot-status.py          # build slot: … — free|busy
+python3 scripts/build-slot-status.py --json   # the same shape for tooling
 ```
 
-Those runs deliberately did **not** go through the slot above: no `flock`, no
-`--offline`, and each run had its own writable `GRADLE_USER_HOME` over a shared
-read-only dependency cache. That is what the experiment measured — what happens
-*without* the slot. Every run was `--no-daemon` (as `test-all.sh` always is),
-and `TMPDIR` was pointed at a directory on disk because `$HOME` is read-only
-here and tmpfs competes with the build for the same memory.
+`free|busy` is the lock probed non-blockingly, not inferred from a file; each
+listed process carries its pid, elapsed time and `running`/`waiting` role (a
+waiter has no children yet). Named limit: `flock` does not expose the owner, so
+"who holds it" is derived from that process list, and a process that rewrote its
+own command line is invisible — the command reports what it can see, and says
+"no process names the slot" rather than guessing.
 
-Memory was sampled once a second: `MemAvailable` from `/proc/meminfo`, the sum
-of `Used` in `/proc/swaps`, and the summed resident size of the JVM processes —
-the first runs picked those out by command line, the later ones by an `exe` that
-resolves to `*/java`; the difference is a few megabytes of wrapper processes.
-Each row is the extreme its own run reached inside its own wall-clock window
-(`end − start`, rounded down); the warm row reads 62 s where Gradle itself
-printed `1m 01s`.
+### The measured ceiling
 
-| Runs | Wall | Peak JVM RSS (sum) | MemAvailable min | swap used max |
-|---|---|---|---|---|
-| 1 cold (full compile) | 662 s | 4.74 GB | 2.66 GB | 0.18 GB |
-| 1 warm, nothing changed | 62 s | not sampled | — | — |
-| 1 incremental (one file edited) | 213 s | 3.61 GB | 3.86 GB | 0.68 GB |
-| 2 warm, concurrent | 123 s | 1.99 GB | 5.99 GB | 1.93 GB |
-| 3 incremental, concurrent | **killed at 613 s** | 8.10 GB | 1.13 GB | 3.91 GB |
+The ceiling and the memory guard are chosen by measurement, not by taste. The
+numbers, the runs behind them, and the guard's failure modes are in
+`local-environment-measurements.md`.
 
-Two warm, compile-free builds fit, and the second buys nothing: 123 s side by
-side against 124 s one after another (2 × 62 s). Three do not fit at all —
-memory fell monotonically (5.3 → 4.0 → 3.0 → 2.1 → 1.1 GB), swap grew to
-3.91 GB, `load average` reached 23.5 on four threads, and an external watchdog
-killed the runs at 613 s rather than leave the machine wedged. The slot itself
-only serialises; guarding a single run is #1273. One incremental run over the
-same work takes 213 s.
+### The memory guard
 
-So the slot serialises builds because a third one has nowhere to live, and
-because four threads shared by three Gradle JVMs plus in-process Kotlin
-compilation spend their time switching. What stays parallel is what does not
-build. The cloud alternatives considered and closed on their own evidence —
-not on this table — are recorded in ADR-0062.
+See `local-environment-measurements.md` for the thresholds, what the guard stops,
+and the honest limits of both.
 
 ## Mutations
 
@@ -126,6 +153,33 @@ before and after. `.mutations/` is git-ignored — otherwise the tool's own reco
 would make the tree dirty for the next run. stderr is the proof, stdout is the
 record. Exit codes: `0` caught · `1` survived · `2` refused · `3` no verdict ·
 `128+N` interrupted.
+
+Three rules decide whether a mutation run reaches a verdict at all. All three are
+measured on the shared slot, and each has already cost a run:
+
+- **Lower the *daemon's* heap, not the client's.** `mutate.sh` reaches gradlew
+  through `test-all.sh`, which runs `--no-daemon`, while `gradle.properties`
+  asks for `-Xmx4g`. In Gradle 9 a `--no-daemon` run still forks a single-use
+  daemon, and that daemon takes its heap from `org.gradle.jvmargs` — **not** from
+  `GRADLE_OPTS`, which only sizes the client launcher. Override the property:
+
+  ```sh
+  env TMPDIR=/tmp GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx3g" ../gt \
+      scripts/mutate.sh --patch .mutations/patches/<name>.patch --class <FQCN>
+  ```
+
+  `GRADLE_OPTS="-Xmx3g"` on its own leaves the build heap at `-Xmx4g` and only
+  raises the client ceiling.
+
+- **Kill the idle Gradle daemon first, by PID.** A sleeping daemon holds
+  2.4–3.4 GB RSS, so `MemAvailable` never reaches the guard's 3500 MB floor and
+  the run is refused before it starts. `jps -l | grep GradleDaemon`, then
+  `kill <pid>` — **not `pkill -f 'GradleDaemon'`**: that pattern also matches the
+  shell invoking it, so it kills the caller.
+
+- **Write the exit code to a file, not through a pipe.** `cmd | tail` reports
+  `tail`'s status, so an `exit 0` can sit next to `BUILD FAILED` in the log.
+  Use `(cmd > log 2>&1; echo $? > exit)`.
 
 `scripts/**` goes through the same tool with `--python`, which takes one target
 from the set the `script-tests` CI job discovers: a whole file, or one class in
@@ -193,36 +247,6 @@ through the tool. And no mutation is invented and no survivor is found for you:
 mutation to write stays the author's judgement — the script automates the
 bookkeeping, not the thinking.
 
-Two exceptions, and they are gates rather than records. The first is the empty
-shape of a `case` decision (`"" | "detached HEAD"` — `#1254`, where a test pinned
-the literal instead of the condition). `scripts/empty_shape_mutants.py` writes that
-one mutation itself, runs the `scripts/tests` modules that name the script, and
-refuses when the witness suite stays green — i.e. when no test produces the empty
-shape at all. It runs inside the `script-tests` job, has no switch to turn it off,
-and covers only `case` arms: a literal alternative such as `-h|--help` is not
-pinned by it. `python3 scripts/empty_shape_mutants.py --list` names the shapes it
-would mutate.
-
-The second such gate is about the fields a verdict is made of (`#1260`): `errors`
-was pinned by no test on either half — a mutation zeroing it left 20/20 green in
-Python, and the stand-in `gradlew` wrote `errors=0` always in the JVM half.
-`scripts/verdict_field_mutants.py` finds every place a deciding field (`tests`,
-`failures`, `errors`, `skipped`, `artifactSha256`) enters the chain — the JUnit
-attribute the producer writes, the read out of the XML, the transport into the
-record, the record's own field, a read of that field, the same field in a `status`
-answer, and the comparison that makes the verdict — builds a mutant that leaves the
-field its zero at each one, and runs the witness tests. A green suite means that place holds nothing (`1`, naming the
-field, the place and the witness); an unknown (a field with no place, no witness
-module, a red suite *without* a mutation, a run that never finished, a missing tool
-part, a mutant that does not parse) is `2`.
-`python3 scripts/verdict_field_mutants.py --list` names the places and the zero it
-would write. Its named limits: the JVM producer is Gradle and is not in the tree,
-so that half is pinned through the XML read; a mention of the field in prose (a
-`detail` string, a comment) is not a place; `skipped` decides a verdict but never
-travels into the record at all; and a field with no verdict-rule place at all is an
-unknown (`2`), not a pass — moving the decision onto another variable would leave
-every remaining mutant alive.
-
 ### Before a merge
 
 1. `../gt scripts/test-changed.sh` — the real run over the changed paths.
@@ -235,8 +259,27 @@ every remaining mutant alive.
    have to work out whether it is a mutation's. Rollback restores sources; it does
    not delete the artifact, and `status` is what keeps that leftover from reading
    as a run of HEAD.
+4. A new guard (a test that makes a claim about the repository rather than about a
+   function) also gets an entry in `scripts/guard_witnesses.py` — its target and
+   the mutation that must redden it. `python3 scripts/guard_witnesses.py --guard
+   <target>` runs just that entry; CI replays every enrolled one on each push.
+5. A new number in a file `scripts/doc_numbers.py` scans (a count of a registry, a
+   place in a series) also gets an entry there — the record it is derived from, and
+   the line it sits on. A number that arrives with a command makes that command
+   part of the claim: every `scripts/…` it cites must exist and declare its
+   options, so a citation cannot be invented and stay green.
+   `python3 scripts/doc_numbers.py --list` names every enrolled number with what it
+   must be, so a claim about the tree carries the command that reproduces it
+   rather than a reader's trust.
 
 The merge step is described under "CI" below.
+
+## Gates
+
+The gates that grew out of `## Mutations` now live in
+[`gates.md`](gates.md): the empty-shape mutant, the guard witnesses, the
+declared field set, and the documented numbers, each with what it costs and
+what it cannot see.
 
 ## Partitions
 
@@ -268,9 +311,10 @@ you go looking for a regression that is not there.
 `web/**` is the one tree that never needs the JDK. For it,
 `scripts/test-changed.sh` runs exactly the three steps of the `web` job in
 `.github/workflows/ci.yml`, in `web/`: `npm ci`, `npx tsc --noEmit`,
-`npx vitest run`. The selector names the steps
-(`scripts/test_partitions.py`, `WEB_CHECK_STEPS`) and
-`scripts/tests/test_test_wrappers.py` pins that the wrapper executes those
+`npx vitest run`. The selector does not declare those steps: it reads the command
+out of `scripts/test-changed.sh` itself (`scripts/test_partitions.py`,
+`web_check_steps()`), so the record cannot drift from the executor that runs it,
+and `scripts/tests/test_test_wrappers.py` pins that the wrapper executes those
 three and stops at the first failure.
 
 Run it like any other diff — no wrapper, because no Gradle call is involved:
@@ -477,13 +521,48 @@ guess.
 ```sh
 python3 scripts/agent-work-claim.py status
 python3 scripts/agent-work-claim.py acquire <issue> --owner <chat-id> \
-    --reservation <name> --plan <path>
+    --reservation <name> [--plan <existing-path>]
 ```
 
-The registry is `<git-common-dir>/agent-work-claims/<issue>.json`, shared by
-every chat on this machine. Deleting a claim's file releases it — do that once
-the ticket is closed. Publish the reservation as an issue comment before
-coding; `docs/agents/work-coordination.md` owns the protocol.
+`--plan` is optional and, when named, must be a path that exists in
+`origin/main`; without it the record carries `null`. A lane's plan does not
+exist yet at lane-creation time, so a fabricated `docs/plans/…` path there is a
+record saying one thing while reality says another (#1337).
+
+One command does the whole lane dispatch, and it is the one to use:
+`scripts/new-lane.sh <issue> <slug>`. It fetches `origin/main`, reserves the
+ticket through the claim script above (a busy ticket is exit 2 and **no copy is
+created**), refuses when `.worktrees/w<issue>` already exists (two lanes never
+share a copy — that is how `commit --amend` and `reset --hard` once wiped
+another lane's edits), creates the copy from the **fresh `origin/main`** rather
+than the current HEAD, carries `local.properties` into the copy when the
+checkout root has one — and names that fact in its output; with no such file it
+still creates the lane and says an Android build will not work there, and why
+(#1332) — and prints the briefing facts as the output of commands instead of
+recollection: the branch, the base `sha`, the guard registry's
+`--count`, the job limit, the ticket's premise against `origin/main` (through
+`issue_premise.py --issue` — a stale ticket is **named** there and the lane is
+still created, while an unreadable ticket is exit 2 and no copy is made), the
+carried `local.properties`, the reservation's `plan` field (`null` unless a
+named path really exists in `origin/main` — #1337), and
+the commands the lane runs itself.
+`scripts/new-lane.sh --release <issue>` removes the lane's copy once it has
+nothing to lose — it refuses when the copy has uncommitted changes or a rebase
+in flight, and it never deletes the branch; `merge-pr.sh` names this command
+after a merge instead of removing a possibly-foreign worktree itself. It reads
+git inside a path only when that path is a **live lane checkout** — a recorded
+worktree that git does not mark `prunable`, whose `--show-toplevel` is the copy
+itself. A stray directory, or a stale `prunable` record with a directory
+recreated on the same path, is never read as the lane: it would make git walk up
+to the surrounding repository and report the coordinator's tree as the lane's.
+Such a path is either cleared (an empty directory is removed, a stale record is
+pruned) or left alone and named — a non-empty path whose contents are unknown is
+not touched. The registry is
+`<git-common-dir>/agent-work-claims/<issue>.json`, shared by every chat on this
+machine; the reservation is never dropped automatically — deleting the claim's
+file releases it, and that is done once the ticket is closed.
+Publish the reservation as an issue comment before coding;
+`docs/agents/work-coordination.md` owns the protocol.
 
 ## The migration slot
 
@@ -509,6 +588,60 @@ and the lineage/migration/base-sync guards. `gh pr checks <pr>` is the status;
 `web` and `script-tests` need no JDK and report their own checks; whether a red
 one blocks a merge is the repository's required-checks configuration, not the
 workflow file — both jobs say so in `ci.yml`.
+
+### The job's time is measured where its limit applies
+
+`script-tests` **is capped by** `timeout-minutes: 8` — **480 s**, and that number is
+read out of `ci.yml` rather than copied into prose: `python3
+scripts/ci_job_time.py --check-docs` refuses any seconds figure the docs claim
+about this job that is neither that limit nor a *labelled* local measurement.
+
+The job's own time cannot be a figure here at all, because it moves with every
+run; what lives here is the **relation** — the limit is more than twice the
+slowest run in the window *that built this tree*. `python3 scripts/ci_job_time.py`
+prints each of those runs with its branch and event, its headroom and its ratio —
+and, where the window crosses a change, each run's revision — and exits `1` when
+the floor stops holding. The window is
+one source on purpose: the floor is a claim about `main`, so the mechanism asks
+the API for `main` pushes only (`branch=main&event=push`) — a slow run on
+somebody's PR cannot move the floor it does not belong to, and a run that arrives
+from another branch despite the filter is an unknown rather than a number.
+`main` alone is not the whole source, though: successive `main` runs build
+*different trees*, and a merge changes the code — and the job's time with it.
+Each run therefore carries its `head_sha`, and the floor is computed from the
+runs whose revision equals this tree's (`git rev-parse HEAD`) and no others; the
+rest are printed by name, marked as another tree and excluded, and a window in
+which no run built this tree is an unknown (exit `2`) rather than the newest
+number from some other tree. "The last five" is not "always": GitHub keeps a
+bounded history,
+so the mechanism asks the API for a window with slack, takes only *completed*
+runs, and `--runs N` moves it — the green line names the N it used. If fewer than
+five completed `main` pushes are in the fetched page, the mechanism refuses
+(exit `2`) instead of measuring a narrower window: "no `main` run in the window"
+is not a number.
+
+A local run of the same suite measures this machine, not the runner: it is
+**173.2 s locally on this shared machine under load 6.26** (2026-10-14), and
+**201.2 s** the same day under load 8.15 — the local number moves with the load,
+which is why it cannot be the job's time. `python3 scripts/ci_job_time.py
+--local` prints it with the label, the number and the label together, because
+the two are one fact. The series that filed this ticket
+measured **159–239 s** locally under load 5.4 on this shared machine, and read
+it as the job's time; the mechanism now refuses that reading — an unlabelled
+local figure is a finding rather than a pass. It does not touch `ci.yml`:
+raising `timeout-minutes` is the owner's call, not a fix for a red number.
+
+Where those seconds go is a separate command: `python3 scripts/suite_time.py`
+reads the same command out of the `script-tests` block, takes the modules from the
+directory by pattern, and measures each module — its tests *and* what sits outside
+them. `unittest --durations` cannot see `setUpClass`, and that is exactly where the
+gates run (`test_verdict_field_mutants.RepositoryTest` drives
+`verdict_field_mutants.py` from there), so the mechanism measures the gap before a
+test and charges it to that test's module. `--module <file>` measures one module
+again in its own run; `--list` names the command, the directory and the modules and
+measures nothing. Its numbers are local for the same reason the `--local` ones are:
+it prints them through `ci_job_time.local_label`, with the machine's load beside
+them, and never as the job's time.
 
 Merging is not that loop: `scripts/merge-pr.sh <pr>` is the gate. It re-reads the
 checks and refuses without a fresh `review:pass` verdict on the PR — who sets

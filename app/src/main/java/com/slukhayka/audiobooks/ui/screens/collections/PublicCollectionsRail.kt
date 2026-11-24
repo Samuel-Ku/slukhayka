@@ -12,8 +12,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.Alignment
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -28,7 +28,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.achievements.ShowcaseAwardSnapshot
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcon
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.components.EmptyStateRow
+import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
 import java.util.Locale
 
 /** The real average line, or the honest absence — one rule for every surface. */
@@ -40,12 +43,24 @@ internal fun CollectionRatingLine(
 ) {
     if (average != null) {
         val votes = pluralStringResource(R.plurals.library_rating_votes, ratingCount, ratingCount)
-        Text(
-            text = String.format(Locale.US, "★ %.1f · %s", average, votes),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = modifier
-        )
+        Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
+            // F21: the star used to be the Onest character «★» inside a Text,
+            // so it never matched the icon next to it and changed weight with
+            // the font scale. The family glyph keeps one weight with the rows
+            // that already use `PaperInkIcons.Star`.
+            PaperInkIcon(
+                imageVector = PaperInkIcons.Star,
+                contentDescription = null,
+                size = 14.dp,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = String.format(Locale.US, "%.1f · %s", average, votes),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     } else {
         Text(
             text = stringResource(R.string.collection_no_ratings),
@@ -80,12 +95,12 @@ fun PublicCollectionsRail(
             text = stringResource(R.string.collections_rail_title),
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier
-                .padding(horizontal = 16.dp)
+                .padding(horizontal = PaperInkDimens.SpacePage)
                 .semantics { heading() }
         )
         Spacer(Modifier.height(8.dp))
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
+            contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(rows, key = { it.documentId }) { row ->
@@ -151,7 +166,7 @@ fun CuratorProfileContent(
             // spec-46 T16 (#577): the curator's honest absence is the canonical
             // compact state, not a bare Text.
             EmptyStateRow(
-                icon = Icons.Default.Bookmark,
+                icon = PaperInkIcons.Bookmark,
                 title = stringResource(R.string.curator_profile_empty),
                 body = "",
                 modifier = Modifier.testTag("curator_profile_empty")

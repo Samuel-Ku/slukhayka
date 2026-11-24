@@ -5,21 +5,20 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -29,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -54,12 +54,12 @@ import coil.request.ImageRequest
 import com.slukhayka.audiobooks.ui.components.CycleCard
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.PosterCard
-import com.slukhayka.audiobooks.ui.components.PosterWidth
 import com.slukhayka.audiobooks.ui.components.applySourceCoverHeaders
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.catalog.CatalogSeries
@@ -73,14 +73,15 @@ import com.slukhayka.audiobooks.data.entries.LibraryNewArrival
 import com.slukhayka.audiobooks.data.entries.LibraryNewArrivals
 import com.slukhayka.audiobooks.data.entries.matchingLibraryQuery
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
-import com.slukhayka.audiobooks.data.personbookmarks.PersonNewArrivals
 import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.update.UpdateChecker
-import com.slukhayka.audiobooks.ui.DurationBooks
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
-import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
+import com.slukhayka.audiobooks.ui.components.EmptyStatePanel
+import com.slukhayka.audiobooks.ui.components.EmptyStatePrimaryAction
+import com.slukhayka.audiobooks.ui.components.EmptyStateQuietAction
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
 import com.slukhayka.audiobooks.ui.components.AppTabHeader
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
@@ -91,7 +92,6 @@ import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.displayAuthor
-import com.slukhayka.audiobooks.ui.durationBooksFrom
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
 import com.slukhayka.audiobooks.ui.theme.*
 
@@ -175,27 +175,12 @@ fun HomeScreen(
         returnFocusRequester = workFeedFilterTriggerFocusRequester
     )
 
-    // Spec-39 T1 (#261): «Ваші цикли» — derived purely from the local base
-    // (library rows + Listening State + every known Work), no network and no
-    // loading states; recomputed only when an input actually changes.
-    val recentProgress by libraryEntries.recentProgress.collectAsState(initial = emptyList())
-    // ADR-0041 — the Home discovery rails read the Mirror's CLAIMED Works:
-    // a Work whose every Source was removed cannot be opened, so it is never
-    // offered as a card («Ваші цикли», «Схожі цикли», «Новинки авторів»).
-    val discoverableWorks by sourceCatalog.discoverableWorks.collectAsState(initial = emptyList())
-    val allLibraryEntries by sourceCatalog.allLibraryEntries.collectAsState(initial = emptyList())
-    val allEditions by sourceCatalog.allEditions.collectAsState(initial = emptyList())
-    val allPersonBookmarks by personBookmarks.allBookmarks().collectAsState(initial = emptyList())
-    val unifiedCatalog by sourceCatalog.unifiedCatalog.collectAsState()
-    val peopleNewArrivals = remember(allPersonBookmarks, discoverableWorks, allEditions, allLibraryEntries, unifiedCatalog) {
-        PersonNewArrivals.projectCatalog(
-            bookmarks = allPersonBookmarks,
-            works = discoverableWorks,
-            editions = allEditions,
-            unifiedCatalog = unifiedCatalog,
-            libraryEntries = allLibraryEntries
-        )
-    }
+    // #1743 — the catalogue projections that do not depend on scroll now run
+    // in the ViewModel on Dispatchers.Default; the screen draws the already
+    // projected lists, so a catalogue refresh cannot recompute them on the
+    // composition thread during the first scroll. While a new projection is
+    // computed the previous one stays on screen (no blank shelf, no spinner).
+    val peopleNewArrivals by viewModel.peopleNewArrivals.collectAsState()
 
     // Spec-16 T2: the «Колекції» block — curated lists matched against the
     // union, recomputed on every union refresh (same trigger). The flow
@@ -285,41 +270,17 @@ fun HomeScreen(
         // pass, same detached idiom — fills unknown chapter durations from
         // the provider streams (HEAD + ranged GET, CBR only, never a guess).
         chapterDurationProbe.probeUnknownChapters()
-        viewModel.seedLibraryIfDue()
         // Spec-45 (#405) T8 (#496): this sync may have written the first
         // English rendition — re-evaluate the one-time bilingual prompt
         // (idempotent; fires at most once ever).
         viewModel.onCatalogueSynced()
     }
 
-    // spec-18 T3: the «За тривалістю» rows, derived live from the library
-    // through the pure DurationBuckets module — only books with a known
-    // duration surface, never guesses.
-    val durationBooks: DurationBooks = remember(allBooks) { durationBooksFrom(allBooks) }
-
-    // Spec-39 T1/T2 (#261/#262): the pure builder turns the same shaped rows
-    // into the shelf; the T2 similar tier lifts the engine's ranked picks to
-    // cycle level (best-effort — empty picks yield no tier). An empty result
-    // leaves Огляд byte-for-byte as before.
-    val personalCycles = remember(allBooks, recentProgress, discoverableWorks, recommendedBooks) {
-        com.slukhayka.audiobooks.ui.library.PersonalCycles.build(
-            libraryBooks = allBooks,
-            progress = recentProgress,
-            works = discoverableWorks,
-            recommendations = recommendedBooks
-        )
-    }
-
-    // Spec-39 T2 (#262): the pure builder lifts the engine's top picks to
-    // cycles through the local Work rows (series identity); the listener's
-    // own cycle titles are excluded so nothing owned is recommended back.
-    val similarCycles = remember(recommendedBooks, discoverableWorks, personalCycles) {
-        com.slukhayka.audiobooks.ui.library.SimilarCycles.build(
-            picks = recommendedBooks,
-            works = discoverableWorks,
-            ownCycleTitles = personalCycles.map { it.title }
-        )
-    }
+    // spec-18 T3 + Spec-39 T1/T2 (#261/#262): the duration rows and both
+    // «Ваші цикли» tiers are projected in the ViewModel on Dispatchers.Default
+    // (#1743); the screen only draws the already-projected lists.
+    val durationBooks by viewModel.homeDurationBooks.collectAsState()
+    val cycleShelves by viewModel.homeCycleShelves.collectAsState()
 
     // IA §4 «Огляд» / expressive «Основні екрани»: the search is permanently
     // visible — finding new content belongs to this tab — so there is no
@@ -331,6 +292,23 @@ fun HomeScreen(
 
     // Text-search mode: genre filtering has one home in the feed sheet.
     val inSearchMode = searchQuery.isNotBlank()
+
+    // F5 — the rare «update available» action is a compact paper row emitted
+    // below the curated shelves (never the first thing on the screen). The
+    // download hands off to the browser on the release's direct apk link.
+    val updateBannerSlot: (@Composable () -> Unit)? = availableRelease?.let { release ->
+        {
+            UpdateBanner(
+                update = release,
+                onDownload = {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, Uri.parse(release.apkUrl))
+                    )
+                },
+                onDismiss = updateChecker::dismiss
+            )
+        }
+    }
 
     HomeModalUnderlay(
         modalVisible = showRecommendationDisclosure || showWorkFeedFilters,
@@ -390,24 +368,11 @@ fun HomeScreen(
             // final endless feed, pinned by HomeFeedOrderSnapshotTest. The body lives in
             // [homeFeedContent] so the order is stateless and testable.
 
-            // Spec-36 T1 (#244): the non-blocking update banner sits above
-            // every content row; «Завантажити» hands off to the browser on
-            // the release's direct apk link.
-            availableRelease?.let { release ->
-                item(key = "app_update_banner") {
-                    UpdateBanner(
-                        update = release,
-                        onDownload = {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(release.apkUrl))
-                            )
-                        },
-                        onDismiss = updateChecker::dismiss
-                    )
-                }
-            }
-
+            // Spec-36 T1 (#244) + F5: the update banner is a RARE action, so
+            // it no longer stands above the first shelf — it rides the feed
+            // body as a compact row emitted below the curated shelves.
             homeFeedContent(
+                updateBanner = updateBannerSlot,
                 isCatalogLoading = isCatalogLoading,
                 hasLibraryBooks = allBooks.isNotEmpty(),
                 sections = sections,
@@ -425,8 +390,8 @@ fun HomeScreen(
                         embeddingModelState, recommendationContent.backendStatus
                     )
                 } else null,
-                personalCycles = personalCycles,
-                similarCycles = similarCycles,
+                personalCycles = cycleShelves.personal,
+                similarCycles = cycleShelves.similar,
                 shortBooks = durationBooks.short.map { it.asCatalogBook() },
                 longBooks = durationBooks.long.map { it.asCatalogBook() },
                 workFeedItems = workFeedItems,
@@ -476,6 +441,20 @@ fun HomeScreen(
                 onOpenFeedFilters = { showWorkFeedFilters = true },
                 feedFilterTriggerModifier = Modifier.focusRequester(workFeedFilterTriggerFocusRequester),
                 onOpenWebSource = onOpenWebSource,
+                // Spec-51 (#693) — «Добірки слухачів»: the top public
+                // collections, ranked by the same rule as the book-page block.
+                // #1507: rendered inside homeFeedContent, BEFORE the feed.
+                publicCollectionsRail = {
+                    com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionsRail(
+                        rows = publicCollectionRailRows,
+                        onOpen = { viewModel.openPublicCollection(it) },
+                        onOpenCurator = { authorId ->
+                            val pseudonym = publicCollectionRailRows
+                                .firstOrNull { it.authorId == authorId }?.pseudonym.orEmpty()
+                            viewModel.openCuratorProfile(authorId, pseudonym)
+                        }
+                    )
+                },
                 onRecommendationFeedback = { rec, kind ->
                     scope.launch {
                         val token = withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -504,20 +483,6 @@ fun HomeScreen(
                     .focusRequester(recommendationDisclosureTriggerFocusRequester)
                     .testTag("recommendation_disclosure_trigger")
             )
-
-            // Spec-51 (#693) — «Добірки слухачів»: the top public collections,
-            // ranked by the same rule as the book-page block.
-            item(key = "public_collections_rail") {
-                com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionsRail(
-                    rows = publicCollectionRailRows,
-                    onOpen = { viewModel.openPublicCollection(it) },
-                    onOpenCurator = { authorId ->
-                        val pseudonym = publicCollectionRailRows
-                            .firstOrNull { it.authorId == authorId }?.pseudonym.orEmpty()
-                        viewModel.openCuratorProfile(authorId, pseudonym)
-                    }
-                )
-            }
 
             // Spec-9: the full library list lives in Медіатека (Library tab),
             // not at the bottom of Огляд.
@@ -695,7 +660,7 @@ fun GlobalSearchStatus(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .padding(horizontal = PaperInkDimens.SpacePage, vertical = PaperInkDimens.SpaceMd)
             .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }
             .testTag("global_search_status"),
         verticalAlignment = Alignment.CenterVertically,
@@ -745,68 +710,148 @@ fun HomeHeader(
     // empty field leaves Back to the navigation contract.
     // The IME owns the first system Back; only the next one clears the query.
     val keyboardVisible = WindowInsets.isImeVisible
+    val refreshDescription = stringResource(R.string.a11y_refresh_catalogue)
     BackHandler(enabled = searchQuery.isNotEmpty() && !keyboardVisible) { onSearchQueryChange("") }
 
-    Column(modifier = modifier.fillMaxWidth()) {
-        AppTabHeader(
-            title = stringResource(R.string.app_name),
-            showBrandMark = true,
-            actions = {
-                // #860 — the gear sits in the SAME place on every root.
-                com.slukhayka.audiobooks.ui.components.AppSettingsGear(onClick = onOpenSettings)
-                com.slukhayka.audiobooks.ui.components.AppHeaderAction(
-                    icon = Icons.Default.Refresh,
-                    contentDescription = stringResource(R.string.a11y_refresh_catalogue),
-                    onClick = onRefresh,
-                    testTag = "home_refresh"
-                )
-            }
-        )
-
-        Spacer(modifier = Modifier.height(AppDimens.SpaceLg))
-
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = onSearchQueryChange,
-            label = { Text(searchFieldLabel) },
-            placeholder = { Text(stringResource(R.string.home_search_placeholder)) },
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Default.Search,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary
-                )
-            },
-            trailingIcon = {
-                // The field stays; ✕ only empties it (US-2).
-                if (searchQuery.isNotEmpty()) {
-                    IconButton(
-                        onClick = { onSearchQueryChange("") },
-                        modifier = Modifier.testTag("home_search_clear")
+    // The screen's chrome takes the direction's theme before the un-migrated
+    // rails below do: a root can be migrated in pieces exactly like «Слухати».
+    PaperInkThemedContent {
+        Column(modifier = modifier.fillMaxWidth()) {
+            PaperInkTabHeader(
+                title = stringResource(R.string.nav_explore),
+                onSettingsClick = onOpenSettings,
+                actions = {
+                    // F15/F34 class: this was the ONE header action below the
+                    // 48 dp floor (a bare 44 dp circle) while every other
+                    // root's action/gear is 48 dp. It stays quiet — no tonal
+                    // disc — but the target is the canonical TouchTarget.
+                    Box(
+                        modifier = Modifier
+                            .size(PaperInkDimens.TouchTarget)
+                            .clip(CircleShape)
+                            .clickable(onClick = onRefresh)
+                            .testTag("home_refresh")
+                            .semantics {
+                                contentDescription = refreshDescription
+                            },
+                        contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Clear,
-                            contentDescription = stringResource(R.string.a11y_clear_search)
+                            imageVector = PaperInkIcons.Refresh,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(22.dp),
                         )
                     }
+                },
+            )
+
+            Spacer(modifier = Modifier.height(PaperInkDimens.SpaceSm))
+
+            PaperSearchField(
+                query = searchQuery,
+                onQueryChange = onSearchQueryChange,
+                hint = searchFieldLabel,
+            )
+        }
+    }
+}
+
+/**
+ * F24/F6 — the «Огляд» search surface of the direction: ONE 52 dp paper row
+ * (Search 22 dp + a single hint + the 48 dp ✕), radius 16, 1 dp `LineStrong`
+ * border. The legacy M3 `OutlinedTextField` was ≈69 dp because its floating
+ * label and its placeholder said almost the same thing; the label and the
+ * screen-reader name now come from [hint], so nothing is duplicated.
+ *
+ * The tag sits on the text field itself (`home_search_input`) because the
+ * instrumented search-return test types into it; [home_search_surface] is the
+ * measured 52 dp chrome for layout assertions.
+ */
+@Composable
+private fun PaperSearchField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    hint: String,
+    modifier: Modifier = Modifier,
+) {
+    val hintStyle = PaperInkType.Body.copy(
+        fontSize = 15.sp,
+        lineHeight = 20.sp,
+        fontWeight = FontWeight.Normal,
+    )
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = PaperInkDimens.SpacePage)
+            .heightIn(min = 52.dp)
+            .clip(RoundedCornerShape(PaperInkDimens.RadiusMedium))
+            .background(MaterialTheme.colorScheme.surface)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outline,
+                shape = RoundedCornerShape(PaperInkDimens.RadiusMedium),
+            )
+            .testTag("home_search_surface"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = PaperInkIcons.Search,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .padding(start = 14.dp, end = 10.dp)
+                .size(22.dp),
+        )
+        BasicTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            singleLine = true,
+            // Review blocker (#1542): `BasicTextField` draws with the style it is
+            // given and does NOT fall back to `LocalContentColor`, so an unstyled
+            // `textStyle` rendered the typed query in the platform default black
+            // (#000) — ≈1.2:1 on the ink surface. The ink colour is explicit, and
+            // `typed_query_text_is_readable_in_both_themes` pins the rendered
+            // contrast so a re-record cannot hide it again.
+            textStyle = hintStyle.copy(color = MaterialTheme.colorScheme.onSurface),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = PaperInkDimens.TouchTarget)
+                .testTag("home_search_input"),
+            decorationBox = { innerTextField ->
+                Box(contentAlignment = Alignment.CenterStart) {
+                    if (query.isEmpty()) {
+                        Text(
+                            text = hint,
+                            style = hintStyle,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    innerTextField()
                 }
             },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = AppDimens.PageSides)
-                .testTag("home_search_input"),
-            // #885 (wave 3) — the same pill as «Мої книги»; the two roots had
-            // this one control at 12 dp and 24 dp.
-            shape = RoundedCornerShape(AppDimens.RadiusPill),
-            colors = OutlinedTextFieldDefaults.colors(
-                // MD3: input fills sit on the highest tonal container.
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest,
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant
-            ),
-            singleLine = true
         )
+        // The field stays; ✕ only empties it (US-2).
+        if (query.isNotEmpty()) {
+            IconButton(
+                onClick = { onQueryChange("") },
+                modifier = Modifier
+                    .size(PaperInkDimens.TouchTarget)
+                    .testTag("home_search_clear"),
+            ) {
+                Icon(
+                    imageVector = PaperInkIcons.Close,
+                    contentDescription = stringResource(R.string.a11y_clear_search),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        } else {
+            Spacer(modifier = Modifier.width(6.dp))
+        }
     }
 }
 
@@ -841,7 +886,7 @@ fun DurationSection(
         if (shortBooks.isNotEmpty()) {
             AppSectionHeader(title = stringResource(R.string.home_short_books))
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
+                contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.testTag("duration_short_row")
             ) {
@@ -866,7 +911,7 @@ fun DurationSection(
         if (longBooks.isNotEmpty()) {
             AppSectionHeader(title = stringResource(R.string.home_long_books))
             LazyRow(
-                contentPadding = PaddingValues(horizontal = 16.dp),
+                contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 modifier = Modifier.testTag("duration_long_row")
             ) {
@@ -908,14 +953,14 @@ fun NewArrivalsRail(
     Column(modifier = modifier.testTag("new_arrivals_rail")) {
         AppSectionHeader(title = stringResource(R.string.home_new_arrivals))
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
+            contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(arrivals, key = { it.workKey }) { arrival ->
-                Column(
-                    modifier = Modifier.width(PosterWidth),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+                // Sized by the card itself: legacy 120 dp, paper shelf 132 dp.
+                // A fixed `width(PosterWidth)` here squeezed the paper cover to
+                // 120×198 (a stretched 2:3) — see #1546.
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     PosterCard(book = arrival.book, onClick = { onBookClick(arrival.book) })
                     if (arrival.sourceName.isNotBlank()) {
                         Spacer(modifier = Modifier.height(4.dp))
@@ -949,14 +994,14 @@ fun PeopleNewArrivalsRail(
                     modifier = Modifier.testTag("people_new_arrivals_badge")
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Done,
+                        imageVector = PaperInkIcons.Check,
                         contentDescription = stringResource(R.string.a11y_people_new_mark_seen)
                     )
                 }
             }
         )
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 16.dp),
+            contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             items(results, key = { it.key }) { result ->
@@ -1013,7 +1058,7 @@ fun RecommendedBookCard(
                     .testTag("recommendation_menu_${rec.candidate.id}")
             ) {
                 Icon(
-                    Icons.Default.MoreVert,
+                    PaperInkIcons.More,
                     contentDescription = stringResource(
                         R.string.a11y_recommendation_actions,
                         rec.candidate.title
@@ -1076,58 +1121,92 @@ fun CatalogNavRow(
     // spec-46 T16 (#577): every chip label is chrome and comes from the
     // resources; the people chips carry a stable PeopleKindType, never the
     // localized title, so an English run opens the same index.
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    //
+    // F26/F6: 20 dp page padding (the direction's grid, not the legacy 16) and
+    // a right-edge fade that appears only while the row can still scroll, so
+    // the last chip never looks cut off without a hint that the row moves.
+    val chipsState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val showScrollHint by remember {
+        derivedStateOf { chipsState.canScrollForward }
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = PaperInkDimens.SpaceMd, bottom = PaperInkDimens.SpaceXs)
     ) {
-        item {
-            NavigationChip(title = stringResource(R.string.catalog_nav_rating), onClick = onTop100Click)
-        }
-        item {
-            NavigationChip(
-                title = stringResource(R.string.people_narrators_title),
-                onClick = {
-                    // #736 — the narrator index is local (the Медіатека), so a
-                    // PeopleKind carries no provider URL anymore.
-                    onPeopleClick(
-                        com.slukhayka.audiobooks.ui.PeopleKind(
-                            com.slukhayka.audiobooks.ui.PeopleKindType.NARRATORS,
-                            url = ""
+        LazyRow(
+            state = chipsState,
+            modifier = Modifier.testTag("home_chips_row"),
+            contentPadding = PaddingValues(horizontal = PaperInkDimens.SpacePage),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            item {
+                NavigationChip(title = stringResource(R.string.catalog_nav_rating), onClick = onTop100Click)
+            }
+            item {
+                NavigationChip(
+                    title = stringResource(R.string.people_narrators_title),
+                    onClick = {
+                        // #736 — the narrator index is local (the Медіатека), so a
+                        // PeopleKind carries no provider URL anymore.
+                        onPeopleClick(
+                            com.slukhayka.audiobooks.ui.PeopleKind(
+                                com.slukhayka.audiobooks.ui.PeopleKindType.NARRATORS,
+                                url = ""
+                            )
                         )
-                    )
-                }
-            )
-        }
-        item {
-            NavigationChip(
-                title = stringResource(R.string.author_index_title),
-                onClick = {
-                    onPeopleClick(
-                        com.slukhayka.audiobooks.ui.PeopleKind(
-                            com.slukhayka.audiobooks.ui.PeopleKindType.AUTHORS,
-                            url = ""
+                    }
+                )
+            }
+            item {
+                NavigationChip(
+                    title = stringResource(R.string.author_index_title),
+                    onClick = {
+                        onPeopleClick(
+                            com.slukhayka.audiobooks.ui.PeopleKind(
+                                com.slukhayka.audiobooks.ui.PeopleKindType.AUTHORS,
+                                url = ""
+                            )
                         )
-                    )
-                }
-            )
+                    }
+                )
+            }
+            // spec-28 (#189): «Серії» — a pushed index of every series aggregated
+            // from the catalogue sections (the «Цикли» row), deduplicated by URL.
+            // Tapping a series opens the existing series page.
+            item {
+                NavigationChip(
+                    title = stringResource(R.string.series_index_title),
+                    onClick = onSeriesClick
+                )
+            }
+            // spec-28 (#190): «Колекції» — a pushed index of every matched smart
+            // collection; tapping a book resolves-and-plays exactly like the
+            // inline collection cards.
+            item {
+                NavigationChip(
+                    title = stringResource(R.string.collections_index_title),
+                    onClick = onCollectionsClick
+                )
+            }
         }
-        // spec-28 (#189): «Серії» — a pushed index of every series aggregated
-        // from the catalogue sections (the «Цикли» row), deduplicated by URL.
-        // Tapping a series opens the existing series page.
-        item {
-            NavigationChip(
-                title = stringResource(R.string.series_index_title),
-                onClick = onSeriesClick
-            )
-        }
-        // spec-28 (#190): «Колекції» — a pushed index of every matched smart
-        // collection; tapping a book resolves-and-plays exactly like the
-        // inline collection cards.
-        item {
-            NavigationChip(
-                title = stringResource(R.string.collections_index_title),
-                onClick = onCollectionsClick
-            )
+        if (showScrollHint) {
+            Box(modifier = Modifier.matchParentSize().testTag("home_chips_scroll_hint")) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .fillMaxHeight()
+                        .width(32.dp)
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    MaterialTheme.colorScheme.background,
+                                )
+                            )
+                        )
+                )
+            }
         }
     }
 }
@@ -1135,46 +1214,43 @@ fun CatalogNavRow(
 /**
  * First-run empty catalogue: no mocks, just clear actions (spec #8 T1/T6).
  *
- * spec-46 T16 (#577): a thin facade over the canonical [EmptyState] (v1.4 C4,
- * ADR-0033) — one empty-state shape app-wide; the two next actions ride the
- * canonical actions slot instead of a hand-rolled icon/title/body column.
+ * spec-46 T16 (#577) made it a thin facade over the canonical empty state; #1766
+ * moved that state to [EmptyStatePanel] so «Огляд» matches the other five
+ * surfaces: Literata title, one short line, ONE primary action and a quiet link.
  */
 @Composable
 fun EmptyCatalogState(
     onRefreshClick: () -> Unit,
-    onImportClick: () -> Unit
+    onImportClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    EmptyState(
-        icon = Icons.Default.MenuBook,
+    // #1766 (audit U9/U13): the canonical paper empty state — one Literata
+    // title, one short line, ONE primary action (refresh) and the import path
+    // as a quiet link. The caller (`homeFeedContent`) hands it the viewport.
+    EmptyStatePanel(
         title = stringResource(R.string.home_empty_catalog_title),
-        body = stringResource(R.string.home_empty_catalog_body)
-    ) {
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Button(
+        body = stringResource(R.string.home_empty_catalog_body),
+        modifier = modifier,
+        action = {
+            // #1775 (unslop U1) — the shared primary CTA. This surface used to
+            // draw the same invitation at 14 dp while «Слухати» drew a full pill
+            // and «Медіатека» 12 dp; one role now has one form.
+            EmptyStatePrimaryAction(
+                text = stringResource(R.string.a11y_refresh_catalogue),
                 onClick = onRefreshClick,
-                modifier = Modifier.heightIn(min = 48.dp).testTag("catalog_empty_refresh"),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                shape = RoundedCornerShape(AppDimens.RadiusCardLg)
-            ) {
-                Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(stringResource(R.string.a11y_refresh_catalogue), fontWeight = FontWeight.Bold)
-            }
-            OutlinedButton(
+                icon = PaperInkIcons.Refresh,
+                testTag = "catalog_empty_refresh",
+            )
+        },
+        quietAction = {
+            // #1775 — the shared quiet action (16 dp radius, 48 dp target).
+            EmptyStateQuietAction(
+                text = stringResource(R.string.home_import_file),
                 onClick = onImportClick,
-                modifier = Modifier.heightIn(min = 48.dp).testTag("catalog_empty_import"),
-                shape = RoundedCornerShape(AppDimens.RadiusCardLg),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-            ) {
-                Icon(imageVector = Icons.Default.FileUpload, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(stringResource(R.string.home_import_file), color = MaterialTheme.colorScheme.onSurface)
-            }
-        }
-    }
+                testTag = "catalog_empty_import",
+            )
+        },
+    )
 }
 
 /**
@@ -1207,14 +1283,19 @@ fun WorkFeedFilters(
     var sortExpanded by remember { mutableStateOf(false) }
     var showFilterSheet by rememberSaveable { mutableStateOf(false) }
 
+    val paperInk = LocalPaperInkDesign.current
     BoxWithConstraints {
         val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
         val compact = maxWidth < 400.dp * fontScale.coerceAtLeast(1f) || fontScale > 1.3f
         val sortLabel = stringResource(if (sortByTitle) R.string.feed_sort_title else R.string.feed_sort_newest)
         val filtersLabel = stringResource(R.string.feed_filters)
         Surface(
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 2.dp,
+            color = if (paperInk) {
+                MaterialTheme.colorScheme.background
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+            tonalElevation = if (paperInk) 0.dp else 2.dp,
             modifier = Modifier.fillMaxWidth().testTag("work_feed_toolbar")
         ) {
             Row(
@@ -1222,24 +1303,37 @@ fun WorkFeedFilters(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(
+                        horizontal = if (paperInk) PaperInkDimens.SpacePage else 16.dp,
+                        vertical = if (paperInk) 8.dp else 8.dp,
+                    )
             ) {
                 Box {
                     OutlinedButton(
                         onClick = { sortExpanded = true },
                         contentPadding = PaddingValues(horizontal = 12.dp),
+                        shape = RoundedCornerShape(percent = 50),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            MaterialTheme.colorScheme.outlineVariant,
+                        ),
                         modifier = Modifier
-                            .height(48.dp)
+                            .height(if (paperInk) 36.dp else 48.dp)
                             .then(if (compact) Modifier.width(56.dp) else Modifier)
                             .semantics { contentDescription = sortLabel }
                             .testTag("feed_sort")
                     ) {
                         if (compact) {
-                            Icon(Icons.Default.Sort, contentDescription = null)
+                            Icon(PaperInkIcons.Sort, contentDescription = null)
                         } else {
-                            Text(sortLabel, maxLines = 1, modifier = Modifier.clearAndSetSemantics {})
+                            Text(
+                                sortLabel,
+                                style = if (paperInk) PaperInkType.Label else LocalTextStyle.current,
+                                maxLines = 1,
+                                modifier = Modifier.clearAndSetSemantics { }
+                            )
                             Spacer(modifier = Modifier.width(4.dp))
-                            Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                            Icon(PaperInkIcons.ChevronDown, contentDescription = null)
                         }
                     }
                     DropdownMenu(
@@ -1273,18 +1367,28 @@ fun WorkFeedFilters(
                         if (onOpenFilters != null) onOpenFilters() else showFilterSheet = true
                     },
                     label = {
-                        if (compact) Icon(Icons.Default.Tune, null, Modifier.size(24.dp))
-                        else Text(filtersLabel, maxLines = 1, modifier = Modifier.clearAndSetSemantics {})
+                        if (compact) {
+                            Icon(PaperInkIcons.Filter, null, Modifier.size(if (paperInk) 18.dp else 24.dp))
+                        } else {
+                            Text(
+                                filtersLabel,
+                                style = if (paperInk) PaperInkType.Label else LocalTextStyle.current,
+                                maxLines = 1,
+                                modifier = Modifier.clearAndSetSemantics { }
+                            )
+                        }
                     },
                     leadingIcon = if (compact) null else { {
                         Icon(
-                            imageVector = Icons.Default.Tune,
+                            imageVector = PaperInkIcons.Filter,
                             contentDescription = null,
-                            modifier = Modifier.size(FilterChipDefaults.IconSize)
+                            modifier = Modifier.size(
+                                if (paperInk) 18.dp else FilterChipDefaults.IconSize
+                            )
                         )
                     } },
                     modifier = filterTriggerModifier
-                        .height(48.dp)
+                        .height(if (paperInk) 36.dp else 48.dp)
                         .then(if (compact) Modifier.width(56.dp) else Modifier)
                         .semantics { contentDescription = filtersLabel }
                         .testTag("feed_filters")
@@ -1361,7 +1465,12 @@ fun WorkFeedFilterSheet(
             ) {
                 Text(
                     text = stringResource(R.string.feed_filters),
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                    // Unslop audit 2026-11-01 (U6): a sheet heading is UI, so
+                    // it takes the ladder's third step. Before this it borrowed
+                    // `headlineSmall`, which in paper is the Literata book
+                    // title — a book face on chrome, i.e. exactly the blurred
+                    // serif/UI boundary the direction forbids.
+                    style = PaperInkType.Heading.Sub,
                     modifier = Modifier
                         .focusRequester(headingFocusRequester)
                         .focusable()

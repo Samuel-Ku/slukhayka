@@ -27,6 +27,7 @@ import com.slukhayka.audiobooks.data.facets.RoomLocalFacetWriter
 import com.slukhayka.audiobooks.data.facets.applyEditionFacet
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.merge.WorkIdentityAccess
+import com.slukhayka.audiobooks.data.merge.requireWorkCreationEntryReferences
 import com.slukhayka.audiobooks.data.merge.WorkIdentityWriteRefused
 import com.slukhayka.audiobooks.data.merge.IdentityWriteRefusal
 import com.slukhayka.audiobooks.data.merge.SourceWorkIdentity
@@ -251,11 +252,13 @@ class LibraryImport(
         }
         val access = workIdentityAccess
         val committed = if (access == null) {
-            // Legacy optional constructors retain their supplied transaction seam, not a new global DAO.
+            // The DAO transaction also covers legacy constructors whose writer hook is a no-op.
             var outcome: CommittedSourceImport? = null
-            writeBatchRunner {
-                outcome = rows(null)
-                currentCoroutineContext().ensureActive()
+            dao.runCatalogRowTransaction {
+                writeBatchRunner {
+                    outcome = rows(null)
+                    currentCoroutineContext().ensureActive()
+                }
             }
             checkNotNull(outcome) { "Import transaction did not execute" }.also { publish(it) }
         } else access.writeSourceImport(admission, mergeKey, sourceId, detail.url, detail.narrator, language,
@@ -303,6 +306,13 @@ class LibraryImport(
 
         if (identity != null && existing == null && dao.getAudiobookById(bookId) != null) {
             throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+        }
+        val legacyWork = if (identity == null && existing == null && mergeKey.isNotBlank()) {
+            dao.findWorkByMergeKey(mergeKey)
+        } else null
+        if (identity == null && existing == null && mergeKey.isNotBlank() && legacyWork == null &&
+            dao.getWorkById(mergeKey) == null) {
+            requireWorkCreationEntryReferences(dao, mergeKey)
         }
         val tombstoneKeys = listOfNotNull(bookId, existing?.workId, existing?.mergeKey,
             identity?.work?.id, identity?.work?.mergeKey,
@@ -371,7 +381,7 @@ class LibraryImport(
             // join through the entry, so the card keeps its series and the
             // merge key stays the dedup identity.
             val workId = identity?.work?.id ?: if (mergeKey.isNotBlank()) {
-                ((if (identity == null) dao.findWorkByMergeKey(mergeKey) else null) ?: WorkEntity(
+                (legacyWork ?: WorkEntity(
                     id = if (identity == null) mergeKey else checkNotNull(admittedCreationWorkId),
                     mergeKey = mergeKey,
                     title = book.title,
@@ -1777,7 +1787,12 @@ class LibraryImport(
         }
         dao.findWorkByMergeKey(mergeKey)?.let { return WorkIdentityAccess.CatalogPosterTarget.ExistingWork(it) }
         if (dao.getWorkById(mergeKey) != null) throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
-        return WorkIdentityAccess.CatalogPosterTarget.CreateWork(mergeKey, mergeKey)
+        val target = WorkIdentityAccess.CatalogPosterTarget.CreateWork(mergeKey, mergeKey)
+        val stored = dao.getAudiobookById(book.id)
+        val entry = dao.libraryEntryById(book.id)
+        val ownEntry = target.ownEnrollmentEntry(book.id, stored, entry, book.url)
+        requireWorkCreationEntryReferences(dao, mergeKey, ownEntry)
+        return target
     }
 
     private suspend fun requireLegacyPosterOwnership(

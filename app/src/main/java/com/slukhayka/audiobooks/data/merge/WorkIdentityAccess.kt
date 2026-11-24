@@ -56,6 +56,19 @@ internal data class SourceWorkIdentity(
     val importEdition: EditionEntity? = null,
 )
 
+/** Missing Work rows may still be referenced by real Book-only Entries. */
+internal suspend fun requireWorkCreationEntryReferences(
+    dao: AudiobookDao, workId: String, allowedOwnEntry: LibraryEntryEntity? = null,
+) {
+    if (allowedOwnEntry != null && (allowedOwnEntry.id != workId || allowedOwnEntry.workId != workId)) {
+        throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+    }
+    val references = dao.workCreationEntryReferences(workId)
+    if (references != listOfNotNull(allowedOwnEntry)) {
+        throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+    }
+}
+
 /** Resolves stored identity in the same Room instance used by manual commands. */
 class WorkIdentityAccess(
     private val database: AudiobookDatabase,
@@ -202,7 +215,9 @@ class WorkIdentityAccess(
         }
     }
 
-    private suspend fun importCreationWorkId(identity: SourceWorkIdentity, mergeKey: String): String? {
+    private suspend fun importCreationWorkId(
+        identity: SourceWorkIdentity, mergeKey: String, allowedOwnEntry: LibraryEntryEntity? = null,
+    ): String? {
         val selectedBook = identity.existingSource?.book ?: identity.importBook
         if (selectedBook != null || identity.work != null || mergeKey.isBlank()) return null
         // An unoccupied raw PK is mandatory even if its MergeKey namespace resolves Missing.
@@ -210,7 +225,10 @@ class WorkIdentityAccess(
             throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
         }
         when (val target = resolveStored(WorkIdentityInput.WorkId(mergeKey))) {
-            is WorkResolution.Missing -> return mergeKey
+            is WorkResolution.Missing -> {
+                requireWorkCreationEntryReferences(database.audiobookDao(), mergeKey, allowedOwnEntry)
+                return mergeKey
+            }
             is WorkResolution.Resolved -> throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
             is WorkResolution.Refused -> throw WorkIdentityWriteRefused(IdentityWriteRefusal.Alias(target.reason))
         }
@@ -249,7 +267,16 @@ class WorkIdentityAccess(
 
     internal sealed interface CatalogPosterTarget {
         data class ExistingWork(val work: WorkEntity) : CatalogPosterTarget
-        data class CreateWork(val id: String, val mergeKey: String) : CatalogPosterTarget
+        data class CreateWork(val id: String, val mergeKey: String) : CatalogPosterTarget {
+            fun ownEnrollmentEntry(
+                posterBookId: String, book: BookRow?, entry: LibraryEntryEntity?, sourceUrl: String,
+            ): LibraryEntryEntity? {
+                if (posterBookId != id || book == null || entry == null ||
+                    !matchesLegacySelfAnchor(book, entry, mergeKey)) return null
+                requireRepairSourceUrl(book, sourceUrl)
+                return entry
+            }
+        }
         data class BookOnly(val bookId: String) : CatalogPosterTarget
 
         val entryWorkId: String get() = when (this) {
@@ -351,21 +378,25 @@ class WorkIdentityAccess(
             }
             if (owner == null) exact else exact.copy(work = owner)
         }
+        val posterBook = dao.getAudiobookById(posterBookId)
+        val posterEntry = dao.libraryEntryById(posterBookId)
         val target = identity.work?.let(CatalogPosterTarget::ExistingWork) ?: if (mergeKey.isNotBlank()) {
-            val id = importCreationWorkId(identity, mergeKey)
+            val proposed = CatalogPosterTarget.CreateWork(mergeKey, mergeKey)
+            val ownEntry = if (dao.getWorkById(mergeKey) == null) {
+                proposed.ownEnrollmentEntry(posterBookId, posterBook, posterEntry, sourceUrl)
+            } else null
+            val id = importCreationWorkId(identity, mergeKey, ownEntry)
                 ?: throw WorkIdentityWriteRefused(IdentityWriteRefusal.StaleAdmission)
             CatalogPosterTarget.CreateWork(id, mergeKey)
         } else {
-            requireMissingPosterWorkId(posterBookId)
+            requireMissingWorkId(posterBookId)
             CatalogPosterTarget.BookOnly(posterBookId)
         }
-        val posterBook = dao.getAudiobookById(posterBookId)
-        val posterEntry = dao.libraryEntryById(posterBookId)
         val legacySelfAnchor = posterBook != null && posterEntry != null &&
             target.matchesLegacySelfAnchor(posterBook, posterEntry, mergeKey) && dao.getWorkById(posterBookId) == null
         val source = if (legacySelfAnchor) {
             target.requireRepairSourceUrl(checkNotNull(posterBook), sourceUrl)
-            requireMissingPosterWorkId(posterBookId)
+            requireMissingWorkId(posterBookId)
             importScope(identity)
         } else if (posterBook != null && posterEntry == null) {
             target.requireMetadataOnlyRepair(dao, posterBook, mergeKey, sourceUrl)
@@ -386,7 +417,7 @@ class WorkIdentityAccess(
         return CatalogPosterScope(target, identity, source, posterBookId, posterBook, posterEntry)
     }
 
-    private suspend fun requireMissingPosterWorkId(id: String) {
+    private suspend fun requireMissingWorkId(id: String) {
         if (database.audiobookDao().getWorkById(id) != null) {
             throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
         }
@@ -434,6 +465,10 @@ class WorkIdentityAccess(
     ): CatalogWriteScope {
         val target = identity.work?.id ?: mergeKey.ifBlank { unmergeableWorkId }
         if (target.isBlank()) throw WorkIdentityWriteRefused(IdentityWriteRefusal.StaleAdmission)
+        if (identity.work == null) {
+            requireMissingWorkId(target)
+            requireWorkCreationEntryReferences(database.audiobookDao(), target)
+        }
         // Catalog creates a real Work at target; only existing actual Book rows are Book resources.
         return CatalogWriteScope(target, importScope(identity))
     }

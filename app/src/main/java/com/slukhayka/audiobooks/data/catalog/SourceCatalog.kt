@@ -41,6 +41,7 @@ import com.slukhayka.audiobooks.data.facets.applyEditionFacet
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.merge.WorkIdentityAccess
+import com.slukhayka.audiobooks.data.merge.requireWorkCreationEntryReferences
 import com.slukhayka.audiobooks.data.merge.SourceWorkIdentity
 import com.slukhayka.audiobooks.data.merge.IdentityWriteRefusal
 import com.slukhayka.audiobooks.data.merge.WorkIdentityWriteRefused
@@ -1989,6 +1990,9 @@ class SourceCatalog(
             if (workIdentityAccess != null && existing == null && dao.getWorkById(work.id) != null) {
                 throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
             }
+            if (workIdentityAccess == null && existing == null && dao.getWorkById(work.id) == null) {
+                requireWorkCreationEntryReferences(dao, work.id)
+            }
             val claims = dao.getWorkSourcesForWorkSync(work.id)
             val matchingClaims = claims.filter { it.sourceId == sourceId && it.sourceUrl == sourceUrl }
             if (workIdentityAccess != null && matchingClaims.size > 1) {
@@ -2099,7 +2103,9 @@ class SourceCatalog(
             ) { identity -> rows(identity) }
         }
         var result: WorkWriteResult? = null
-        writeBatchRunner { result = rows(null) }
+        dao.runCatalogRowTransaction {
+            writeBatchRunner { result = rows(null) }
+        }
         return checkNotNull(result)
     }
 

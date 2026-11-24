@@ -2252,6 +2252,10 @@ interface AudiobookDao {
     @Query("SELECT * FROM library_entries WHERE workId IN (:workIds)")
     suspend fun manualMergeEntries(workIds: List<String>): List<LibraryEntryEntity>
 
+    /** A second row means at least two inbound references and always refuses Work creation. */
+    @Query("SELECT * FROM library_entries WHERE workId = :workId ORDER BY id LIMIT 2")
+    suspend fun workCreationEntryReferences(workId: String): List<LibraryEntryEntity>
+
     @Query("SELECT * FROM library_entries WHERE id IN (:ids)")
     suspend fun manualMergeEntriesByIds(ids: List<String>): List<LibraryEntryEntity>
 

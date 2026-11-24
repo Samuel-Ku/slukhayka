@@ -13,6 +13,7 @@ import com.slukhayka.audiobooks.data.db.EditionEntity
 import com.slukhayka.audiobooks.data.db.HiddenReviewerEntity
 import com.slukhayka.audiobooks.data.db.RecommendationPreferenceEntity
 import com.slukhayka.audiobooks.data.db.LibraryEntryEntity
+import com.slukhayka.audiobooks.data.merge.compareMergeUtf8
 import com.slukhayka.audiobooks.data.db.ListeningStatEntity
 import com.slukhayka.audiobooks.data.db.toBookRow
 import com.slukhayka.audiobooks.data.db.PlaybackEventEntity
@@ -1920,6 +1921,11 @@ class FakeAudiobookDao(
 
     override suspend fun manualMergeEntries(workIds: List<String>):
         List<com.slukhayka.audiobooks.data.db.LibraryEntryEntity> = unsupportedManualMergeSnapshot()
+
+    override suspend fun workCreationEntryReferences(workId: String): List<LibraryEntryEntity> =
+        libraryEntriesState.value.filter { it.workId == workId }
+            .sortedWith { first, second -> compareMergeUtf8(first.id, second.id) }
+            .take(2)
 
     override suspend fun manualMergeEntriesByIds(ids: List<String>):
         List<com.slukhayka.audiobooks.data.db.LibraryEntryEntity> = unsupportedManualMergeSnapshot()

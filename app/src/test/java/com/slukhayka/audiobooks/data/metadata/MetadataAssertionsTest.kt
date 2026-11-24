@@ -266,6 +266,8 @@ class MetadataAssertionsTest {
             "4read.org" to null,
             "Аудиокнига 4read.org" to null,
             "4READ Voice Narrator" to null,
+            "&#52;READ Voice" to null,
+            "Читець №4" to "Читець №4",
             "Жан-Крістоф Гранже" to "Жан-Крістоф Гранже",
             "  Тарас Шевченко  " to "Тарас Шевченко"
         )

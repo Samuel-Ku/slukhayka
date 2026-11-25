@@ -94,11 +94,11 @@ class ListenUnknownDurationBarTest {
     fun bookProgressNamesItsScopeFromTheBeginningToTheEnd() {
         val position = mutableLongStateOf(0L)
         compose.setContent {
-            theme { hero(book.copy(totalDurationSeconds = 1000L), position.longValue) }
+            theme { hero(book.copy(totalDurationSeconds = 10_000L), position.longValue) }
         }
 
         val card = compose.onNodeWithContentDescription("Відкрити книгу: ${book.title}")
-        for ((seconds, expectedPercent) in listOf(0L to 0, 840L to 84, 1000L to 100)) {
+        for ((seconds, expectedPercent) in listOf(0L to 0, 5299L to 52, 5300L to 53, 8400L to 84, 10_000L to 100)) {
             compose.runOnIdle { position.longValue = seconds }
             compose.onNodeWithText("Прослухано $expectedPercent%").assertExists()
             card.assert(SemanticsMatcher.expectValue(

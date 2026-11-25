@@ -724,7 +724,8 @@ fun ListenHeroCard(
     }
 
     val listenedLabel = if (hasDuration) {
-        stringResource(R.string.lib_progress_percent, (progressFraction * 100).toInt())
+        val percent = (positionSec.coerceAtMost(totalSec) * 100.0 / totalSec).toInt()
+        stringResource(R.string.lib_progress_percent, percent)
     } else {
         val elapsed = if (positionSec < 60) {
             stringResource(R.string.listen_elapsed_seconds, positionSec)

@@ -227,10 +227,10 @@ fun PaperInkHeroCard(
                             color = colorScheme.onSurfaceVariant,
                             modifier = if (eyebrowHeading) Modifier.semantics { heading() } else Modifier,
                         )
-                        if (!largeText) HeroBookDetails(title, author, narrator)
+                        if (!largeText) HeroBookDetails(title, author, narrator, titleMaxLines = 2)
                     }
                 }
-                if (largeText) HeroBookDetails(title, author, narrator)
+                if (largeText) HeroBookDetails(title, author, narrator, titleMaxLines = 3)
                 if (progressLabel != null) {
                     Text(
                         text = progressLabel,
@@ -274,10 +274,12 @@ fun PaperInkHeroCard(
 }
 
 @Composable
-private fun HeroBookDetails(title: String, author: String, narrator: String) {
+private fun HeroBookDetails(title: String, author: String, narrator: String, titleMaxLines: Int) {
     Text(
         text = title,
         style = PaperInkType.BookTitleHero,
+        maxLines = titleMaxLines,
+        overflow = TextOverflow.Ellipsis,
         color = MaterialTheme.colorScheme.onSurface,
     )
     if (author.isNotBlank()) {

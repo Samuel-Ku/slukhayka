@@ -70,7 +70,7 @@ class PlaylistSelectionCardTest {
     }
 
     @Test
-    fun `one book of chapters names the result at confirmation`() {
+    fun `every position starts picked and the add button counts them`() {
         val calls = Calls()
         show(
             PlaylistSelectionState(

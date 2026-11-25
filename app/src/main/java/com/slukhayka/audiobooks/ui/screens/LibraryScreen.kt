@@ -92,6 +92,7 @@ import com.slukhayka.audiobooks.data.availability.AvailabilityView
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.ui.adaptive.rememberIsLandscapePhoneWindow
 import com.slukhayka.audiobooks.ui.bookPersonPath
+import com.slukhayka.audiobooks.data.imports.PlannedBook
 import com.slukhayka.audiobooks.data.imports.ImportPlanner
 import com.slukhayka.audiobooks.data.imports.LocalFolderGrouping
 import com.slukhayka.audiobooks.data.imports.SourceRef
@@ -2851,6 +2852,40 @@ fun ClearCacheConfirmDialog(
     )
 }
 
+@Composable
+private fun ImportPreviewWithSummary(
+    books: List<PlannedBook>,
+    content: @Composable BoxScope.() -> Unit
+) {
+    val (newBooks, attachments) = books.partition { it.mergedIntoBookId == null }
+    val summary = buildList {
+        if (newBooks.size == 1) {
+            val chapters = newBooks.single().chapters.size
+            add(pluralStringResource(R.plurals.import_add_one_book_chapters, chapters, chapters))
+        } else if (newBooks.isNotEmpty() || attachments.isEmpty()) {
+            add(pluralStringResource(R.plurals.import_add_books, newBooks.size, newBooks.size))
+        }
+        for (group in attachments.groupBy { it.mergedIntoBookId }.values) {
+            val chapters = group.sumOf { it.chapters.size }
+            val title = group.first().suggestion?.existingTitle ?: stringResource(R.string.lib_import_existing_book)
+            add(pluralStringResource(R.plurals.lib_import_attach_chapters, chapters, chapters, title))
+        }
+    }
+    Column {
+        Box(modifier = Modifier.weight(1f, fill = false), content = content)
+        Text(
+            text = summary.joinToString("\n"),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+                .heightIn(max = 96.dp)
+                .verticalScroll(rememberScrollState())
+                .semantics { liveRegion = LiveRegionMode.Polite }
+        )
+    }
+}
+
 /**
  * The smart-import preview dialog (wayfinder #29): scan → plan → confirm →
  * apply. Shows the planned books (grouping + natural order) and the #54
@@ -2872,7 +2907,6 @@ fun ImportPreviewDialog(
     onFolderGroupingChange: (com.slukhayka.audiobooks.data.imports.LocalFolderGrouping) -> Unit = {},
     onMergePlannedBooks: (String, String) -> Unit = { _, _ -> }
 ) {
-    val mergedCount = preview.plan.books.count { it.mergedIntoBookId != null }
     val folder = preview.plan.source as? SourceRef.Folder
     val hasRootFiles = preview.plan.books.any { book -> book.chapters.any { it.file.parentFolder.isNullOrBlank() } }
     val headingFocusRequester = remember { FocusRequester() }
@@ -2922,7 +2956,7 @@ fun ImportPreviewDialog(
             )
         },
         text = {
-            Box {
+            ImportPreviewWithSummary(preview.plan.books) {
 
             val previewScrollState = rememberScrollState()
             val previewAutoScroll = remember {
@@ -2945,10 +2979,7 @@ fun ImportPreviewDialog(
                     .verticalScroll(previewScrollState)
             ) {
                 Text(
-                    text = stringResource(
-                        R.string.lib_import_preview_found,
-                        preview.plan.books.size
-                    ),
+                    text = stringResource(R.string.lib_import_preview_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -3128,14 +3159,8 @@ fun ImportPreviewDialog(
                 Text(
                     if (preview.retryable) {
                         stringResource(R.string.lib_import_retry)
-                    } else if (mergedCount > 0) {
-                        stringResource(
-                            R.string.lib_import_confirm_merged,
-                            preview.plan.books.size - mergedCount,
-                            mergedCount
-                        )
                     } else {
-                        stringResource(R.string.lib_import_confirm, preview.plan.books.size)
+                        stringResource(R.string.submission_preview_add)
                     }
                 )
             }

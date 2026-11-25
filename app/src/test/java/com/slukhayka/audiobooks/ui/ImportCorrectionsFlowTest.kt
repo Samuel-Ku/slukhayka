@@ -43,6 +43,64 @@ class ImportCorrectionsFlowTest {
         assertEquals(0, reads)
     }
 
+    @Test fun `accepting a match separates new books from chapters joining an existing book`() {
+        val files = listOf("Кобзар", "Кобзар", "Інша").mapIndexed { index, folder ->
+            LocalAudioEntry("$index.mp3", folder, uri = "content://test/$index") {
+                error("Preview must not read audio")
+            }
+        }
+        var plan by mutableStateOf(ImportPlanner.buildPlan(
+            SourceRef.Folder("content://tree"),
+            files,
+            listOf(ImportPlanner.ExistingWork("existing", "Кобзар", "кобзар|тарас шевченко"))
+        ))
+        var confirmed: ImportPlan? = null
+        compose.setContent {
+            AudiobookTheme {
+                ImportPreviewDialog(
+                    MainViewModel.ImportPreviewState(plan, "content://tree"),
+                    onAcceptMerge = { id -> plan = ImportPlanner.acceptMerge(plan, id) },
+                    onRejectMerge = {}, onReorderChapters = { _, _ -> }, onEditBookTitle = { _, _ -> },
+                    onConfirm = { confirmed = plan }, onDismiss = {}
+                )
+            }
+        }
+        compose.onNodeWithText("Додати 2 книжки").assertIsDisplayed()
+        compose.onNodeWithText("З'єднати").performScrollTo().performClick()
+        compose.onNodeWithText("Додати одну книжку з 1 розділом", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Додати 2 розділи до «Кобзар»", substring = true).assertIsDisplayed()
+        assertNull(confirmed)
+        compose.onNodeWithTag("library_import_preview_confirm").performClick()
+        val books = requireNotNull(confirmed).books
+        assertEquals(listOf("Інша"), books.filter { it.mergedIntoBookId == null }.map { it.title })
+        assertEquals(2, books.single { it.mergedIntoBookId == "existing" }.chapters.size)
+    }
+
+    @Test fun `eight files can become one eight chapter book without writing on cancel`() {
+        val files = (1..8).map { n ->
+            LocalAudioEntry("$n.mp3", null, uri = "content://test/$n") { error("No file reads before confirmation") }
+        }
+        var plan by mutableStateOf(ImportPlanner.buildPlan(SourceRef.Folder("content://tree", "Кобзар"), files))
+        var confirmed = false
+        var cancelled = false
+        compose.setContent {
+            AudiobookTheme {
+                ImportPreviewDialog(
+                    MainViewModel.ImportPreviewState(plan, "content://tree"),
+                    onAcceptMerge = {}, onRejectMerge = {}, onReorderChapters = { _, _ -> }, onEditBookTitle = { _, _ -> },
+                    onConfirm = { confirmed = true }, onDismiss = { cancelled = true },
+                    onFolderGroupingChange = { plan = ImportPlanner.changeFolderGrouping(plan, it) }
+                )
+            }
+        }
+        compose.onNodeWithText("Додати 8 книжок").assertIsDisplayed()
+        compose.onNodeWithTag("import_folder_grouping_one").performScrollTo().performClick()
+        compose.onNodeWithText("Додати одну книжку з 8 розділами").assertIsDisplayed()
+        compose.onNodeWithTag("library_import_preview_cancel").performClick()
+        assertTrue(cancelled)
+        assertFalse(confirmed)
+    }
+
     private fun validPlan(): ImportPlan {
         val file = LocalAudioEntry("00.mp3", null, uri = "content://test/local") { ByteArrayInputStream(byteArrayOf(1)) }
         return ImportPlanner.editBook(
@@ -114,6 +172,7 @@ class ImportCorrectionsFlowTest {
         assertEquals(before, plan)
         compose.onNodeWithTag("import_preview_merge_root:00.mp3").assertIsFocused().performClick()
         compose.onNodeWithTag("import_preview_merge_target_folder:B").performScrollTo().performClick()
+        compose.onNodeWithText("Додати 2 книжки").assertIsDisplayed()
         compose.onNodeWithTag("import_preview_rename_folder:B").assertIsFocused()
         assertEquals(2, plan.books.size)
         assertEquals(unrelated, plan.books.single { it.id == "folder:A" })
@@ -183,9 +242,11 @@ class ImportCorrectionsFlowTest {
             )
         } }
         compose.onNodeWithTag("import_folder_grouping_separate").assertIsSelected()
+        compose.onNodeWithText("Додати 4 книжки").assertIsDisplayed()
         assertEquals(4, plan.books.size)
         compose.onNodeWithTag("import_folder_grouping_one").performScrollTo().performClick().assertIsSelected()
         assertEquals(2, plan.books.size)
+        compose.onNodeWithText("Додати 2 книжки").assertIsDisplayed()
         assertEquals("Кобзар", plan.books.first().title)
         assertEquals(listOf("01.mp3", "02.mp3", "03.mp3"), plan.books.first().chapters.map { it.file.fileName })
         assertEquals(unrelated, plan.books.last())
@@ -230,7 +291,9 @@ class ImportCorrectionsFlowTest {
         assertEquals(2, edited.seriesIndex)
         assertNull(confirmed)
         assertEquals(0, streamReads)
+        compose.onNodeWithText("Додати одну книжку з 2 розділами").assertIsDisplayed()
         compose.onNodeWithTag("import_preview_split_folder:Кобзар_1").performScrollTo().performClick()
+        compose.onNodeWithText("Додати 2 книжки").assertIsDisplayed()
         assertEquals(listOf(1, 1), plan.books.map { it.chapters.size })
         compose.onNodeWithTag("import_preview_rename_folder:Кобзар#2").assertExists()
         compose.onNodeWithTag("library_import_preview_confirm").performClick()

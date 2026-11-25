@@ -14,6 +14,9 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.text.TextLayoutResult
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import com.slukhayka.audiobooks.ui.screens.ListenHeroCard
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
@@ -50,7 +53,7 @@ class ListenHeroFontScaleLayoutTest {
         positionSeconds = 420L,
     )[0]
 
-    private fun showHeroAtTwoHundredPercent() {
+    private fun showHeroAtTwoHundredPercent(title: String = book.title) {
         compose.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(
@@ -68,7 +71,7 @@ class ListenHeroFontScaleLayoutTest {
                             .background(MaterialTheme.colorScheme.background)
                     ) {
                         ListenHeroCard(
-                            book = book,
+                            book = book.copy(title = title),
                             progress = progress,
                             cumulativePositionSeconds = 600L + 660L + 420L,
                             onResumeClick = {},
@@ -94,8 +97,24 @@ class ListenHeroFontScaleLayoutTest {
             .getUnclippedBoundsInRoot()
 
         assertTrue("the cover must leave the title its own line", title.top >= cover.bottom)
+        assertTrue("the cover must remain a compact thumbnail", cover.right - cover.left <= 40.dp)
+        assertTrue("the cover must not create a tall empty header", cover.bottom - cover.top <= 60.dp)
         assertTrue("the title must start at the cover's leading edge", title.left <= cover.left + 1.dp)
         assertTrue("book progress must be readable above the chapter", label.bottom <= chapter.top)
+    }
+
+    @Test
+    fun `a filename title does not leave its final digit alone at large text size`() {
+        val title = "Slukhayka-UX-1806"
+        showHeroAtTwoHundredPercent(title)
+        val layouts = mutableListOf<TextLayoutResult>()
+        compose.onNodeWithText(title, useUnmergedTree = true)
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        val layout = layouts.single()
+        val lastLine = layout.lineCount - 1
+        val lastLineText = title.substring(layout.getLineStart(lastLine), layout.getLineEnd(lastLine)).trim()
+        assertTrue("the complete title stays readable", !layout.hasVisualOverflow)
+        assertTrue("the title must not leave a single-character orphan: $lastLineText", lastLineText.length > 1)
     }
 
     @Test

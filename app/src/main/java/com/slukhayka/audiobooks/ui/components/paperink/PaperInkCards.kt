@@ -40,6 +40,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.LineBreak
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcon
@@ -277,7 +278,7 @@ fun PaperInkHeroCard(
 private fun HeroBookDetails(title: String, author: String, narrator: String, titleMaxLines: Int) {
     Text(
         text = title,
-        style = PaperInkType.BookTitleHero,
+        style = PaperInkType.BookTitleHero.copy(lineBreak = LineBreak.Heading),
         maxLines = titleMaxLines,
         overflow = TextOverflow.Ellipsis,
         color = MaterialTheme.colorScheme.onSurface,
@@ -307,7 +308,7 @@ private fun HeroBookDetails(title: String, author: String, narrator: String, tit
 @Composable
 private fun HeroCoverSlot(cover: (@Composable () -> Unit)?, title: String, compact: Boolean) {
     val size = if (compact) {
-        Modifier.size(PaperInkDimens.CoverRowWidth, PaperInkDimens.CoverRowHeight)
+        Modifier.size(40.dp, 60.dp)
     } else {
         Modifier.size(PaperInkDimens.CoverHeroWidth, PaperInkDimens.CoverHeroHeight)
     }

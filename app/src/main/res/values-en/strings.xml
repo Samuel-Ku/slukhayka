@@ -675,12 +675,15 @@
     <string name="lib_stats_total">Total in the library</string>
     <string name="lib_stats_total_value">%1$d books</string>
     <string name="lib_bookmark_at">At %1$s: %2$s</string>
-    <string name="lib_import_preview_found">Found %1$d books — nothing is written until you confirm.</string>
+    <string name="lib_import_preview_hint">Check the titles and chapter order before adding.</string>
+    <plurals name="lib_import_attach_chapters">
+        <item quantity="one">Add %1$d chapter to “%2$s”</item>
+        <item quantity="other">Add %1$d chapters to “%2$s”</item>
+    </plurals>
     <string name="lib_untitled">Untitled</string>
     <string name="lib_import_similar">Looks like «%1$s» (%2$s)</string>
     <string name="lib_import_will_merge">Will be merged with «%1$s»</string>
     <string name="lib_import_existing_book">a book in the library</string>
-    <string name="lib_import_confirm_merged">Import (%1$d new, %2$d merged)</string>
     <string name="feed_origin_filter_heading">Origin</string>
     <string name="feed_origin_only_shared">Only from the shared library</string>
     <string name="feed_origin_shared_library">From the shared library</string>
@@ -698,7 +701,6 @@
     <string name="lib_import_save">Save</string>
     <string name="lib_import_retry">Retry</string>
     <string name="lib_import_retry_body">The write was interrupted. The plan is kept — try again.</string>
-    <string name="lib_import_confirm">Import %1$d</string>
     <string name="lib_person_role_author">Author</string>
     <string name="lib_person_role_narrator">Narrator</string>
     <string name="lib_person_notify_on">Notifications on</string>

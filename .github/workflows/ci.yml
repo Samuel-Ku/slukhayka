@@ -1105,6 +1105,11 @@ jobs:
           gradle-version: wrapper
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
+      - name: Setup Python 3.14 for Chaquopy
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
         with:
@@ -1132,14 +1137,14 @@ jobs:
           key: e5-model-v1
 
       - name: Download e5 model
-        run: ./gradlew :app:downloadE5Model --no-daemon
+        run: ./gradlew :app:downloadE5Model --no-daemon --no-configuration-cache
 
       - name: Build signed release APK
         env:
           KEYSTORE_PATH: "${{ runner.temp }}/upload.jks"
           STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: ./gradlew :app:assembleRelease --no-daemon
+        run: ./gradlew :app:assembleRelease --no-daemon --no-configuration-cache
 
       # assembleRelease emits app/build/outputs/renamed_apks/release/
       # slukhayka-v<versionName>.apk (the renameReleaseApk task), so the

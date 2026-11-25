@@ -578,6 +578,19 @@
     <string name="submission_playlist_one_book">Одна книга (розділи)</string>
     <string name="submission_playlist_separate">Окремі книги</string>
     <string name="submission_playlist_selected">Вибрано %1$d з %2$d</string>
+    <string name="submission_playlist_choose_entries">Виберіть записи</string>
+    <plurals name="import_add_one_book_chapters">
+        <item quantity="one">Додати одну книжку з %1$d розділом</item>
+        <item quantity="few">Додати одну книжку з %1$d розділами</item>
+        <item quantity="many">Додати одну книжку з %1$d розділами</item>
+        <item quantity="other">Додати одну книжку з %1$d розділами</item>
+    </plurals>
+    <plurals name="import_add_books">
+        <item quantity="one">Додати %1$d книжку</item>
+        <item quantity="few">Додати %1$d книжки</item>
+        <item quantity="many">Додати %1$d книжок</item>
+        <item quantity="other">Додати %1$d книжок</item>
+    </plurals>
     <string name="submission_playlist_select_all">Вибрати всі</string>
     <string name="submission_preview_edit">Редагувати</string>
     <string name="submission_preview_single_video">одне відео</string>

@@ -25,6 +25,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -238,8 +239,13 @@ fun PlaylistSelectionCard(
                 .fillMaxWidth()
                 .testTag("submission_preview_add")
         ) {
+            val count = state.selected.size
             Text(
-                stringResource(R.string.submission_channel_add_selected, state.selected.size)
+                when {
+                    count == 0 -> stringResource(R.string.submission_playlist_choose_entries)
+                    state.separateBooks -> pluralStringResource(R.plurals.import_add_books, count, count)
+                    else -> pluralStringResource(R.plurals.import_add_one_book_chapters, count, count)
+                }
             )
         }
     }

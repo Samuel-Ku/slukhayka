@@ -1,5 +1,10 @@
 package com.slukhayka.audiobooks.ui.screens
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -65,7 +70,7 @@ class PlaylistSelectionCardTest {
     }
 
     @Test
-    fun `every position starts picked and the add button counts them`() {
+    fun `one book of chapters names the result at confirmation`() {
         val calls = Calls()
         show(
             PlaylistSelectionState(
@@ -76,8 +81,50 @@ class PlaylistSelectionCardTest {
         )
 
         compose.onNodeWithText("Вибрано 3 з 3").assertExists()
-        compose.onNodeWithText("Додати вибрані (3)").assertExists()
+        compose.onNodeWithTag("submission_preview_add").assertTextEquals("Додати одну книжку з 3 розділами")
         compose.onNodeWithText("Розділ 1").assertExists()
+    }
+
+    @Test
+    fun `confirmation follows the mode and checked entries after reordering`() {
+        var orderedEntries by mutableStateOf((1..8).map { number ->
+            ListenerSubmissionFlow.PreviewEntry("https://www.youtube.com/watch?v=$number", "Розділ $number")
+        })
+        val first = orderedEntries.first().watchUrl
+        var state by mutableStateOf(PlaylistSelectionState(
+            selected = orderedEntries.map { it.watchUrl }.toSet(),
+            separateBooks = false
+        ))
+        compose.setContent {
+            AudiobookTheme {
+                PlaylistSelectionCard(
+                    entries = orderedEntries,
+                    state = state,
+                    edits = edits,
+                    callbacks = Calls().callbacks().copy(
+                        onMoveEntry = { url, delta ->
+                            val from = orderedEntries.indexOfFirst { it.watchUrl == url }
+                            orderedEntries = orderedEntries.toMutableList().apply {
+                                add(from + delta, removeAt(from))
+                            }
+                        },
+                        onToggleEntry = { url -> state = state.copy(selected = state.selected - url) },
+                        onSetSeparateBooks = { state = state.copy(separateBooks = it) }
+                    )
+                )
+            }
+        }
+
+        val confirm = compose.onNodeWithTag("submission_preview_add")
+        confirm.assertTextEquals("Додати одну книжку з 8 розділами")
+        compose.onNodeWithTag("playlist_mode_separate_books").performClick()
+        confirm.assertTextEquals("Додати 8 книжок")
+        compose.onNodeWithTag("playlist_entry_down_$first").performClick()
+        confirm.assertTextEquals("Додати 8 книжок")
+        compose.onNodeWithTag("playlist_entry_$first").performClick()
+        confirm.assertTextEquals("Додати 7 книжок")
+        compose.onNodeWithTag("playlist_mode_one_book").performClick()
+        confirm.assertTextEquals("Додати одну книжку з 7 розділами")
     }
 
     @Test
@@ -108,7 +155,8 @@ class PlaylistSelectionCardTest {
         val calls = Calls()
         show(PlaylistSelectionState(selected = emptySet(), separateBooks = false), calls)
 
-        compose.onNodeWithText("Додати вибрані (0)").assertExists()
+        compose.onNodeWithTag("submission_preview_add").assertIsNotEnabled()
+        compose.onNodeWithTag("submission_preview_add").assertTextEquals("Виберіть записи")
         compose.onNodeWithTag("submission_preview_add").performClick()
 
         assertEquals("the button is disabled, so nothing was forwarded", null, calls.added)

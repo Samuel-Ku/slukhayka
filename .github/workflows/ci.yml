@@ -517,6 +517,8 @@ jobs:
   # a diagnosis. #1115 keeps the investigation.
   jvm-partitions:
     name: ${{ matrix.name }}
+    env:
+      JAVA_TOOL_OPTIONS: -Drobolectric.dependency.repo.url=https://repo.maven.apache.org/maven2
     runs-on: ubuntu-latest
     timeout-minutes: 60
     needs: [timing-start, classify]

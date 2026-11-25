@@ -10,6 +10,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -78,6 +79,23 @@ class ListenHeroFontScaleLayoutTest {
             }
         }
         compose.waitForIdle()
+    }
+
+    @Test
+    fun `the title and book progress have the width below the cover`() {
+        showHeroAtTwoHundredPercent()
+
+        val cover = compose.onNodeWithTag("hero_cover_placeholder", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot()
+        val title = compose.onNodeWithText(book.title, useUnmergedTree = true).getUnclippedBoundsInRoot()
+        val label = compose.onNodeWithText("Прослухано 84%", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot()
+        val chapter = compose.onNodeWithTag("hero_chapter", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot()
+
+        assertTrue("the cover must leave the title its own line", title.top >= cover.bottom)
+        assertTrue("the title must start at the cover's leading edge", title.left <= cover.left + 1.dp)
+        assertTrue("book progress must be readable above the chapter", label.bottom <= chapter.top)
     }
 
     @Test

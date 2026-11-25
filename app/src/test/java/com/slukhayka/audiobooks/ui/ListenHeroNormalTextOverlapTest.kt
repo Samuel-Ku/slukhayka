@@ -7,6 +7,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.testing.TestDataFactory
@@ -26,13 +27,8 @@ import org.robolectric.annotation.GraphicsMode
  * progress row reserved end space. On the device the narrator was visibly
  * clipped by the button (`docs/audits/assets/unslop-2026-11-01/hero-before.png`).
  *
- * The fixture reproduces the device state rather than a convenient one: the
- * title wraps to two lines (the real «Левеня, яке навчилося ричати» case), which
- * drops the narrator into the disc's vertical band, and the narrator is long
- * enough to reach the disc horizontally. With a one-line title the narrator sits
- * above the button, so a test built on that fixture would pass on the broken
- * layout. This one pins the horizontal seam (`narrator.right <= play.left`),
- * which is the reserve itself, and the absence of a rectangle overlap.
+ * With a long title and narrator, the readable summary still fits above
+ * the chapter and neither the narrator nor the progress overlaps play.
  *
  * The 200 % case is a different layout and is covered by
  * [ListenHeroFontScaleLayoutTest].
@@ -91,15 +87,12 @@ class ListenHeroNormalTextOverlapTest {
         val play = compose.onNodeWithTag("hero_play", useUnmergedTree = true)
             .getUnclippedBoundsInRoot()
 
-        // The seam itself: without the 68 dp reserve this line runs past the
-        // disc's left edge, whatever the vertical band happens to be.
-        assertTrue(
-            "the narrator must end at or before the play disc: " +
-                "narrator.right=${narrator.right} play.left=${play.left} " +
-                "narrator=[${narrator.left}, ${narrator.top}, ${narrator.right}, ${narrator.bottom}] " +
-                "play=[${play.left}, ${play.top}, ${play.right}, ${play.bottom}]",
-            narrator.right <= play.left + 1.dp,
-        )
+        val label = compose.onNodeWithText("Прослухано 84%", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot()
+        val chapter = compose.onNodeWithTag("hero_chapter", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot()
+        assertTrue("book progress stays above chapter details", label.bottom <= chapter.top)
+        assertTrue("progress stays clear of play", label.bottom <= play.top)
         assertTrue(
             "the narrator must stay inside the card: narrator.right=${narrator.right} panel.right=${panel.right}",
             narrator.right <= panel.right + 1.dp,

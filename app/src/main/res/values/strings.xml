@@ -124,8 +124,8 @@
     <string name="listen_book">Книга</string>
     <string name="listen_chapter">Розділ</string>
     <string name="listen_note_optional">Нотатка (необов\'язково)</string>
-    <string name="profile_view_catalogue">Переглянути каталог</string>
-    <string name="profile_import_from_device">Імпортувати з пристрою</string>
+    <string name="profile_view_catalogue">Знайти аудіокнижку</string>
+    <string name="profile_import_from_device">Додати з пристрою</string>
     <string name="profile_nickname_label">Як вас показувати</string>
     <string name="profile_nickname_hint">До 40 символів. Профіль існує без жодного входу.</string>
     <string name="profile_save_nick">Зберегти нік</string>
@@ -347,7 +347,10 @@
     <string name="collections_index_empty">Колекції з\'являться після завантаження каталогу.</string>
     <string name="collections_index_refresh">Оновити каталог</string>
     <!-- spec-46 T16 (#577): the Слухати fresh-install empty state. -->
-    <string name="listen_empty_title">Продовжити слухати</string>
+    <string name="listen_elapsed">Прослухано %1$s</string>
+    <string name="listen_elapsed_seconds">%1$d с</string>
+    <string name="listen_book_progress">Прогрес книжки: %1$s</string>
+    <string name="listen_empty_title">З чого почнемо?</string>
     <string name="listen_empty_body">Тут з\'явиться ваша поточна книга, щойно ви почнете слухати.</string>
     <!-- #562 AC: the counter is the header's subtitle, never a free-standing
          badge row — it declines honestly (1 нова / 2 нові / 5 нових). -->

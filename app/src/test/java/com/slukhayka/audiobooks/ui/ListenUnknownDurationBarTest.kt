@@ -1,9 +1,13 @@
 package com.slukhayka.audiobooks.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.junit4.createComposeRule
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.testing.TestDataFactory
@@ -30,7 +34,7 @@ import org.robolectric.annotation.Config
  * only checks "no bar" would pass even if the bars had been deleted outright.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [36])
+@Config(qualifiers = "uk-rUA", sdk = [36])
 class ListenUnknownDurationBarTest {
 
     @get:Rule
@@ -58,11 +62,11 @@ class ListenUnknownDurationBarTest {
     }
 
     @Composable
-    private fun hero(book: AudiobookEntity) {
+    private fun hero(book: AudiobookEntity, positionSeconds: Long = 900L) {
         ListenHeroCard(
             book = book,
             progress = progress,
-            cumulativePositionSeconds = 900L,
+            cumulativePositionSeconds = positionSeconds,
             onResumeClick = {},
             onBookClick = {}
         )
@@ -82,7 +86,26 @@ class ListenUnknownDurationBarTest {
     @Test
     fun aHeroWithoutDurationDrawsNoBar() {
         compose.setContent { theme { hero(book.copy(totalDurationSeconds = 0L)) } }
+        compose.onNodeWithText("Прослухано 15 хв").assertExists()
         progressBars().assertCountEquals(0)
+    }
+
+    @Test
+    fun bookProgressNamesItsScopeFromTheBeginningToTheEnd() {
+        val position = mutableLongStateOf(0L)
+        compose.setContent {
+            theme { hero(book.copy(totalDurationSeconds = 1000L), position.longValue) }
+        }
+
+        val card = compose.onNodeWithContentDescription("Відкрити книгу: ${book.title}")
+        for ((seconds, expectedPercent) in listOf(0L to 0, 840L to 84, 1000L to 100)) {
+            compose.runOnIdle { position.longValue = seconds }
+            compose.onNodeWithText("Прослухано $expectedPercent%").assertExists()
+            card.assert(SemanticsMatcher.expectValue(
+                SemanticsProperties.StateDescription,
+                "Прогрес книжки: Прослухано $expectedPercent%",
+            ))
+        }
     }
 
     @Test

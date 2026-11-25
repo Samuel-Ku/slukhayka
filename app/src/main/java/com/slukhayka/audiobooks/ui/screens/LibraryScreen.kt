@@ -159,6 +159,8 @@ fun LibraryScreen(
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit,
     onBrowseClick: () -> Unit,
+    showImportSheet: Boolean,
+    onShowImportSheetChange: (Boolean) -> Unit,
     onPersonClick: (CatalogPerson) -> Unit = {},
     restoreFocusBookId: String? = null,
     onBookFocusRestored: (String) -> Unit = {},
@@ -362,9 +364,6 @@ fun LibraryScreen(
         ?.projection?.year
     // Spec-28 #193: the rare filters, sort and view toggle live in the sheet.
     var showFilterSheet by remember { mutableStateOf(false) }
-    // Spec-28 #194: import is one «+ Додати» action opening a sheet; the
-    // storage destination is reached from Settings.
-    var showImportSheet by remember { mutableStateOf(false) }
     // Spec-601 T3/T5 — the «Надіслати посилання» sheet: paste a YouTube/TG
     // link; publication happens only after the imported copy really plays.
     var showSubmissionSheet by remember { mutableStateOf(false) }
@@ -562,7 +561,7 @@ fun LibraryScreen(
                             // existing collections, opened where they live.
                             onOpenShelves = { viewModel.openCollectionsIndex() },
                             onOpenManualAdd = { manualAddOpen = true },
-                            onAdd = { showImportSheet = true },
+                            onAdd = { onShowImportSheetChange(true) },
                             importFocusRequester = importFocusRequester
                         )
                     }
@@ -1010,20 +1009,20 @@ fun LibraryScreen(
         if (showImportSheet) {
             LibraryImportSheet(
                 onImportFile = {
-                    showImportSheet = false
+                    onShowImportSheetChange(false)
                     importLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg"))
                 },
                 onImportFolder = {
-                    showImportSheet = false
+                    onShowImportSheetChange(false)
                     folderLauncher.launch(null)
                 },
                 onSubmitLink = {
-                    showImportSheet = false
+                    onShowImportSheetChange(false)
                     viewModel.dismissSubmission()
                     viewModel.refreshSubmissionRemaining()
                     showSubmissionSheet = true
                 },
-                onDismiss = { showImportSheet = false }
+                onDismiss = { onShowImportSheetChange(false) }
             )
         }
 

@@ -65,7 +65,10 @@
     <string name="collections_index_title">Collections</string>
     <string name="collections_index_empty">Collections will appear once the catalogue has loaded.</string>
     <string name="collections_index_refresh">Refresh catalogue</string>
-    <string name="listen_empty_title">Keep listening</string>
+    <string name="listen_elapsed">Listened %1$s</string>
+    <string name="listen_elapsed_seconds">%1$d sec</string>
+    <string name="listen_book_progress">Book progress: %1$s</string>
+    <string name="listen_empty_title">Where would you like to start?</string>
     <string name="listen_empty_body">Your current book will appear here as soon as you start listening.</string>
     <string name="feed_genres">Genres</string>
     <string name="feed_duration">Duration</string>
@@ -127,8 +130,8 @@
     <string name="listen_book">Book</string>
     <string name="listen_chapter">Chapter</string>
     <string name="listen_note_optional">Note (optional)</string>
-    <string name="profile_view_catalogue">View catalogue</string>
-    <string name="profile_import_from_device">Import from device</string>
+    <string name="profile_view_catalogue">Find an audiobook</string>
+    <string name="profile_import_from_device">Add from device</string>
     <string name="profile_nickname_label">How to show you</string>
     <string name="profile_nickname_hint">Up to 40 characters. The profile exists without any sign-in.</string>
     <string name="profile_save_nick">Save nickname</string>

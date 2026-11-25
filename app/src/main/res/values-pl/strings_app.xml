@@ -781,7 +781,10 @@
     <string name="listen_chapter_of">Rozdział %1$d z %2$d</string>
     <string name="listen_chapter_position">Rozdział %1$d · %2$s</string>
     <string name="listen_empty_body">Tu pojawi się Twoja bieżąca książka, gdy tylko zaczniesz słuchać.</string>
-    <string name="listen_empty_title">Kontynuuj słuchanie</string>
+    <string name="listen_elapsed">Przesłuchano %1$s</string>
+    <string name="listen_elapsed_seconds">%1$d s</string>
+    <string name="listen_book_progress">Postęp książki: %1$s</string>
+    <string name="listen_empty_title">Od czego zaczynamy?</string>
     <string name="listen_hero_overline">Kontynuuj słuchanie</string>
     <string name="listen_manage_shelves">Zarządzaj półkami</string>
     <string name="listen_progress_percent">%1$d%%</string>
@@ -794,8 +797,8 @@
     <string name="metadata_edit_series">Seria</string>
     <string name="metadata_edit_series_index">Numer w serii</string>
     <string name="nav_listen">Słuchaj</string>
-    <string name="profile_import_from_device">Importuj z urządzenia</string>
-    <string name="profile_view_catalogue">Przejrzyj katalog</string>
+    <string name="profile_import_from_device">Dodaj z urządzenia</string>
+    <string name="profile_view_catalogue">Znajdź audiobook</string>
     <string name="showcase_publish_confirm">Opublikuj witrynę</string>
     <string name="showcase_publish_lead">W profilu kuratora będzie widoczne dokładnie to:</string>
     <string name="showcase_publish_line_award_count">Nagród: %1$d</string>

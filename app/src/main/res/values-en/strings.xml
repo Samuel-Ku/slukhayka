@@ -516,6 +516,15 @@
     <string name="submission_playlist_one_book">One book (chapters)</string>
     <string name="submission_playlist_separate">Separate books</string>
     <string name="submission_playlist_selected">Selected %1$d of %2$d</string>
+    <string name="submission_playlist_choose_entries">Select entries</string>
+    <plurals name="import_add_one_book_chapters">
+        <item quantity="one">Add one book with %1$d chapter</item>
+        <item quantity="other">Add one book with %1$d chapters</item>
+    </plurals>
+    <plurals name="import_add_books">
+        <item quantity="one">Add %1$d book</item>
+        <item quantity="other">Add %1$d books</item>
+    </plurals>
     <string name="submission_playlist_select_all">Select all</string>
     <string name="submission_preview_edit">Edit</string>
     <string name="submission_preview_single_video">single video</string>

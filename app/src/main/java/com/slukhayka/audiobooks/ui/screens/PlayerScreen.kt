@@ -1960,11 +1960,23 @@ private fun DualProgress(
         inactiveTrackColor = colorScheme.outlineVariant
     ).also { sliderColorsSlot[0] = it }
     Column(modifier = Modifier.fillMaxWidth()) {
-        // F7 (аудит 2026-10-28) — the book's read-only time+percent row went
-        // away: it duplicated the chapter time below, ate ~40 dp of the ONLY
-        // flexible slot, and the spec keeps ONE seek (chapter). The read-only
-        // book line stays as the part/bookmark ruler, so TalkBack can still
-        // read the book position.
+        // The compact caption identifies the read-only ruler. Chapter time
+        // below remains the only time block and the only adjustable seek.
+        val bookCaption = if (hasBookDuration) {
+            val percent = (progress.bookPositionSeconds.coerceIn(0L, progress.bookDurationSeconds) * 100.0 /
+                progress.bookDurationSeconds).toInt()
+            stringResource(R.string.player_book_progress_caption, percent)
+        } else {
+            stringResource(R.string.player_book_progress_caption_unknown)
+        }
+        Text(
+            text = bookCaption,
+            style = PaperInkType.Label,
+            color = colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .testTag("book_progress_caption")
+                .semantics { hideFromAccessibility() },
+        )
         BookProgressLine(
             progress = progress,
             positionLabel = bookPositionLabel,

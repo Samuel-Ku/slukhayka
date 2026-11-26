@@ -74,6 +74,47 @@ class BookDetailAccessibilityTest {
     )
 
     @Test
+    @Config(sdk = [35], qualifiers = "uk")
+    fun primaryActionNamesTheSelectedNarrationAndItsResumeChapter() {
+        var played: String? = null
+        var selected by mutableStateOf(book.copy(id = "selected-narration", narrator = "Олександра").apply { language = "uk" })
+        composeTestRule.setContent {
+            AudiobookTheme {
+                BookDetailPrimaryActions(
+                    workTitle = selected.title,
+                    playLabel = "Продовжити з 05:00",
+                    streamOnly = true,
+                    downloadAction = BookDetailDownloadAction.Start,
+                    downloadProgress = 0f,
+                    onPlay = { played = selected.id },
+                    onDownload = {},
+                    onAddBookmark = {},
+                    editionBook = selected,
+                    resumeChapterLabel = "Розділ 2 із 4",
+                )
+            }
+        }
+        composeTestRule.onNodeWithTag("book_detail_playback_edition")
+            .assertTextContains("Озвучує: Олександра")
+            .assertTextContains("Українська")
+            .assertTextContains("1:00:00")
+        composeTestRule.onNodeWithText("Розділ 2 із 4").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Продовжити з 05:00").performClick()
+        composeTestRule.runOnIdle {
+            assertEquals("selected-narration", played)
+            selected = book.copy(
+                id = "another-narration", narrator = "Інший голос", totalDurationSeconds = 1800,
+            ).apply { language = "en" }
+        }
+        composeTestRule.onNodeWithTag("book_detail_playback_edition")
+            .assertTextContains("Озвучує: Інший голос")
+            .assertTextContains("Англійська")
+            .assertTextContains("30:00")
+        composeTestRule.onNodeWithText("Продовжити з 05:00").performClick()
+        composeTestRule.runOnIdle { assertEquals("another-narration", played) }
+    }
+
+    @Test
     fun identityHeaderReadsWorkTitleOnceAndMarksItAsHeading() {
         val presentation = bookDetailPresentation(book, emptyList(), emptyList())
 

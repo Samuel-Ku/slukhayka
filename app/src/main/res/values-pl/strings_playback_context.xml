@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="player_book_progress_caption">Książka · %1$d%%</string>
+    <string name="player_book_progress_caption_unknown">Książka</string>
+    <string name="book_detail_play_start">Słuchaj</string>
+    <string name="book_detail_play_pause">Pauza</string>
+    <string name="book_detail_play_relisten">Słuchaj od początku</string>
+    <string name="book_detail_play_resume">Kontynuuj od %1$s</string>
+</resources>

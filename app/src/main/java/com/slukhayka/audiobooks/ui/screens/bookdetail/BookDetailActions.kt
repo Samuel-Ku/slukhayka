@@ -65,6 +65,7 @@ import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.screens.contentLanguageLabel
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.library.siblingNarrations
 import com.slukhayka.audiobooks.ui.MainViewModel
@@ -127,7 +128,9 @@ internal fun BookDetailPrimaryActions(
     onPlay: () -> Unit,
     onDownload: () -> Unit,
     onAddBookmark: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    editionBook: AudiobookEntity? = null,
+    resumeChapterLabel: String? = null,
 ) {
     val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
     val progressPercent = (downloadProgress.coerceIn(0f, 1f) * 100).toInt()
@@ -162,61 +165,87 @@ internal fun BookDetailPrimaryActions(
     val playAction = stringResource(R.string.book_detail_play_action, playLabel, workTitle)
     val bookmarkAction = stringResource(R.string.book_detail_add_bookmark, workTitle)
 
-    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        // #382: довгий лейбл сам по собі привід складати дії вертикально —
-        // у рядку «Продовжити з HH:MM:SS» слову бракує місця навіть із
-        // обтягнутим contentPadding. Короткі («Слухати», «Пауза») далі живуть
-        // в одному рядку.
-        val playLabelIsLong = playLabel.length > PLAY_LABEL_ROW_LIMIT
-        val stackActions = fontScale >= 1.5f || playLabelIsLong || maxWidth < 340.dp
-        if (stackActions) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                BookDetailPlayButton(
-                    label = playLabel,
-                    actionDescription = playAction,
-                    onClick = onPlay,
-                    modifier = Modifier.fillMaxWidth()
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        editionBook?.let { edition ->
+            val facts = buildList {
+                if (edition.displayNarrator.isNotBlank()) {
+                    add(stringResource(R.string.book_detail_narrator_label, edition.displayNarrator))
+                }
+                if (edition.language.isNotBlank()) add(contentLanguageLabel(edition.language))
+                if (edition.totalDurationSeconds > 0L) add(MainViewModel.formatTime(edition.totalDurationSeconds))
+            }
+            if (facts.isNotEmpty()) {
+                Text(
+                    text = facts.joinToString(" · "),
+                    style = PaperInkType.Meta,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("book_detail_playback_edition"),
                 )
-                if (!streamOnly) {
-                    BookDetailDownloadButton(
-                        action = downloadAction,
-                        downloadProgress = downloadProgress,
-                        actionDescription = downloadActionDescription,
-                        state = downloadState,
-                        onClick = onDownload,
+            }
+        }
+        if (!resumeChapterLabel.isNullOrBlank()) {
+            Text(
+                text = resumeChapterLabel,
+                style = PaperInkType.Label,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            // #382: довгий лейбл сам по собі привід складати дії вертикально —
+            // у рядку «Продовжити з HH:MM:SS» слову бракує місця навіть із
+            // обтягнутим contentPadding. Короткі («Слухати», «Пауза») далі живуть
+            // в одному рядку.
+            val playLabelIsLong = playLabel.length > PLAY_LABEL_ROW_LIMIT
+            val stackActions = fontScale >= 1.5f || playLabelIsLong || maxWidth < 340.dp
+            if (stackActions) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BookDetailPlayButton(
+                        label = playLabel,
+                        actionDescription = playAction,
+                        onClick = onPlay,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    if (!streamOnly) {
+                        BookDetailDownloadButton(
+                            action = downloadAction,
+                            downloadProgress = downloadProgress,
+                            actionDescription = downloadActionDescription,
+                            state = downloadState,
+                            onClick = onDownload,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    BookDetailBookmarkButton(
+                        actionDescription = bookmarkAction,
+                        onClick = onAddBookmark,
+                        showLabel = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
-                BookDetailBookmarkButton(
-                    actionDescription = bookmarkAction,
-                    onClick = onAddBookmark,
-                    showLabel = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        } else {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                BookDetailPlayButton(
-                    label = playLabel,
-                    actionDescription = playAction,
-                    onClick = onPlay,
-                    modifier = Modifier.weight(if (streamOnly) 1f else 1.2f)
-                )
-                if (!streamOnly) {
-                    BookDetailDownloadButton(
-                        action = downloadAction,
-                        downloadProgress = downloadProgress,
-                        actionDescription = downloadActionDescription,
-                        state = downloadState,
-                        onClick = onDownload,
-                        modifier = Modifier.weight(1f)
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    BookDetailPlayButton(
+                        label = playLabel,
+                        actionDescription = playAction,
+                        onClick = onPlay,
+                        modifier = Modifier.weight(if (streamOnly) 1f else 1.2f)
+                    )
+                    if (!streamOnly) {
+                        BookDetailDownloadButton(
+                            action = downloadAction,
+                            downloadProgress = downloadProgress,
+                            actionDescription = downloadActionDescription,
+                            state = downloadState,
+                            onClick = onDownload,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    BookDetailBookmarkButton(
+                        actionDescription = bookmarkAction,
+                        onClick = onAddBookmark,
+                        showLabel = false
                     )
                 }
-                BookDetailBookmarkButton(
-                    actionDescription = bookmarkAction,
-                    onClick = onAddBookmark,
-                    showLabel = false
-                )
             }
         }
     }

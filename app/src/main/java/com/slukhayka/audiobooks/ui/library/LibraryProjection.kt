@@ -73,6 +73,7 @@ class LibraryProjection internal constructor(
     /** Whether the dense header carries the remaining-time total. */
     val summarisesRemaining: Boolean,
     private val denseTitle: String,
+    private val searchActive: Boolean,
     /**
      * #1285 — book id -> Work key over the WHOLE library, not the filtered
      * rows. The opened narration may stop matching the current filter while
@@ -116,9 +117,9 @@ class LibraryProjection internal constructor(
         // asked to cut to 235. The rule lives in the projection rather than the
         // renderer because the viewport mapping reads THESE indices: removing an
         // item only at draw time would shift every availability key onto the
-        // wrong Work. A narrowed list (filter or search) keeps its header — it
-        // then names the selection — and the tile form keeps it too.
-        return if (!shape.browsing && !shape.gridMode && !summarisesRemaining) {
+        // wrong Work. Search already has a compact status/count summary above
+        // the grid, so its first entry is the first matching book in both views.
+        return if (searchActive || (!shape.browsing && !shape.gridMode && !summarisesRemaining)) {
             entries.filterNot { it is LibraryGridEntry.Section }
         } else {
             entries
@@ -188,8 +189,9 @@ fun projectLibraryBooks(
         // The header summarises only a NARROWED-DOWN list. This was the
         // screen's `browsing` variable; it is not the entry form, and the two
         // are kept apart here on purpose.
-        summarisesRemaining = filter != LibraryFilter.ALL || query.isNotBlank(),
-        denseTitle = denseTitle
+        summarisesRemaining = filter != LibraryFilter.ALL && query.isBlank(),
+        denseTitle = denseTitle,
+        searchActive = query.isNotBlank()
     )
 }
 

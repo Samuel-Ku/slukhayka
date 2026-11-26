@@ -64,8 +64,18 @@ python3 scripts/recommend/catalog_from_seed.py \
 
 Це 23 реальні книжки з `app/src/main/assets/catalog_seed.json`; `workKey`
 обчислюється тією самою формулою `MergeKey.keyFor`, що й в Android, і це
-перевіряє `SeedCatalogKeyTest`. Для повного каталогу потрібне вивантаження
-Дзеркала, а не seed.
+перевіряє `SeedCatalogKeyTest`. Для масштабу є реальний публічний каталог
+LibriVox:
+
+```sh
+python3 scripts/recommend/catalog_from_librivox.py \
+  --output /srv/slukhayka/catalog.json --limit 20000
+```
+
+Це 20 000 книжок із тим самим ключем; `LibriVoxKeySampleTest` звіряє вибірку з
+`MergeKey.keyFor`. `build_graph.py` сам зменшує top-k, якщо 24 сусіди не
+вкладаються в 8 MiB (для 20 000 це 22). Для повного українського Дзеркала
+потрібне вивантаження з пристрою/сховища, а не seed чи LibriVox.
 
 Після побудови підписати граф окремим процесом (модель ключа не має):
 
@@ -97,10 +107,11 @@ python3 scripts/recommend/deliver_graph.py \
 підбираються за метаданими та у відкриттях, без локального векторного
 індексування. Аудіо й Source-фільтри не розширюються.
 
-Локальне приймання 2026-11-26: реальний seed-каталог (23 книжки), cold
-`computed=23`, warm `0`, підписаний граф віддано локальним HTTPS-стором,
-`openssl ... Verified OK`. Для production ще потрібні реальний HTTPS-хост,
-повний каталог Дзеркала і ключ доставки; розклад не ввімкнений.
+Локальне приймання 2026-11-26: реальний LibriVox-каталог (20 000 книжок),
+cold `computed=20000`, warm `0`, topK 22, 8 110 360 байт; підписаний граф
+віддано локальним HTTPS-стором, `openssl ... Verified OK`; Android
+`GraphScaleTest` парсить 20 000 × 22. Для production ще потрібні реальний
+HTTPS-хост, повний каталог Дзеркала і ключ доставки; розклад не ввімкнений.
 
 ## Пробний запуск на Mac
 

@@ -120,18 +120,19 @@ Android пінить публічний ключ (`recommendation.graphPublicKey
 `-Precommendation.graphPublicKey`; URL без ключа валить збірку. Підпис
 файлу — `<url>.sig`.
 
-Перевірено локально: реальний каталог із 23 книжок
-(`app/src/main/assets/catalog_seed.json` → `catalog_from_seed.py` →
-`seed-catalog.json`), cold `computed=23`, warm `0`, граф 8560 байт;
-підписаний граф віддано локальним HTTPS-стором, байти збігаються,
-`openssl ... Verified OK`. Kotlin: `SeedCatalogKeyTest` (ключі =
-`MergeKey.keyFor`), `SeedGraphSignatureTest`, `GraphSignatureVerifierTest`,
-`RecommendationGraphTest`; Python: `test_deliver_graph.py`.
+Перевірено локально: реальний публічний каталог LibriVox —
+`catalog_from_librivox.py` (20 000 творів), cold `computed=20000`, warm `0`,
+topK 22, 8 110 360 байт (під 8 MiB). `build_graph.py` автоматично зменшує
+ширину top-k, коли 24 сусіди не влазять; ефективний topK у логі. Підписаний
+граф віддано локальним HTTPS-стором, байти збігаються, `openssl ... Verified OK`.
+Kotlin: `SeedCatalogKeyTest`, `SeedGraphSignatureTest`, `GraphSignatureVerifierTest`,
+`RecommendationGraphTest`, `LibriVoxKeySampleTest`, `GraphScaleTest` (20 000 × 22);
+Python: `test_deliver_graph.py`, `test_catalog_export.py`.
 
 Для production ще потрібні: реальний HTTPS-хост із валідним сертифікатом,
-публічний ключ оператора в релізній збірці, повний каталог Дзеркала (23
-книжки — це seed, не весь каталог) і приватний ключ доставки поза
-репозиторієм.
+публічний ключ оператора в релізній збірці, повний каталог Дзеркала (20 000
+LibriVox — це публічний каталог джерела, але не українське Дзеркало) і
+приватний ключ доставки поза репозиторієм.
 
 ## Приймання на справжній машині
 
@@ -184,6 +185,7 @@ Linux sandbox. Для проби використовувати окремого
 
 Підпис і доставка реалізовані й перевірені локально. Для production ще
 потрібні: реальний HTTPS-хост із валідним сертифікатом, публічний ключ
-оператора в релізній збірці, повний каталог Дзеркала (23 книжки — це seed,
-не весь каталог) і приватний ключ доставки поза репозиторієм. Розклад не
-ввімкнений; production-публікації немає.
+оператора в релізній збірці, повний каталог Дзеркала (20 000 LibriVox — це
+публічний каталог джерела, але не українське Дзеркало) і приватний ключ
+доставки поза репозиторієм. Розклад не ввімкнений; production-публікації
+немає.

@@ -27,6 +27,7 @@ import androidx.compose.ui.test.assertWidthIsEqualTo
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
@@ -460,26 +461,25 @@ class ListenAccessibilityTest {
                 LocalDensity provides Density(density.density, fontScale = 2f)
             ) {
                 AudiobookTheme(darkTheme = true) {
-                    Box(
-                        modifier = Modifier
-                            .width(360.dp)
-                            .height(420.dp)
-                    ) {
-                        ListenHeroCard(
-                            book = book,
-                            progress = progress,
-                            cumulativePositionSeconds = 900L,
-                            onResumeClick = {},
-                            onBookClick = {}
-                        )
+                    LazyColumn(modifier = Modifier.width(360.dp).height(420.dp)) {
+                        item {
+                            ListenHeroCard(
+                                book = book,
+                                progress = progress,
+                                cumulativePositionSeconds = 900L,
+                                onResumeClick = {},
+                                onBookClick = {}
+                            )
+                        }
                     }
                 }
             }
         }
 
         compose.onNodeWithContentDescription("Продовжити слухати: ${book.title}")
+            .performScrollTo()
             .assertIsDisplayed()
-            .assertHeightIsAtLeast(24.dp)
+            .assertHeightIsAtLeast(48.dp)
         compose.onNodeWithContentDescription("Відкрити книгу: ${book.title}")
             .assertIsDisplayed()
             .assertHeightIsAtLeast(24.dp)

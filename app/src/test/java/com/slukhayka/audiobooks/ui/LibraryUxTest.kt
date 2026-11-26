@@ -58,7 +58,7 @@ class LibraryUxTest {
             }
         }
         val results = mutableListOf<TextLayoutResult>()
-        compose.onNodeWithText("У моїх книгах").performSemanticsAction(SemanticsActions.GetTextLayoutResult) {
+        compose.onNodeWithText("Мої книги").performSemanticsAction(SemanticsActions.GetTextLayoutResult) {
             it(results)
         }
         assertFalse(results.single().isLineEllipsized(0))

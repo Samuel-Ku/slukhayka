@@ -84,7 +84,7 @@ class WorkFeedToolbarSnapshotTest {
         )
 
         composeTestRule.onNodeWithText("Готово").performClick()
-        composeTestRule.onNodeWithText("Скинути все").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("feed_active_filters_reset").assertIsDisplayed()
         assertEquals(setOf("detective"), genres)
 
         composeTestRule.onNodeWithTag("feed_filters").performClick()

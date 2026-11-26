@@ -8,12 +8,14 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
@@ -27,6 +29,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -95,11 +98,18 @@ class PlayerShortPaneLayoutTest {
         }
         val viewport = compose.onNodeWithTag("full_player_screen", useUnmergedTree = true)
             .getUnclippedBoundsInRoot()
+        val bookmarkDescription = bookmark?.let {
+            RuntimeEnvironment.getApplication().getString(
+                R.string.a11y_player_bookmark_jump, MainViewModel.formatTime(it.timestampSeconds)
+            )
+        }
         val initialControls = listOf("player_progress_slider", "player_previous_button", "player_rewind_button",
-            "player_play_pause_button", "player_forward_button", "player_next_button") +
-            if (bookmark != null) listOf("jump_to_last_bookmark") else emptyList()
-        initialControls.forEach { tag ->
-            val node = compose.onNodeWithTag(tag, useUnmergedTree = true)
+            "player_play_pause_button", "player_forward_button", "player_next_button")
+            .map { it to compose.onNodeWithTag(it, useUnmergedTree = true) } +
+            if (bookmarkDescription != null) listOf(
+                "last bookmark" to compose.onNodeWithContentDescription(bookmarkDescription, useUnmergedTree = true)
+            ) else emptyList()
+        initialControls.forEach { (tag, node) ->
             val bounds = node.getUnclippedBoundsInRoot()
             assertTrue("$tag must be initially inside $viewport at fontScale=$fontScale, got $bounds",
                 bounds.top >= viewport.top && bounds.bottom <= viewport.bottom + 1.dp &&
@@ -113,8 +123,8 @@ class PlayerShortPaneLayoutTest {
                 bounds.left >= viewport.left && bounds.right <= viewport.right + 1.dp)
             node.assertIsDisplayed()
         }
-        if (bookmark != null) {
-            compose.onNodeWithTag("jump_to_last_bookmark").performClick()
+        if (bookmarkDescription != null) {
+            compose.onNodeWithContentDescription(bookmarkDescription).performClick()
             assertEquals(1, bookmarkClicks)
         }
         compose.onNodeWithTag("player_play_pause_button").performClick()

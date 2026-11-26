@@ -1409,7 +1409,7 @@ fun WorkFeedFilters(
                         ContentLanguageChip(languages, onOpenContentLanguages)
                     }
                 }
-                if (activeFilterLabels.isNotEmpty() && !showFilterSheet) {
+                if (activeFilterLabels.isNotEmpty()) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier

@@ -1,5 +1,9 @@
 package com.slukhayka.audiobooks.ui.snapshots
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+import com.slukhayka.audiobooks.R
+
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -8,6 +12,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.test.getBoundsInRoot
+import androidx.compose.ui.test.performSemanticsAction
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -68,7 +81,7 @@ class GlobalSearchSnapshotTest {
         )
     )
 
-    /** The live «Усі джерела» lane, rendered through the real search emitter. */
+    /** Legacy live «Усі джерела» lane; keep its existing goldens unchanged. */
     private fun setSearchContent(result: GlobalSearchResult) {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
@@ -130,6 +143,123 @@ class GlobalSearchSnapshotTest {
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/global_search_result_multi.png"
         )
+    }
+
+    @Test
+    fun paperink_result_multi_source_ink() {
+        setPaperInkSearchContent(darkTheme = true)
+
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/global_search_result_multi_ink.png"
+        )
+        assertPaperInkMetadataLayout(1f)
+    }
+
+    @Test
+    fun paperink_result_multi_source_paper() {
+        setPaperInkSearchContent(darkTheme = false)
+
+        composeTestRule.onRoot().captureRoboImage(
+            filePath = "src/test/snapshots/global_search_result_multi_paper.png"
+        )
+        assertPaperInkMetadataLayout(1f)
+    }
+
+    @Test
+    fun paperink_result_multi_source_ink_large_text() {
+        setPaperInkSearchContent(darkTheme = true, fontScale = 2f)
+        composeTestRule.onRoot().captureRoboImage("src/test/snapshots/global_search_result_multi_ink_200.png")
+        assertPaperInkMetadataLayout(2f)
+    }
+
+    @Test
+    fun paperink_result_multi_source_paper_large_text() {
+        setPaperInkSearchContent(darkTheme = false, fontScale = 2f)
+        composeTestRule.onRoot().captureRoboImage("src/test/snapshots/global_search_result_multi_paper_200.png")
+        assertPaperInkMetadataLayout(2f)
+    }
+
+    @Test
+    @Config(qualifiers = "en-rUS-" + RobolectricDeviceQualifiers.Pixel8)
+    fun paperink_result_multi_source_ink_english_large_text() {
+        setPaperInkSearchContent(darkTheme = true, fontScale = 2f)
+        composeTestRule.onRoot().captureRoboImage("src/test/snapshots/global_search_result_multi_ink_en_200.png")
+        assertPaperInkMetadataLayout(2f)
+    }
+
+    @Test
+    @Config(qualifiers = "pl-rPL-" + RobolectricDeviceQualifiers.Pixel8)
+    fun paperink_result_multi_source_paper_polish_large_text() {
+        setPaperInkSearchContent(darkTheme = false, fontScale = 2f)
+        composeTestRule.onRoot().captureRoboImage("src/test/snapshots/global_search_result_multi_paper_pl_200.png")
+        assertPaperInkMetadataLayout(2f)
+    }
+
+    private fun assertPaperInkMetadataLayout(fontScale: Float) {
+        val row = composeTestRule.onNodeWithTag("global_search_result_${multiSource.key}").getBoundsInRoot()
+        val narratorLabel = ApplicationProvider.getApplicationContext<Context>()
+            .getString(R.string.book_detail_narrator_label, multiSource.narrator)
+        val narrator = composeTestRule.onNodeWithText(narratorLabel, useUnmergedTree = true).getBoundsInRoot()
+        val sourceBounds = multiSource.sources.map { source ->
+            val node = composeTestRule.onNodeWithText(source.sourceName, useUnmergedTree = true)
+            val layouts = mutableListOf<TextLayoutResult>()
+            node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            val layout = layouts.single()
+            // FlowRow can retain a wider paragraph from intrinsic measurement.
+            // Check the painted line and ellipsis, not unused paragraph width.
+            assertFalse("Source height is clipped: ${source.sourceName}", layout.didOverflowHeight)
+            for (line in 0 until layout.lineCount) {
+                assertFalse("Source is ellipsized: ${source.sourceName}", layout.isLineEllipsized(line))
+                assertTrue("Source text exceeds its bounds: ${source.sourceName}",
+                    layout.getLineRight(line) <= layout.size.width + 1f)
+            }
+            node.getBoundsInRoot().also { bounds ->
+                assertTrue("Source must follow narrator", bounds.top >= narrator.bottom)
+                assertTrue("Source must fit row width", bounds.left >= row.left && bounds.right <= row.right)
+            }
+        }
+        val titleLayouts = mutableListOf<TextLayoutResult>()
+        composeTestRule.onNodeWithText(multiSource.title, useUnmergedTree = true)
+            .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(titleLayouts) }
+        assertFalse("Sources must not squeeze the title", titleLayouts.single().hasVisualOverflow)
+        if (fontScale == 2f) {
+            assertTrue("Source chips must wrap at 200%", sourceBounds.last().top > sourceBounds.first().top)
+        }
+    }
+
+    /** Current search emitter under the same migration seam as the app roots. */
+    private fun setPaperInkSearchContent(darkTheme: Boolean, fontScale: Float = 1f) {
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = darkTheme) {
+                PaperInkThemedContent {
+                    val density = LocalDensity.current
+                    CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
+                    GlobalSearchSurface {
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            searchResultsContent(
+                                localBooks = emptyList(),
+                                globalResults = listOf(multiSource),
+                                liveSearchActive = true,
+                                isGlobalLoading = false,
+                                globalError = false,
+                                onOpenLocalBook = {},
+                                onPlayLocalBook = {},
+                                onOpenGlobalResult = {},
+                                catalogCardActionState = CatalogCardActionState.Idle,
+                                onOpenCatalogBrowser = {},
+                                onPreflightGlobalResult = {}
+                            )
+                        }
+                    }
+                    }
+                }
+            }
+        }
+        composeTestRule.onNodeWithTag("search_library_header").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("search_library_empty").assertExists()
+        composeTestRule.onNodeWithTag("global_search_result_${multiSource.key}").assertExists()
+        composeTestRule.onNodeWithTag("search_sources_header").assertExists()
+        composeTestRule.onNodeWithTag("search_no_results").assertDoesNotExist()
     }
 
     @Test

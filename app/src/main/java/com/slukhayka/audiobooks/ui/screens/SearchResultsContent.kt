@@ -1,6 +1,9 @@
 package com.slukhayka.audiobooks.ui.screens
 
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -30,6 +33,8 @@ import com.slukhayka.audiobooks.ui.components.EmptyState
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.formatRowDuration
 import com.slukhayka.audiobooks.ui.theme.AppDimens
+import com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign
+import com.slukhayka.audiobooks.ui.theme.PaperInkType
 
 /**
  * #737 / ADR-0041 — the search surface's two sections, extracted from
@@ -46,6 +51,7 @@ import com.slukhayka.audiobooks.ui.theme.AppDimens
  * search is honestly empty — not under a local header while live results
  * are already on screen.
  */
+@OptIn(ExperimentalLayoutApi::class)
 fun LazyListScope.searchResultsContent(
     localBooks: List<AudiobookEntity>,
     globalResults: List<GlobalSearchResult>,
@@ -89,11 +95,13 @@ fun LazyListScope.searchResultsContent(
 
     item(key = "library_results_header") {
         // #885 (wave 2) — one canonical header instead of a private twin.
-        AppSectionHeader(
-            title = stringResource(R.string.home_library_results, localBooks.size),
-            level = SectionHeaderLevel.SECTION,
-            modifier = Modifier.testTag("search_library_header")
-        )
+        if (!localEmpty || !LocalPaperInkDesign.current) {
+            AppSectionHeader(
+                title = stringResource(R.string.home_library_results, localBooks.size),
+                level = SectionHeaderLevel.SECTION,
+                modifier = Modifier.testTag("search_library_header")
+            )
+        }
     }
     if (localEmpty) {
         // `nothingAnywhere` already returned above, so this branch only runs
@@ -101,7 +109,7 @@ fun LazyListScope.searchResultsContent(
         item(key = "library_results_empty") {
             Text(
                 text = stringResource(R.string.home_library_no_matches),
-                style = MaterialTheme.typography.bodyMedium,
+                style = if (LocalPaperInkDesign.current) PaperInkType.Meta else MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -165,11 +173,12 @@ fun LazyListScope.searchResultsContent(
         items(globalResults, key = { it.key }) { result ->
             // #567 v1.4 C3/C4 (ADR-0033): the result row IS the canonical
             // BookRow, built here directly — the named wrapper that used to
-            // carry this row (a sixth row style) is gone. Language and
-            // provenance chips ride the badges slot; the honest action status
-            // stays under the row through CatalogCardStatus.
+            // carry this row (a sixth row style) is gone. Paper metadata wraps
+            // below the identity so source names cannot squeeze the title.
+            // The honest action status stays under the row through CatalogCardStatus.
             LaunchedEffect(result.key) { onPreflightGlobalResult(result) }
             val narrator = MetadataAssertions.normalizeClaimedText(result.narrator)
+            val paperInk = LocalPaperInkDesign.current
             val knownLanguages = (listOf(result.language) + result.sources.map { it.language })
                 .filter { it.isNotBlank() }.distinct()
             BookRow(
@@ -179,17 +188,19 @@ fun LazyListScope.searchResultsContent(
                 // Spec-30 T2 (#217): the resolved duration when one is known
                 // (the local database or the shared metadata cache).
                 stats = result.durationSeconds?.takeIf { it > 0L }?.let { formatRowDuration(it) },
-                badges = {
-                    // Spec-45 (#405) T7 (#495): the card's rendition language —
-                    // one EN/UA chip; unknown renders nothing (US3).
-                    knownLanguages.forEach { language ->
-                        MetadataChip(language = language)
-                        Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
-                    }
-                    // Spec-10 T4: which source(s) carry a book.
-                    result.sources.forEach { source ->
-                        MetadataChip(source = source.sourceName)
-                        Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                badges = if (paperInk) null else {
+                    {
+                        // Spec-45 (#405) T7 (#495): the card's rendition language —
+                        // one EN/UA chip; unknown renders nothing (US3).
+                        knownLanguages.forEach { language ->
+                            MetadataChip(language = language)
+                            Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                        }
+                        // Spec-10 T4: which source(s) carry a book.
+                        result.sources.forEach { source ->
+                            MetadataChip(source = source.sourceName)
+                            Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                        }
                     }
                 },
                 footnoteInColumn = true,
@@ -203,6 +214,16 @@ fun LazyListScope.searchResultsContent(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                    if (paperInk) {
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth().padding(top = AppDimens.SpaceXs),
+                            horizontalArrangement = Arrangement.spacedBy(AppDimens.SpaceXs),
+                            verticalArrangement = Arrangement.spacedBy(AppDimens.SpaceXs),
+                        ) {
+                            knownLanguages.forEach { language -> MetadataChip(language = language) }
+                            result.sources.forEach { source -> MetadataChip(source = source.sourceName) }
+                        }
                     }
                 },
                 contentDescription = stringResource(R.string.a11y_open_work, result.title),

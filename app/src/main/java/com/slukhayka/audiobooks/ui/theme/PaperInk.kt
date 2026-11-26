@@ -421,6 +421,7 @@ object PaperInkDimens {
     val PlayerSeekHeight = 44.dp
     val ChapterRowHeight = 44.dp
     val SeekTrack = 6.dp
+    val SeekThumb = 18.dp
     val BookProgressLine = 2.dp
     val ShelfProgressLine = 3.dp
     val AlbumArtRadius = 24.dp

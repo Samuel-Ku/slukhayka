@@ -1786,7 +1786,10 @@ internal fun LibraryContinueCard(
             Spacer(modifier = Modifier.height(PaperInkDimens.SpaceSm))
             PaperInkResumeAction(
                 text = if (remaining != null) {
-                    stringResource(R.string.lib_listen_continue_remaining, remaining)
+                    stringResource(
+                        R.string.lib_listen_continue_remaining,
+                        stringResource(R.string.library_remaining, remaining),
+                    )
                 } else {
                     stringResource(R.string.lib_listen_continue)
                 },

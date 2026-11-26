@@ -109,7 +109,7 @@
     <string name="lib_books_count">Books (%1$d)</string>
     <string name="lib_bookmarks_count">Bookmarks (%1$d)</string>
     <string name="lib_statistics">Statistics</string>
-    <string name="lib_search_short_hint">Search</string>
+    <string name="lib_search_short_hint">My books</string>
     <string name="lib_add_own_files">Add your own files</string>
     <string name="lib_find_book">Find a book</string>
     <string name="lib_import_connect">Connect</string>
@@ -910,4 +910,15 @@
     <!-- #1752: cast hand-back is an info banner, not a playback failure. -->
     <string name="player_cast_ended">Casting ended. You can keep listening on this phone.</string>
     <string name="player_cast_lost">Lost connection to the cast device. You can keep listening on this phone.</string>
+    <string name="lib_reset_status_filter">Reset filter</string>
+    <string name="lib_filtered_results">%1$s · %2$s</string>
+    <plurals name="lib_result_books">
+        <item quantity="one">%1$d book</item>
+        <item quantity="other">%1$d books</item>
+    </plurals>
+    <string name="discovery_selected_genres">Selected genres (%1$d)</string>
+    <string name="discovery_duration_under_five">Under 5 hours</string>
+    <string name="discovery_duration_five_ten">5–10 hours</string>
+    <string name="discovery_duration_ten_twenty">10–20 hours</string>
+    <string name="discovery_duration_over_twenty">20 hours or more</string>
 </resources>

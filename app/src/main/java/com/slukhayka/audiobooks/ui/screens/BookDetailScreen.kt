@@ -91,7 +91,6 @@ import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.displayAuthor
 import com.slukhayka.audiobooks.ui.displayNarrator
 import com.slukhayka.audiobooks.ui.library.BookPlayState
-import com.slukhayka.audiobooks.ui.library.bookPlayLabel
 import com.slukhayka.audiobooks.ui.library.bookPlayState
 import com.slukhayka.audiobooks.ui.library.ukPlural
 import com.slukhayka.audiobooks.ui.theme.*
@@ -1086,7 +1085,15 @@ fun BookDetailScreen(
                 ) {
                     BookDetailPrimaryActions(
                         workTitle = currentBook.title,
-                        playLabel = bookPlayLabel(playState) { MainViewModel.formatTime(it) },
+                        playLabel = when (val state = playState) {
+                            BookPlayState.Unstarted -> stringResource(R.string.book_detail_play_start)
+                            BookPlayState.Playing -> stringResource(R.string.book_detail_play_pause)
+                            BookPlayState.Finished -> stringResource(R.string.book_detail_play_relisten)
+                            is BookPlayState.InProgress -> stringResource(
+                                R.string.book_detail_play_resume,
+                                MainViewModel.formatTime(state.resumePositionSeconds),
+                            )
+                        },
                         streamOnly = streamOnly,
                         downloadAction = downloadAction,
                         downloadProgress = currentBook.downloadProgress,
@@ -1101,7 +1108,15 @@ fun BookDetailScreen(
                             }
                         },
                         onDownload = onDownloadClick,
-                        onAddBookmark = { showAddBookmarkDialog = true }
+                        onAddBookmark = { showAddBookmarkDialog = true },
+                        editionBook = currentBook,
+                        resumeChapterLabel = if (playState is BookPlayState.InProgress && currentBook.totalChapters > 0) {
+                            stringResource(
+                                R.string.listen_chapter_of,
+                                (progress?.currentChapterIndex ?: 0) + 1,
+                                currentBook.totalChapters,
+                            )
+                        } else null,
                     )
                     // Spec-51 (#689) — «Додати до добірки» without leaving the page.
                     androidx.compose.material3.TextButton(

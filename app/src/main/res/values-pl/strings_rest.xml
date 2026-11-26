@@ -530,4 +530,9 @@
     <string name="update_hide">Ukryj</string>
     <string name="update_available_title">Dostępna wersja %1$s</string>
     <string name="update_available_action">Zaktualizuj</string>
+    <string name="discovery_selected_genres">Wybrane gatunki (%1$d)</string>
+    <string name="discovery_duration_under_five">Do 5 godzin</string>
+    <string name="discovery_duration_five_ten">5–10 godzin</string>
+    <string name="discovery_duration_ten_twenty">10–20 godzin</string>
+    <string name="discovery_duration_over_twenty">20 godzin lub więcej</string>
 </resources>

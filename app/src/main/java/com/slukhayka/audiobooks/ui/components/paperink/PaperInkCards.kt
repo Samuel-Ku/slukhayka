@@ -19,7 +19,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -49,6 +52,37 @@ import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
 import com.slukhayka.audiobooks.ui.theme.PaperInkShapes
 import com.slukhayka.audiobooks.ui.theme.PaperInkType
+
+/** Labelled continuation action used by the library resume card. */
+@Composable
+fun PaperInkResumeAction(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Button(
+        onClick = onClick,
+        modifier = modifier.heightIn(min = PaperInkDimens.PrimaryButtonHeight),
+        shape = RoundedCornerShape(PaperInkDimens.RadiusLarge),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.tertiary,
+            contentColor = MaterialTheme.colorScheme.onTertiary,
+        ),
+    ) {
+        Icon(
+            imageVector = PaperInkIcons.Play,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onTertiary,
+            modifier = Modifier.size(PaperInkIconSizes.Chrome),
+        )
+        Spacer(modifier = Modifier.width(PaperInkDimens.SpaceSm))
+        Text(
+            text = text,
+            style = PaperInkType.Label,
+            color = MaterialTheme.colorScheme.onTertiary,
+        )
+    }
+}
 
 /** The root-tab title: 34/36 Onest ExtraBold, the one loud line on a screen. */
 @Composable

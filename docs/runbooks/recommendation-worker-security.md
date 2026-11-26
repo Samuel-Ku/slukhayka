@@ -150,12 +150,13 @@ IPv4/IPv6 на роутері. З'ясувати, які чинні служби
 
 ### Omarchy, 2026-11-26
 
-Розгорнуто як systemd-сервіс: `/opt/slukhayka-content-worker` (ревізія
-7e029fe6, venv Python 3.12), `/opt/slukhayka-content-model` (ревізія
-73908c34), стан у `/var/lib/slukhayka-content`. Юніт `static`/`inactive`,
+Розгорнуто як systemd-сервіс: `/opt/slukhayka-content-worker` (базова
+ревізія 7e029fe6, поверх неї замінено лише `build_graph.py` для авто-підбору
+top-k; venv Python 3.12), `/opt/slukhayka-content-model` (ревізія 73908c34),
+стан у `/var/lib/slukhayka-content`. Юніт `static`/`inactive`,
 без таймера; без `/srv/slukhayka-public/catalog.json` не стартує.
 
-Перевірено: cold `computed=4`, warm `computed=0`; помилковий вхід і SIGKILL
+Перевірено: cold `computed=20000`, warm `computed=0` (topK 22, 8 110 360 байт); помилковий вхід і SIGKILL
 зберегли попередній граф; probe під DynamicUser (uid 63397) дав `CapEff=0`,
 `/home`, `/root` і SSH-ключ недоступні, запис у `/opt`, `/srv`, `/etc`,
 `/usr` заборонено, запис у state дозволено; TCP `EAFNOSUPPORT`; нових

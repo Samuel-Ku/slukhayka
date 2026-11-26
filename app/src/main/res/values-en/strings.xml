@@ -916,14 +916,9 @@
         <item quantity="one">%1$d book</item>
         <item quantity="other">%1$d books</item>
     </plurals>
-    <string name="discovery_among_narrators">Narrators include %1$s</string>
-    <plurals name="discovery_narration_count">
-        <item quantity="one">%1$d known narration</item>
-        <item quantity="other">%1$d known narrations</item>
-    </plurals>
     <string name="discovery_selected_genres">Selected genres (%1$d)</string>
     <string name="discovery_duration_under_five">Under 5 hours</string>
     <string name="discovery_duration_five_ten">5–10 hours</string>
     <string name="discovery_duration_ten_twenty">10–20 hours</string>
-    <string name="discovery_duration_over_twenty">Over 20 hours</string>
+    <string name="discovery_duration_over_twenty">20 hours or more</string>
 </resources>

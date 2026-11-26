@@ -13,7 +13,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -21,6 +20,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
@@ -169,7 +169,7 @@ fun LazyListScope.searchResultsContent(
             // provenance chips ride the badges slot; the honest action status
             // stays under the row through CatalogCardStatus.
             LaunchedEffect(result.key) { onPreflightGlobalResult(result) }
-            val renditionCount = result.sources.map { it.editionId }.filter { it.isNotBlank() }.distinct().size
+            val narrator = MetadataAssertions.normalizeClaimedText(result.narrator)
             val knownLanguages = (listOf(result.language) + result.sources.map { it.language })
                 .filter { it.isNotBlank() }.distinct()
             BookRow(
@@ -194,19 +194,11 @@ fun LazyListScope.searchResultsContent(
                 },
                 footnoteInColumn = true,
                 footnote = {
-                    if (renditionCount > 1) {
-                        Text(
-                            text = pluralStringResource(R.plurals.discovery_narration_count, renditionCount, renditionCount),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    if (result.narrator.isNotBlank()) {
+                    if (narrator != null) {
                         Text(
                             text = stringResource(
-                                if (renditionCount > 1) R.string.discovery_among_narrators
-                                else R.string.book_detail_narrator_label,
-                                result.narrator
+                                R.string.book_detail_narrator_label,
+                                narrator
                             ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant

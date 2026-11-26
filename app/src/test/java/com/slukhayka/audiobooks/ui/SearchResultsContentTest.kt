@@ -213,7 +213,7 @@ class SearchResultsContentTest {
     fun knownNarratorIsVisibleBeforeOpeningAWork() {
         setSearchContent(
             localBooks = emptyList(),
-            globalResults = listOf(sourceHit.copy(narrator = "Олена Коваленко"))
+            globalResults = listOf(sourceHit.copy(narrator = "  Олена Коваленко  "))
         )
 
         compose.onNodeWithText("Озвучує: Олена Коваленко").assertExists()
@@ -230,12 +230,40 @@ class SearchResultsContentTest {
         )
         setSearchContent(localBooks = emptyList(), globalResults = listOf(work))
 
-        compose.onNodeWithText("2 відомі начитки").assertExists()
         compose.onNodeWithText("UA", useUnmergedTree = true).assertExists()
         compose.onNodeWithText("EN", useUnmergedTree = true).assertExists()
-        compose.onNodeWithText("Серед читців Олена Коваленко").assertExists()
+        compose.onNodeWithText("Озвучує: Олена Коваленко").assertExists()
         assertEquals(1, compose.onAllNodesWithText("Пані Боварі").fetchSemanticsNodes().size)
         compose.onNodeWithTag("global_search_result_" + work.key).assertExists()
+    }
+
+    @Test
+    fun unknownNarratorSourcesDoNotInventNarrationsOrNarrator() {
+        val work = sourceHit.copy(
+            narrator = "",
+            sources = listOf(
+                GlobalSearchSource("one", "Джерело А", "https://one/book", editionId = "unknown-one"),
+                GlobalSearchSource("two", "Джерело Б", "https://two/book", editionId = "unknown-two")
+            )
+        )
+        setSearchContent(localBooks = emptyList(), globalResults = listOf(work))
+
+        compose.onNodeWithText("2 відомі начитки").assertDoesNotExist()
+        compose.onNodeWithText("Озвучує:", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("Серед читців", substring = true).assertDoesNotExist()
+        assertEquals(1, compose.onAllNodesWithText("Пані Боварі").fetchSemanticsNodes().size)
+        compose.onNodeWithTag("global_search_result_" + work.key).assertExists()
+    }
+
+    @Test
+    fun sourcePlaceholderIsNotShownAsNarrator() {
+        setSearchContent(
+            localBooks = emptyList(),
+            globalResults = listOf(sourceHit.copy(narrator = "4read.org"))
+        )
+
+        compose.onNodeWithText("Озвучує:", substring = true).assertDoesNotExist()
+        compose.onNodeWithTag("global_search_result_" + sourceHit.key).assertExists()
     }
 
 }

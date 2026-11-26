@@ -1738,11 +1738,12 @@ internal fun LibraryContinueCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = book.book.title,
-                        style = PaperInkType.RowTitle,
+                        style = PaperInkType.RowTitle.copy(
+                            lineBreak = androidx.compose.ui.text.style.LineBreak.Heading
+                        ),
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        lineBreak = androidx.compose.ui.text.style.LineBreak.Heading
+                        overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = book.book.displayAuthor,

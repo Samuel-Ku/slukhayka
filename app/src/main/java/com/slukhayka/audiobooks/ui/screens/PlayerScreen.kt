@@ -1034,6 +1034,9 @@ private val PlayerTwoColumnMinWidth =
         (PaperInkDimens.PlayerTransportTarget * 4 + PaperInkDimens.PlayerPlayButtonWidth) *
         2 / 1.15f
 
+// Below this content height a narrow pane gives the artwork's space to transport.
+private val PlayerCompactPaneMaxHeight = 480.dp
+
 @Composable
 private fun PlayerScreenContentBody(
     playerState: PlayerState,
@@ -1207,12 +1210,40 @@ private fun PlayerScreenContentBody(
                 val twoColumns = landscapeWindow &&
                     !largeFont &&
                     maxWidth >= PlayerTwoColumnMinWidth
-                // #1708 — in an 840–905 dp landscape window the player's pane
-                // is only ≈456–495 dp wide and 411 dp tall: too narrow for two
-                // columns and too short for the one-screen portrait column.
-                // The portrait branch then scrolls (the treatment a large font
-                // already gets), so no control is clipped off the bottom edge.
-                val scrolls = largeFont || (landscapeWindow && !twoColumns)
+                // A short single-column pane starts with identity and transport.
+                // Artwork must not put the first playback action below the fold.
+                // Secondary tools and recovery remain reachable by scrolling.
+                val compactPane = !twoColumns && maxHeight <= PlayerCompactPaneMaxHeight
+                val scrolls = largeFont || compactPane || (landscapeWindow && !twoColumns)
+                val primaryControls: @Composable () -> Unit = {
+                    DualProgress(
+                        progress = progress,
+                        chapterPositionSeconds = playerState.currentPositionMs / 1000L,
+                        chapterDurationMs = playerState.durationMs,
+                        onSeek = onSeek,
+                        onBookSeek = onBookSeek,
+                        bookmarkTarget = lastBookmarkTarget,
+                        bookmarkFocusRequester = bookmarksFocusRequester,
+                        onJumpToBookmark = onJumpToBookmark,
+                        onShowAllBookmarks = onShowAllBookmarks
+                    )
+
+                    Spacer(Modifier.height(2.dp))
+                    TransportControls(
+                        bookTitle = book.title,
+                        currentChapterTitle = currentChapterTitle,
+                        isPlaying = playerState.isPlaying,
+                        // Issue #381: під час резолюції стріму кнопка не має
+                        // промовляти застаріле «Призупинено».
+                        isBuffering = playerState.isBuffering,
+                        seekSumLabel = seekSumLabel,
+                        onPreviousChapter = onPreviousChapter,
+                        onBack = onBack,
+                        onPlayPause = onPlayPause,
+                        onForward = onForward,
+                        onNextChapter = onNextChapter
+                    )
+                }
                 Column(modifier = Modifier.fillMaxSize()) {
                     if (twoColumns) {
                         Row(
@@ -1323,19 +1354,46 @@ private fun PlayerScreenContentBody(
                                 .padding(horizontal = AppDimens.PageSides),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            PlayerArtworkPane(
-                                book = book,
-                                playerNarrator = playerNarrator,
-                                currentChapterTitle = currentChapterTitle,
-                                playerContextDescription = playerContextDescription,
-                                artworkAspect = artworkAspect,
-                                onArtworkLoaded = onArtworkLoaded,
-                                playerContextFocusRequester = playerContextFocusRequester,
-                                largeFont = largeFont,
-                                scrolls = scrolls,
-                                tint = tint,
-                                slotWeight = 1f
-                            )
+                            if (compactPane) {
+                                Text(
+                                    text = book.title,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("player_context")
+                                        .focusRequester(playerContextFocusRequester)
+                                        .focusable()
+                                        .clearAndSetSemantics {
+                                            contentDescription = playerContextDescription
+                                            heading()
+                                        },
+                                )
+                                primaryControls()
+                                Text(
+                                    text = currentChapterTitle,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            } else {
+                                PlayerArtworkPane(
+                                    book = book,
+                                    playerNarrator = playerNarrator,
+                                    currentChapterTitle = currentChapterTitle,
+                                    playerContextDescription = playerContextDescription,
+                                    artworkAspect = artworkAspect,
+                                    onArtworkLoaded = onArtworkLoaded,
+                                    playerContextFocusRequester = playerContextFocusRequester,
+                                    largeFont = largeFont,
+                                    scrolls = scrolls,
+                                    tint = tint,
+                                    slotWeight = 1f
+                                )
+                            }
                         if (playerState.isBuffering) {
                             // Issue #381 (a11y/UX-аудит v1.3.6): під час резолюції
                             // YouTube-стріму TalkBack промовляв застаріле «Призупинено»
@@ -1487,35 +1545,7 @@ private fun PlayerScreenContentBody(
                                 }
                             )
                         }
-                        // F7 — one inter-row gap went: the freed height belongs to the
-                        // artwork slot (the audit's 272 dp cover budget).
-                        DualProgress(
-                            progress = progress,
-                            chapterPositionSeconds = playerState.currentPositionMs / 1000L,
-                            chapterDurationMs = playerState.durationMs,
-                            onSeek = onSeek,
-                            onBookSeek = onBookSeek,
-                            bookmarkTarget = lastBookmarkTarget,
-                            bookmarkFocusRequester = bookmarksFocusRequester,
-                            onJumpToBookmark = onJumpToBookmark,
-                            onShowAllBookmarks = onShowAllBookmarks
-                        )
-
-                        Spacer(Modifier.height(2.dp))
-                        TransportControls(
-                            bookTitle = book.title,
-                            currentChapterTitle = currentChapterTitle,
-                            isPlaying = playerState.isPlaying,
-                            // Issue #381: під час резолюції стріму кнопка не має
-                            // промовляти застаріле «Призупинено».
-                            isBuffering = playerState.isBuffering,
-                            seekSumLabel = seekSumLabel,
-                            onPreviousChapter = onPreviousChapter,
-                            onBack = onBack,
-                            onPlayPause = onPlayPause,
-                            onForward = onForward,
-                            onNextChapter = onNextChapter
-                        )
+                        if (!compactPane) primaryControls()
 
                         if (playerState.canUndoSeek) {
                             TextButton(

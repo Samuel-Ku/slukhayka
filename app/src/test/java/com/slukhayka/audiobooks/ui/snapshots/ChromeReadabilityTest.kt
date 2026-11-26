@@ -1,6 +1,6 @@
 package com.slukhayka.audiobooks.ui.snapshots
 
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.LocalContentColor
@@ -113,7 +113,7 @@ class ChromeReadabilityTest {
                     // Root chrome cannot assume that the platform ambient content color
                     // has been replaced by a parent Surface in every composition host.
                     CompositionLocalProvider(LocalContentColor provides Color.Black) {
-                        Box {
+                        Row {
                             LibraryHeaderActions(
                                 bookmarksCount = 0, peopleCount = 0, menuOpen = false,
                                 onMenuOpenChange = { if (it) opened++ }, onOpenSection = {}, onAdd = {},

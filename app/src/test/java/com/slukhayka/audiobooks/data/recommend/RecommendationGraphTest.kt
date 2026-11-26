@@ -11,6 +11,9 @@ class RecommendationGraphTest {
         "generatedAt":1000000,"expiresAt":87400000,
         "workKeys":["seed","target","noise"],"neighbors":[[[1,0.9]],[[0,0.9]],[]]}"""
 
+    private val signature = "test-signature"
+    private val verify: (String, String) -> Boolean = { _, signed -> signed == signature }
+
     @Test fun `graph supplies semantic match without lexical overlap`() {
         val wire = javaClass.getResource("/recommend/content-graph.json")!!.readText()
         val graph = PrecomputedRecommendationGraph.parse(wire, now)!!
@@ -41,27 +44,59 @@ class RecommendationGraphTest {
         val directory = Files.createTempDirectory("recommend-graph").toFile()
         try {
             var time = now
-            var calls = 0
-            val fetch: (String, Int) -> String? = { _, _ ->
-                calls++
-                if (calls == 1) artifact().replace("87400000", (now + 3 * 86_400_000L).toString()) else "broken"
+            var bodies = 0
+            val fetch: (String, Int) -> String? = { url, _ ->
+                if (url.endsWith(".sig")) signature else {
+                    bodies++
+                    if (bodies == 1) artifact().replace("87400000", (now + 3 * 86_400_000L).toString())
+                    else "broken"
+                }
             }
-            fun store() = RecommendationGraphStore(directory, "https://example.org/graph.json", fetch) { time }
+            fun store() = RecommendationGraphStore(directory, "https://example.org/graph.json",
+                verify, fetch) { time }
             assertNotNull(store().refresh())
             assertNotNull(store().refresh())
-            assertEquals(1, calls)
+            assertEquals(1, bodies)
             time += 86_400_001L
             assertNotNull(store().refresh())
-            assertEquals(2, calls)
+            assertEquals(2, bodies)
             time += 4 * 86_400_000L
             assertNull(store().refresh())
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun `invalid signature never replaces the cached graph`() {
+        val directory = Files.createTempDirectory("recommend-signature").toFile()
+        try {
+            var time = now
+            var signed = signature
+            val fetch: (String, Int) -> String? = { url, _ ->
+                if (url.endsWith(".sig")) signed
+                else artifact().replace("87400000", "604800000")
+            }
+            fun store() = RecommendationGraphStore(directory, "https://example.org/graph.json",
+                verify, fetch) { time }
+            assertNotNull(store().refresh())
+            signed = "attacker"
+            time += 86_400_001L
+            assertNotNull("the good cache must survive a bad signature", store().refresh())
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun `unsigned cached graph is ignored`() {
+        val directory = Files.createTempDirectory("recommend-unsigned").toFile()
+        try {
+            directory.mkdirs()
+            java.io.File(directory, "content-graph.json").writeText(artifact())
+            val graph = RecommendationGraphStore(directory, "", verify, { _, _ -> null }) { now }.refresh()
+            assertNull(graph)
         } finally { directory.deleteRecursively() }
     }
 
     @Test fun `unset endpoint never makes network request`() {
         val directory = Files.createTempDirectory("recommend-no-endpoint").toFile()
         try {
-            assertNull(RecommendationGraphStore(directory, "", { _, _ -> error("network") }) { now }.refresh())
+            assertNull(RecommendationGraphStore(directory, "", verify, { _, _ -> error("network") }) { now }.refresh())
         } finally { directory.deleteRecursively() }
     }
 }

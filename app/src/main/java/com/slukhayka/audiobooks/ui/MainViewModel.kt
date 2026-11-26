@@ -4252,6 +4252,9 @@ class MainViewModel @JvmOverloads constructor(
     private val recommendationGraphStore = com.slukhayka.audiobooks.data.recommend.RecommendationGraphStore(
         File(application.filesDir, "recommendations"),
         com.slukhayka.audiobooks.BuildConfig.RECOMMENDATION_GRAPH_URL,
+        verify = com.slukhayka.audiobooks.data.recommend.GraphSignatureVerifier(
+            com.slukhayka.audiobooks.BuildConfig.RECOMMENDATION_GRAPH_PUBLIC_KEY
+        )::verify,
         fetch = { url, limit -> com.slukhayka.audiobooks.data.source.HttpFetcher().getTextBounded(url, limit) }
     )
 

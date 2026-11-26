@@ -74,8 +74,22 @@ python3 scripts/recommend/catalog_from_librivox.py \
 
 Це 20 000 книжок із тим самим ключем; `LibriVoxKeySampleTest` звіряє вибірку з
 `MergeKey.keyFor`. `build_graph.py` сам зменшує top-k, якщо 24 сусіди не
-вкладаються в 8 MiB (для 20 000 це 22). Для повного українського Дзеркала
-потрібне вивантаження з пристрою/сховища, а не seed чи LibriVox.
+вкладаються в 8 MiB (для 20 000 це 22).
+
+Для української частини:
+
+```sh
+python3 scripts/recommend/catalog_from_ukrainian.py \
+  --output /srv/slukhayka/catalog.json --limit 20000 --workers 8 \
+  --chitaka-limit 8000 --fill-librivox /srv/slukhayka/librivox-catalog.json
+```
+
+Скрипт бере sitemap/JSON підтримуваних джерел (soundbooks, audiobook.co.ua,
+chytaylo, knigi-online, sluhay, chitaka) і добирає решту з LibriVox. Chitaka
+має окремий `--chitaka-limit`: під час масового обходу вона віддає 403, тож
+для повторної спроби зменшити `--workers`; `--chitaka-limit 0` пропускає її.
+Поточний результат: 5 675 українських + 14 325 LibriVox. Для повного
+українського Дзеркала потрібне вивантаження з пристрою/сховища.
 
 Після побудови підписати граф окремим процесом (модель ключа не має):
 
@@ -107,11 +121,12 @@ python3 scripts/recommend/deliver_graph.py \
 підбираються за метаданими та у відкриттях, без локального векторного
 індексування. Аудіо й Source-фільтри не розширюються.
 
-Локальне приймання 2026-11-26: реальний LibriVox-каталог (20 000 книжок),
-cold `computed=20000`, warm `0`, topK 22, 8 110 360 байт; підписаний граф
-віддано локальним HTTPS-стором, `openssl ... Verified OK`; Android
-`GraphScaleTest` парсить 20 000 × 22. Для production ще потрібні реальний
-HTTPS-хост, повний каталог Дзеркала і ключ доставки; розклад не ввімкнений.
+Локальне приймання 2026-11-26: 20 000 творів (5 675 українських +
+14 325 LibriVox), cold `computed=5675`, warm `0`, topK 22, 8 277 865 байт;
+підписаний граф віддано тимчасовим HTTPS-тунелем, `openssl ... Verified OK`;
+Android `GraphScaleTest` парсить 20 000 × 22, debug APK пінить URL і ключ.
+Для production ще потрібні реальний HTTPS-хост, повний український каталог
+(Chitaka/Дзеркало) і ключ доставки; розклад не ввімкнений.
 
 ## Пробний запуск на Mac
 

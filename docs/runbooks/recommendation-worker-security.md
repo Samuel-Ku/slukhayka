@@ -120,14 +120,17 @@ Android пінить публічний ключ (`recommendation.graphPublicKey
 `-Precommendation.graphPublicKey`; URL без ключа валить збірку. Підпис
 файлу — `<url>.sig`.
 
-Перевірено локально: реальний публічний каталог LibriVox —
-`catalog_from_librivox.py` (20 000 творів), cold `computed=20000`, warm `0`,
-topK 22, 8 110 360 байт (під 8 MiB). `build_graph.py` автоматично зменшує
-ширину top-k, коли 24 сусіди не влазять; ефективний topK у логі. Підписаний
-граф віддано локальним HTTPS-стором, байти збігаються, `openssl ... Verified OK`.
-Kotlin: `SeedCatalogKeyTest`, `SeedGraphSignatureTest`, `GraphSignatureVerifierTest`,
-`RecommendationGraphTest`, `LibriVoxKeySampleTest`, `GraphScaleTest` (20 000 × 22);
-Python: `test_deliver_graph.py`, `test_catalog_export.py`.
+Перевірено локально: реальний публічний каталог — 20 000 творів:
+5 675 українських (soundbooks, audiobook.co.ua, chytaylo, knigi-online,
+sluhay) + 14 325 LibriVox. Chitaka (8 244 URL) віддала 403 під час масового
+обходу, тому її частина не ввійшла. Cold `computed=5675`, warm `0`, topK 22,
+8 277 865 байт. `build_graph.py` автоматично зменшує top-k під 8 MiB;
+ефективний topK у логі. Підписаний граф віддано тимчасовим HTTPS-тунелем,
+байти збігаються, `openssl ... Verified OK`; debug APK пінить URL і ключ
+(див. `recommendation-graph-activation.md`). Kotlin: `SeedCatalogKeyTest`,
+`SeedGraphSignatureTest`, `GraphSignatureVerifierTest`, `RecommendationGraphTest`,
+`LibriVoxKeySampleTest`, `GraphScaleTest` (20 000 × 22); Python:
+`test_deliver_graph.py`, `test_catalog_export.py`, `test_catalog_ukrainian.py`.
 
 Для production ще потрібні: реальний HTTPS-хост із валідним сертифікатом,
 публічний ключ оператора в релізній збірці, повний каталог Дзеркала (20 000
@@ -186,7 +189,6 @@ Linux sandbox. Для проби використовувати окремого
 
 Підпис і доставка реалізовані й перевірені локально. Для production ще
 потрібні: реальний HTTPS-хост із валідним сертифікатом, публічний ключ
-оператора в релізній збірці, повний каталог Дзеркала (20 000 LibriVox — це
-публічний каталог джерела, але не українське Дзеркало) і приватний ключ
-доставки поза репозиторієм. Розклад не ввімкнений; production-публікації
-немає.
+оператора в релізній збірці, повний український каталог (Chitaka/Дзеркало,
+а не лише доступні sitemap-джерела) і приватний ключ доставки поза
+репозиторієм. Розклад не ввімкнений; production-публікації немає.

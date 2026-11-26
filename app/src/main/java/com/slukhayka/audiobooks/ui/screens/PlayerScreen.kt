@@ -1225,7 +1225,8 @@ private fun PlayerScreenContentBody(
                         bookmarkTarget = lastBookmarkTarget,
                         bookmarkFocusRequester = bookmarksFocusRequester,
                         onJumpToBookmark = onJumpToBookmark,
-                        onShowAllBookmarks = onShowAllBookmarks
+                        onShowAllBookmarks = onShowAllBookmarks,
+                        compact = compactPane,
                     )
 
                     Spacer(Modifier.height(2.dp))
@@ -1897,7 +1898,8 @@ private fun DualProgress(
     bookmarkTarget: BookmarkEntity? = null,
     bookmarkFocusRequester: FocusRequester,
     onJumpToBookmark: (BookmarkEntity) -> Unit = {},
-    onShowAllBookmarks: () -> Unit = {}
+    onShowAllBookmarks: () -> Unit = {},
+    compact: Boolean = false,
 ) {
     // #1571 — the display and the seek read the SAME exact duration: the
     // label's whole seconds are derived from it and the drag preview maps
@@ -2027,7 +2029,11 @@ private fun DualProgress(
             if (hasChapterDuration) {
                 Text(
                     text = MainViewModel.formatTime(shownChapterPositionSeconds),
-                    style = PaperInkType.TimerXL,
+                    style = if (compact) {
+                        PaperInkType.BodyStrong.copy(fontFeatureSettings = "tnum")
+                    } else {
+                        PaperInkType.TimerXL
+                    },
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(

@@ -9,6 +9,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.Density
@@ -37,11 +38,11 @@ class PlayerShortPaneLayoutTest {
     private val book = AudiobookEntity(
         id = "short-pane-book", title = "Книжка з довгою назвою для вечірнього слухання",
         author = "Автор", narrator = "Читець", description = "", coverDrawableRes = 0,
-        genre = "", sourceUrl = "", totalDurationSeconds = 600, totalChapters = 1,
+        genre = "", sourceUrl = "", totalDurationSeconds = 5400, totalChapters = 1,
     )
     private val chapters = listOf(
         ChapterEntity(id = "short-pane-chapter", bookId = book.id, chapterIndex = 0,
-            title = "Поточний розділ", durationSeconds = 600)
+            title = "Поточний розділ", durationSeconds = 5400)
     )
 
     @Test
@@ -59,11 +60,11 @@ class PlayerShortPaneLayoutTest {
                     Box(Modifier.requiredSize(460.dp, 352.dp)) {
                         PlayerScreenContent(
                             playerState = PlayerState(currentBook = book, chapters = chapters,
-                                currentPositionMs = 60_000, durationMs = 600_000,
+                                currentPositionMs = 3_600_000, durationMs = 5_400_000,
                                 isOfflineMode = true),
                             book = book,
                             currentChapterTitle = chapters.single().title,
-                            progress = calculatePlayerProgress(chapters, 0, 60_000, 600_000, emptyList()),
+                            progress = calculatePlayerProgress(chapters, 0, 3_600_000, 5_400_000, emptyList()),
                             artworkAccent = null,
                             onArtworkLoaded = {}, onDismiss = {}, onToggleFavorite = {},
                             onToggleDebug = {}, onSeek = {}, onBookSeek = {},
@@ -84,6 +85,13 @@ class PlayerShortPaneLayoutTest {
             assertTrue("$tag must be initially inside $viewport at fontScale=$fontScale, got $bounds",
                 bounds.top >= viewport.top && bounds.bottom <= viewport.bottom + 1.dp &&
                     bounds.left >= viewport.left && bounds.right <= viewport.right + 1.dp)
+            node.assertIsDisplayed()
+        }
+        listOf("1:00:00", " / 1:30:00").forEach { time ->
+            val node = compose.onNodeWithText(time, useUnmergedTree = true)
+            val bounds = node.getUnclippedBoundsInRoot()
+            assertTrue("chapter time must fit inside the pane at fontScale=$fontScale: $bounds",
+                bounds.left >= viewport.left && bounds.right <= viewport.right + 1.dp)
             node.assertIsDisplayed()
         }
         compose.onNodeWithTag("player_play_pause_button").performClick()

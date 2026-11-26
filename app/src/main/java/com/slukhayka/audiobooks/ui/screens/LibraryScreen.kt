@@ -1315,7 +1315,8 @@ internal fun LibraryHeaderActionsInner(
         ) {
             Icon(
                 imageVector = PaperInkIcons.More,
-                contentDescription = stringResource(R.string.a11y_library_more_actions)
+                contentDescription = stringResource(R.string.a11y_library_more_actions),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
         DropdownMenu(

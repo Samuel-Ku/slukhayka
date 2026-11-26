@@ -24,6 +24,7 @@ import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import com.github.takahirom.roborazzi.ExperimentalRoborazziApi
 import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.RoborazziTaskType
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -103,6 +104,7 @@ class ChromeReadabilityTest {
         assertEquals(1, closes)
     }
 
+    @OptIn(ExperimentalRoborazziApi::class)
     private fun checkMore(dark: Boolean) {
         var opened = 0
         var background = Color.Unspecified

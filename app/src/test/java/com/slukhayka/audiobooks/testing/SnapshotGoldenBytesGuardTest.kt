@@ -798,6 +798,16 @@ class SnapshotGoldenBytesGuardTest {
          * `listen_shelves_sheet`, `storage_destination` and
          * `work_feed_filter_sheet` are the four with the largest share
          * (2.866 / 1.544 / 1.683 / 1.108 %).
+         *
+         * ## Library menu contrast re-pinned on 2026-11-26 (#1813)
+         *
+         * Canonical record 45803480032 (attempt 2, UI revision 3197d603)
+         * changed only the More glyph in the three library frames: the
+         * 9x43 box at (706,134). Its explicit onSurfaceVariant foreground
+         * follows the ink/paper scheme instead of an inherited content color.
+         * Every pixel outside that glyph and all six other pins stayed put.
+         * The normal mini-player frames stayed identical; its new minimum
+         * height only grows when enlarged text needs more than 64 dp.
          */
         val PINS = listOf(
             Pin(
@@ -818,17 +828,17 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "fd8d7165486650f2bf060c3cac2935ee" + "b1c05a69796779f4960d54033db69188"
+                "0959e1c25abd967bbeb619a824e9025d" + "3b91fb88834b125472497faa73629ceb"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "b1d83ad8b04d16020c19f448e09bee10" + "9d901e31eee8b8831c5dcdf4f418c3d5"
+                "773daa66961afa08672daa5db3e8ccba" + "29395c2e25522a1a91ea0e1bccea5dcd"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "c02560429bb35a7e77860032e84ae4e4" + "d46b848e38faeb88b91941ab8c994a09"
+                "9bc497586f80810ee32a5356f16d1072" + "892941f01a289d131a0321b7cc3717e0"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",

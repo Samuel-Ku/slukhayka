@@ -121,10 +121,10 @@ Android пінить публічний ключ (`recommendation.graphPublicKey
 файлу — `<url>.sig`.
 
 Перевірено локально: реальний публічний каталог — 20 000 творів:
-5 675 українських (soundbooks, audiobook.co.ua, chytaylo, knigi-online,
-sluhay) + 14 325 LibriVox. Chitaka (8 244 URL) віддала 403 під час масового
-обходу, тому її частина не ввійшла. Cold `computed=5675`, warm `0`, topK 22,
-8 277 865 байт. `build_graph.py` автоматично зменшує top-k під 8 MiB;
+13 235 українських (soundbooks, audiobook.co.ua, chytaylo, knigi-online,
+sluhay, chitaka) + 6 765 LibriVox. Chitaka додала 8 150 творів після
+обережного обходу (4 воркери; 12 викликав 403). Cold `computed=8150`, warm
+`0`, topK 21, 8 216 186 байт. `build_graph.py` автоматично зменшує top-k під 8 MiB;
 ефективний topK у логі. Підписаний граф віддано тимчасовим HTTPS-тунелем,
 байти збігаються, `openssl ... Verified OK`; debug APK пінить URL і ключ
 (див. `recommendation-graph-activation.md`). Kotlin: `SeedCatalogKeyTest`,

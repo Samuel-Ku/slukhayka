@@ -80,15 +80,15 @@ python3 scripts/recommend/catalog_from_librivox.py \
 
 ```sh
 python3 scripts/recommend/catalog_from_ukrainian.py \
-  --output /srv/slukhayka/catalog.json --limit 20000 --workers 8 \
-  --chitaka-limit 8000 --fill-librivox /srv/slukhayka/librivox-catalog.json
+  --output /srv/slukhayka/catalog.json --limit 20000 --workers 4 \
+  --chitaka-limit 9000 --fill-librivox /srv/slukhayka/librivox-catalog.json
 ```
 
 Скрипт бере sitemap/JSON підтримуваних джерел (soundbooks, audiobook.co.ua,
 chytaylo, knigi-online, sluhay, chitaka) і добирає решту з LibriVox. Chitaka
-має окремий `--chitaka-limit`: під час масового обходу вона віддає 403, тож
-для повторної спроби зменшити `--workers`; `--chitaka-limit 0` пропускає її.
-Поточний результат: 5 675 українських + 14 325 LibriVox. Для повного
+має окремий `--chitaka-limit`: 4 воркери проходять 8 244 сторінки без блоку
+(12 викликав 403); `--chitaka-limit 0` пропускає її. Поточний результат:
+13 235 українських + 6 765 LibriVox; Chitaka дала 8 150 нових. Для повного
 українського Дзеркала потрібне вивантаження з пристрою/сховища.
 
 Після побудови підписати граф окремим процесом (модель ключа не має):
@@ -121,8 +121,8 @@ python3 scripts/recommend/deliver_graph.py \
 підбираються за метаданими та у відкриттях, без локального векторного
 індексування. Аудіо й Source-фільтри не розширюються.
 
-Локальне приймання 2026-11-26: 20 000 творів (5 675 українських +
-14 325 LibriVox), cold `computed=5675`, warm `0`, topK 22, 8 277 865 байт;
+Локальне приймання 2026-11-26: 20 000 творів (13 235 українських +
+6 765 LibriVox), cold `computed=8150`, warm `0`, topK 21, 8 216 186 байт;
 підписаний граф віддано тимчасовим HTTPS-тунелем, `openssl ... Verified OK`;
 Android `GraphScaleTest` парсить 20 000 × 22, debug APK пінить URL і ключ.
 Для production ще потрібні реальний HTTPS-хост, повний український каталог

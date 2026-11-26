@@ -166,8 +166,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--limit", type=int, default=20_000)
-    parser.add_argument("--workers", type=int, default=12)
-    parser.add_argument("--chitaka-limit", type=int, default=8000,
+    parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument("--chitaka-limit", type=int, default=9000,
                         help="cap chitaka pages (it rate-limits a wide crawl); 0 skips it")
     parser.add_argument("--fill-librivox", type=Path,
                         help="LibriVox catalogue used only for the remainder up to --limit")

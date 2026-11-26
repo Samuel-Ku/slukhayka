@@ -105,6 +105,14 @@ class PlayerAccessibilityTest {
     )
 
     @Test
+    fun bookRulerHasAVisibleWholeBookCaption() {
+        setPlayerContent()
+        composeTestRule.onNodeWithTag("book_progress_caption", useUnmergedTree = true)
+            .assertIsDisplayed()
+            .assert(androidx.compose.ui.test.hasText("Книга · 46%"))
+    }
+
+    @Test
     fun playerStartsOnOneMeaningfulWorkEditionAndChapterContext() {
         setPlayerContent()
 

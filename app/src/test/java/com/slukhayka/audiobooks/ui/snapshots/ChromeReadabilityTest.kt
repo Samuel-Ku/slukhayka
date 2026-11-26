@@ -14,7 +14,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
-import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -93,12 +92,12 @@ class ChromeReadabilityTest {
         }
         val play = compose.onNodeWithTag("readable_mini_play")
         val target = play.getUnclippedBoundsInRoot()
-        assertTrue("play remains a 48dp target", target.width >= 48.dp && target.height >= 48.dp)
+        assertTrue("play remains a 48dp target", target.right - target.left >= 48.dp && target.bottom - target.top >= 48.dp)
         assertTrue("play remains inside the bar", target.top >= bar.top && target.bottom <= bar.bottom)
         play.performClick()
         val summary = compose.onNodeWithTag("readable_mini_summary")
         summary.performClick()
-        assertTrue(summary.fetchSemanticsNode().config[SemanticsProperties.CustomActions].single().action())
+        assertTrue(summary.fetchSemanticsNode().config[SemanticsActions.CustomActions].single().action())
         assertEquals(1, plays)
         assertEquals(1, opens)
         assertEquals(1, closes)

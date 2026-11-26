@@ -12,6 +12,12 @@
 | воркер `dragonborn` | `192.168.2.167` | `viktoriyayastremska` | `~/.ssh/id_ed25519_omarchy` | 12 ядер / 31 ГБ | **тихий режим**: 6 ядер із 12 (`taskset 0-5`), `nice +10`, `-Xmx4g`, `workers.max=2`, `parallel=false` |
 
 
+`ssh dragonborn` уже налаштований у `~/.ssh/config` (`Host`, `User`,
+`IdentityFile`). У workspace-write пісочниці системний
+`/etc/ssh/ssh_config.d` може дати `Bad owner or permissions`; тоді
+використовуйте `ssh -F ~/.ssh/config dragonborn`, а для git —
+`GIT_SSH_COMMAND='ssh -F ~/.ssh/config'`.
+
 ## Як це використовує раннер
 
 `scripts/swarm/run-issue.sh <тікет> <адреса>` сам визначає користувача за

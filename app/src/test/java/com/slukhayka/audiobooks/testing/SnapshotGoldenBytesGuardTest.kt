@@ -808,6 +808,13 @@ class SnapshotGoldenBytesGuardTest {
          * Every pixel outside that glyph and all six other pins stayed put.
          * The normal mini-player frames stayed identical; its new minimum
          * height only grows when enlarged text needs more than 64 dp.
+         *
+         * ## Cook polish re-pinned on 2026-11-26 (#1817)
+         *
+         * Canonical record 45860020720 on a5ef9b2b: two library frames
+         * clarify that the continuation time is remaining time; three player
+         * frames render readable seek numerals, a 6 dp track and 18 dp thumb.
+         * Cover artwork, typography, size and radius remain unchanged.
          */
         val PINS = listOf(
             Pin(
@@ -828,7 +835,7 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "0959e1c25abd967bbeb619a824e9025d" + "3b91fb88834b125472497faa73629ceb"
+                "d734a6acd6839abf2d4ab385d283b391" + "f3f5de1e0d0eb74d724a6fb489fbea59"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
@@ -838,22 +845,22 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "9bc497586f80810ee32a5356f16d1072" + "892941f01a289d131a0321b7cc3717e0"
+                "3dddff6333a59deeae0a9f1b544c2a5e" + "87dae7c1daf88562f8b5dfca638ccb9c"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_" + "no_narrator.png",
-                "014fc30e37892e7ab24222c93195443e" + "7e373a2bdb945e843c3bd274d31bc2f4"
+                "2e32388f3ecef02c6d714755840fc575" + "774b906b6a9ea0e0cc413df4d8de6d00"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_redesign_" + "dark.png",
-                "91864622dda0fc078f07632ea5f6f38c" + "be4eb88f3cff9502b5ee2abdb7cda1c9"
+                "8a0a0c4e3080af91e6707d0a3f6c0e84" + "26c4ee819497470a09bedc79632715d2"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_tight_" + "viewport.png",
-                "8e73d0a5bfaec0b8d0d1463970f84b37" + "3c0c9820158f2c0e3b6b20149730155f"
+                "2344dd61025d482420256a851f7b62c5" + "4ebcfe86784de61a2c0a03eb57df5f6b"
             )
         )
     }

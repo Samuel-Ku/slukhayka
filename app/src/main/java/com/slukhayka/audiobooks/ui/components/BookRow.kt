@@ -155,7 +155,8 @@ fun BookRow(
      * footnote under the row left the cover sitting visibly too high.
      */
     footnoteInColumn: Boolean = false,
-    testTag: String? = null
+    testTag: String? = null,
+    rowVerticalAlignment: Alignment.Vertical = Alignment.CenterVertically,
 ) {
     val compact = LocalBookRowCompact.current
     val horizontalPadding = if (compact) AppDimens.SpaceSm else AppDimens.PageSides
@@ -214,7 +215,7 @@ fun BookRow(
                         },
                         vertical = if (paperInk) 10.dp else AppDimens.SpaceSm,
                     ),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = rowVerticalAlignment
             ) {
                 if (!compact) leading?.invoke(this)
                 val paperCoverModifier = if (paperInk && dense) {

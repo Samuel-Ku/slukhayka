@@ -13,6 +13,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -203,6 +204,7 @@ fun LazyListScope.searchResultsContent(
                         }
                     }
                 },
+                rowVerticalAlignment = if (paperInk) Alignment.Top else Alignment.CenterVertically,
                 footnoteInColumn = true,
                 footnote = {
                     if (narrator != null) {

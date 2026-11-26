@@ -20,6 +20,7 @@ import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertTextEquals
@@ -175,6 +176,51 @@ class WorkFeedFilterAccessibilityTest {
         compose.onNodeWithTag("feed_language")
             .assertContentDescriptionEquals("Мова: Українська")
             .assertHeightIsAtLeast(24.dp)
+    }
+
+    @Test
+    fun activeFiltersAreVisibleAndCanBeResetFromTheFeed() {
+        compose.setContent {
+            var genreIds by remember { mutableStateOf(setOf("fantasy")) }
+            var durationIds by remember { mutableStateOf(setOf("under_5h")) }
+            var sharedOnly by remember { mutableStateOf(true) }
+            AudiobookTheme(darkTheme = true) {
+                WorkFeedFilters(
+                    selectedGenreIds = genreIds,
+                    sortByTitle = false,
+                    genres = genres,
+                    onGenresChange = { genreIds = it },
+                    onSortChange = {},
+                    selectedDurationBucketIds = durationIds,
+                    onDurationBucketsChange = { durationIds = it },
+                    sharedLibraryOnly = sharedOnly,
+                    onSharedLibraryOnlyChange = { sharedOnly = it }
+                )
+            }
+        }
+
+        compose.onNodeWithTag("feed_active_filters")
+            .assertTextEquals("Фентезі · До 5 год · Лише зі спільної бібліотеки")
+        compose.onNodeWithTag("feed_filters").assertIsSelected()
+        compose.onNodeWithTag("feed_active_filters_reset").performClick()
+        compose.onNodeWithTag("feed_active_filters").assertDoesNotExist()
+    }
+
+    @Test
+    fun originRestrictionAloneMarksTheFilterControlAsSelected() {
+        compose.setContent {
+            AudiobookTheme(darkTheme = true) {
+                WorkFeedFilters(
+                    selectedGenreIds = emptySet(), sortByTitle = false,
+                    genres = genres, onGenresChange = {}, onSortChange = {},
+                    sharedLibraryOnly = true
+                )
+            }
+        }
+
+        compose.onNodeWithTag("feed_filters").assertIsSelected()
+        compose.onNodeWithTag("feed_active_filters")
+            .assertTextEquals("Лише зі спільної бібліотеки")
     }
 
     private val genres = listOf(

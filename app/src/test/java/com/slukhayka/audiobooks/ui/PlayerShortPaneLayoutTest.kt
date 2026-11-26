@@ -15,6 +15,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.ui.screens.PlayerScreenContent
@@ -51,8 +52,19 @@ class PlayerShortPaneLayoutTest {
     @Test
     fun landscapePaneStartsWithSeekAndTransportAtTwoHundredPercent() = checkPane(2f)
 
-    private fun checkPane(fontScale: Float) {
+    @Test
+    fun landscapePaneKeepsTheBookmarkAndTransportVisibleAtTwoHundredPercent() = checkPane(
+        fontScale = 2f,
+        bookmark = BookmarkEntity(
+            id = 1L, bookId = book.id, chapterIndex = 0,
+            chapterTitle = chapters.single().title, timestampSeconds = 1800L,
+            note = "Повернутися до фрагмента", createdAt = 1L,
+        ),
+    )
+
+    private fun checkPane(fontScale: Float, bookmark: BookmarkEntity? = null) {
         var playClicks = 0
+        var bookmarkClicks = 0
         compose.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
@@ -64,13 +76,18 @@ class PlayerShortPaneLayoutTest {
                                 isOfflineMode = true),
                             book = book,
                             currentChapterTitle = chapters.single().title,
-                            progress = calculatePlayerProgress(chapters, 0, 3_600_000, 5_400_000, emptyList()),
+                            progress = calculatePlayerProgress(chapters, 0, 3_600_000, 5_400_000, listOfNotNull(bookmark)),
                             artworkAccent = null,
                             onArtworkLoaded = {}, onDismiss = {}, onToggleFavorite = {},
                             onToggleDebug = {}, onSeek = {}, onBookSeek = {},
                             onPreviousChapter = {}, onBack = {}, onPlayPause = { playClicks++ },
                             onForward = {}, onNextChapter = {}, onUndoSeek = {},
                             onSpeed = {}, onTimer = {}, onBookmark = {}, onChapters = {},
+                            lastBookmarkTarget = bookmark,
+                            onJumpToBookmark = {
+                                assertEquals(bookmark, it)
+                                bookmarkClicks++
+                            },
                         )
                     }
                 }
@@ -78,8 +95,10 @@ class PlayerShortPaneLayoutTest {
         }
         val viewport = compose.onNodeWithTag("full_player_screen", useUnmergedTree = true)
             .getUnclippedBoundsInRoot()
-        listOf("player_progress_slider", "player_previous_button", "player_rewind_button",
-            "player_play_pause_button", "player_forward_button", "player_next_button").forEach { tag ->
+        val initialControls = listOf("player_progress_slider", "player_previous_button", "player_rewind_button",
+            "player_play_pause_button", "player_forward_button", "player_next_button") +
+            if (bookmark != null) listOf("jump_to_last_bookmark") else emptyList()
+        initialControls.forEach { tag ->
             val node = compose.onNodeWithTag(tag, useUnmergedTree = true)
             val bounds = node.getUnclippedBoundsInRoot()
             assertTrue("$tag must be initially inside $viewport at fontScale=$fontScale, got $bounds",
@@ -93,6 +112,10 @@ class PlayerShortPaneLayoutTest {
             assertTrue("chapter time must fit inside the pane at fontScale=$fontScale: $bounds",
                 bounds.left >= viewport.left && bounds.right <= viewport.right + 1.dp)
             node.assertIsDisplayed()
+        }
+        if (bookmark != null) {
+            compose.onNodeWithTag("jump_to_last_bookmark").performClick()
+            assertEquals(1, bookmarkClicks)
         }
         compose.onNodeWithTag("player_play_pause_button").performClick()
         assertEquals(1, playClicks)

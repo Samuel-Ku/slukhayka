@@ -55,8 +55,8 @@ data class LibraryBooksShape(val browsing: Boolean, val gridMode: Boolean) {
  * One projection of the Книги tab's book area.
  *
  * [summarisesRemaining] is a SECOND rule, not the entry form: the dense header
- * carries the remaining-time total only once the listener narrowed the list down
- * (a status filter or a search). The screen used to keep that rule in the same
+ * carries the remaining-time total for a status filter without an active search.
+ * Search instead has its compact result summary above the grid. The screen used to keep that rule in the same
  * `browsing` variable that `denseTrailing` and the `remember` keys consumed,
  * while the entry form was a `false` literal written out twice — in the entries
  * builder and again in the renderer. Two facts, one name, and a literal repeated

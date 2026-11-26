@@ -230,7 +230,9 @@ class SearchResultsContentTest {
         )
         setSearchContent(localBooks = emptyList(), globalResults = listOf(work))
 
-        compose.onNodeWithText("2 начитки").assertExists()
+        compose.onNodeWithText("2 відомі начитки").assertExists()
+        compose.onNodeWithText("UA", useUnmergedTree = true).assertExists()
+        compose.onNodeWithText("EN", useUnmergedTree = true).assertExists()
         compose.onNodeWithText("Серед читців Олена Коваленко").assertExists()
         assertEquals(1, compose.onAllNodesWithText("Пані Боварі").fetchSemanticsNodes().size)
         compose.onNodeWithTag("global_search_result_" + work.key).assertExists()

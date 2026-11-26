@@ -21,6 +21,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertTextEquals
@@ -221,6 +222,26 @@ class WorkFeedFilterAccessibilityTest {
         compose.onNodeWithTag("feed_filters").assertIsSelected()
         compose.onNodeWithTag("feed_active_filters")
             .assertTextEquals("Лише зі спільної бібліотеки")
+    }
+
+    @Test
+    fun resetAllInTheSheetAlsoClearsTheOriginRestriction() {
+        compose.setContent {
+            var sharedOnly by remember { mutableStateOf(true) }
+            AudiobookTheme(darkTheme = true) {
+                WorkFeedFilterSheet(
+                    selectedGenreIds = emptySet(),
+                    genres = genres,
+                    onGenresChange = {},
+                    onDismiss = {},
+                    sharedLibraryOnly = sharedOnly,
+                    onSharedLibraryOnlyChange = { sharedOnly = it }
+                )
+            }
+        }
+
+        compose.onNodeWithTag("feed_filter_reset").performClick()
+        compose.onNodeWithTag("feed_origin_only_shared").assertIsOff()
     }
 
     private val genres = listOf(

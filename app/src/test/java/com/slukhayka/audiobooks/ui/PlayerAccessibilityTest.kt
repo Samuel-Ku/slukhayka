@@ -229,8 +229,9 @@ class PlayerAccessibilityTest {
             progressUi = unknownProgress
         )
 
-        // F7 removed the duplicate book time row: the chapter row is the one
-        // place that states an unknown duration.
+        composeTestRule.onNodeWithTag("book_progress_caption", useUnmergedTree = true)
+            .assert(androidx.compose.ui.test.hasText("Книга"))
+        // The chapter row remains the only time block.
         composeTestRule.onAllNodesWithText("Тривалість невідома", useUnmergedTree = true)
             .assertCountEquals(1)
         composeTestRule.onAllNodesWithText("00:00  /  00:00", useUnmergedTree = true)

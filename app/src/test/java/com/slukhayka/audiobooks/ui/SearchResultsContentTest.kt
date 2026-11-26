@@ -209,4 +209,31 @@ class SearchResultsContentTest {
         compose.onNodeWithText("Нічого не знайдено").assertDoesNotExist()
     }
 
+    @Test
+    fun knownNarratorIsVisibleBeforeOpeningAWork() {
+        setSearchContent(
+            localBooks = emptyList(),
+            globalResults = listOf(sourceHit.copy(narrator = "Олена Коваленко"))
+        )
+
+        compose.onNodeWithText("Озвучує: Олена Коваленко").assertExists()
+    }
+
+    @Test
+    fun multipleNarrationsStayOnOneWorkWithTheirKnownLanguages() {
+        val work = sourceHit.copy(
+            narrator = "Олена Коваленко",
+            sources = listOf(
+                GlobalSearchSource("one", "Джерело А", "https://one/book", editionId = "uk-edition", language = "uk"),
+                GlobalSearchSource("two", "Джерело Б", "https://two/book", editionId = "en-edition", language = "en")
+            )
+        )
+        setSearchContent(localBooks = emptyList(), globalResults = listOf(work))
+
+        compose.onNodeWithText("2 начитки").assertExists()
+        compose.onNodeWithText("Серед читців Олена Коваленко").assertExists()
+        assertEquals(1, compose.onAllNodesWithText("Пані Боварі").fetchSemanticsNodes().size)
+        compose.onNodeWithTag("global_search_result_" + work.key).assertExists()
+    }
+
 }

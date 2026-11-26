@@ -32,6 +32,14 @@ class CatalogTest(unittest.TestCase):
             self.assertEqual(b"new", path.read_bytes())
             self.assertEqual([path], list(Path(directory).iterdir()))
 
+    def test_artifact_is_trimmed_to_fit_the_android_limit(self):
+        graph_doc = {"schemaVersion": 1, "workKeys": ["a", "b"], "neighbors": [
+            [[0, 0.9], [1, 0.8], [0, 0.7]] for _ in range(200)]}
+        content, width = graph.fit_artifact(graph_doc, max_bytes=5_000)
+        self.assertLessEqual(len(content), 5_000)
+        self.assertLess(width, 3)
+        self.assertTrue(all(len(row) <= width for row in graph_doc["neighbors"]))
+
     def test_rejects_private_root_fields_and_oversized_input(self):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as directory:

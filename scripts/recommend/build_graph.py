@@ -127,6 +127,25 @@ def build_graph(catalog, matrix, revision, now, top_k=24, ttl_days=7):
             "workKeys": [key for key, _ in catalog], "neighbors": neighbors}
 
 
+def fit_artifact(graph, max_bytes=MAX_BYTES):
+    """Trim every row from the widest top-k down until the artifact fits.
+
+    A 20k-Work catalogue at the default 24 neighbours exceeds the Android 8 MiB
+    limit. Trimming preserves the strongest neighbours per Work instead of
+    failing the whole build; the effective width is reported by main().
+    """
+    content = json.dumps(graph, ensure_ascii=False, separators=(",", ":")).encode()
+    width = max((len(row) for row in graph["neighbors"]), default=0)
+    while len(content) > max_bytes and width > 1:
+        width -= 1
+        for row in graph["neighbors"]:
+            del row[width:]
+        content = json.dumps(graph, ensure_ascii=False, separators=(",", ":")).encode()
+    if len(content) > max_bytes:
+        raise ValueError("artifact exceeds Android 8 MiB limit even at one neighbour")
+    return content, width
+
+
 def load_model(revision, model_dir=None):
     if model_dir is not None:
         model_dir = Path(model_dir)
@@ -169,12 +188,10 @@ def main():
     matrix, computed = cached_vectors(catalog, args.cache, MODEL, args.revision,
                                        lambda: load_model(args.revision, args.model_dir))
     graph = build_graph(catalog, matrix, args.revision, int(time.time() * 1000), args.top_k, args.ttl_days)
-    content = json.dumps(graph, ensure_ascii=False, separators=(",", ":")).encode()
-    if len(content) > MAX_BYTES:
-        raise ValueError("artifact exceeds Android 8 MiB limit; reduce --top-k")
+    content, effective_top_k = fit_artifact(graph)
     atomic_write(args.output, content)
-    print(json.dumps({"works": len(catalog), "computed": computed, "bytes": len(content),
-                      "output": str(args.output)}))
+    print(json.dumps({"works": len(catalog), "computed": computed, "topK": effective_top_k,
+                      "bytes": len(content), "output": str(args.output)}))
 
 
 if __name__ == "__main__":

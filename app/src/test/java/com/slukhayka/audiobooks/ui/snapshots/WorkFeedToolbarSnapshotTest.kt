@@ -13,6 +13,7 @@ import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -72,23 +73,23 @@ class WorkFeedToolbarSnapshotTest {
 
         composeTestRule.onNodeWithTag("feed_filters").performClick()
         composeTestRule.onNodeWithText("Жанри").assertExists()
-        composeTestRule.onNodeWithText("Фентезі").assertIsNotSelected().performClick().assertIsSelected()
-        composeTestRule.onNodeWithText("Детективи").assertIsNotSelected().performClick().assertIsSelected()
+        composeTestRule.onNodeWithTag("feed_genre_fantasy").assertTextEquals("Фентезі").assertIsNotSelected().performClick().assertIsSelected()
+        composeTestRule.onNodeWithTag("feed_genre_detective").assertTextEquals("Детективи").assertIsNotSelected().performClick().assertIsSelected()
         assertEquals(setOf("fantasy", "detective"), genres)
 
-        composeTestRule.onNodeWithText("Фентезі").performClick().assertIsNotSelected()
+        composeTestRule.onNodeWithTag("feed_genre_fantasy").assertTextEquals("Фентезі").performClick().assertIsNotSelected()
         assertEquals(setOf("detective"), genres)
 
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/work_feed_filter_sheet.png"
         )
 
-        composeTestRule.onNodeWithText("Готово").performClick()
-        composeTestRule.onNodeWithText("Скинути все").assertDoesNotExist()
+        composeTestRule.onNodeWithTag("feed_filter_done").assertTextEquals("Готово").performClick()
+        composeTestRule.onNodeWithTag("feed_active_filters_reset").assertIsDisplayed()
         assertEquals(setOf("detective"), genres)
 
         composeTestRule.onNodeWithTag("feed_filters").performClick()
-        composeTestRule.onNodeWithText("Скинути все").performClick()
+        composeTestRule.onNodeWithTag("feed_filter_reset").assertTextEquals("Скинути все").performClick()
         assertEquals(emptySet<String>(), genres)
     }
 
@@ -103,12 +104,12 @@ class WorkFeedToolbarSnapshotTest {
         )
 
         composeTestRule.onNodeWithTag("feed_filters").performClick()
-        composeTestRule.onNodeWithText("Скинути все").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Готово").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Жанр 30").performScrollTo().performClick()
+        composeTestRule.onNodeWithTag("feed_filter_reset").assertTextEquals("Скинути все").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("feed_filter_done").assertTextEquals("Готово").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("feed_genre_genre-30").assertTextEquals("Жанр 30").performScrollTo().performClick()
         assertEquals(setOf("genre-30"), selectedGenres)
-        composeTestRule.onNodeWithText("Скинути все").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Готово").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("feed_filter_reset").assertTextEquals("Скинути все").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("feed_filter_done").assertTextEquals("Готово").assertIsDisplayed()
     }
 
     @Test
@@ -125,8 +126,8 @@ class WorkFeedToolbarSnapshotTest {
 
         composeTestRule.onNodeWithTag("feed_filters").performClick()
         composeTestRule.onNodeWithText("Тривалість").assertExists()
-        composeTestRule.onNodeWithText("До 5 год").assertIsNotSelected().performClick().assertIsSelected()
-        composeTestRule.onNodeWithText("10–20 год").assertIsNotSelected().performClick().assertIsSelected()
+        composeTestRule.onNodeWithTag("feed_duration_${FacetDurationBucket.UNDER_FIVE_HOURS.wireName}").assertTextEquals("До 5 год").assertIsNotSelected().performClick().assertIsSelected()
+        composeTestRule.onNodeWithTag("feed_duration_${FacetDurationBucket.TEN_TO_TWENTY_HOURS.wireName}").assertTextEquals("10–20 год").assertIsNotSelected().performClick().assertIsSelected()
         assertEquals(
             setOf(
                 FacetDurationBucket.UNDER_FIVE_HOURS.wireName,
@@ -135,9 +136,9 @@ class WorkFeedToolbarSnapshotTest {
             selectedDurations
         )
         assertEquals(setOf("fantasy"), selectedGenres)
-        composeTestRule.onNodeWithText("Фентезі").assertIsSelected()
+        composeTestRule.onNodeWithTag("feed_genre_fantasy").assertTextEquals("Фентезі").assertIsSelected()
 
-        composeTestRule.onNodeWithText("Скинути все").performClick()
+        composeTestRule.onNodeWithTag("feed_filter_reset").assertTextEquals("Скинути все").performClick()
         assertEquals(emptySet<String>(), selectedGenres)
         assertEquals(emptySet<String>(), selectedDurations)
     }

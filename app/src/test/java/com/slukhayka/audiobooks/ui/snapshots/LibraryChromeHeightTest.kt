@@ -20,28 +20,41 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.height
 import androidx.compose.ui.unit.width
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
+import com.slukhayka.audiobooks.AppBottomBar
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
+import com.slukhayka.audiobooks.player.PlayerState
 import com.slukhayka.audiobooks.testing.TestDataFactory
+import com.slukhayka.audiobooks.ui.SelectedTab
+import com.slukhayka.audiobooks.ui.components.MiniPlayerBar
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
 import com.slukhayka.audiobooks.ui.library.LibraryBook
 import com.slukhayka.audiobooks.ui.library.LibraryFilter
 import com.slukhayka.audiobooks.ui.library.LibrarySort
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
+import com.slukhayka.audiobooks.ui.library.formatRemainingTime
 import com.slukhayka.audiobooks.ui.library.projectLibraryBooks
+import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
 import com.slukhayka.audiobooks.ui.screens.LibraryHeaderActions
+import com.slukhayka.audiobooks.ui.screens.LibraryResultsSummary
 import com.slukhayka.audiobooks.ui.screens.LibraryStatusRow
 import com.slukhayka.audiobooks.ui.screens.libraryChrome
 import com.slukhayka.audiobooks.ui.screens.libraryGridColumns
@@ -53,6 +66,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -204,131 +218,191 @@ class LibraryChromeHeightTest {
         )
     }
 
-    private fun showLibrary() {
+    @Test
+    @Config(qualifiers = "pl-rPL-w400dp-h800dp-420dpi", sdk = [36])
+    fun search_at_large_text_starts_with_a_book_above_the_player_reserve() {
+        showLibrary(query = "Книга 1", fontScale = 2f)
+
+        composeTestRule.onNodeWithTag("library_results_summary").assertIsDisplayed()
+        val title = composeTestRule.onNodeWithTag(
+            "library_book_row_${books.first().book.id}_title", useUnmergedTree = true
+        )
+        title.assertIsDisplayed()
+        val bounds = title.getUnclippedBoundsInRoot()
+        val footer = composeTestRule.onNodeWithTag("library_test_playback_footer")
+            .getUnclippedBoundsInRoot()
+        val navigation = composeTestRule.onNodeWithTag("bottom_navigation_bar")
+            .getUnclippedBoundsInRoot()
+        assertTrue("200% navigation must render its actual two rows: $navigation",
+            navigation.height.value > 100f)
+        assertTrue("first result title must precede the measured playback footer: $bounds, $footer",
+            bounds.bottom <= footer.top)
+    }
+
+    private fun showLibrary(query: String = "", fontScale: Float = 1f) {
+        val shownProjection = if (query.isBlank()) projection else projectLibraryBooks(
+            books, LibraryFilter.ALL, LibrarySort.RECENTLY_LISTENED, query,
+            gridMode = false, denseTitle = RuntimeEnvironment.getApplication()
+                .getString(R.string.lib_search_section_title)
+        )
         composeTestRule.setContent {
-            PaperInkTheme(darkTheme = true) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        val importFocus = remember { FocusRequester() }
-                        val filterFocus = remember { FocusRequester() }
-                        val gridReturnFocus = remember { FocusRequester() }
-                        val stripScroll = rememberScrollState()
-                        PaperInkTabHeader(
-                            title = "Мої книги",
-                            subtitle = "3 книги",
-                            headingTestTag = "library_heading",
-                            onSettingsClick = {},
-                            actions = {
-                                LibraryHeaderActions(
-                                    bookmarksCount = 0,
-                                    peopleCount = 0,
-                                    menuOpen = false,
-                                    onMenuOpenChange = {},
-                                    onOpenSection = {},
-                                    onAdd = {},
-                                    importFocusRequester = importFocus
+            val density = LocalDensity.current
+            CompositionLocalProvider(LocalDensity provides Density(density.density, fontScale)) {
+                PaperInkTheme(darkTheme = true) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                val importFocus = remember { FocusRequester() }
+                                val filterFocus = remember { FocusRequester() }
+                                val gridReturnFocus = remember { FocusRequester() }
+                                val stripScroll = rememberScrollState()
+                                PaperInkTabHeader(
+                                    title = if (query.isNotBlank()) stringResource(R.string.nav_library) else "Мої книги",
+                                    subtitle = if (query.isNotBlank()) {
+                                        val count = pluralStringResource(R.plurals.book_count, books.size, books.size)
+                                        val duration = formatRemainingTime(
+                                            books.sumOf { it.totalDurationSeconds }, stringRemainingTimeUnits()
+                                        )
+                                        "$count · $duration"
+                                    } else "3 книги",
+                                    showBrandMark = query.isNotBlank(),
+                                    headingTestTag = "library_heading",
+                                    onSettingsClick = {},
+                                    actions = {
+                                        LibraryHeaderActions(
+                                            bookmarksCount = 0,
+                                            peopleCount = 0,
+                                            menuOpen = false,
+                                            onMenuOpenChange = {},
+                                            onOpenSection = {},
+                                            onAdd = {},
+                                            importFocusRequester = importFocus
+                                        )
+                                    }
                                 )
-                            }
-                        )
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .verticalScroll(rememberScrollState())
-                                .testTag("library_chrome")
-                        ) {
-                            libraryChrome(
-                                activeTab = 0,
-                                sectionTitleRes = com.slukhayka.audiobooks.R.string.lib_section_books,
-                                query = "",
-                                onQueryChange = {},
-                                filter = LibraryFilter.ALL,
-                                onFilterChange = {},
-                                statusRowScrollState = stripScroll,
-                                filterFocusRequester = filterFocus,
-                                onShowFilterSheet = {},
-                                onBooks = {},
-                                onShelves = {},
-                                onSaved = {},
-                                libraryBooks = books,
-                                listenerCollections = emptyList(),
-                                publishedCollections = emptyList(),
-                                onOpenCollection = {},
-                                onOpenPublishedCollection = {},
-                                onRenamePseudonym = {}
-                            )
-                        }
-                        // The pinned strip, exactly as the screen pins it (#1384).
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp)
-                        ) {
-                            LibraryStatusRow(
-                                selected = LibraryFilter.ALL,
-                                onSelect = {},
-                                scrollState = stripScroll,
-                                trailing = {
-                                    FilterChip(
-                                        selected = false,
-                                        onClick = {},
-                                        label = { Text("Фільтр") },
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Default.Tune,
-                                                contentDescription = null
-                                            )
-                                        },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                            labelColor = MaterialTheme.colorScheme.onSurface
-                                        ),
-                                        shape = RoundedCornerShape(AppDimens.RadiusPanel),
-                                        border = FilterChipDefaults.filterChipBorder(
-                                            enabled = true,
-                                            selected = false,
-                                            borderColor = MaterialTheme.colorScheme.outlineVariant,
-                                            selectedBorderColor = MaterialTheme.colorScheme.primary
-                                        ),
-                                        modifier = Modifier.heightIn(min = 48.dp)
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .then(if (query.isNotBlank()) Modifier.heightIn(max = 280.dp) else Modifier)
+                                        .verticalScroll(rememberScrollState())
+                                        .testTag("library_chrome")
+                                ) {
+                                    libraryChrome(
+                                        activeTab = 0,
+                                        sectionTitleRes = com.slukhayka.audiobooks.R.string.lib_section_books,
+                                        query = query,
+                                        onQueryChange = {},
+                                        filter = LibraryFilter.ALL,
+                                        onFilterChange = {},
+                                        statusRowScrollState = stripScroll,
+                                        filterFocusRequester = filterFocus,
+                                        onShowFilterSheet = {},
+                                        onBooks = {},
+                                        onShelves = {},
+                                        onSaved = {},
+                                        libraryBooks = books,
+                                        listenerCollections = emptyList(),
+                                        publishedCollections = emptyList(),
+                                        onOpenCollection = {},
+                                        onOpenPublishedCollection = {},
+                                        onRenamePseudonym = {}
                                     )
                                 }
-                            )
-                        }
-                        LazyVerticalGrid(
-                            columns = libraryGridColumns(gridMode = false),
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .testTag("library_grid"),
-                            contentPadding = PaddingValues(
-                                start = AppDimens.PageSides,
-                                end = AppDimens.PageSides,
-                                top = 8.dp,
-                                bottom = AppDimens.SpaceSection
-                            ),
-                            horizontalArrangement = Arrangement.spacedBy(AppDimens.SpaceMd),
-                            verticalArrangement = Arrangement.spacedBy(AppDimens.SpaceMd)
-                        ) {
-                            libraryGridContent(
-                                // The SAME projection seam the screen calls: the
-                                // redundant «Усі» header rule must be the shipped
-                                // one, not a test-only filter.
-                                entries = projection.entries(""),
-                                gridMode = false,
-                                availability = emptyMap(),
-                                downloadCounts = emptyMap(),
-                                restoreFocusBookId = null,
-                                bookReturnFocusRequester = gridReturnFocus,
-                                awaitingSubmissionBookIds = emptySet(),
-                                watchingSubmissionBookIds = emptySet(),
-                                deferredPublicationBookIds = emptySet(),
-                                onBookClick = {},
-                                onPlayClick = {},
-                                onRecheck = {}
-                            )
+                                // The pinned strip, exactly as the screen pins it (#1384).
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                ) {
+                                    LibraryStatusRow(
+                                        selected = LibraryFilter.ALL,
+                                        onSelect = {},
+                                        scrollState = stripScroll,
+                                        trailing = {
+                                            FilterChip(
+                                                selected = false,
+                                                onClick = {},
+                                                label = { Text(if (query.isNotBlank()) stringResource(R.string.lib_filter) else "Фільтр") },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Tune,
+                                                        contentDescription = null
+                                                    )
+                                                },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                                    labelColor = MaterialTheme.colorScheme.onSurface
+                                                ),
+                                                shape = RoundedCornerShape(AppDimens.RadiusPanel),
+                                                border = FilterChipDefaults.filterChipBorder(
+                                                    enabled = true,
+                                                    selected = false,
+                                                    borderColor = MaterialTheme.colorScheme.outlineVariant,
+                                                    selectedBorderColor = MaterialTheme.colorScheme.primary
+                                                ),
+                                                modifier = Modifier.heightIn(min = 48.dp)
+                                            )
+                                        }
+                                    )
+                                }
+                                if (query.isNotBlank()) {
+                                    LibraryResultsSummary(
+                                        filter = LibraryFilter.ALL,
+                                        count = shownProjection.shownBooks.size,
+                                        onResetFilter = {},
+                                    )
+                                }
+                                LazyVerticalGrid(
+                                    columns = libraryGridColumns(gridMode = false),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth()
+                                        .testTag("library_grid"),
+                                    contentPadding = PaddingValues(
+                                        start = AppDimens.PageSides,
+                                        end = AppDimens.PageSides,
+                                        top = 8.dp,
+                                        bottom = AppDimens.SpaceSection
+                                    ),
+                                    horizontalArrangement = Arrangement.spacedBy(AppDimens.SpaceMd),
+                                    verticalArrangement = Arrangement.spacedBy(AppDimens.SpaceMd)
+                                ) {
+                                    libraryGridContent(
+                                        // The SAME projection seam the screen calls: the
+                                        // redundant «Усі» header rule must be the shipped
+                                        // one, not a test-only filter.
+                                        entries = shownProjection.entries(""),
+                                        gridMode = false,
+                                        availability = emptyMap(),
+                                        downloadCounts = emptyMap(),
+                                        restoreFocusBookId = null,
+                                        bookReturnFocusRequester = gridReturnFocus,
+                                        awaitingSubmissionBookIds = emptySet(),
+                                        watchingSubmissionBookIds = emptySet(),
+                                        deferredPublicationBookIds = emptySet(),
+                                        onBookClick = {},
+                                        onPlayClick = {},
+                                        onRecheck = {}
+                                    )
+                                }
+                            }
+                            if (query.isNotBlank()) {
+                                // The real footer grows at 200%; fixed height tokens do not
+                                // describe the space left above its two navigation rows.
+                                Column(
+                                    modifier = Modifier.align(Alignment.BottomCenter)
+                                        .testTag("library_test_playback_footer")
+                                ) {
+                                    MiniPlayerBar(
+                                        playerState = PlayerState(currentBook = books.first().book),
+                                        onPlayPauseClick = {}, onBarClick = {}, onCloseClick = {}
+                                    )
+                                    AppBottomBar(selectedTab = SelectedTab.LIBRARY, onSelect = {})
+                                }
+                            }
                         }
                     }
                 }

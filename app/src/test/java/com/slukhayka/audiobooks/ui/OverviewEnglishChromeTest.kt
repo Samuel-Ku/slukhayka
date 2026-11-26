@@ -8,6 +8,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.onNodeWithText
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.R
@@ -22,6 +23,7 @@ import com.slukhayka.audiobooks.ui.screens.DownloadQueueEmptyState
 import com.slukhayka.audiobooks.ui.screens.ListenEmptyState
 import com.slukhayka.audiobooks.ui.screens.collections.CuratorProfileContent
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -76,12 +78,16 @@ class OverviewEnglishChromeTest {
 
     @Test
     fun theListenFreshInstallStateSpeaksEnglish() {
+        val actions = mutableListOf<String>()
         composeTestRule.setContent {
-            chrome { ListenEmptyState(onBrowseClick = {}, onImportClick = {}) }
+            chrome { ListenEmptyState(onBrowseClick = { actions.add("catalogue") }, onImportClick = { actions.add("import") }) }
         }
 
         assertChromeHasNoCyrillic()
-        composeTestRule.onNodeWithText("Keep listening").assertExists()
+        composeTestRule.onNodeWithText("Where would you like to start?").assertExists()
+        composeTestRule.onNodeWithText("Find an audiobook").performClick()
+        composeTestRule.onNodeWithText("Add from device").performClick()
+        assertEquals(listOf("catalogue", "import"), actions)
     }
 
     @Test

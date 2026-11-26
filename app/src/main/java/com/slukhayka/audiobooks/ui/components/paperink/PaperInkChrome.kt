@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -51,7 +50,7 @@ import com.slukhayka.audiobooks.ui.theme.PaperInkDimens
 import com.slukhayka.audiobooks.ui.theme.PaperInkType
 
 /**
- * The floating mini player of the direction: 64 dp, 24 dp radius, one 48 dp
+ * The floating mini player of the direction: at least 64 dp, 24 dp radius, one 48 dp
  * play target whose ring is the progress — no underline that reads as a random
  * rule. The screen decides whether it appears at all: on «Слухати» and on the
  * book page it would duplicate the main action, so those screens hide it.
@@ -79,14 +78,14 @@ fun PaperInkMiniPlayerBar(
 ) {
     val colorScheme = MaterialTheme.colorScheme
     Surface(
-        modifier = modifier.fillMaxWidth().height(PaperInkDimens.MiniPlayerHeight),
+        modifier = modifier.fillMaxWidth().heightIn(min = PaperInkDimens.MiniPlayerHeight),
         shape = RoundedCornerShape(PaperInkDimens.RadiusLarge),
         color = colorScheme.surface,
         border = BorderStroke(1.dp, colorScheme.outlineVariant),
         shadowElevation = 8.dp,
     ) {
         Row(
-            modifier = Modifier.fillMaxSize().padding(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (cover != null) {

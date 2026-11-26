@@ -186,7 +186,7 @@
     <string name="lib_saved_empty_bookmarks_title">Brak zakładek</string>
     <string name="lib_saved_empty_people_body">Dodawaj zakładki autorów lub lektorów ze strony książki.</string>
     <string name="lib_saved_empty_people_title">Brak zakładek osób</string>
-    <string name="lib_search_short_hint">Szukaj</string>
+    <string name="lib_search_short_hint">W moich książkach</string>
     <string name="lib_search_section_title">Wyszukiwanie</string>
     <string name="lib_section_bookmarks">Zakładki</string>
     <string name="lib_section_books">Książki</string>
@@ -817,4 +817,12 @@
     <!-- #1752: cast hand-back is an info banner, not a playback failure. -->
     <string name="player_cast_ended">Przesyłanie zakończone. Możesz słuchać dalej na telefonie.</string>
     <string name="player_cast_lost">Utracono połączenie z urządzeniem. Możesz słuchać dalej na telefonie.</string>
+    <string name="lib_reset_status_filter">Wyczyść filtr</string>
+    <string name="lib_filtered_results">%1$s · %2$s</string>
+    <plurals name="lib_result_books">
+        <item quantity="one">%1$d książka</item>
+        <item quantity="few">%1$d książki</item>
+        <item quantity="many">%1$d książek</item>
+        <item quantity="other">%1$d książki</item>
+    </plurals>
 </resources>

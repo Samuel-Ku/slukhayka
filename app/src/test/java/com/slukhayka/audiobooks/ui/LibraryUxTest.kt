@@ -3,6 +3,11 @@ package com.slukhayka.audiobooks.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
@@ -18,6 +23,9 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.testing.TestDataFactory
 import com.slukhayka.audiobooks.ui.library.buildLibraryBooks
+import com.slukhayka.audiobooks.ui.library.LibraryFilter
+import com.slukhayka.audiobooks.ui.screens.LibraryResultsSummary
+import com.slukhayka.audiobooks.ui.screens.LibrarySearchField
 import com.slukhayka.audiobooks.ui.screens.LibraryContinueCard
 import com.slukhayka.audiobooks.ui.screens.LibraryTabsWithSearch
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
@@ -81,6 +89,30 @@ class LibraryUxTest {
         compose.onNodeWithTag("library_continue_play").performClick()
         assertEquals(1, opened)
         assertEquals(1, resumed)
+    }
+
+    @Test
+    fun emptyFilteredResultOffersResetWhileKeepingTheSearchQuery() {
+        var resetCount = 0
+        compose.setContent {
+            var filter by remember { mutableStateOf(LibraryFilter.LISTENING) }
+            AudiobookTheme {
+                PaperInkThemedContent {
+                    Column(Modifier.width(360.dp)) {
+                        LibrarySearchField("Гібсон", {})
+                        LibraryResultsSummary(filter, if (filter == LibraryFilter.ALL) 1 else 0) {
+                            filter = LibraryFilter.ALL
+                            resetCount++
+                        }
+                    }
+                }
+            }
+        }
+        compose.onNodeWithText("Слухаю · 0 книжок").assertIsDisplayed()
+        compose.onNodeWithTag("library_reset_filter").performClick()
+        compose.onNodeWithText("Усі · 1 книжка").assertIsDisplayed()
+        compose.onNodeWithText("Гібсон").assertIsDisplayed()
+        assertEquals(1, resetCount)
     }
 
     @Test

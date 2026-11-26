@@ -103,7 +103,7 @@
     <string name="lib_books_count">Книги (%1$d)</string>
     <string name="lib_bookmarks_count">Закладки (%1$d)</string>
     <string name="lib_statistics">Статистика</string>
-    <string name="lib_search_short_hint">Пошук</string>
+    <string name="lib_search_short_hint">У моїх книгах</string>
     <string name="lib_add_own_files">Додати свої файли</string>
     <string name="lib_find_book">Знайти книгу</string>
     <string name="lib_import_connect">З\'єднати</string>
@@ -993,4 +993,12 @@
          Appended at the end so existing lint-baseline line numbers stay put. -->
     <string name="player_cast_ended">Трансляцію завершено. Можна слухати далі на телефоні.</string>
     <string name="player_cast_lost">Зв’язок із пристроєм втрачено. Можна слухати далі на телефоні.</string>
+    <string name="lib_reset_status_filter">Скинути фільтр</string>
+    <string name="lib_filtered_results">%1$s · %2$s</string>
+    <plurals name="lib_result_books">
+        <item quantity="one">%1$d книжка</item>
+        <item quantity="few">%1$d книжки</item>
+        <item quantity="many">%1$d книжок</item>
+        <item quantity="other">%1$d книжки</item>
+    </plurals>
 </resources>

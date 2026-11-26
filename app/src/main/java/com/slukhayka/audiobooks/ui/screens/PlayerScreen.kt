@@ -2318,7 +2318,6 @@ private fun TransportControls(
             description = backDescription,
             onClick = onBack,
             testTag = "player_rewind_button",
-            glyphSize = PaperInkIconSizes.Transport,
         )
         FilledIconButton(
             onClick = onPlayPause,
@@ -2363,7 +2362,6 @@ private fun TransportControls(
             description = forwardDescription,
             onClick = onForward,
             testTag = "player_forward_button",
-            glyphSize = PaperInkIconSizes.Transport,
         )
         TransportIcon(
             PaperInkIcons.SkipFwd,
@@ -2397,7 +2395,6 @@ private fun TransportIcon(
     // sized by them (4 × 52 dp + the 80 dp play box), so a name per target is
     // what lets the pane test state "these do not overlap" without reading px.
     testTag: String,
-    glyphSize: androidx.compose.ui.unit.Dp = PaperInkDimens.PlayerTransportGlyph,
 ) {
     IconButton(
         onClick = onClick,
@@ -2409,7 +2406,7 @@ private fun TransportIcon(
         Icon(
             icon,
             contentDescription = null,
-            modifier = Modifier.size(glyphSize)
+            modifier = Modifier.size(PaperInkDimens.PlayerTransportGlyph)
         )
     }
 }

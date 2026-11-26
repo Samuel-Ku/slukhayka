@@ -15,6 +15,9 @@ import tempfile
 import time
 
 MODEL = "minishlab/potion-multilingual-128M"
+# The exact files a staged model directory must contain; the systemd unit's
+# ConditionPathExists list is checked against this tuple by the unit test.
+MODEL_FILES = ("model.safetensors", "tokenizer.json", "config.json")
 MAX_BYTES = 8 * 1024 * 1024
 MAX_WORKS = 20_000
 MAX_CATALOG_BYTES = 64 * 1024 * 1024
@@ -131,7 +134,7 @@ def load_model(revision, model_dir=None):
         # Missing local files fail here; never substitute an online model.
         if not model_dir.is_dir() or (model_dir / "REVISION").read_text().strip() != revision:
             raise ValueError("local model revision mismatch")
-        for name in ("model.safetensors", "tokenizer.json", "config.json"):
+        for name in MODEL_FILES:
             if not (model_dir / name).is_file():
                 raise ValueError("local model is incomplete")
         os.environ["HF_HUB_OFFLINE"] = "1"

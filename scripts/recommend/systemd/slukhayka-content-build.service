@@ -2,6 +2,9 @@
 Description=Build Slukhayka public content graph offline
 # Deployment paths are deliberate; this file does not install or enable itself.
 ConditionPathExists=/opt/slukhayka-content-model/REVISION
+ConditionPathExists=/opt/slukhayka-content-model/model.safetensors
+ConditionPathExists=/opt/slukhayka-content-model/tokenizer.json
+ConditionPathExists=/opt/slukhayka-content-model/config.json
 ConditionPathExists=/srv/slukhayka-public/catalog.json
 
 [Service]
@@ -35,7 +38,10 @@ RestrictNamespaces=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes
 LockPersonality=yes
-MemoryDenyWriteExecute=yes
+# MemoryDenyWriteExecute=yes makes pthread_create fail with EPERM for
+# OpenBLAS/numpy on this workload ("can't start new thread"). Kept off
+# deliberately; every other sandbox directive remains in force.
+MemoryDenyWriteExecute=no
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
@@ -43,6 +49,7 @@ TasksMax=64
 MemoryMax=4G
 CPUQuota=200%
 Nice=10
-RuntimeMaxSec=30min
+# RuntimeMaxSec is ignored for Type=oneshot; this is the real wall limit.
+TimeoutStartSec=30min
 StandardOutput=journal
 StandardError=journal

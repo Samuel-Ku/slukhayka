@@ -530,4 +530,16 @@
     <string name="update_hide">Ukryj</string>
     <string name="update_available_title">Dostępna wersja %1$s</string>
     <string name="update_available_action">Zaktualizuj</string>
+    <string name="discovery_among_narrators">Wśród lektorów %1$s</string>
+    <plurals name="discovery_narration_count">
+        <item quantity="one">%1$d znana interpretacja</item>
+        <item quantity="few">%1$d znane interpretacje</item>
+        <item quantity="many">%1$d znanych interpretacji</item>
+        <item quantity="other">%1$d znanych interpretacji</item>
+    </plurals>
+    <string name="discovery_selected_genres">Wybrane gatunki (%1$d)</string>
+    <string name="discovery_duration_under_five">Do 5 godzin</string>
+    <string name="discovery_duration_five_ten">5–10 godzin</string>
+    <string name="discovery_duration_ten_twenty">10–20 godzin</string>
+    <string name="discovery_duration_over_twenty">Ponad 20 godzin</string>
 </resources>

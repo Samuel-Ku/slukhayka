@@ -13,6 +13,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -168,6 +169,9 @@ fun LazyListScope.searchResultsContent(
             // provenance chips ride the badges slot; the honest action status
             // stays under the row through CatalogCardStatus.
             LaunchedEffect(result.key) { onPreflightGlobalResult(result) }
+            val renditionCount = result.sources.map { it.editionId }.filter { it.isNotBlank() }.distinct().size
+            val knownLanguages = (listOf(result.language) + result.sources.map { it.language })
+                .filter { it.isNotBlank() }.distinct()
             BookRow(
                 title = result.title,
                 coverUrl = result.coverImageUrl,
@@ -178,14 +182,35 @@ fun LazyListScope.searchResultsContent(
                 badges = {
                     // Spec-45 (#405) T7 (#495): the card's rendition language —
                     // one EN/UA chip; unknown renders nothing (US3).
-                    if (result.language.isNotBlank()) {
-                        MetadataChip(language = result.language)
+                    knownLanguages.forEach { language ->
+                        MetadataChip(language = language)
                         Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
                     }
                     // Spec-10 T4: which source(s) carry a book.
                     result.sources.forEach { source ->
                         MetadataChip(source = source.sourceName)
                         Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                    }
+                },
+                footnoteInColumn = true,
+                footnote = {
+                    if (renditionCount > 1) {
+                        Text(
+                            text = pluralStringResource(R.plurals.discovery_narration_count, renditionCount, renditionCount),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (result.narrator.isNotBlank()) {
+                        Text(
+                            text = stringResource(
+                                if (renditionCount > 1) R.string.discovery_among_narrators
+                                else R.string.book_detail_narrator_label,
+                                result.narrator
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 },
                 contentDescription = stringResource(R.string.a11y_open_work, result.title),

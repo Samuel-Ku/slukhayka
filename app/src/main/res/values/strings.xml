@@ -993,4 +993,16 @@
          Appended at the end so existing lint-baseline line numbers stay put. -->
     <string name="player_cast_ended">Трансляцію завершено. Можна слухати далі на телефоні.</string>
     <string name="player_cast_lost">Зв’язок із пристроєм втрачено. Можна слухати далі на телефоні.</string>
+    <string name="discovery_among_narrators">Серед читців %1$s</string>
+    <plurals name="discovery_narration_count">
+        <item quantity="one">%1$d відома начитка</item>
+        <item quantity="few">%1$d відомі начитки</item>
+        <item quantity="many">%1$d відомих начиток</item>
+        <item quantity="other">%1$d відомі начитки</item>
+    </plurals>
+    <string name="discovery_selected_genres">Вибрані жанри (%1$d)</string>
+    <string name="discovery_duration_under_five">До 5 год</string>
+    <string name="discovery_duration_five_ten">5–10 год</string>
+    <string name="discovery_duration_ten_twenty">10–20 год</string>
+    <string name="discovery_duration_over_twenty">Понад 20 год</string>
 </resources>

@@ -108,7 +108,7 @@ class BookDetailAccessibilityTest {
         }
         composeTestRule.onNodeWithTag("book_detail_playback_edition")
             .assertTextContains("Озвучує: Інший голос", substring = true)
-            .assertTextContains("Англійська", substring = true)
+            .assertTextContains("English", substring = true)
             .assertTextContains("30:00", substring = true)
         composeTestRule.onNodeWithText("Продовжити з 05:00").performClick()
         composeTestRule.runOnIdle { assertEquals("another-narration", played) }

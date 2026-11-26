@@ -66,7 +66,13 @@
   репозиторієм; модельний процес його не має. Релізний keystore застосунку —
   окремий секрет власника.
 - **Релізний keystore/підпис** застосунку надає власник; без нього
-  `bundleRelease` не публікується.
+  `bundleRelease` не публікується. Команда після налаштування keystore:
+
+  ```sh
+  .worktrees/gt ./gradlew :app:bundleRelease \
+    -Precommendation.graphUrl=https://<domain>/graph.json \
+    -Precommendation.graphPublicKey=<base64>
+  ```
 
 Після першої production-публікації перевірити на справжньому пристрої:
 один fetch, валідний підпис, кеш, повторний запуск без запиту, TTL і

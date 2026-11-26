@@ -1,8 +1,9 @@
-# Захист dragonborn для обчислення рекомендацій
+# Захист CPU-воркера рекомендацій
 
-Це контракт розгортання й підготовлені файли, не підтвердження захищеності
-наявної машини. Dragonborn недоступний до вечора; firewall, sshd, роутер і
-служби на ньому не перевірялися й не змінювалися.
+Це контракт розгортання, а не підтвердження захищеності машини. 2026-11-26
+власник змінив ціль з dragonborn на Omarchy-хост; dragonborn лишився
+незміненим, і там нічого не встановлювалося. Фактичне приймання на Omarchy —
+нижче.
 
 ## Межа доступу
 
@@ -71,8 +72,19 @@ Lock підготовлений універсальним resolver для macOS
 Сервіс має PrivateNetwork, RestrictAddressFamilies=AF_UNIX, IPAddressDeny=any,
 NoNewPrivileges, ProtectHome, ProtectSystem, порожні capabilities,
 обмеження syscalls/namespaces/devices і UMask=0077. Пам'ять — 4 ГБ,
-CPU — два ядра, до 64 tasks, до 30 хв на запуск. --model-dir відхиляє
-відсутні локальні файли/іншу REVISION замість завантаження з мережі.
+CPU — два ядра, до 64 tasks. Для `Type=oneshot` діє `TimeoutStartSec=30min`,
+бо `RuntimeMaxSec` systemd ігнорує.
+
+`MemoryDenyWriteExecute=yes` несумісний з цим навантаженням: OpenBLAS/numpy
+створюють потоки через `clone`, і MDWE повертає EPERM на `pthread_create`
+(`can't start new thread`). Робочий юніт ставить `MemoryDenyWriteExecute=no`
+з поясненням; решта директив лишається. Це перевіряє
+`scripts/tests/test_recommend_unit.py`, щоб дефект не повернувся.
+
+`--model-dir` відхиляє відсутні локальні файли/іншу REVISION замість
+завантаження з мережі, але лише коли треба рахувати вектори: на теплому кеші
+`load_model` не викликається. Тому юніт перевіряє `ConditionPathExists` для
+`REVISION` і всіх трьох файлів моделі до запуску.
 Вхід обмежено 64 MiB і схемою works/workKey/text. Текст передається тільки
 в tokenizer; команди, шляхи до програм і URL для виконання з нього не беруться.
 
@@ -90,9 +102,35 @@ IPv4/IPv6 на роутері. З'ясувати, які чинні служби
 Після встановлення виконати systemd-analyze verify/security для сервісу й
 реальний cold/warm запуск. Перевірити відмову процесу на вихідний TCP-запит,
 читання домашньої папки та запис поза StateDirectory. Перевірити, що він
-не має credential доставки. Лише після цього приймати ізоляцію. Тут
-systemd-analyze заблокований доступом до /run/systemd; успішного runtime
-тесту sandbox на dragonborn ще немає.
+не має credential доставки. Лише після цього приймати ізоляцію.
+`systemd-analyze verify/security` і реальний cold/warm виконано на Omarchy
+2026-11-26; на dragonborn розгортання не виконувалося.
+
+### Omarchy, 2026-11-26
+
+Розгорнуто як systemd-сервіс: `/opt/slukhayka-content-worker` (ревізія
+7e029fe6, venv Python 3.12), `/opt/slukhayka-content-model` (ревізія
+73908c34), стан у `/var/lib/slukhayka-content`. Юніт `static`/`inactive`,
+без таймера; без `/srv/slukhayka-public/catalog.json` не стартує.
+
+Перевірено: cold `computed=4`, warm `computed=0`; помилковий вхід і SIGKILL
+зберегли попередній граф; probe під DynamicUser (uid 63397) дав `CapEff=0`,
+`/home`, `/root` і SSH-ключ недоступні, запис у `/opt`, `/srv`, `/etc`,
+`/usr` заборонено, запис у state дозволено; TCP `EAFNOSUPPORT`; нових
+listening-портів немає. `systemd-analyze security` — 0.6 SAFE.
+
+Межі, які треба знати:
+
+- `getaddrinfo` може відповісти через Unix-сокет systemd-resolved — це не
+  мережевий вихід; доказом є TCP-проба.
+- Probe не перелічує інтерфейси: `ProcSubset=pid` ховає `/proc/net`, а
+  `AF_NETLINK` заборонений. Це недоступність переліку, не доказ мережі.
+- На Omarchy `PasswordAuthentication=yes`, `PermitRootLogin=prohibit-password`,
+  `AllowTcpForwarding=yes`; UFW пускає 22 лише з `192.168.2.0/24`, решта
+  вхідних — 1714-1764 (KDE Connect), 8788, 53317. Посилення SSH не
+  застосовано; це окреме рішення власника.
+
+### Mac
 
 На Mac локальний smoke-local.sh — звичайний користувацький процес, не цей
 Linux sandbox. Для проби використовувати окремого стандартного користувача
@@ -100,3 +138,10 @@ Linux sandbox. Для проби використовувати окремого
 кібербезпеки. Публічний граф підписувати окремим ключем перед production,
 а перевірку підпису додати на клієнті до ввімкнення production URL. Поточний
 клієнт має HTTPS/межі/TTL, але підпис ще не перевіряє.
+
+## Що ще не готово
+
+Production-каталогу з канонічними ключами немає; перевірено лише smoke.
+Доставка graph.json окремим процесом із правом на один артефакт і перевірка
+криптографічного підпису на Android ще не реалізовані. Розклад не ввімкнений;
+production-публікації немає.

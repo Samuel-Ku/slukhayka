@@ -108,3 +108,11 @@ Cloud-чат не отримує доступу до Mac автоматично.
 отримання даних і доставка відділені. Попередні команди прямого запуску —
 лише проба функціональності, не прийнятий захищений production-сервіс.
 Встановлення залежностей використовує requirements.lock з --require-hashes.
+
+## Фактичне розгортання 2026-11-26
+
+Ціль змінена власником: воркер розгорнуто на Omarchy-хості, не на dragonborn.
+Це systemd-сервіс із `DynamicUser`, `/opt/slukhayka-content-worker`,
+`/opt/slukhayka-content-model` і станом у `/var/lib/slukhayka-content`.
+Cold/warm, ізоляція, межі й відкриті частини (production-каталог, доставка,
+підпис) — [recommendation-worker-security.md](recommendation-worker-security.md).

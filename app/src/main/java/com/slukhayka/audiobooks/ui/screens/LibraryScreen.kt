@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkResumeAction
 import com.slukhayka.audiobooks.ui.icons.PaperInkIconSizes
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
@@ -1782,35 +1783,17 @@ internal fun LibraryContinueCard(
                 )
             }
             Spacer(modifier = Modifier.height(PaperInkDimens.SpaceSm))
-            Button(
+            PaperInkResumeAction(
+                text = if (remaining != null) {
+                    stringResource(R.string.lib_listen_continue_remaining, remaining)
+                } else {
+                    stringResource(R.string.lib_listen_continue)
+                },
                 onClick = onPlay,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = PaperInkDimens.PrimaryButtonHeight)
                     .testTag("library_continue_play"),
-                shape = RoundedCornerShape(PaperInkDimens.RadiusLarge),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.tertiary,
-                    contentColor = MaterialTheme.colorScheme.onTertiary,
-                ),
-            ) {
-                Icon(
-                    imageVector = PaperInkIcons.Play,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onTertiary,
-                    modifier = Modifier.size(PaperInkIconSizes.Chrome)
-                )
-                Spacer(modifier = Modifier.width(AppDimens.SpaceSm))
-                Text(
-                    text = if (remaining != null) {
-                        stringResource(R.string.lib_listen_continue_remaining, remaining)
-                    } else {
-                        stringResource(R.string.lib_listen_continue)
-                    },
-                    style = PaperInkType.Label,
-                    color = MaterialTheme.colorScheme.onTertiary
-                )
-            }
+            )
         }
     }
 }

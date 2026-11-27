@@ -3,7 +3,10 @@ package com.slukhayka.audiobooks.ui
 import android.content.Context
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -241,6 +244,54 @@ class PublicCollectionContentTest {
                         originalAvailableLocally = true,
                         onSaveForYou = {}
                     )
+                }
+            }
+        }
+
+        composeTestRule
+            .onNodeWithTag("public_collection_count")
+            .assertIsDisplayed()
+        composeTestRule
+            .onNodeWithTag("public_collection_item_49")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeTestRule
+            .onNodeWithTag("public_collection_no_ratings")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeTestRule
+            .onNodeWithTag("save_collection_for_you")
+            .performScrollTo()
+            .assertIsDisplayed()
+    }
+
+    @Test
+    fun `a 50-book collection at 200 percent font scrolls to the last book and save action`() {
+        val items = (0 until 50).map { index ->
+            PublishedCollectionItem(
+                bookId = "book-$index",
+                title = "Книга $index",
+                author = "Автор",
+                coverUrl = null,
+                reason = ""
+            )
+        }
+        composeTestRule.setContent {
+            val density = LocalDensity.current
+            CompositionLocalProvider(
+                LocalDensity provides Density(density.density, fontScale = 2f)
+            ) {
+                AudiobookTheme(darkTheme = true) {
+                    Box(Modifier.height(320.dp)) {
+                        PublicCollectionContent(
+                            collection = collection.copy(
+                                bookIds = items.map { it.bookId },
+                                items = items
+                            ),
+                            originalAvailableLocally = true,
+                            onSaveForYou = {}
+                        )
+                    }
                 }
             }
         }

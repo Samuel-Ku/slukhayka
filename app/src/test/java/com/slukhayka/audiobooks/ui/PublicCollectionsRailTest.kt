@@ -1,11 +1,16 @@
 package com.slukhayka.audiobooks.ui
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.data.achievements.ShowcaseAwardSnapshot
 import com.slukhayka.audiobooks.ui.screens.collections.CollectionWithBookRow
 import com.slukhayka.audiobooks.ui.screens.collections.CuratorProfileContent
@@ -177,5 +182,28 @@ class PublicCollectionsRailTest {
         composeTestRule.onNodeWithTag("curator_profile_empty").assertIsDisplayed()
         composeTestRule.onNodeWithTag("curator_profile_showcase").assertDoesNotExist()
         composeTestRule.onNodeWithTag("curator_profile_award_first_book").assertDoesNotExist()
+    }
+
+    @Test
+    fun `a curator with 25 collections scrolls to the last one`() {
+        val rows = (0 until 25).map { index ->
+            rated.copy(documentId = "doc-$index", title = "Добірка $index")
+        }
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Box(Modifier.height(320.dp)) {
+                    CuratorProfileContent(
+                        pseudonym = "Слухач",
+                        rows = rows,
+                        onOpen = {}
+                    )
+                }
+            }
+        }
+
+        composeTestRule
+            .onNodeWithTag("curator_collection_doc-24")
+            .performScrollTo()
+            .assertIsDisplayed()
     }
 }

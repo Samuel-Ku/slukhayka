@@ -1,6 +1,9 @@
 package com.slukhayka.audiobooks.ui
 
 import android.content.Context
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -8,9 +11,12 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.collections.PublishedCollection
+import com.slukhayka.audiobooks.data.collections.PublishedCollectionItem
 import com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionContent
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
@@ -211,5 +217,41 @@ class PublicCollectionContentTest {
         composeTestRule.onNodeWithTag("rating_star_4").performClick()
 
         assertEquals(4, voted)
+    }
+
+    @Test
+    fun `a 50-book collection scrolls to its last book and the save action`() {
+        val items = (0 until 50).map { index ->
+            PublishedCollectionItem(
+                bookId = "book-$index",
+                title = "Книга $index",
+                author = "Автор",
+                coverUrl = null,
+                reason = ""
+            )
+        }
+        composeTestRule.setContent {
+            AudiobookTheme(darkTheme = true) {
+                Box(Modifier.height(320.dp)) {
+                    PublicCollectionContent(
+                        collection = collection.copy(
+                            bookIds = items.map { it.bookId },
+                            items = items
+                        ),
+                        originalAvailableLocally = true,
+                        onSaveForYou = {}
+                    )
+                }
+            }
+        }
+
+        composeTestRule
+            .onNodeWithTag("public_collection_item_49")
+            .performScrollTo()
+            .assertIsDisplayed()
+        composeTestRule
+            .onNodeWithTag("save_collection_for_you")
+            .performScrollTo()
+            .assertIsDisplayed()
     }
 }

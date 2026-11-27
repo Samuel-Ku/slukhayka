@@ -917,10 +917,58 @@ describe("player overlay is a modal dialog (#1688)", () => {
     } as const;
     setUiLocale("uk");
     const view = render(<PlayerSheet {...props} />);
-    expect(screen.getByRole("button", { name: /^(Грати|Пауза)$/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Грати" })).toBeTruthy();
     view.unmount();
     setUiLocale("en");
     render(<PlayerSheet {...props} />);
-    expect(screen.getByRole("button", { name: /^(Play|Pause)$/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Play" })).toBeTruthy();
+  });
+
+  it("uses the pause name while the engine is playing", async () => {
+    const engine = freshEngine();
+    await engine.loadBook(
+      {
+        title: "Книга",
+        chapters: CHAPTERS,
+        editionId: "ed-1",
+        workId: "Книга|Автор",
+      },
+      0,
+      { forceChapter: true }
+    );
+    vi.spyOn(engine, "getState").mockReturnValue({
+      ...engine.getState(),
+      status: "playing",
+    });
+    setUiLocale("uk");
+    render(
+      <PlayerSheet
+        engine={engine}
+        onClose={vi.fn()}
+        lastPlayed={null}
+        profile={null}
+        reviewsStore={null}
+        bookmarksStore={null}
+      />
+    );
+    expect(screen.getByRole("button", { name: "Пауза" })).toBeTruthy();
+  });
+
+  it("falls back to the chapter-only heading when no book is loaded", async () => {
+    const engine = freshEngine();
+    await loadPlayer(engine);
+    engine.pause();
+    render(
+      <PlayerSheet
+        engine={engine}
+        onClose={vi.fn()}
+        lastPlayed={null}
+        profile={null}
+        reviewsStore={null}
+        bookmarksStore={null}
+      />
+    );
+    const heading = screen.getByRole("heading", { name: "Розділ 1" });
+    expect(document.activeElement).toBe(heading);
   });
 });

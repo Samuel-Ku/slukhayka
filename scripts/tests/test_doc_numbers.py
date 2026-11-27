@@ -340,27 +340,27 @@ class FindingTest(FixtureMixin):
         self.assertIn("«Сьомий випадок»", out)
 
     def test_a_header_price_that_disagrees_with_the_record_is_a_finding(self):
-        """Живий приклад тікета #1308: `144` у шапці `issue_premise.py` став 145.
+        """Живий приклад тікета #1308: `146` у шапці `issue_premise.py` став 147.
 
         Мутація — рівно та, якою огляд PR #1306 довів щілину: до #1308 цей
         рядок не бачив ніхто, і заміна проходила зеленим.
         """
         self.edit("scripts/issue_premise.py",
-                  "«будь-який збіг-дерево» — 144", "«будь-який збіг-дерево» — 145")
+                  "«будь-який збіг-дерево» — 146", "«будь-який збіг-дерево» — 147")
         code, out, _ = self.check()
         self.assertEqual(1, code)
-        self.assertIn("рядок каже «145»", out)
-        self.assertIn("144", out)
+        self.assertIn("рядок каже «147»", out)
+        self.assertIn("146", out)
 
     def test_the_same_price_in_the_tracker_is_a_finding_too(self):
         """Другий файл тієї самої щілини: `docs/agents/issue-tracker.md`."""
         self.edit("docs/agents/issue-tracker.md",
-                  "«без крапки, будь-який збіг-дерево» — 142",
-                  "«без крапки, будь-який збіг-дерево» — 141")
+                  "«без крапки, будь-який збіг-дерево» — 144",
+                  "«без крапки, будь-який збіг-дерево» — 143")
         code, out, _ = self.check()
         self.assertEqual(1, code)
-        self.assertIn("рядок каже «141»", out)
-        self.assertIn("142", out)
+        self.assertIn("рядок каже «143»", out)
+        self.assertIn("144", out)
 
     def test_a_case_word_in_the_premise_header_is_now_a_finding(self):
         """Критерій #1308: файл у `SCANNED` — і число класу в ньому вже видно."""
@@ -542,7 +542,7 @@ class NumberShapeTest(FixtureMixin):
     def test_a_record_line_with_two_numbers_is_an_unknown(self):
         """Шапка обіцяє «рівно одне число» — і для запису виміру теж."""
         self.edit("docs/agents/issue-tracker.md",
-                  "«ціна правила про теку» — 83", "«ціна правила про теку» — 83 і 200")
+                  "«ціна правила про теку» — 84", "«ціна правила про теку» — 84 і 200")
         code, _, err = self.check()
         self.assertEqual(2, code)
         self.assertIn("а мусить рівно одне", err)

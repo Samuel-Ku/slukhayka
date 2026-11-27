@@ -38,6 +38,36 @@ class RecommendationQualityRegressionTest {
         assertTrue("Relevant alternatives are available for every slot", result.all { it.candidate.genre == "фентезі" })
     }
 
+    @Test fun `duplicate metadata cannot bypass hidden author and first work wins`() {
+        val hidden = RecommendationEngine.Candidate("duplicate", "Hidden book", author = "Hidden")
+        val visible = hidden.copy(title = "Visible book", author = "Visible")
+        val ranker = LocalRecommendationRanker()
+        assertTrue(ranker.rank(listOf(hidden, visible), emptyList(), excludedAuthors = setOf("Hidden")).isEmpty())
+        assertEquals(listOf("Visible"), ranker.rank(listOf(visible, hidden), emptyList(),
+            excludedAuthors = setOf("Hidden")).map { it.candidate.author })
+    }
+
+    @Test fun `covered missing edge remains authoritative despite matching text`() {
+        val graph = PrecomputedRecommendationGraph.parse(graphText()
+            .replace("[[[1,0.9]],[[0,0.9]]]", "[[],[]]"), now)!!
+        val candidates = listOf("covered-a", "covered-b").map {
+            RecommendationEngine.Candidate(it, "археолог руїни", description = "експедиція")
+        }
+        val result = LocalRecommendationRanker().rank(candidates,
+            listOf(RecommendationEngine.Signal("covered-a", "археолог руїни", weight = 1.0)),
+            nowEpochMs = now, contentGraph = graph).single()
+        assertEquals(0.0, result.semanticScore, 0.0)
+        assertTrue(result.reasonTitle.isEmpty())
+    }
+
+    @Test fun `text only dislike still vetoes uncovered works with a partial graph`() {
+        val result = LocalRecommendationRanker().rank(
+            listOf(RecommendationEngine.Candidate("new", "Нова назва", description = "привиди темрява жахи")),
+            listOf(RecommendationEngine.Signal("disliked", "привиди темрява жахи", weight = -1.0)),
+            nowEpochMs = now, contentGraph = PrecomputedRecommendationGraph.parse(graphText(), now))
+        assertTrue(result.isEmpty())
+    }
+
     @Test fun `compact graph preserves unsorted symmetric edges and missing work distinction`() {
         val wire = graphText().replace("\"workKeys\":[\"covered-a\",\"covered-b\"]",
             "\"workKeys\":[\"covered-a\",\"covered-b\",\"covered-c\",\"isolated\"]")

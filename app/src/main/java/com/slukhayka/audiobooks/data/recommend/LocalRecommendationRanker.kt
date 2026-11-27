@@ -28,6 +28,7 @@ class LocalRecommendationRanker {
         contentGraph: PrecomputedRecommendationGraph? = null
     ): List<RecommendationEngine.Recommendation> {
         if (topN <= 0) return emptyList()
+        val catalog = candidates.distinctBy { it.id }
         val graph = contentGraph?.takeIf { it.isFresh(nowEpochMs) }
         val hidden = excludedAuthors.map(::key).toSet()
         val ordered = RecommendationPersonalization.resolveSignals(signals)
@@ -37,11 +38,11 @@ class LocalRecommendationRanker {
         val negative = ordered.filter { it.weight < 0 }.take(64)
         val active = positive + negative
         val needsText = active.isNotEmpty() && (graph == null || active.any { !graph.containsWork(it.id) } ||
-            candidates.any { !graph.containsWork(it.id) })
-        if (needsText) index(candidates)
-        if (candidates != featuredCandidates) {
-            features = candidates.associate { it.id to Features(key(it.author), key(it.series), tokens(it.genre).keys) }
-            featuredCandidates = candidates.toList()
+            catalog.any { !graph.containsWork(it.id) })
+        if (needsText) index(catalog)
+        if (catalog != featuredCandidates) {
+            features = catalog.associate { it.id to Features(key(it.author), key(it.series), tokens(it.genre).keys) }
+            featuredCandidates = catalog
         }
         val knownSignalIds = signals.mapTo(HashSet()) { it.id }
         val signalVectors = if (needsText) active.associate {
@@ -61,7 +62,7 @@ class LocalRecommendationRanker {
             return (.5 * lexical + .25 * author + .15 * genres + .10 * series).coerceIn(0.0, 1.0)
         }
         val day = nowEpochMs / 86_400_000L
-        val scored = candidates.distinctBy { it.id }.asSequence()
+        val scored = catalog.asSequence()
             .filter { it.id !in excludedWorkIds && features.getValue(it.id).author !in hidden }
             .filter { it.id !in knownSignalIds }
             .mapNotNull { candidate ->
@@ -104,14 +105,8 @@ class LocalRecommendationRanker {
         }
         val personalSlots = (topN - minOf(2, topN / 3)).coerceAtLeast(0)
         for (item in personal) {
-            if (selected.size >= personalSlots) break
-            add(item, false)
-        }
-        // Preserve useful matches when diversity leaves personal slots unfilled or when
-        // more relevant alternatives exist than the reserved personal slots.
-        for (item in personal) {
             if (selected.size >= topN) break
-            add(item, true)
+            add(item, selected.size >= personalSlots)
         }
         // Daily rotation changes discovery without a timer, random flicker or CPU polling.
         // Personal picks retain relevance order; discovery also works for a new listener.

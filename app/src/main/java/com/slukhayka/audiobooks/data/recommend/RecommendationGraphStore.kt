@@ -33,7 +33,8 @@ class RecommendationGraphStore(
             acceptedGraph = runCatching { cachedGraph(now) }.getOrNull()
             cacheLoaded = true
         }
-        val cached = acceptedGraph?.takeIf { it.isFresh(now) }
+        acceptedGraph = acceptedGraph?.takeIf { it.isFresh(now) }
+        val cached = acceptedGraph
         val safeUrl = runCatching {
             URI(url).let { it.scheme == "https" && !it.host.isNullOrBlank() && it.userInfo == null }
         }.getOrDefault(false)

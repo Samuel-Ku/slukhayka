@@ -24,11 +24,19 @@ def queue_snapshot(pulls, state, limit=3):
         reviewing = any(v.get('status') == 'in-progress' for v in verdicts)
         active += int(reviewing)
         checks = {}
+        pending = set()
         # Historical failed attempts must not hide a later successful attempt.
         for check in sorted(pull.get('statusCheckRollup') or [],
                             key=lambda c: c.get('completedAt') or c.get('startedAt') or ''):
             name = check.get('name') or check.get('context')
             checks[name] = (check.get('conclusion') or check.get('state') or '').upper()
+            if checks[name] not in ('SUCCESS', 'SKIPPED', 'NEUTRAL', 'FAILURE', 'ERROR',
+                                    'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STARTUP_FAILURE'):
+                pending.add(name)
+        # A live attempt remains pending even when GitHub gives completedAt the
+        # zero-date sentinel. Never dispatch from an older success over that run.
+        for name in pending:
+            checks[name] = 'PENDING'
         non_review = [v for k, v in checks.items() if k != 'Review gate']
         if pull.get('isDraft'):
             action, owner = 'prepare', record.get('implementer')

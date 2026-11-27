@@ -58,3 +58,13 @@ class QueueTest(unittest.TestCase):
         result = queue_snapshot(pulls, state)
         self.assertEqual(2, result['activeReviews'])
         self.assertEqual(1, sum(r['dispatchReview'] for r in result['pullRequests']))
+
+    def test_live_rerun_zero_completion_date_blocks_old_success(self):
+        p = self.pull()
+        p['statusCheckRollup'] = [
+            dict(name='tests', status='IN_PROGRESS', conclusion='',
+                 startedAt='2026-02', completedAt='0001-01-01T00:00:00Z'),
+            dict(name='tests', status='COMPLETED', conclusion='SUCCESS', completedAt='2026-01')]
+        row = queue_snapshot([p], {})['pullRequests'][0]
+        self.assertEqual('check-ci', row['next'])
+        self.assertFalse(row['dispatchReview'])

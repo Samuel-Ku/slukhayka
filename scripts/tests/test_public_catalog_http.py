@@ -13,6 +13,11 @@ URL = "https://chitaka.com.ua/knigi/example/"
 
 
 class PublicCatalogHttpTest(unittest.TestCase):
+    def setUp(self):
+        proxy = patch.object(transport.urllib.request, "getproxies", return_value={})
+        proxy.start()
+        self.addCleanup(proxy.stop)
+
     def test_rejects_schemes_credentials_private_hosts_and_ports_before_io(self):
         for url in ("file:///etc/hosts", "http://chitaka.com.ua/a", "https://127.0.0.1/a",
                     "https://[::1]/a", "https://chitaka.com.ua.evil.test/a",
@@ -60,6 +65,20 @@ class PublicCatalogHttpTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "not bypassed"):
                 transport.fetch_text(URL)
             opener.assert_not_called()
+
+    def test_redirect_cannot_bypass_proxy_outside_no_proxy(self):
+        request = urllib.request.Request(URL)
+        redirected = transport.PublicRedirectHandler().redirect_request(
+            request, None, 302, "Found", {}, "https://sound-books.net/book/")
+        with patch.object(transport.urllib.request, "getproxies", return_value={"https": "http://proxy"}), \
+                patch.object(transport.urllib.request, "proxy_bypass", side_effect=lambda host: host == "chitaka.com.ua"), \
+                patch.object(transport.socket, "getaddrinfo", return_value=[
+                    (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("1.1.1.1", 443))]) as dns, \
+                patch.object(transport.socket, "socket") as factory:
+            with self.assertRaisesRegex(transport.CatalogSecurityError, "not bypassed"):
+                transport.PublicHTTPSConnection(redirected.host)._create_connection((redirected.host, 443), 20)
+            dns.assert_not_called()
+            factory.assert_not_called()
 
     def test_response_is_bounded_even_without_content_length(self):
         response = MagicMock()

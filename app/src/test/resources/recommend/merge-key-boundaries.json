@@ -1,0 +1,79 @@
+{
+  "entries": [
+    {
+      "title": "One\nTwo",
+      "author": "Writer",
+      "workKey": "onetwo|writer"
+    },
+    {
+      "title": "One\tTwo",
+      "author": "Writer",
+      "workKey": "onetwo|writer"
+    },
+    {
+      "title": "One Two",
+      "author": "Writer",
+      "workKey": "onetwo|writer"
+    },
+    {
+      "title": "One",
+      "author": "First\nLast",
+      "workKey": "one|firstlast"
+    },
+    {
+      "title": "One",
+      "author": "First\tLast",
+      "workKey": "one|firstlast"
+    },
+    {
+      "title": "One",
+      "author": "First Last",
+      "workKey": "one|firstlast"
+    },
+    {
+      "title": " One  Two ",
+      "author": " First  Last ",
+      "workKey": "one two|first last"
+    },
+    {
+      "title": "Аудіокнига Назва - Автор слухати онлайн українською",
+      "author": "Автор",
+      "workKey": "назва|автор"
+    },
+    {
+      "title": "Аудіокнига Назва",
+      "author": "Автор",
+      "workKey": "аудіокнига назва|автор"
+    },
+    {
+      "title": "Аудіокнига: Назва",
+      "author": "Автор",
+      "workKey": "назва|автор"
+    },
+    {
+      "title": "🎧 One",
+      "author": "Writer",
+      "workKey": "one|writer"
+    },
+    {
+      "title": "Ім&#x27;я тіні",
+      "author": "О&#039;Коннор",
+      "workKey": "імя тіні|оконнор"
+    },
+    {
+      "title": ":Subtitle",
+      "author": "Writer",
+      "workKey": ""
+    },
+    {
+      "title": "---",
+      "author": "Writer",
+      "workKey": ""
+    },
+    {
+      "title": "One",
+      "author": "",
+      "workKey": ""
+    }
+  ]
+}

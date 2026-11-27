@@ -1,0 +1,12 @@
+{
+  "utc": "2026-11-27T10:22:59Z",
+  "power": [
+    "mWakefulness=Awake"
+  ],
+  "display": [
+    "mPowerRequest=policy=BRIGHT, useProximitySensor=false, screenBrightnessOverride=NaN, screenAutoBrightnessAdjustmentOverride=NaN, screenLowPowerBrightnessFactor=1.0, blockScreenOn=false, setBrightnessUntilScreenOnReady=true, lowPowerMode=false, boostScreenBrightness=false, dozeScreenBrightness=NaN, dozeScreenState=UNKNOWN, dozeScreenStateReason=DEFAULT_POLICY, useNormalBrightnessForDoze=false",
+    "mBrightnessReason=automatic",
+    "mScreenState=ON"
+  ],
+  "screen_off_proven": false
+}

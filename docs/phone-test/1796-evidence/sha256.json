@@ -1,5 +1,7 @@
 {
   "SignedGraphHttpsDeviceAcceptanceTest.kt.txt": "7d1b23dfb069d3a319b5742fe23f485b325f9e8e5080776b28302a60bd28ab2a",
+  "baseline-display-crosscheck.json": "0b71b3b5d700e04590b38bfb5716d0e7d76a246ca45b1f94dc6ce570aa20edf0",
+  "baseline30-interrupted-summary.json": "d1b65c388fc87587aaa96dd721a056a3143d85b22d07d5c2ae26d2003d628ca6",
   "device-https-test.log": "59b90ee6cf19813f20d558c50a8d2a527ded76b42c99b8fda2e289f83f46fc35",
   "https-apk-verification.json": "a0165d8ed100483970386054c26a20825109fe229dbe604670eaf9b36f2cc8a4",
   "https-negatives-host-verification.json": "44d9b8668cfd0121d6c6e537460b2877972d70aa8a7e792ef22568edc77b779c",

@@ -1,0 +1,42 @@
+{
+  "status": "INTERRUPTED; 30-minute stability not achieved",
+  "collector_exit": 143,
+  "pending_extension_exit": 143,
+  "extension_started": false,
+  "samples": 49,
+  "duration_seconds": 1440.004,
+  "media_samples": 48,
+  "playing_samples": 44,
+  "paused_samples": 4,
+  "startup_without_media": 1,
+  "first_paused_elapsed_seconds": 1350.005,
+  "same_pid": true,
+  "dozing_samples": 20,
+  "sampled_dozing_interval_seconds": 569.997,
+  "screen_off_proven": false,
+  "pause_cause": "Exact pause trigger not traced; owner confirmed simultaneous unlocking/use. No app regression inferred.",
+  "cpu_seconds": 284.1,
+  "clock_ticks_per_second": 100,
+  "pss_kib_range": [
+    237346,
+    292305
+  ],
+  "rss_kib_range": [
+    236008,
+    455408
+  ],
+  "battery_c_range": [
+    34.5,
+    36.0
+  ],
+  "physical_charging": true,
+  "matched_comparison_proven": false,
+  "limitations": [
+    "Interrupted; no 30-minute uninterrupted playback",
+    "Dozing observed passively; no direct display-OFF samples during that interval",
+    "Later crosscheck: Awake and screen ON/BRIGHT",
+    "Adaptive brightness unchanged; no matched workload, initial thermal state or precise energy"
+  ],
+  "source_sha256": "2475c20017b3ae925090c2b9ebcd6eb98f96df7d0bd5270a08ed594b60b641ba",
+  "owner_confirmation": "Owner confirmed unlocking and using the phone during this interval. Treat as uncontrolled/interrupted acceptance, not an application failure."
+}

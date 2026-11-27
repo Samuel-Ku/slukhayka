@@ -1,9 +1,48 @@
 package com.slukhayka.audiobooks.data.metadata
 
+import kotlin.system.measureNanoTime
+import com.slukhayka.audiobooks.data.source.decodeEntities
 import com.slukhayka.audiobooks.data.source.SourceChapter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+
+/** Manual host JVM probe for marker checks on synthetic claimed metadata. */
+object RunClaimedTextBenchmark {
+    private fun reference(value: String?): String? {
+        val trimmed = decodeEntities(value?.trim().orEmpty())
+        if (trimmed.isEmpty() || trimmed.contains("4read", ignoreCase = true)) return null
+        return trimmed
+    }
+
+    @JvmStatic
+    fun main(args: Array<String>) {
+        val names = listOf("Тарас Шевченко", "Кобзар", "Gabriel García", "Іван Франко", "Айя Нея — Ім'я тіні")
+        val markers = listOf("4read.org", "Аудіокнига 4READ.org", "&#52;read голос", "4rEaD", "Автор 4Read")
+        val plain = List<String?>(1000) { "${names[it % names.size]} ${'a' + it % 26}" }
+        val digits = List<String?>(1000) { "Читець номер 4 — автор $it" }
+        val branded = List<String?>(1000) { markers[it % markers.size] }
+        val mixed = List(1000) { if (it % 10 == 0) branded[it] else plain[it] }
+        check(plain.none { '4' in it.orEmpty() })
+        for (input in listOf(null, "", " ", "4", "Автор &#x34;READ", "𝟜read")) {
+            check(reference(input) == MetadataAssertions.normalizeClaimedText(input))
+        }
+        var checksum = 0L
+        for ((name, inputs) in listOf("plain" to plain, "digits" to digits, "branded" to branded, "mixed" to mixed)) {
+            check(inputs.all { reference(it) == MetadataAssertions.normalizeClaimedText(it) })
+            fun sample(current: Boolean): Long = measureNanoTime { repeat(50) { for (input in inputs) {
+                checksum += (if (current) MetadataAssertions.normalizeClaimedText(input) else reference(input)).hashCode()
+            } } }
+            repeat(50) { sample(false); sample(true) }
+            val before = mutableListOf<Long>(); val after = mutableListOf<Long>()
+            repeat(9) { i -> if (i % 2 == 0) { before += sample(false); after += sample(true) }
+                else { after += sample(true); before += sample(false) } }
+            println("$name reference=$before candidate=$after")
+            println("$name ms/1000 reference=${before.sorted()[4] / 50e6} candidate=${after.sorted()[4] / 50e6}")
+        }
+        println("checksum=$checksum")
+    }
+}
 
 /**
  * Pure JVM seam (ADR-0004): the ONE place Metadata Assertions are applied to
@@ -227,6 +266,8 @@ class MetadataAssertionsTest {
             "4read.org" to null,
             "Аудиокнига 4read.org" to null,
             "4READ Voice Narrator" to null,
+            "&#52;READ Voice" to null,
+            "Читець №4" to "Читець №4",
             "Жан-Крістоф Гранже" to "Жан-Крістоф Гранже",
             "  Тарас Шевченко  " to "Тарас Шевченко"
         )

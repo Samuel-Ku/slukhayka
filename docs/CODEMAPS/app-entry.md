@@ -69,15 +69,17 @@ selectedSeries · selectedGenre · selectedTop100 · selectedPeopleKind ·
 selectedPerson
 
 // Content StateFlows
-playerState · libraryBooks · nextInSeries · listenBlocks · hiddenListenBlocks ·
+playerState · libraryBooks · listenShelves.state ·
 recentProgress · searchQuery · selectedGenreFilter · cacheSizeFormatted
 
 // Actions (selection of)
 selectTab · selectBook · setShowFullPlayer · openWebSource/closeWebSource ·
 openSeries/closeSeries · openGenre/closeGenre · openTop100/closeTop100 ·
 openPeople/closePeople · openPersonBooks/closePersonBooks ·
-playAudiobook · moveListenBlockUp/Down · hideListenBlock · restoreHiddenListenBlocks ·
-dismissListenBook · refreshCacheSize · clearAllAudioCache
+playAudiobook · loadNextInSeries · refreshCacheSize · clearAllAudioCache
+
+// Команди полиць на listenShelves
+moveBlockUp/Down · hideBlock · unhideBlock · restoreHiddenBlocks · dismissBook · undismissBook
 ```
 
 ## Browser Gating (BrowserGating.kt)

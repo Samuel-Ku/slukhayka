@@ -110,3 +110,13 @@ module flows directly; no per-screen ViewModel and no navigation change is
 introduced. A module that only forwarded these calls without owning that order
 would be the forbidden forwarding module — this one owns it and is tested as
 such.
+
+## #1794 — хто готує полиці «Слухати»
+
+`ListenScreen` отримує `ListenShelvesModule` і читає один стан. У ньому
+є всі доступні полиці для керування та видимі полиці з книжками для екрана.
+Модуль стежить за змінами в `ListenPrefsStore`. Коли застосунок змінює
+мову, модуль оновлює заголовки, пояснення й підпис наступного тому разом.
+
+Екран передає зміну головної книжки у `MainViewModel.loadNextInSeries`.
+ViewModel відповідає за пошук тому й перевіряє, чи результат досі актуальний.

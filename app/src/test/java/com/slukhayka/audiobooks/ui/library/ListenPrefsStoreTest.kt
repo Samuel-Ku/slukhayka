@@ -1,14 +1,22 @@
 package com.slukhayka.audiobooks.ui.library
 
 import android.content.Context
+import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.testing.TestDataFactory
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 /**
@@ -30,6 +38,61 @@ class ListenPrefsStoreTest {
         assertTrue(store.order.isEmpty())
         assertTrue(store.hiddenBlockIds.isEmpty())
         assertTrue(store.dismissedBookIds.isEmpty())
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `snapshots follow another store and reread persisted choices on resubscription`() = runTest {
+        val reader = store()
+        val writer = store()
+        val travel = ListenComposer.BlockId.TRAVEL
+        val short = ListenComposer.BlockId.SHORT
+        val movedOrder = listOf(
+            ListenComposer.BlockId.HERO,
+            ListenComposer.BlockId.ALMOST_DONE,
+            ListenComposer.BlockId.RETURN,
+            ListenComposer.BlockId.NEXT_IN_SERIES,
+            short,
+            travel,
+            ListenComposer.BlockId.FAVORITE_AUTHORS,
+            ListenComposer.BlockId.RECENTLY_ADDED,
+            ListenComposer.BlockId.FINISHED,
+        )
+        writer.moveBlockUp(short)
+        writer.hideBlock(travel)
+        writer.dismissBook("a")
+
+        val received = mutableListOf<ListenPrefsSnapshot>()
+        val subscription = backgroundScope.launch { reader.snapshots.toList(received) }
+        runCurrent()
+        val first = received.last()
+        assertEquals(movedOrder, first.order)
+        assertEquals(setOf(travel), first.hiddenBlockIds)
+        assertEquals(setOf("a"), first.dismissedBookIds)
+
+        writer.moveBlockDown(short)
+        writer.hideBlock(short)
+        writer.unhideBlock(travel)
+        writer.dismissBook("b")
+        writer.dismissBook("c")
+        shadowOf(Looper.getMainLooper()).idle()
+        runCurrent()
+        val latest = received.last()
+        assertEquals(ListenComposer.DEFAULT_ORDER, latest.order)
+        assertEquals(setOf(short), latest.hiddenBlockIds)
+        assertEquals(setOf("a", "b", "c"), latest.dismissedBookIds)
+        assertEquals(movedOrder, first.order)
+        assertEquals(setOf(travel), first.hiddenBlockIds)
+        assertEquals(setOf("a"), first.dismissedBookIds)
+
+        subscription.cancelAndJoin()
+        writer.restoreHiddenBlocks()
+        writer.undismissBook("a")
+        val resumed = mutableListOf<ListenPrefsSnapshot>()
+        backgroundScope.launch { reader.snapshots.toList(resumed) }
+        runCurrent()
+        assertTrue(resumed.last().hiddenBlockIds.isEmpty())
+        assertEquals(setOf("b", "c"), resumed.last().dismissedBookIds)
     }
 
     @Test
@@ -142,5 +205,49 @@ class ListenPrefsStoreTest {
 
         store.undismissBook(bookId)
         assertTrue("undo restores the work to the shelf", onShelf())
+    }
+
+    @Test
+    fun `the first visible shelf claims a shared book while both shelves stay in management`() {
+        val store = store()
+        val book = TestDataFactory.dataBooks().first().copy(isDownloaded = true, totalDurationSeconds = 3600L)
+        book.isFavorite = false
+        book.createdAt = TestDataFactory.FIXED_CLOCK_MS
+        val now = book.createdAt + 30L * 24 * 3600 * 1000
+        val library = buildLibraryBooks(listOf(book), progressList = emptyList(), chaptersByBook = emptyMap())
+        val copy = ResourceListenCopy(context.resources)
+        val travel = ListenComposer.BlockId.TRAVEL
+        val short = ListenComposer.BlockId.SHORT
+        val travelFirst = listOf(travel, short)
+        val shortFirst = listOf(short, travel)
+
+        fun assertShelves(managed: List<ListenComposer.BlockId>, vararg displayed: ListenComposer.BlockId) {
+            val blocks = ListenComposer.compose(library, nextInSeries = null, prefs = store, now = now, copy = copy)
+            val visible = blocks.filter { it.id !in store.hiddenBlockIds }
+            val rows = deduplicateListenShelves(visible).filter { it.books.isNotEmpty() }
+            fun contents(blocks: List<ListenComposer.Block>) =
+                blocks.map { block -> block.id to block.books.map { it.book.id } }
+
+            assertEquals(managed.map { it to listOf(book.id) }, contents(blocks))
+            assertEquals(displayed.map { it to listOf(book.id) }, contents(rows))
+        }
+
+        assertShelves(travelFirst, travel)
+        store.hideBlock(travel)
+        assertShelves(travelFirst, short)
+        store.unhideBlock(travel)
+        assertShelves(travelFirst, travel)
+
+        store.moveBlockUp(short)
+        assertShelves(shortFirst, short)
+        store.hideBlock(short)
+        assertShelves(shortFirst, travel)
+        store.hideBlock(travel)
+        assertShelves(shortFirst)
+        assertEquals(setOf(short, travel), store.hiddenBlockIds)
+
+        store.restoreHiddenBlocks()
+        assertShelves(shortFirst, short)
+        assertTrue(store.hiddenBlockIds.isEmpty())
     }
 }

@@ -47,7 +47,7 @@ internal class LibraryCompositionModule(
     refusedSources: Flow<Set<String>>,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
-    private val composedBooks: Flow<List<LibraryBook>> = combine(
+    val composedBooks: Flow<List<LibraryBook>> = combine(
         allBooks,
         recentProgress,
         allChapters,

@@ -1,24 +1,5 @@
-package com.slukhayka.audiobooks.ui.screens
+package com.slukhayka.audiobooks.ui.library
 
-/**
- * #1704 — what the «Слухати» tab may claim at this moment.
- *
- * The library flows publish `emptyList()` BEFORE their first real value, and
- * [com.slukhayka.audiobooks.ui.MainViewModel.isLibraryLoaded] is the fact that
- * separates «not read yet» from «empty». The old branches read only the list,
- * so a listener with books saw the fresh-install CTAs; and because the block
- * composer also starts at `emptyList()`, the «усі полиці приховано» state
- * could be claimed for a frame before the first composition.
- *
- * [blocksReady] separates "the composer has not published yet" from "the
- * composer legitimately produced zero blocks" (every book dismissed, or no
- * book passes any shelf rule). Without it the second case rendered a header
- * with no manage door forever.
- *
- * Kept as a pure decision so the cold-start pair
- * `(loaded = false, blocksReady = false, allBooksEmpty = true)` is assertable
- * without a ViewModel.
- */
 internal enum class ListenContent {
     /** The first real library value has not arrived: render the header only. */
     Loading,

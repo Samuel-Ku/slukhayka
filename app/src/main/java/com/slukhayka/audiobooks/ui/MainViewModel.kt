@@ -77,7 +77,10 @@ import com.slukhayka.audiobooks.player.PlaybackErrorKind
 import com.slukhayka.audiobooks.player.SmartRetryMemo
 import com.slukhayka.audiobooks.player.SmartRetryPolicy
 import com.slukhayka.audiobooks.data.merge.MergeKey
+import com.slukhayka.audiobooks.ui.library.ListenPrefsStore
+import com.slukhayka.audiobooks.ui.library.ListenShelvesModule
 import com.slukhayka.audiobooks.ui.library.OutcomeMessages
+import com.slukhayka.audiobooks.ui.library.ResourceListenCopy
 import com.slukhayka.audiobooks.ui.library.ResumeStart
 import com.slukhayka.audiobooks.ui.library.computeResumeStart
 import com.slukhayka.audiobooks.ui.library.formatBytes
@@ -1604,107 +1607,16 @@ class MainViewModel @JvmOverloads constructor(
     val libraryAvailability: StateFlow<Map<String, AvailabilityView>>
         get() = libraryComposition.availability
 
-    // Wayfinder #62 — the rule-based personalized Listen: local-only prefs
-    // (order / hidden / dismissed) feed the pure ListenComposer, whose output
-    // is the ordered, eligible block list with reasons. The version counter
-    // re-runs the composer whenever the user reorders/hides/dismisses.
-    //
-    // Declared BEFORE listenBlocks: the composer reads nextInSeries, and a
-    // property initializer must never reference a field initialized later
-    // (it would read the JVM default null).
-    private val listenPrefs = com.slukhayka.audiobooks.ui.library.ListenPrefsStore(getApplication())
-    private val _listenPrefsVersion = MutableStateFlow(0)
-    // #1478 — the shelf copy is locale-dependent; MainActivity re-creates on a
-    // language change and bumps this so the composer rebuilds its copy.
-    private val _localeVersion = MutableStateFlow(0)
     private val _nextInSeries = MutableStateFlow<AudiobookEntity?>(null)
-    val nextInSeries: StateFlow<AudiobookEntity?> = _nextInSeries.asStateFlow()
-
-    // #1704 review: a block composer that has published once can legitimately
-    // produce zero blocks (every book dismissed / no rule matches). The UI must
-    // distinguish that from the pre-first-emission `emptyList()` initial value.
-    private val _listenBlocksReady = MutableStateFlow(false)
-    val listenBlocksReady: StateFlow<Boolean> = _listenBlocksReady.asStateFlow()
-
-    val listenBlocks: StateFlow<List<com.slukhayka.audiobooks.ui.library.ListenComposer.Block>> = combine(
-        libraryBooks,
-        nextInSeries,
-        libraryEntries.finishedWorkIds,
-        _listenPrefsVersion,
-        _localeVersion
-    ) { books, seriesBook, finishedWorkIds, _, _ ->
-        _listenBlocksReady.value = true
-        com.slukhayka.audiobooks.ui.library.ListenComposer.compose(
-            library = books,
-            nextInSeries = seriesBook,
-            prefs = listenPrefs,
-            finishedWorkIds = finishedWorkIds,
-            // #1478 — every shelf word comes from the STORED UI language
-            // (explicit choice wins over the device one), never from the
-            // composer itself.
-            copy = com.slukhayka.audiobooks.ui.library.ResourceListenCopy.forApp(getApplication())
+    internal val listenShelves by lazy {
+        ListenShelvesModule(
+            scope = viewModelScope,
+            composedBooks = libraryComposition.composedBooks,
+            nextInSeries = _nextInSeries,
+            finishedWorkIds = libraryEntries.finishedWorkIds,
+            prefs = ListenPrefsStore(getApplication()),
+            copyForApp = { ResourceListenCopy.forApp(getApplication()) },
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    /** #1478 — the «Наступна частина» caption of the next-in-series shelf card. */
-    fun listenPartCaption(book: com.slukhayka.audiobooks.ui.library.LibraryBook): String =
-        com.slukhayka.audiobooks.ui.library.ResourceListenCopy.forApp(getApplication())
-            .nextSeriesPartCaption(book)
-
-    /**
-     * #1478 — called by the Activity after every (re)create: an explicit UI
-     * language is pinned on the Activity on API < 33, so the composer's copy
-     * must be rebuilt when the language changes.
-     */
-    fun onUiLocaleApplied() {
-        _localeVersion.value++
-    }
-
-    /** The blocks the user hid — the UI shows a restore row when all are hidden. */
-    val hiddenListenBlocks: StateFlow<Set<com.slukhayka.audiobooks.ui.library.ListenComposer.BlockId>> =
-        _listenPrefsVersion.map { listenPrefs.hiddenBlockIds }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
-
-    fun moveListenBlockUp(id: com.slukhayka.audiobooks.ui.library.ListenComposer.BlockId) {
-        listenPrefs.moveBlockUp(id)
-        _listenPrefsVersion.value++
-    }
-
-    fun moveListenBlockDown(id: com.slukhayka.audiobooks.ui.library.ListenComposer.BlockId) {
-        listenPrefs.moveBlockDown(id)
-        _listenPrefsVersion.value++
-    }
-
-    fun hideListenBlock(id: com.slukhayka.audiobooks.ui.library.ListenComposer.BlockId) {
-        listenPrefs.hideBlock(id)
-        _listenPrefsVersion.value++
-    }
-
-    /** v1.4 E1: the shelf sheet's per-row show toggle — restores ONE block. */
-    fun unhideListenBlock(id: com.slukhayka.audiobooks.ui.library.ListenComposer.BlockId) {
-        listenPrefs.unhideBlock(id)
-        _listenPrefsVersion.value++
-    }
-
-    fun restoreHiddenListenBlocks() {
-        listenPrefs.restoreHiddenBlocks()
-        _listenPrefsVersion.value++
-    }
-
-    /** «Не цікаво» on a Listen card — local taste preference, reversible. */
-    fun dismissListenBook(bookId: String) {
-        listenPrefs.dismissBook(bookId)
-        _listenPrefsVersion.value++
-    }
-
-    /**
-     * #1703 — the snackbar's «Повернути»: the same local preference, reversed.
-     * The composer re-runs on the version bump, so the Work is back on its
-     * shelf immediately; nothing else was touched by the dismissal.
-     */
-    fun undismissListenBook(bookId: String) {
-        listenPrefs.undismissBook(bookId)
-        _listenPrefsVersion.value++
     }
 
     // Spec-10 T2: positions are stored per source, so the raw flow can hold

@@ -68,7 +68,8 @@ object ListenComposer {
         val id: BlockId,
         val title: String,
         val reason: String?,
-        val books: List<LibraryBook>
+        val books: List<LibraryBook>,
+        val partCaption: String? = null
     )
 
     /**
@@ -203,7 +204,8 @@ object ListenComposer {
             BlockId.NEXT_IN_SERIES,
             copy.title(BlockId.NEXT_IN_SERIES),
             reason = next.seriesTitle?.takeIf { it.isNotBlank() }?.let { copy.nextVolumeReason(it) },
-            books = listOf(book)
+            books = listOf(book),
+            partCaption = copy.nextSeriesPartCaption(book)
         )
     }
 

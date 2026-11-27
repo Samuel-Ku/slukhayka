@@ -2,32 +2,49 @@ package com.slukhayka.audiobooks.ui.library
 
 import android.content.Context
 import android.content.SharedPreferences
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.map
+
+internal data class ListenPrefsSnapshot(
+    override val order: List<ListenComposer.BlockId>,
+    override val hiddenBlockIds: Set<ListenComposer.BlockId>,
+    override val dismissedBookIds: Set<String>,
+) : ListenPrefs
 
 /**
  * SharedPreferences-backed [ListenPrefs] (wayfinder #62). Persists the
  * user's block order, hidden blocks and dismissed works locally — a taste
- * preference, never synced (see [ListenPrefs]). Every write is synchronous
- * and immediate, so a process death loses nothing.
+ * preference, never synced (see [ListenPrefs]).
  */
 class ListenPrefsStore(context: Context) : ListenPrefs {
 
     private val prefs: SharedPreferences =
         context.getSharedPreferences("listen_prefs", Context.MODE_PRIVATE)
 
-    override val order: List<ListenComposer.BlockId>
-        get() = prefs.getString(KEY_ORDER, null)
-            ?.split(DELIMITER)
-            ?.mapNotNull { name -> ListenComposer.BlockId.entries.firstOrNull { it.name == name } }
-            .orEmpty()
+    private fun snapshot(): ListenPrefsSnapshot {
+        val values = prefs.all
+        fun blockId(name: String) = ListenComposer.BlockId.entries.firstOrNull { it.name == name }
+        return ListenPrefsSnapshot(
+            order = (values[KEY_ORDER] as? String)?.split(DELIMITER).orEmpty().mapNotNull(::blockId),
+            hiddenBlockIds = (values[KEY_HIDDEN] as? Set<*>).orEmpty()
+                .filterIsInstance<String>().mapNotNull(::blockId).toSet(),
+            dismissedBookIds = (values[KEY_DISMISSED] as? Set<*>).orEmpty().filterIsInstance<String>().toSet(),
+        )
+    }
 
-    override val hiddenBlockIds: Set<ListenComposer.BlockId>
-        get() = prefs.getStringSet(KEY_HIDDEN, emptySet())
-            .orEmpty()
-            .mapNotNull { name -> ListenComposer.BlockId.entries.firstOrNull { it.name == name } }
-            .toSet()
+    internal val snapshots: Flow<ListenPrefsSnapshot> = callbackFlow {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ -> trySend(Unit) }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        trySend(Unit)
+        awaitClose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }.conflate().map { snapshot() }
 
-    override val dismissedBookIds: Set<String>
-        get() = prefs.getStringSet(KEY_DISMISSED, emptySet()).orEmpty()
+    override val order get() = snapshot().order
+    override val hiddenBlockIds get() = snapshot().hiddenBlockIds
+    override val dismissedBookIds get() = snapshot().dismissedBookIds
 
     /** Moves a block one step up (towards the top). No-op when already first. */
     fun moveBlockUp(id: ListenComposer.BlockId) {

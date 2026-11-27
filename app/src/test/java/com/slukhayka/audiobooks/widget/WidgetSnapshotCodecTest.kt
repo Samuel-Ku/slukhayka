@@ -9,6 +9,9 @@ import com.slukhayka.audiobooks.data.db.ChapterEntity
 import com.slukhayka.audiobooks.player.PlayerState
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -67,6 +70,47 @@ class WidgetSnapshotCodecTest {
             assertEquals(playing, WidgetSnapshotCodec.read(stored.getValue(id)))
         }
         assertEquals(ids, refreshed)
+    }
+
+    @Test
+    fun closingTheBook_makesTheContentReadTheEmptyFrame() = runTest {
+        val ids = listOf(FakeGlanceId(1), FakeGlanceId(2))
+        val stored = mutableMapOf<GlanceId, Preferences>()
+        val sampler = WidgetSnapshotSampler()
+
+        suspend fun publish(state: GlanceWidgetState): Int = publishWidgetSnapshot(
+            state = state,
+            ids = ids,
+            write = { id, snapshot ->
+                stored[id] = mutablePreferencesOf().also {
+                    WidgetSnapshotCodec.write(it, snapshot)
+                }
+            },
+            update = { Unit }
+        )
+
+        val playing = activeState(isPlaying = true, positionMs = 125_000L)
+        assertEquals(2, publish(sampler.nextSnapshot(playing, 0L)!!))
+
+        val closed = WidgetStateMapper.mapFromPlayerState(PlayerState())
+        val closing = sampler.nextSnapshot(closed, 1_000L)
+        assertNotNull("closing the book must publish an empty frame", closing)
+        assertEquals(2, publish(closing!!))
+
+        ids.forEach { id ->
+            // This is what `provideContent` reads; it must be the empty frame,
+            // not the playing one the session started with.
+            val frame = WidgetSnapshotCodec.read(stored.getValue(id))!!
+            assertEquals(closed, frame)
+            assertEquals("Слухайка", frame.title)
+            assertNotEquals("the previous book title must be gone", playing.title, frame.title)
+            assertFalse(frame.hasActiveBook)
+            assertFalse("no stale playing state", frame.isPlaying)
+            assertNull(frame.bookId)
+            assertEquals(0L, frame.currentPositionSeconds)
+            assertEquals(0L, frame.durationSeconds)
+            assertFalse("no transport on the empty frame", frame.showsTransportControls())
+        }
     }
 
     @Test

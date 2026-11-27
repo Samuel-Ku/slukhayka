@@ -44,6 +44,12 @@ class YtDlpStreamExtractorTest {
             parsed.map { it.url }
         )
         assertTrue(parsed.all { it.isDirectUrl })
+        // #1751 — the family travels with the URL so the cast playlist can be
+        // held to it; the webm/opus candidate is NOT an m4a.
+        assertEquals(
+            listOf("audio/mp4", "audio/mp4", "audio/webm"),
+            parsed.map { it.mimeType }
+        )
     }
 
     @Test

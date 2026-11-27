@@ -1,7 +1,12 @@
 package com.slukhayka.audiobooks.player
 
 import com.slukhayka.audiobooks.data.source.HttpFetcher
+import com.slukhayka.audiobooks.data.source.ResolvedAudioStream
 import java.io.ByteArrayInputStream
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -14,6 +19,12 @@ import org.junit.Test
  * it through the same per-use resolver the local engine uses, cache the signed
  * result for the session, and re-resolve exactly once when it expires.
  *
+ * Resolution hands back the URL together with the MIME family of its bytes,
+ * because the cast playlist already declared a family to the receiver: a
+ * stream of another family is refused, never mislabelled. A stale-URL reset
+ * is conditional on the entry still being the one that failed, so a
+ * concurrent refresh survives.
+ *
  * These are pure JVM tests: no receiver, no CastContext, no network. The
  * [HttpFetcher] fake records every URL the proxy would have fetched.
  */
@@ -22,18 +33,20 @@ class CastUpstreamTest {
     private val watchUrl = "https://www.youtube.com/watch?v=ozaZXk5Qcwc"
     private val audioUrl =
         "https://rr1---sn-4g5e6nes.googlevideo.com/videoplayback?mime=audio%2Fmp4&expire=1"
+    private val webmUrl =
+        "https://rr1---sn-4g5e6nes.googlevideo.com/videoplayback?mime=audio%2Fwebm&expire=1"
 
     @Test
     fun `a youtube watch url is resolved to the audio url before any fetch`() {
         val fetcher = RecordingFetcher()
-        fetcher.onRequest = { response() }
+        fetcher.onRequest = { response(contentType = null) }
         val upstream = CastUpstream(
             chapterUrls = listOf(watchUrl),
             bookId = "book-1",
             fetcher = fetcher,
             resolver = { resolvedWatch ->
                 assertEquals(watchUrl, resolvedWatch)
-                audioUrl
+                ResolvedAudioStream(audioUrl, "audio/mp4")
             },
             headers = { emptyMap() }
         )
@@ -63,6 +76,55 @@ class CastUpstreamTest {
         assertTrue("the watch URL must never reach the fetcher", fetcher.requested.isEmpty())
     }
 
+    /**
+     * #1751 review — the witness for the P2: a resolver result that is NOT
+     * M4A cannot be served under the playlist's `audio/mp4` declaration. The
+     * chapter is refused (the receiver starts no playback; the controller
+     * reports the cast ERROR outcome) instead of being handed mislabelled
+     * bytes.
+     */
+    @Test
+    fun `a non-m4a resolver result is refused instead of mislabelled`() {
+        val fetcher = RecordingFetcher()
+        fetcher.onRequest = { response() }
+        var resolverCalls = 0
+        val upstream = CastUpstream(
+            chapterUrls = listOf(watchUrl),
+            bookId = "book-1",
+            fetcher = fetcher,
+            resolver = {
+                resolverCalls++
+                ResolvedAudioStream(webmUrl, "audio/webm")
+            },
+            headers = { emptyMap() }
+        )
+
+        assertNull("a WebM stream is not the family the playlist declared", upstream.open("ch0", null))
+        assertTrue("no bytes of the wrong family may reach the receiver", fetcher.requested.isEmpty())
+        assertEquals(1, resolverCalls)
+
+        // The refusal is stable, and the budget ends it (no endless extraction).
+        assertNull(upstream.open("ch0", "bytes=0-1023"))
+        assertNull(upstream.open("ch0", "bytes=0-1023"))
+        assertEquals(2, resolverCalls)
+        assertTrue(fetcher.requested.isEmpty())
+    }
+
+    @Test
+    fun `an unknown family keeps the declared family as the proxy fallback`() {
+        val fetcher = RecordingFetcher()
+        fetcher.onRequest = { response(contentType = null) }
+        val upstream = CastUpstream(
+            chapterUrls = listOf(watchUrl),
+            bookId = "book-1",
+            fetcher = fetcher,
+            resolver = { ResolvedAudioStream(audioUrl, null) },
+            headers = { emptyMap() }
+        )
+
+        assertEquals("audio/mp4", upstream.open("ch0", null)!!.contentType)
+    }
+
     @Test
     fun `plain urls are fetched unchanged and never touch the resolver`() {
         val plainUrl = "https://lihtar.in.ua/audio/0.mp3"
@@ -89,7 +151,7 @@ class CastUpstreamTest {
             chapterUrls = listOf(watchUrl),
             bookId = "book-1",
             fetcher = fetcher,
-            resolver = { resolverCalls++; audioUrl },
+            resolver = { resolverCalls++; ResolvedAudioStream(audioUrl, "audio/mp4") },
             headers = { emptyMap() }
         )
 
@@ -113,7 +175,11 @@ class CastUpstreamTest {
             fetcher = fetcher,
             resolver = {
                 resolverCalls++
-                if (resolverCalls == 1) firstAudio else secondAudio
+                if (resolverCalls == 1) {
+                    ResolvedAudioStream(firstAudio, "audio/mp4")
+                } else {
+                    ResolvedAudioStream(secondAudio, "audio/mp4")
+                }
             },
             headers = { emptyMap() }
         )
@@ -127,6 +193,96 @@ class CastUpstreamTest {
         assertNull(upstream.open("ch0", null))
         assertEquals(2, resolverCalls)
         assertEquals(listOf(firstAudio, secondAudio, secondAudio), fetcher.requested)
+    }
+
+    /**
+     * #1751 review — the witness for the second P2. Three range requests fetch
+     * the SAME stale URL and fail; the first one re-resolves and caches the
+     * fresh URL, then the two late failures must not delete it. Before the
+     * conditional reset the fresh entry disappeared, the last resolve attempt
+     * was spent, and the chapter returned null for every later request even
+     * though a usable URL had just been cached.
+     *
+     * Latches make the interleaving deterministic: the refreshing request's
+     * stale fetch fails first, and the other two fail only AFTER the fresh URL
+     * is cached.
+     */
+    @Test
+    fun `a late error of the stale url does not delete a concurrently refreshed url`() {
+        val staleUrl = "$audioUrl&stale"
+        val freshUrl = "$audioUrl&fresh"
+        val staleFetchCalls = AtomicInteger(0)
+        val staleFetches = CountDownLatch(3)
+        val releaseRefresher = CountDownLatch(1)
+        val freshUrlCached = CountDownLatch(1)
+
+        val fetcher = RecordingFetcher()
+        fetcher.onRequest = { url ->
+            when (url) {
+                staleUrl -> {
+                    staleFetches.countDown()
+                    if (staleFetchCalls.incrementAndGet() == 1) {
+                        // The refreshing request fails first, then re-resolves.
+                        releaseRefresher.await(5, TimeUnit.SECONDS)
+                    } else {
+                        // The late failures wait until the cache is refreshed.
+                        freshUrlCached.await(5, TimeUnit.SECONDS)
+                    }
+                    null
+                }
+                freshUrl -> {
+                    freshUrlCached.countDown()
+                    response(contentType = null)
+                }
+                else -> null
+            }
+        }
+        val resolverCalls = AtomicInteger(0)
+        val upstream = CastUpstream(
+            chapterUrls = listOf(watchUrl),
+            bookId = "book-1",
+            fetcher = fetcher,
+            resolver = {
+                if (resolverCalls.incrementAndGet() == 1) {
+                    ResolvedAudioStream(staleUrl, "audio/mp4")
+                } else {
+                    ResolvedAudioStream(freshUrl, "audio/mp4")
+                }
+            },
+            headers = { emptyMap() }
+        )
+
+        val pool = Executors.newFixedThreadPool(3)
+        try {
+            val results = (1..3).map {
+                pool.submit<PlaybackProxy.UpstreamResponse?> { upstream.open("ch0", null) }
+            }
+            assertTrue(
+                "all three range requests must reach the stale URL first",
+                staleFetches.await(10, TimeUnit.SECONDS)
+            )
+            releaseRefresher.countDown()
+
+            results.forEachIndexed { number, result ->
+                assertNotNull(
+                    "request #$number: a fresh URL was usable, so no request may be refused",
+                    result.get(10, TimeUnit.SECONDS)
+                )
+            }
+        } finally {
+            pool.shutdownNow()
+        }
+
+        assertEquals("the stale URL is extracted once and re-resolved once", 2, resolverCalls.get())
+        assertEquals("each request starts on the stale URL", 3, fetcher.requested.count { it == staleUrl })
+        assertEquals(
+            "every request ends on the one fresh URL, so the refresh was not lost",
+            3,
+            fetcher.requested.count { it == freshUrl }
+        )
+        // The cache is still healthy for the next range request.
+        assertNotNull(upstream.open("ch0", "bytes=0-1023"))
+        assertEquals(4, fetcher.requested.count { it == freshUrl })
     }
 
     @Test
@@ -156,7 +312,7 @@ class CastUpstreamTest {
     )
 
     private class RecordingFetcher : HttpFetcher() {
-        val requested = mutableListOf<String>()
+        val requested = java.util.Collections.synchronizedList(mutableListOf<String>())
         var onRequest: ((String) -> HttpFetcher.RangeResponse?)? = null
 
         override fun getRangeStream(

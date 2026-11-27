@@ -19,6 +19,7 @@ import com.google.android.gms.cast.framework.SessionManagerListener
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailabilityLight
 import com.slukhayka.audiobooks.data.source.HttpFetcher
+import com.slukhayka.audiobooks.data.source.ResolvedAudioStream
 import java.util.concurrent.Executor
 
 /**
@@ -43,7 +44,7 @@ class CastPlaybackController(
     private val context: Context,
     private val managerProvider: () -> AudioPlayerManager,
     private val streamUrlHealer: (suspend (String, Int, String) -> String?)? = null,
-    private val streamUrlResolver: (suspend (String) -> String?)? = null,
+    private val streamUrlResolver: (suspend (String) -> ResolvedAudioStream?)? = null,
     private val mainExecutor: Executor = ContextCompat.getMainExecutor(context),
     private val onActiveChanged: (Boolean) -> Unit = {}
 ) : CastEngineHook, SessionManagerListener<CastSession> {
@@ -146,8 +147,10 @@ class CastPlaybackController(
         chapterUrls = playable.map { it.track?.url }
 
         // #1751 — the proxy's upstream resolves YouTube watch URLs through the
-        // same per-use resolver the local engine uses; fetching the identity
-        // itself would only hand the receiver HTML.
+        // same per-use resolver the local engine uses, and the resolved stream
+        // carries its real MIME family so the proxy can prove the playlist's
+        // declaration; fetching the identity itself would only hand the
+        // receiver HTML.
         val upstream = CastUpstream(
             chapterUrls = chapterUrls,
             bookId = bookId,
@@ -458,9 +461,11 @@ class CastPlaybackController(
         /**
          * #1751 — [androidx.media3.cast.CastPlayer]'s default converter
          * requires a MIME type, but a YouTube watch URL has none: it is an
-         * identity, not a file. The resolver prefers progressive M4A, so the
-         * playlist declares that family; the proxy still relays the origin's
-         * own Content-Type once bytes flow.
+         * identity, not a file. The declaration is `audio/mp4` because the
+         * resolver prefers progressive M4A AND [CastUpstream] refuses a
+         * resolved stream of any other family — the receiver never gets bytes
+         * the playlist would mislabel. Once bytes flow the proxy relays the
+         * origin's own Content-Type first.
          */
         fun castMimeType(url: String): String = CastMimeTypes.forCast(url)
     }

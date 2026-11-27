@@ -2,6 +2,7 @@ package com.slukhayka.audiobooks.data.collective
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 /**
@@ -51,6 +52,61 @@ class CollectiveFeedBlockCodecTest {
         assertNull(CollectiveFeedBlockCodec.decode("[]"))
         assertNull(CollectiveFeedBlockCodec.decode("{}"))
         assertNull(CollectiveFeedBlockCodec.decode("""{"blockKey":"x","sourceId":"y"}"""))
+    }
+
+    @Test
+    fun `a card missing its title makes the entire document a miss`() {
+        val encoded = CollectiveFeedBlockCodec.encode(block)
+        val malformed = encoded.replace("\"title\":\"Кобзар\",", "")
+
+        assertNotEquals(encoded, malformed)
+        assertNull(CollectiveFeedBlockCodec.decode(malformed))
+    }
+
+    @Test
+    fun `a card missing its source URL makes the entire document a miss`() {
+        val encoded = CollectiveFeedBlockCodec.encode(block)
+        val malformed = encoded.replace("\"sourceUrl\":\"https://sound-books.net/kobzar\",", "")
+
+        assertNotEquals(encoded, malformed)
+        assertNull(CollectiveFeedBlockCodec.decode(malformed))
+    }
+
+    @Test
+    fun `a non-object card makes the entire document a miss despite an intact sibling`() {
+        val encoded = CollectiveFeedBlockCodec.encode(block)
+        val firstCard = """{"sourceId":"soundbooks","sourceUrl":"https://sound-books.net/kobzar","title":"Кобзар","author":"Тарас Шевченко"}"""
+        for (nonObject in listOf("null", "7", "[]", "\"invalid\"")) {
+            val malformed = encoded.replace(firstCard, nonObject)
+
+            assertNotEquals(encoded, malformed)
+            assertNull(CollectiveFeedBlockCodec.decode(malformed))
+        }
+    }
+
+    @Test
+    fun `cards must be a list while an empty list remains readable`() {
+        val empty = block.copy(cards = emptyList())
+        val encoded = CollectiveFeedBlockCodec.encode(empty)
+
+        assertEquals(empty, CollectiveFeedBlockCodec.decode(encoded))
+        assertNull(CollectiveFeedBlockCodec.decode(encoded.replace(",\"cards\":[]", "")))
+        assertNull(CollectiveFeedBlockCodec.decode(encoded.replace("\"cards\":[]", "\"cards\":{}")))
+    }
+
+    @Test
+    fun `missing optional fields and a blank author preserve the complete ordered block`() {
+        val firstCard = """{"sourceId":"soundbooks","sourceUrl":"https://sound-books.net/kobzar","title":"Кобзар","author":"Тарас Шевченко"}"""
+        val secondCard = """{"sourceId":"soundbooks","sourceUrl":"https://sound-books.net/misto","title":"Місто","author":"Підмогильний","coverUrl":"https://c/m.jpg"}"""
+        val encoded = CollectiveFeedBlockCodec.encode(block)
+            .replace(firstCard, """{"sourceUrl":"https://sound-books.net/kobzar","title":"Кобзар"}""")
+            .replace(secondCard, """{"sourceId":"soundbooks","sourceUrl":"https://sound-books.net/misto","title":"Місто","author":""}""")
+        val expected = block.copy(cards = listOf(
+            block.cards[0].copy(author = ""),
+            block.cards[1].copy(author = "", coverUrl = null)
+        ))
+
+        assertEquals(expected, CollectiveFeedBlockCodec.decode(encoded))
     }
 
     @Test

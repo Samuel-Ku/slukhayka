@@ -2,6 +2,8 @@ package com.slukhayka.audiobooks.data.source
 
 import com.slukhayka.audiobooks.testing.FakeFetcher
 import kotlinx.coroutines.runBlocking
+import java.io.IOException
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -21,9 +23,9 @@ import org.junit.Test
  *  2. **Declaration congruence** — each adapter declares the registry's
  *     access mode and content language. A drift here silently re-tiers a
  *     source in selection order and blanks its language facet.
- *  3. **Honest refusal** — on a dead transport every adapter answers an empty
- *     list/page, never a fabricated book, chapter or error. Empty is a
- *     verdict, not a failure: the caller decides gating.
+ *  3. **Honest refusal** — a dead transport never fabricates a book or
+ *     chapter. SluhayUA's supported search reports an unavailable response;
+ *     its valid empty answer remains distinct from transport failure.
  *  4. **Owned, stable identity** — `bookId` belongs to the adapter's own
  *     source and is deterministic for the same URL.
  *
@@ -97,9 +99,13 @@ class SourcePlaybackContractTest {
     }
 
     @Test
-    fun `a dead transport is an honest empty - never a fabricated card`() = runBlocking {
+    fun `a dead transport never fabricates a card and SluhayUA search reports unavailable`() = runBlocking {
         for (adapter in adapters) {
-            assertTrue("${adapter.sourceId}: search invented a card", adapter.search("кобзар").isEmpty())
+            if (adapter.sourceId == SourceIds.SLUHAYUA) {
+                assertThrows(IOException::class.java) { runBlocking { adapter.search("кобзар") } }
+            } else {
+                assertTrue("${adapter.sourceId}: search invented a card", adapter.search("кобзар").isEmpty())
+            }
             assertTrue("${adapter.sourceId}: fetchNew invented a card", adapter.fetchNew(limit = 10).isEmpty())
             assertTrue("${adapter.sourceId}: fetchCatalog invented a card", adapter.fetchCatalog(limit = 10).isEmpty())
             assertTrue(
@@ -107,6 +113,13 @@ class SourcePlaybackContractTest {
                 adapter.fetchGenrePage(genrePath = "genre", limit = 10).books.isEmpty()
             )
         }
+    }
+
+    @Test
+    fun `supported SluhayUA search accepts a valid empty response`() = runBlocking {
+        val transport = FakeFetcher(fallback = """{"cards":[],"pageCount":0}""")
+        assertTrue(SluhayuaAdapter(transport).search("кобзар").isEmpty())
+        assertEquals("one supported search, no feed fallback", 1, transport.requestedUrls.size)
     }
 
     @Test

@@ -7,6 +7,10 @@ import com.slukhayka.audiobooks.data.authors.AuthorIndex
 import com.slukhayka.audiobooks.data.authors.AuthorSummary
 import com.slukhayka.audiobooks.data.authors.RoomAuthorIndex
 import com.slukhayka.audiobooks.data.EditionId
+import com.slukhayka.audiobooks.data.collective.CollectiveBlockKind
+import com.slukhayka.audiobooks.data.collective.CollectiveBlockPolicy
+import com.slukhayka.audiobooks.data.collective.RoomCollectiveFeedBlockStore
+import com.slukhayka.audiobooks.data.collective.collectiveBlockKey
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
@@ -56,6 +60,7 @@ import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.SourceAdapter
 import com.slukhayka.audiobooks.data.source.SourceBook
+import com.slukhayka.audiobooks.data.source.SourceBookDetail
 import com.slukhayka.audiobooks.data.source.SourceIds
 import com.slukhayka.audiobooks.data.source.SourceAccessCandidate
 import com.slukhayka.audiobooks.data.source.SourceAccessMode
@@ -201,6 +206,10 @@ class SourceCatalog(
      * wherever no session can exist.
      */
     private val sessionAlive: (sourceId: String) -> Boolean = { false },
+    /** Receives only details fetched by a live catalogue resolution. */
+    private val onSourceDetailObserved: (suspend (String, SourceBookDetail) -> Unit)? = null,
+    /** Receives only arrivals returned by a live source request. */
+    private val onSourceArrivalsObserved: (suspend (String, List<SourceBook>) -> Unit)? = null,
     /**
      * #1723 — where the curated lists come from when they are loaded after
      * this module was built (the startup batch on IO). Null keeps the
@@ -691,8 +700,8 @@ class SourceCatalog(
     /**
      * Spec-10 T5 — refreshes the per-source «Нове з кожного джерела» rows.
      * Best-effort per source: a failing source simply contributes no row,
-     * never the whole surface. Reuses the same in-memory feed cache as the
-     * global search, so repeated refreshes within the TTL are free.
+     * never the whole surface. Reuses fresh received Room arrivals first,
+     * then the existing feed cache and source refresh path.
      */
     suspend fun refreshSourceFeeds(forceRefresh: Boolean = false): List<SourceNewFeed> = withContext(Dispatchers.IO) {
         _isFeedsLoading.value = true
@@ -706,8 +715,9 @@ class SourceCatalog(
                 // language (own claim, else the source's) and hidden-language
                 // books drop — a listener who hid English sees no English
                 // card in the per-source rows either (US21).
+                val receivedBooks = if (forceRefresh || adapter.sessionBound) null else freshReceivedHomeFeed(adapter)
                 val enumeratedBooks =
-                    newFeedFor(adapter, skipCache = adapter.sessionBound, forceRefresh = forceRefresh)
+                    (receivedBooks ?: newFeedFor(adapter, skipCache = adapter.sessionBound, forceRefresh = forceRefresh))
                         .take(20)
                         .map { it.effectiveFor(adapter) }
                 enumerated += enumeratedBooks
@@ -818,6 +828,39 @@ class SourceCatalog(
     private fun SourceBook.effectiveFor(adapter: SourceAdapter): SourceBook =
         if (language.isNotBlank()) this else copy(language = adapter.contentLanguage)
 
+    /** Fresh received arrivals for Home; misses keep the existing refresh path. */
+    private suspend fun freshReceivedHomeFeed(adapter: SourceAdapter): List<SourceBook>? {
+        currentCoroutineContext().ensureActive()
+        if (SourceRegistry.isScam(adapter.sourceId)) return null
+        val kind = CollectiveBlockKind.NEW_ARRIVALS
+        val key = com.slukhayka.audiobooks.data.collective.newArrivalsBlockKey(adapter.sourceId)
+        val received = try {
+            RoomCollectiveFeedBlockStore(dao).active(key)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            currentCoroutineContext().ensureActive()
+            return null
+        }
+        currentCoroutineContext().ensureActive()
+        val block = received ?: return null
+        val now = feedNowMillis()
+        if (block.blockKey !in listOf(key, collectiveBlockKey(adapter.sourceId, kind)) || block.sourceId != adapter.sourceId || block.kind != kind ||
+            block.fetchedAt > now || block.isStale(now) || block.cards.isEmpty() ||
+            block.cards.any { it.sourceId != adapter.sourceId || it.title.isBlank() || it.sourceUrl.isBlank() } ||
+            CollectiveBlockPolicy.requiresSourceRefresh(block)
+        ) return null
+        return block.cards.map { card ->
+            SourceBook(
+                title = card.title,
+                author = card.author,
+                url = card.sourceUrl,
+                coverImageUrl = card.coverUrl,
+                sourceId = card.sourceId
+            )
+        }
+    }
+
     /**
      * Spec-620 (#622) — the new-arrivals feed behind ONE refresh module. The
      * module owns memory, Room and Source from a single clock; a failure or a
@@ -839,7 +882,11 @@ class SourceCatalog(
                 feedKey = FeedSnapshotPolicy.FEED_NEW_ARRIVALS,
                 forceRefresh = forceRefresh,
                 skipCache = skipCache,
-                fetch = { adapter.fetchNew() }
+                fetch = {
+                    val books = adapter.fetchNew()
+                    observeLiveArrivals(adapter.sourceId, books)
+                    books
+                }
             )
         ) {
             is FeedRefreshOutcome.Data -> outcome.books
@@ -883,10 +930,44 @@ class SourceCatalog(
                 com.slukhayka.audiobooks.data.collective.classifyCollectiveFailure(e)
             )
         }
+        collectiveArrivalsBlock(
+            sourceId,
+            books.map { book -> book.copy(coverImageUrl = collectiveCoverFor(book)) }
+        )
+    }
+
+    /** Maps arrivals already received, without opening links or reading storage. */
+    fun collectiveArrivalsBlock(sourceId: String, books: List<SourceBook>):
+        com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome {
+        val kind = com.slukhayka.audiobooks.data.collective.CollectiveBlockKind.NEW_ARRIVALS
         if (books.isEmpty()) {
-            return@withContext com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Empty
+            return com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Empty
         }
-        com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Success(
+        if (books.any { book ->
+            // Sluhay book pages require the numeric ID before the slug.
+            val invalidSluhayId = sourceId == "sluhayua" &&
+                book.url.substringAfterLast('/').substringBefore(':').let { id ->
+                    id.isEmpty() || !id.all { it.isDigit() }
+                }
+            book.title.isBlank() || invalidSluhayId
+        }) {
+            return com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Failure(
+                com.slukhayka.audiobooks.data.collective.CollectiveAttemptStatus.PARSE_FAILURE
+            )
+        }
+        val seenUrls = mutableSetOf<String>()
+        val seenWorks = mutableSetOf<String>()
+        val distinctBooks = books.filter { book ->
+            val workKey = MergeKey.keyFor(book.title, book.author)
+            if (book.url in seenUrls || (workKey.isNotBlank() && workKey in seenWorks)) {
+                false
+            } else {
+                seenUrls.add(book.url)
+                if (workKey.isNotBlank()) seenWorks.add(workKey)
+                true
+            }
+        }
+        return com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome.Success(
             com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock(
                 blockKey = com.slukhayka.audiobooks.data.collective.collectiveBlockKey(
                     sourceId,
@@ -897,13 +978,13 @@ class SourceCatalog(
                 kind = kind,
                 name = sourceDisplayName(sourceId),
                 provenanceUrl = SourceRegistry.facts(sourceId)?.homeUrl.orEmpty(),
-                cards = books.map { book ->
+                cards = distinctBooks.map { book ->
                     com.slukhayka.audiobooks.data.collective.CollectiveBlockCard(
                         sourceId = book.sourceId.ifBlank { sourceId },
                         sourceUrl = book.url,
                         title = book.title,
                         author = book.author,
-                        coverUrl = collectiveCoverFor(book)
+                        coverUrl = book.coverImageUrl
                     )
                 },
                 fetchedAt = 0L,
@@ -916,6 +997,11 @@ class SourceCatalog(
             )
         )
     }
+
+    /** Builds recommendations from the detail already received, without resolving any links. */
+    fun collectiveRelatedBlock(sourceId: String, detail: SourceBookDetail):
+        com.slukhayka.audiobooks.data.collective.CollectiveRefreshOutcome =
+        com.slukhayka.audiobooks.data.collective.collectiveRelatedBlock(sourceId, detail)
 
     /**
      * #527/#528 — the COLLECTIONS candidate of ONE listener-chosen genre page:
@@ -992,6 +1078,31 @@ class SourceCatalog(
         )
     }
 
+    /** Projects the response owned by one live arrivals fetch, including an empty result. */
+    private suspend fun observeLiveArrivals(sourceId: String, books: List<SourceBook>) {
+        currentCoroutineContext().ensureActive()
+        try {
+            onSourceArrivalsObserved?.invoke(sourceId, books)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Optional overview metadata must not fail an existing feed operation.
+        }
+        currentCoroutineContext().ensureActive()
+    }
+
+    private suspend fun observeLiveDetail(sourceId: String, detail: SourceBookDetail) {
+        currentCoroutineContext().ensureActive()
+        try {
+            onSourceDetailObserved?.invoke(sourceId, detail)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Optional recommendation metadata must not fail an existing detail operation.
+        }
+        currentCoroutineContext().ensureActive()
+    }
+
     /**
      * #526 — verifies ONE sitemap candidate page: a single book-page request
      * that must yield at least one chapter. False on any failure (a 404, a
@@ -1002,8 +1113,14 @@ class SourceCatalog(
         withContext(Dispatchers.IO) {
             val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
                 ?: return@withContext false
-            val detail = runCatching { adapter.fetchBookPage(url) }.getOrNull()
-                ?: return@withContext false
+            val detail = try {
+                adapter.fetchBookPage(url)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                return@withContext false
+            }
+            observeLiveDetail(sourceId, detail)
             detail.chapters.isNotEmpty()
         }
 
@@ -1025,7 +1142,7 @@ class SourceCatalog(
         val clean = query.trim()
         if (clean.isBlank()) return SourceSearchOutcome(emptyList(), failed = false)
         var failed = false
-        val direct = try {
+        val direct = if (adapter.supportsSearch) try {
             adapter.search(clean)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -1033,8 +1150,8 @@ class SourceCatalog(
             failed = true
             Log.w("SourceCatalog", "search source=${adapter.sourceId} endpoint failed=${failure.javaClass.simpleName}")
             emptyList()
-        }
-        val books = if (direct.isNotEmpty()) {
+        } else emptyList()
+        val books = if (adapter.supportsSearch) {
             direct.map { it.effectiveFor(adapter) }
         } else {
             newFeedFor(adapter, onFailure = { failed = true })
@@ -1048,7 +1165,7 @@ class SourceCatalog(
                 }
         }
         currentCoroutineContext().ensureActive()
-        Log.d("SourceCatalog", "search source=${adapter.sourceId} path=${if (direct.isEmpty()) "feed" else "endpoint"} matches=${books.size} failed=$failed")
+        Log.d("SourceCatalog", "search source=${adapter.sourceId} path=${if (adapter.supportsSearch) "endpoint" else "feed"} matches=${books.size} failed=$failed")
         return SourceSearchOutcome(books, failed)
     }
 
@@ -1290,6 +1407,7 @@ class SourceCatalog(
         onFailure: () -> Unit
     ): SourceBook = try {
         val detail = adapter.fetchBookPage(book.url)
+        observeLiveDetail(adapter.sourceId, detail)
         if (detail.title.isBlank() && detail.author.isBlank() && detail.narrator.isBlank()) {
             book
         } else {
@@ -1392,6 +1510,8 @@ class SourceCatalog(
                 ?: return@withContext HydrationResult(sourceId, found = 0, imported = 0, merged = 0, failed = 0)
             val catalog = try {
                 adapter.fetchCatalog(limit)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 emptyList()
             }
@@ -1401,6 +1521,7 @@ class SourceCatalog(
             for (book in catalog) {
                 try {
                     val detail = adapter.fetchBookPage(book.url)
+                    observeLiveDetail(sourceId, detail)
                     if (detail.title.isBlank() && detail.chapters.isEmpty()) {
                         failed++
                         continue
@@ -1430,6 +1551,8 @@ class SourceCatalog(
                     // Count honestly: a Work that already existed is a merge
                     // (the new source was attached to the mirror card).
                     if (written?.workCreated == true) imported++ else merged++
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
                 } catch (e: Exception) {
                     failed++
                 }
@@ -1583,6 +1706,7 @@ class SourceCatalog(
             // Spec-14 T5: the adapter owns the page parse; the catalog only
             // persists what the seam's SourceBookDetail carries.
             val detail = bookAdapter.fetchBookPage(sourceUrl)
+            observeLiveDetail(bookSourceId, detail)
             if (detail.chapters.isNotEmpty()) {
                 // ADR-0004 + ADR-0007: materialization (one id format, one
                 // title fallback, duration conventions; Edition chapters +

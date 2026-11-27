@@ -112,6 +112,8 @@ import com.slukhayka.audiobooks.ui.screens.SubmissionUiState
 import com.slukhayka.audiobooks.ui.catalog.catalogSessionCandidates
 import com.slukhayka.audiobooks.ui.catalog.hasUsableSourceSession
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -3053,6 +3055,7 @@ class MainViewModel @JvmOverloads constructor(
     val collectiveBlocks: StateFlow<
         List<com.slukhayka.audiobooks.data.collective.CollectiveFeedBlock>
         > = _collectiveBlocks.asStateFlow()
+    private var collectiveBlocksJob: Job? = null
 
     // #530 — the ordered fallback offer of #519's action: loaded on the
     // listener's explicit request, never automatically.
@@ -3149,41 +3152,48 @@ class MainViewModel @JvmOverloads constructor(
             block.copy(
                 cards = block.cards.map { card ->
                     if (!card.coverUrl.isNullOrBlank()) return@map card
-                    val byUrl = runCatching {
+                    val byUrl = try {
                         dao.coverForSourceUrl(card.sourceUrl)?.takeIf { it.isNotBlank() }
-                    }.getOrNull()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        null
+                    }
                     if (byUrl != null) return@map card.copy(coverUrl = byUrl)
                     val key = com.slukhayka.audiobooks.data.merge.MergeKey
                         .keyFor(card.title, card.author)
                         .takeIf { it.isNotBlank() } ?: return@map card
-                    val local = runCatching {
+                    val local = try {
                         dao.findByMergeKey(key)?.coverImageUrl?.takeIf { it.isNotBlank() }
                             ?: dao.findWorkByMergeKey(key)?.coverImageUrl?.takeIf { it.isNotBlank() }
-                    }.getOrNull()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        null
+                    }
                     if (local != null) card.copy(coverUrl = local) else card
                 }
             )
         }
     }
 
+    @androidx.annotation.MainThread
     fun refreshCollectiveBlocks() {
-        viewModelScope.launch(Dispatchers.IO) {
-            val blocks = com.slukhayka.audiobooks.data.collective.collectiveBlockSources()
-                .mapNotNull { facts ->
-                    runCatching {
-                        App.instance.collectiveFeedRefresh.read(
-                            com.slukhayka.audiobooks.data.collective.newArrivalsBlockKey(facts.id)
-                        )
-                    }.getOrNull()
-                }
-            // #814 — сторінки джерел віддають у статичному HTML лише ~10
-            // плиток з обкладинками з ~40 книжок, решту сайт підвантажує
-            // скриптом. Тому в збереженому знімку блоку обкладинки просто
-            // немає, і картка виглядає порожньою. Заповнюємо з локальної
-            // бази за канонічним ключем твору — тим самим прийомом, що вже
-            // діє для рейки «Новинки» (`withLocalCovers`).
-            val withCovers = fillBlockCovers(blocks)
-            if (withCovers.isNotEmpty()) _collectiveBlocks.value = withCovers
+        if (collectiveBlocksJob?.isActive == true) return
+        collectiveBlocksJob = viewModelScope.launch {
+            try {
+                App.instance.collectiveOverviewBlocks.observe()
+                    .flowOn(Dispatchers.IO)
+                    .collectLatest { blocks ->
+                        val withCovers = withContext(Dispatchers.IO) { fillBlockCovers(blocks) }
+                        currentCoroutineContext().ensureActive()
+                        if (withCovers.isNotEmpty()) _collectiveBlocks.value = withCovers
+                    }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Keep the acknowledged state. A later explicit refresh restarts observation.
+            }
         }
     }
 
@@ -3214,6 +3224,7 @@ class MainViewModel @JvmOverloads constructor(
      * listener asked); a failure keeps the previous block.
      */
     fun openSourceCategory(sourceId: String, genrePath: String, cursor: String? = null) {
+        refreshCollectiveBlocks()
         viewModelScope.launch(Dispatchers.IO) {
             // #1238 — the key names the collection PAGE, so «до A» and «до B»
             // of one Source coexist instead of overwriting one shared row.
@@ -3228,8 +3239,7 @@ class MainViewModel @JvmOverloads constructor(
             }
             if (block != null) {
                 val filled = fillBlockCovers(listOf(block)).firstOrNull() ?: block
-                _collectiveBlocks.value =
-                    _collectiveBlocks.value.filterNot { it.blockKey == key } + filled
+                _collectiveBlocks.update { current -> current.filterNot { it.blockKey == key } + filled }
             }
         }
     }

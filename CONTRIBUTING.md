@@ -7,8 +7,12 @@
 - Kotlin + Jetpack Compose, єдиний модуль `app`, Gradle 9.3.1, AGP 9.1.1, Java 21
 - `scripts/test-changed.sh` — тести логічних модулів, змінених відносно `origin/main`;
   іншу базу можна передати через `--base`
-- `scripts/test-all.sh` — повний локальний набір JVM-тестів на JDK 21 і в чистому
+- `scripts/test-all.sh` — шість звичайних частин JVM-тестів на JDK 21 і в чистому
   тимчасовому каталозі
+- `python3 scripts/test-controlled-app.py run` — окремий контрольований
+  App → Room → Огляд тест на macOS; він не входить до шести CI-частин.
+  `scripts/test-all.sh --include-controlled-app` додає його після них.
+  Передумови й межа перевірки — у `docs/runbooks/controlled-app-composition.md`
 - `scripts/check_guidance_freshness.py` — порівнює `AGENTS.md`/`CONTRIBUTING.md`/
   `docs/agents/**`/`docs/CODEMAPS/**` робочої копії з `origin/main`; запускай у
   довгоживучій смузі, де правила могли відстати

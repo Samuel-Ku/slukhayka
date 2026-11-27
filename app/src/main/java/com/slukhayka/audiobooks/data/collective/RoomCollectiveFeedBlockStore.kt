@@ -3,6 +3,8 @@ package com.slukhayka.audiobooks.data.collective
 import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.FeedSnapshotEntity
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 /**
@@ -26,6 +28,30 @@ class RoomCollectiveFeedBlockStore(
             CollectiveFeedBlockCodec.decode(row.cardsJson)
         }
 
+    override fun observeChanges(blockKeys: List<String>): Flow<Unit> {
+        val snapshotKeys = blockKeys.map { key ->
+            val ref = requireNotNull(parseCollectiveBlockKey(key)) { "Invalid collective block key: $key" }
+            "${ref.sourceId}|${collectiveFeedKey(ref)}"
+        }
+        // SELECT * observes payload bytes, not just the unchanged block identity.
+        return dao.observeCollectiveFeedSnapshots(snapshotKeys).map { Unit }
+    }
+
+    override suspend fun keys(sourceId: String, kind: CollectiveBlockKind): List<String> =
+        withContext(Dispatchers.IO) {
+            dao.getCollectiveSourceSnapshots(sourceId).mapNotNull { row ->
+                val block = CollectiveFeedBlockCodec.decode(row.cardsJson) ?: return@mapNotNull null
+                val ref = parseCollectiveBlockKey(block.blockKey) ?: return@mapNotNull null
+                block.blockKey.takeIf {
+                    ref.sourceId == sourceId && ref.kind == kind && block.sourceId == sourceId &&
+                        block.kind == kind && row.feedKey == collectiveFeedKey(ref)
+                }
+            }.distinct().sorted()
+        }
+
+    override fun observeSourceChanges(sourceIds: List<String>): Flow<Unit> =
+        dao.observeCollectiveSourceSnapshots(sourceIds).map { Unit }
+
     override suspend fun activate(block: CollectiveFeedBlock): Boolean =
         withContext(Dispatchers.IO) {
             // An empty snapshot never becomes active; the deterministic key
@@ -44,26 +70,54 @@ class RoomCollectiveFeedBlockStore(
             true
         }
 
+    override suspend fun activateIfUnchanged(
+        expected: CollectiveFeedBlock?, block: CollectiveFeedBlock
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (block.cards.isEmpty()) return@withContext false
+        val ref = parseCollectiveBlockKey(block.blockKey) ?: return@withContext false
+        dao.activateCollectiveFeedIfUnchanged(
+            expected,
+            FeedSnapshotEntity(
+                sourceId = block.sourceId,
+                feedKey = collectiveFeedKey(ref),
+                pageCursor = "",
+                fetchedAt = block.fetchedAt,
+                cardsJson = CollectiveFeedBlockCodec.encode(block)
+            ),
+            fallbackFeedKey = collectiveFeedKey(ref.kind).takeIf { ref.provenanceContext.isNotEmpty() }
+        )
+    }
+
+    override suspend fun activateIfNewer(block: CollectiveFeedBlock): Boolean =
+        withContext(Dispatchers.IO) {
+            if (block.cards.isEmpty()) return@withContext false
+            val ref = parseCollectiveBlockKey(block.blockKey) ?: return@withContext false
+            dao.activateCollectiveFeedIfNewer(
+                FeedSnapshotEntity(
+                    sourceId = block.sourceId,
+                    feedKey = collectiveFeedKey(ref),
+                    pageCursor = "",
+                    fetchedAt = block.fetchedAt,
+                    cardsJson = CollectiveFeedBlockCodec.encode(block)
+                ),
+                fallbackFeedKey = collectiveFeedKey(ref.kind).takeIf { ref.provenanceContext.isNotEmpty() }
+            )
+        }
+
     override suspend fun recordAttempt(blockKey: String, attempt: CollectiveAttempt) =
         withContext(Dispatchers.IO) {
             val ref = parseCollectiveBlockKey(blockKey) ?: return@withContext
-            val row = findRow(ref) ?: return@withContext
-            val block = CollectiveFeedBlockCodec.decode(row.cardsJson) ?: return@withContext
-            // The cards, identity, version and time window stay exactly as the
-            // last good snapshot had them.
-            dao.upsertFeedSnapshot(row.copy(cardsJson = CollectiveFeedBlockCodec.encode(block.copy(lastAttempt = attempt))))
+            val feedKey = collectiveFeedKey(ref)
+            dao.recordCollectiveFeedAttempt(
+                ref.sourceId, feedKey, attempt,
+                fallbackFeedKey = collectiveFeedKey(ref.kind).takeIf { ref.provenanceContext.isNotEmpty() }
+            )
         }
 
     override suspend fun recordRevision(blockKey: String, revision: Long, expectedVersion: Long) =
         withContext(Dispatchers.IO) {
             val ref = parseCollectiveBlockKey(blockKey) ?: return@withContext
-            val row = findRow(ref) ?: return@withContext
-            val block = CollectiveFeedBlockCodec.decode(row.cardsJson) ?: return@withContext
-            // A late publish answer only labels the observation it belongs to.
-            if (block.version != expectedVersion) return@withContext
-            dao.upsertFeedSnapshot(
-                row.copy(cardsJson = CollectiveFeedBlockCodec.encode(block.copy(revision = revision)))
-            )
+            dao.recordCollectiveFeedRevision(ref.sourceId, collectiveFeedKey(ref), revision, expectedVersion)
         }
 
     /**

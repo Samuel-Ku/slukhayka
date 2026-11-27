@@ -159,9 +159,16 @@ interface SourceAdapter {
     }
 
     /**
-     * Best-effort site search. Sources without a usable search endpoint (or
-     * whose search is robots-discouraged) return an empty list; discovery then
-     * happens through [fetchNew] and category enumeration.
+     * Whether this adapter has a usable query endpoint. Feed-only adapters
+     * declare false; an empty answer from a supported endpoint is an honest
+     * miss, never a request to try a second endpoint.
+     */
+    val supportsSearch: Boolean get() = true
+
+    /**
+     * Best-effort site search. Failures propagate to the caller's partial
+     * result status. Adapters without a query endpoint declare
+     * [supportsSearch] false and discovery uses [fetchNew] instead.
      */
     suspend fun search(query: String): List<SourceBook>
 

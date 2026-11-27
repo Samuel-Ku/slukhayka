@@ -26,6 +26,8 @@ class TgPreviewSourceAdapter : SourceAdapter {
 
     override val contentLanguage: String get() = "uk"
 
+    override val supportsSearch: Boolean = false
+
     override suspend fun search(query: String): List<SourceBook> = emptyList()
 
     override suspend fun fetchBookPage(url: String): SourceBookDetail =

@@ -46,6 +46,8 @@ class AudiobookMp3Adapter(
 
     override val sourceId: String = "audiobookmp3"
 
+    override val supportsSearch: Boolean = false
+
     override suspend fun search(query: String): List<SourceBook> = emptyList()
 
     override suspend fun fetchBookPage(url: String): SourceBookDetail {

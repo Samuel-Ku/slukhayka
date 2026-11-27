@@ -100,6 +100,7 @@ abstract class AudiobookDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): AudiobookDatabase {
             return INSTANCE ?: synchronized(this) {
+                INSTANCE?.let { return@synchronized it }
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     AudiobookDatabase::class.java,

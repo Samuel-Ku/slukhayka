@@ -18,6 +18,21 @@ budget_module=$repo_root/scripts/tmp_budget.py
 python3 "$budget_module" sweep --prefix slukhayka-tests. ||
   printf '%s\n' "test-all.sh: прибирання застарілих тек прогону не вдалося (причина вище)" >&2
 
+include_controlled=no
+if [[ $# -eq 1 && "$1" == --include-controlled-app ]]; then
+  include_controlled=yes
+elif [[ $# -ne 0 ]]; then
+  printf '%s\n' "Usage: scripts/test-all.sh [--include-controlled-app]" >&2
+  exit 2
+fi
+if [[ "$include_controlled" == yes && $(uname -s) != Darwin ]]; then
+  printf '%s\n' "Controlled App target supports reviewed macOS tools only. Linux is unsupported until a separate pin review." >&2
+  exit 2
+fi
+if [[ "$include_controlled" == no ]]; then
+  printf '%s\n' "Running the six normal JVM legs. The manual controlled App target is excluded; run python3 scripts/test-controlled-app.py run separately."
+fi
+
 is_jdk_21() {
   local candidate=$1
   [[ -x "$candidate/bin/java" ]] || return 1
@@ -84,6 +99,7 @@ export TMPDIR=$run_temp
 
 cd "$repo_root" || exit 2
 if [[ -n ${SLUKHAYKA_GRADLE_ARGS_FILE:-} ]]; then
+  [[ "$include_controlled" == no ]] || { printf '%s\n' "A custom normal partition cannot be combined with --include-controlled-app" >&2; exit 2; }
   if [[ ! -f "$SLUKHAYKA_GRADLE_ARGS_FILE" ]]; then
     printf '%s\n' "Gradle argument file is missing: $SLUKHAYKA_GRADLE_ARGS_FILE" >&2
     exit 2
@@ -103,4 +119,9 @@ fi
 "$gradlew" :app:testRoomNativeSdk36 --no-daemon --stacktrace || exit $?
 "$gradlew" :app:testRoomNativeDefault --no-daemon --stacktrace || exit $?
 "$gradlew" :app:testRoomRobolectricOnly --no-daemon --stacktrace || exit $?
-"$gradlew" :app:testComposeRoborazzi --no-daemon --stacktrace
+"$gradlew" :app:testComposeRoborazzi --no-daemon --stacktrace || exit $?
+if [[ "$include_controlled" == yes ]]; then
+  python3 "$repo_root/scripts/test-controlled-app.py" run || exit $?
+  python3 "$repo_root/scripts/test-controlled-app.py" run --case overview-late-room || exit $?
+  python3 "$repo_root/scripts/test-controlled-app.py" run --case arrivals-live-feed || exit $?
+fi

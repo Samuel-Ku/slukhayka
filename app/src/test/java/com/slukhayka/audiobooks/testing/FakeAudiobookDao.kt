@@ -1089,6 +1089,9 @@ class FakeAudiobookDao(
         workSourcesState.update { current -> current.filterNot { it.id == workSource.id } + workSource }
     }
 
+    override suspend fun getWorkSourceById(id: String): WorkSourceEntity? =
+        workSourcesState.value.firstOrNull { it.id == id }
+
     override suspend fun upsertWorkWithSource(work: WorkEntity, workSource: WorkSourceEntity) {
         upsertWork(work)
         upsertWorkSource(workSource)
@@ -1714,6 +1717,22 @@ class FakeAudiobookDao(
         feedSnapshotsState.value
             .filter { it.sourceId == sourceId && it.feedKey == feedKey }
             .sortedBy { it.pageCursor }
+
+    override fun observeCollectiveFeedSnapshots(snapshotKeys: List<String>): Flow<List<FeedSnapshotEntity>> =
+        feedSnapshotsState.map { rows ->
+            rows.filter { it.pageCursor.isEmpty() && "${it.sourceId}|${it.feedKey}" in snapshotKeys }
+                .sortedWith(compareBy<FeedSnapshotEntity> { it.sourceId }.thenBy { it.feedKey })
+        }
+
+    override fun observeCollectiveSourceSnapshots(sourceIds: List<String>): Flow<List<FeedSnapshotEntity>> =
+        feedSnapshotsState.map { rows -> rows.filter {
+            it.pageCursor.isEmpty() && it.sourceId in sourceIds && it.feedKey.startsWith("collective-")
+        }.sortedWith(compareBy<FeedSnapshotEntity> { it.sourceId }.thenBy { it.feedKey }) }
+
+    override suspend fun getCollectiveSourceSnapshots(sourceId: String): List<FeedSnapshotEntity> =
+        feedSnapshotsState.value.filter {
+            it.pageCursor.isEmpty() && it.sourceId == sourceId && it.feedKey.startsWith("collective-")
+        }.sortedBy { it.feedKey }
 
     override suspend fun clearFeedSnapshots(sourceId: String, feedKey: String) {
         feedSnapshotsState.update { current ->

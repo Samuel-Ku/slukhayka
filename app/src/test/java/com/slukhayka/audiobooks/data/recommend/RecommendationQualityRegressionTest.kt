@@ -133,7 +133,9 @@ class RecommendationQualityRegressionTest {
         assertEquals("target", ranker.rank(listOf(target.copy(author = "Other")), listOf(negative)).single().candidate.id)
         assertTrue(ranker.rank(listOf(target), listOf(negative)).isEmpty())
         assertEquals("target", ranker.rank(listOf(target), emptyList()).single().candidate.id)
+        val beforeOff = ranker.rank(listOf(target), listOf(negative, positive))
         ranker.clearPersonalization()
+        assertEquals(beforeOff, ranker.rank(listOf(target), listOf(negative, positive)))
         assertTrue(ranker.rank(listOf(target), listOf(negative)).isEmpty())
     }
 

@@ -24,6 +24,15 @@ class LocalRecommendationRanker {
 
     @Synchronized
     internal fun clearPersonalization() {
+        clearNegativeCache()
+        documents = emptyMap()
+        inverseFrequency = emptyMap()
+        indexedCandidates = emptyList()
+        features = emptyMap()
+        featuredCandidates = emptyList()
+    }
+
+    private fun clearNegativeCache() {
         negativeSignals = emptyList()
         negativeFeatures = null
         negativeHadGraph = false
@@ -76,7 +85,7 @@ class LocalRecommendationRanker {
             return (.5 * lexical + features.getValue(candidate.id).affinity(signalFeatures.getValue(signal.id)))
                 .coerceIn(0.0, 1.0)
         }
-        if (negative.isEmpty()) clearPersonalization() else if (negative != negativeSignals ||
+        if (negative.isEmpty()) clearNegativeCache() else if (negative != negativeSignals ||
             features !== negativeFeatures || (graph != null) != negativeHadGraph || graph !== negativeGraph.get()) {
             negativeSignals = negative.toList()
             negativeFeatures = features

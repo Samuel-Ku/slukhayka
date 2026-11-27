@@ -7,12 +7,25 @@ import okio.Buffer
 class PrecomputedRecommendationGraph private constructor(
     val generatedAt: Long,
     val expiresAt: Long,
-    private val edges: Map<String, Map<String, Double>>
+    private val indices: Map<String, Int>,
+    private val rows: Array<Neighbors>
 ) {
     fun isFresh(now: Long): Boolean = generatedAt <= now + 300_000 && now < expiresAt
 
-    fun similarity(first: String, second: String): Double =
-        maxOf(edges[first]?.get(second) ?: 0.0, edges[second]?.get(first) ?: 0.0)
+    fun containsWork(id: String): Boolean = id in indices
+
+    fun similarity(first: String, second: String): Double {
+        val a = indices[first] ?: return 0.0
+        val b = indices[second] ?: return 0.0
+        return maxOf(rows[a].score(b), rows[b].score(a))
+    }
+
+    private class Neighbors(private val targets: IntArray, private val scores: DoubleArray) {
+        fun score(target: Int): Double {
+            val index = targets.binarySearch(target)
+            return if (index >= 0) scores[index] else 0.0
+        }
+    }
 
     companion object {
         const val MAX_BYTES = 8 * 1024 * 1024
@@ -44,10 +57,11 @@ class PrecomputedRecommendationGraph private constructor(
             require(names.toSet().size == names.size)
             val rows = json["neighbors"] as? List<*> ?: return null
             require(rows.size == names.size)
-            val edges = names.indices.associate { index ->
+            val indices = names.withIndex().associate { it.value to it.index }
+            val edges = Array(names.size) { index ->
                 val row = rows[index] as? List<*> ?: error("row")
                 require(row.size <= 32)
-                val neighbors = mutableMapOf<String, Double>()
+                val neighbors = mutableMapOf<Int, Double>()
                 for (value in row) {
                     val edge = value as? List<*> ?: error("edge")
                     require(edge.size == 2)
@@ -56,11 +70,12 @@ class PrecomputedRecommendationGraph private constructor(
                     require(rawTarget == target.toDouble() && target in names.indices && target != index)
                     val score = (edge[1] as? Number)?.toDouble() ?: error("score")
                     require(score.isFinite() && score > 0.0 && score <= 1.0)
-                    require(neighbors.put(names[target], score) == null)
+                    require(neighbors.put(target, score) == null)
                 }
-                names[index] to neighbors.toMap()
+                val targets = neighbors.keys.sorted()
+                Neighbors(targets.toIntArray(), DoubleArray(targets.size) { neighbors.getValue(targets[it]) })
             }
-            PrecomputedRecommendationGraph(generated, expires, edges).also { require(it.isFresh(now)) }
+            PrecomputedRecommendationGraph(generated, expires, indices, edges).also { require(it.isFresh(now)) }
         } catch (_: Exception) {
             null
         }

@@ -10,6 +10,8 @@ import kotlin.math.sqrt
  */
 class LocalRecommendationRanker {
     private var indexedCandidates = emptyList<RecommendationEngine.Candidate>()
+    private var featuredCandidates = emptyList<RecommendationEngine.Candidate>()
+    private var features = emptyMap<String, Features>()
     private var documents = emptyMap<String, Map<String, Double>>()
     private var inverseFrequency = emptyMap<String, Double>()
 
@@ -27,7 +29,6 @@ class LocalRecommendationRanker {
     ): List<RecommendationEngine.Recommendation> {
         if (topN <= 0) return emptyList()
         val graph = contentGraph?.takeIf { it.isFresh(nowEpochMs) }
-        if (graph == null) index(candidates)
         val hidden = excludedAuthors.map(::key).toSet()
         val ordered = RecommendationPersonalization.resolveSignals(signals)
             .sortedWith(compareByDescending<RecommendationEngine.Signal> { kotlin.math.abs(it.weight) }
@@ -35,14 +36,22 @@ class LocalRecommendationRanker {
         val positive = ordered.filter { it.weight > 0 }.take(64)
         val negative = ordered.filter { it.weight < 0 }.take(64)
         val active = positive + negative
-        val signalVectors = if (graph == null) active.associate {
+        val needsText = active.isNotEmpty() && (graph == null || active.any { !graph.containsWork(it.id) } ||
+            candidates.any { !graph.containsWork(it.id) })
+        if (needsText) index(candidates)
+        if (candidates != featuredCandidates) {
+            features = candidates.associate { it.id to Features(key(it.author), key(it.series), tokens(it.genre).keys) }
+            featuredCandidates = candidates.toList()
+        }
+        val knownSignalIds = signals.mapTo(HashSet()) { it.id }
+        val signalVectors = if (needsText) active.associate {
             it.id to (documents[it.id] ?: vector(tokens(it.text)))
         } else emptyMap()
-        val features = candidates.associate { it.id to Features(key(it.author), key(it.series), tokens(it.genre).keys) }
         val signalFeatures = active.associate { it.id to Features(key(it.author), key(it.series), tokens(it.genre).keys) }
         fun similarity(candidate: RecommendationEngine.Candidate, signal: RecommendationEngine.Signal): Double {
-            val lexical = graph?.similarity(candidate.id, signal.id)
-                ?: dot(documents[candidate.id].orEmpty(), signalVectors[signal.id].orEmpty())
+            val lexical = if (graph != null && graph.containsWork(candidate.id) && graph.containsWork(signal.id)) {
+                graph.similarity(candidate.id, signal.id)
+            } else dot(documents[candidate.id].orEmpty(), signalVectors[signal.id].orEmpty())
             val a = features.getValue(candidate.id)
             val b = signalFeatures.getValue(signal.id)
             val author = if (a.author.isNotEmpty() && a.author == b.author) 1.0 else 0.0
@@ -53,11 +62,18 @@ class LocalRecommendationRanker {
         }
         val day = nowEpochMs / 86_400_000L
         val scored = candidates.distinctBy { it.id }.asSequence()
-            .filter { it.id !in excludedWorkIds && key(it.author) !in hidden }
-            .filter { c -> signals.none { it.id == c.id } }
+            .filter { it.id !in excludedWorkIds && features.getValue(it.id).author !in hidden }
+            .filter { it.id !in knownSignalIds }
             .mapNotNull { candidate ->
-                val best = positive.maxByOrNull { similarity(candidate, it) * it.weight.coerceAtMost(1.5) }
-                val affinity = best?.let { similarity(candidate, it) * it.weight.coerceAtMost(1.5) } ?: 0.0
+                var best: RecommendationEngine.Signal? = null
+                var affinity = 0.0
+                for (signal in positive) {
+                    val match = similarity(candidate, signal) * signal.weight.coerceAtMost(1.5)
+                    if (best == null || match > affinity) {
+                        best = signal
+                        affinity = match
+                    }
+                }
                 val aversion = negative.maxOfOrNull { similarity(candidate, it) * -it.weight } ?: 0.0
                 // A source's top must not override a listener's explicit dislike.
                 if (aversion > 0 && aversion >= affinity) return@mapNotNull null
@@ -76,8 +92,8 @@ class LocalRecommendationRanker {
         val series = mutableSetOf<String>()
         val ids = mutableSetOf<String>()
         fun add(item: RecommendationEngine.Recommendation, explore: Boolean): Boolean {
-            val author = key(item.candidate.author)
-            val cycle = key(item.candidate.series)
+            val author = features.getValue(item.candidate.id).author
+            val cycle = features.getValue(item.candidate.id).series
             if (item.candidate.id in ids || author.isNotEmpty() && authors.getOrDefault(author, 0) >= 2 ||
                 cycle.isNotEmpty() && cycle in series) return false
             selected += item.copy(isExploration = explore)
@@ -90,6 +106,12 @@ class LocalRecommendationRanker {
         for (item in personal) {
             if (selected.size >= personalSlots) break
             add(item, false)
+        }
+        // Preserve useful matches when diversity leaves personal slots unfilled or when
+        // more relevant alternatives exist than the reserved personal slots.
+        for (item in personal) {
+            if (selected.size >= topN) break
+            add(item, true)
         }
         // Daily rotation changes discovery without a timer, random flicker or CPU polling.
         // Personal picks retain relevance order; discovery also works for a new listener.

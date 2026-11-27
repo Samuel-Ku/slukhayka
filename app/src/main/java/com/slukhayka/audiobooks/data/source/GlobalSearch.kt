@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.data.source
 import com.slukhayka.audiobooks.data.EditionId
 import com.slukhayka.audiobooks.data.merge.MergeKey
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Spec-10 T4 — the global-search result model (pure JVM).
@@ -133,10 +134,14 @@ fun sourceIdForUrl(url: String): String {
     }?.id ?: UNKNOWN_SOURCE_ID
 }
 
-/** The registry hosts of one source: its home host plus every transport host. */
-private fun hostsOfFacts(facts: SourceFacts): Set<String> = buildSet {
-    hostOfUrl(facts.homeUrl)?.let(::add)
-    addAll(facts.transportHosts.map { it.lowercase() })
+private val sourceHosts = ConcurrentHashMap<String, Set<String>>()
+
+/** Static registry hosts, cached by Source id rather than by listener URLs. */
+private fun hostsOfFacts(facts: SourceFacts): Set<String> = sourceHosts.getOrPut(facts.id) {
+    buildSet {
+        hostOfUrl(facts.homeUrl)?.let(::add)
+        addAll(facts.transportHosts.map { it.lowercase() })
+    }
 }
 
 private fun hostOfUrl(url: String): String? = try {

@@ -380,6 +380,13 @@ fun AudiobookApp(
     // #860 — Settings left the bottom bar: the gear opens it from a root, and
     // BACK must return to THAT root, not to the first one.
     var settingsReturnTab by rememberSaveable { mutableStateOf(SelectedTab.EXPLORE) }
+    // #1812 — a gear is a FRESH entry: clear the row to restore, so the
+    // one-shot return focus cannot steal the heading from the next visit.
+    val openSettings: (SelectedTab) -> Unit = { tab ->
+        settingsReturnTab = tab
+        settingsReturnDestination = null
+        viewModel.selectTab(SelectedTab.SETTINGS)
+    }
     // #871 — every tab renders inside TabSaveableHost (see its KDoc): a tab
     // leaves the composition when another is selected, so its rememberSaveable
     // state (scroll, filters, search) is kept keyed by the tab.
@@ -820,10 +827,7 @@ fun AudiobookApp(
         PaperInkThemedContent {
         LibraryScreen(
             // #860 — the gear opens Settings from THIS root.
-            onOpenSettings = {
-                settingsReturnTab = SelectedTab.LIBRARY
-                viewModel.selectTab(SelectedTab.SETTINGS)
-            },
+            onOpenSettings = { openSettings(SelectedTab.LIBRARY) },
             viewModel = viewModel,
             // ADR-0008 batch 1 (#154): the screen receives the
             // modules it reads from as parameters, wired here
@@ -1591,10 +1595,7 @@ fun AudiobookApp(
                                 // place on EVERY root). Without it the header
                                 // button fell through to ListenScreen's
                                 // `onOpenSettings = {}` default and did nothing.
-                                onOpenSettings = {
-                                    settingsReturnTab = SelectedTab.LISTEN
-                                    viewModel.selectTab(SelectedTab.SETTINGS)
-                                },
+                                onOpenSettings = { openSettings(SelectedTab.LISTEN) },
                                 shelves = viewModel.listenShelves,
                                 onHeroChanged = viewModel::loadNextInSeries,
                                 onBookClick = { id -> viewModel.selectBook(id) },
@@ -1617,10 +1618,7 @@ fun AudiobookApp(
                             // the rails follow while they keep their layout.
                             SelectedTab.EXPLORE -> PaperInkThemedContent { HomeScreen(
                                 // #860 — the gear opens Settings from THIS root.
-                                onOpenSettings = {
-                                    settingsReturnTab = SelectedTab.EXPLORE
-                                    viewModel.selectTab(SelectedTab.SETTINGS)
-                                },
+                                onOpenSettings = { openSettings(SelectedTab.EXPLORE) },
                                 durationEnrichment = viewModel.durationEnrichment,
                                 chapterDurationProbe = viewModel.chapterDurationProbe,
                                 updateChecker = viewModel.updateChecker,
@@ -1674,10 +1672,7 @@ fun AudiobookApp(
                                 onOpenBook = { id -> viewModel.selectBook(id) },
                                 // ADR-0049 — the gear sits in the SAME place on
                                 // every root.
-                                onOpenSettings = {
-                                    settingsReturnTab = SelectedTab.FRIENDS
-                                    viewModel.selectTab(SelectedTab.SETTINGS)
-                                }
+                                onOpenSettings = { openSettings(SelectedTab.FRIENDS) }
                             )
                             SelectedTab.SETTINGS -> SettingsScreen(
                                 returnDestination = settingsReturnDestination,

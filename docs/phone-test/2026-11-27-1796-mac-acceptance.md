@@ -76,3 +76,13 @@ Baseline від merge-base `172901564359cf0729570354ecef0de550231be8` зібра
 Повторна коротка проба без sleep/lock: 9 семплів за 120.005 s; початковий семпл перед стартом, усі 8 наступних PLAYING, усі 9 Awake. CPU delta 30.14 s всього процесу, температура 36.7–36.9 °C під заряджанням. Це не вартість лише рекомендацій і не порівняння з baseline. Попередня пауза не відтворилася в цій пробі; її причину не встановлено. `playback2m-summary.json` і сирі технічні семпли збережено.
 
 Після цього запущено пасивний 30-хвилинний збір `playback30passive.py`: лише спостереження, без sleep, power або lock-команд і без зміни налаштувань. Стан екрана записується як є. Якщо екран лишається ввімкненим, завершений прогін доведе тільки стабільність відтворення, не screen-off приймання. Поточний результат до terminal-файла не оголошується PASS.
+
+## Безкоштовний тестовий HTTPS-хост
+
+Після прямого доручення власника самостійно обрати безкоштовну доставку створено ізольовану гілку `codex/1796-graph-acceptance-20261127` у вже публічному репозиторії. У ній тільки README, чинний підписаний контейнер та окремі негативні контролі. Немає workflow, Git LFS, релізу, мерджу, production-розкладу, нового порту чи тунелю. Публічні репозиторії входять до [GitHub Free](https://docs.github.com/en/get-started/learning-about-github/githubs-plans), файли такого розміру вкладаються у [звичайні ліміти GitHub](https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-large-files-on-github).
+
+Незмінний commit артефактів: `96a60a4ef1edced9366cb0d5dacef2c1b1050e7c`. [Чинний контейнер](https://raw.githubusercontent.com/Samuel-Ku/slukhayka/96a60a4ef1edced9366cb0d5dacef2c1b1050e7c/graph.signed.json) отримано Mac через справжній HTTPS: HTTP 200, 8 241 667 байт, curl exit 0, container/graph SHA256 збігаються, OpenSSL exit 0 / Verified OK. Самостійно прочитано 20 000 ключів і 440 000 ребер; строк чинності ще не минув.
+
+Негативні файли у `negative/` отримано за тим самим HTTPS-хостом, кожний HTTP 200 і 8 241 667 байт. Їхні digest збігаються з README: tampered graph і wrong signature дають OpenSSL exit 1; expired graph — exit 0, але expiresAt у минулому. Повні результати — `operator-host-verification.json` та `https-negatives-host-verification.json`.
+
+Отже, попередній блокер відсутнього тестового URL знято. Production-доставка й загальний GO цим не активуються. Android-збірка з pinned immutable URL та операторським публічним ключем і device-тестом реальних HTTPS-відповідей зараз компілюється (`build-https.log`). Device-тест ще не виконано; відповідні критерії ще не PASS. Встановлення дочекається terminal-результату пасивного аудіопрогону, щоб оновлення APK його не перервало.

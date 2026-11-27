@@ -192,7 +192,7 @@ export function PlayerSheet({
   // itself. The right-hand `pane` (≥840 px) stays a plain non-modal column.
   const isOverlay = placement !== "pane";
   const dialogRef = useRef<HTMLDivElement>(null);
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -203,7 +203,7 @@ export function PlayerSheet({
       document.activeElement instanceof HTMLElement
         ? document.activeElement
         : null;
-    closeButtonRef.current?.focus();
+    headingRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === "Escape") {
         // A dialog INSIDE the player (e.g. the review form) owns its Escape;
@@ -247,6 +247,16 @@ export function PlayerSheet({
           padding: "16px",
           overflowY: "auto",
         };
+  const context = lastPlayed
+    ? [lastPlayed.title, lastPlayed.author, lastPlayed.narrator]
+        .filter((part): part is string => Boolean(part?.trim()))
+        .join(" — ")
+    : "";
+  const chapterLabel = state.isCompleted
+    ? t("completed")
+    : t("chapter", { n: state.chapterIndex + 1 });
+  const headingText = context ? `${context} · ${chapterLabel}` : chapterLabel;
+  const transportLabel = isPlaying ? t("miniPause") : t("miniPlay");
   const headingId = "player-sheet-heading";
   const dialogProps = isOverlay
     ? ({
@@ -265,7 +275,6 @@ export function PlayerSheet({
       {...dialogProps}
     >
       <button
-        ref={closeButtonRef}
         onClick={onClose}
         style={{
           alignSelf: "flex-start",
@@ -277,10 +286,13 @@ export function PlayerSheet({
       >
         {t("close")}
       </button>
-      <h2 id={headingId} style={{ marginTop: 16 }}>
-        {state.isCompleted
-          ? t("completed")
-          : t("chapter", { n: state.chapterIndex + 1 })}
+      <h2
+        id={headingId}
+        ref={headingRef}
+        tabIndex={isOverlay ? -1 : undefined}
+        style={{ marginTop: 16 }}
+      >
+        {headingText}
       </h2>
       <p style={{ color: "var(--fg-dim)", fontSize: 14 }}>
         {t("position", { time: formatClock(state.positionSeconds) })}
@@ -308,6 +320,8 @@ export function PlayerSheet({
       <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
         <button onClick={() => engine.skip(-15)}>⏪ 15s</button>
         <button
+          aria-label={transportLabel}
+          title={transportLabel}
           onClick={() => (isPlaying ? engine.pause() : engine.play())}
           style={{
             fontSize: 24,

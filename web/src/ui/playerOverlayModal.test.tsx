@@ -347,4 +347,14 @@ describe("player history witnesses (#1697)", () => {
     });
     expect(screen.getByRole("dialog", { name: /Розділ 1/ })).toBeTruthy();
   });
+
+  it("starts on a heading that names the book, author and narrator", async () => {
+    render(<App profile={profile} />);
+    const dialog = await openPlayerFromCatalogue();
+    const heading = screen.getByRole("heading", { name: /Старий і море/ });
+    await waitFor(() => expect(document.activeElement).toBe(heading));
+    expect(heading.textContent).toContain("Ернест Гемінґвей");
+    expect(heading.textContent).toContain("Диктор");
+    expect(screen.getByRole("dialog", { name: /Старий і море/ })).toBe(dialog);
+  });
 });

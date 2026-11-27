@@ -85,6 +85,12 @@ class DeliveryTest(unittest.TestCase):
         captured.write_bytes(envelope["graph"].encode())
         self.assertTrue(delivery.verify(captured, self.public, base64.b64decode(envelope["signature"])))
 
+    def test_delivery_cannot_overwrite_the_raw_worker_input(self):
+        original = self.graph.read_bytes()
+        with self.assertRaisesRegex(ValueError, "separate output"):
+            delivery.deliver(self.graph, self.key, self.public, self.graph.parent)
+        self.assertEqual(original, self.graph.read_bytes())
+
     def test_rejects_a_tampered_graph_and_a_tampered_signature(self):
         signature = delivery.sign(self.graph, self.key)
         self.graph.write_bytes(graph_bytes(workKeys=["a", "c"]))

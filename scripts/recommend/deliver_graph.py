@@ -56,6 +56,8 @@ def validate(graph: Path) -> bytes:
 
 
 def deliver(graph: Path, key: Path, public_key: Path, output_dir: Path) -> dict:
+    if graph.resolve() == (output_dir / "graph.json").resolve():
+        raise ValueError("delivery needs a separate output directory; keep the raw worker graph")
     content = validate(graph)
     # Sign the captured, validated bytes, not a mutable worker path (no read/sign TOCTOU).
     with tempfile.TemporaryDirectory() as staging:

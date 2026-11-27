@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Serve exactly the signed public graph, for local activation/verification.
 
-Binds to loopback by default and exposes only /graph.json and /graph.json.sig:
+Binds to loopback by default and exposes only the signed /graph.json envelope:
 no directory listing, no traversal, no other files. A temporary tunnel (or a
 production static host) may put HTTPS in front of it; the model process never
 runs this and never holds the signing key.
@@ -10,8 +10,7 @@ import argparse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-FILES = {"/graph.json": ("graph.json", "application/json"),
-         "/graph.json.sig": ("graph.json.sig", "text/plain; charset=utf-8")}
+FILES = {"/graph.json": ("graph.json", "application/json")}
 
 
 class Handler(BaseHTTPRequestHandler):

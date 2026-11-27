@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.recommend
 
 import java.io.File
+import java.io.FileOutputStream
 import java.net.URI
 
 /**
@@ -17,8 +18,7 @@ class RecommendationGraphStore(
     private val fetch: (String, Int) -> String?,
     private val clock: () -> Long = System::currentTimeMillis
 ) {
-    private val snapshot get() = File(directory, "content-graph.json")
-    private val signature get() = File(directory, "content-graph.json.sig")
+    private val snapshot get() = File(directory, "content-graph.signed.json")
     private val attempt get() = File(directory, "content-graph-attempt.txt")
 
     @Synchronized
@@ -35,34 +35,39 @@ class RecommendationGraphStore(
             directory.mkdirs()
             // Persist before HTTP so a dead endpoint cannot cause a request at every launch.
             attempt.writeText(now.toString())
-            val body = fetch(url, PrecomputedRecommendationGraph.MAX_BYTES) ?: return cached
-            val signed = fetch("$url.sig", MAX_SIGNATURE_BYTES) ?: return cached
-            if (!verify(body, signed)) return cached
-            val graph = PrecomputedRecommendationGraph.parse(body, now) ?: return cached
-            replace(body, signed)
+            val envelope = fetch(url, SignedGraphEnvelope.MAX_BYTES) ?: return cached
+            val payload = SignedGraphEnvelope.decode(envelope) ?: return cached
+            if (!verify(payload.graph, payload.signature)) return cached
+            val graph = PrecomputedRecommendationGraph.parse(payload.graph, now) ?: return cached
+            replace(envelope)
             graph
         }.getOrElse { cached }
     }
 
     private fun cachedGraph(now: Long): PrecomputedRecommendationGraph? {
-        if (snapshot.length() !in 1..PrecomputedRecommendationGraph.MAX_BYTES.toLong()) return null
-        val body = snapshot.readText()
-        val signed = signature.takeIf { it.length() in 1..MAX_SIGNATURE_BYTES.toLong() }?.readText()
-            ?: return null
-        if (!verify(body, signed)) return null
+        if (snapshot.isFile) {
+            if (snapshot.length() !in 1..SignedGraphEnvelope.MAX_BYTES.toLong()) return null
+            val payload = SignedGraphEnvelope.decode(snapshot.readText()) ?: return null
+            if (!verify(payload.graph, payload.signature)) return null
+            return PrecomputedRecommendationGraph.parse(payload.graph, now)
+        }
+        // Read-only migration: older APKs stored a raw graph and a detached signature.
+        val legacy = File(directory, "content-graph.json")
+        val signature = File(directory, "content-graph.json.sig")
+        if (legacy.length() !in 1..PrecomputedRecommendationGraph.MAX_BYTES.toLong() ||
+            signature.length() !in 1..4096L) return null
+        val body = legacy.readText()
+        if (!verify(body, signature.readText())) return null
         return PrecomputedRecommendationGraph.parse(body, now)
     }
 
-    private fun replace(body: String, signed: String) {
-        val bodyTemporary = File(directory, "content-graph.tmp")
-        val signatureTemporary = File(directory, "content-graph.tmp.sig")
-        bodyTemporary.writeText(body)
-        signatureTemporary.writeText(signed)
-        check(bodyTemporary.renameTo(snapshot))
-        check(signatureTemporary.renameTo(signature))
-    }
-
-    private companion object {
-        const val MAX_SIGNATURE_BYTES = 4 * 1024
+    private fun replace(envelope: String) {
+        val temporary = File(directory, "content-graph.signed.tmp")
+        FileOutputStream(temporary).use { stream ->
+            stream.write(envelope.toByteArray(Charsets.UTF_8))
+            stream.fd.sync()
+        }
+        // Both values move together. Failure before this rename leaves the old snapshot intact.
+        check(temporary.renameTo(snapshot))
     }
 }

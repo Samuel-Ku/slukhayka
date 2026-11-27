@@ -25,8 +25,18 @@ class UkrainianExportTest(unittest.TestCase):
         self.assertEqual(("1984", "Джордж Оруэлл"), export.parse_audiobookcoua(html)[:2])
 
     def test_chitaka_reads_the_guillemet_pair(self):
-        html = '<meta property="og:title" content="«Аптекарка» Інґрід Ноль ⭐️ fb2, epub">'
+        html = ('<meta property="og:title" content="«Аптекарка» Інґрід Ноль ⭐️ fb2, epub">'
+                '<audio><source src="https://cdn.example.org/book.mp3?token=test"></audio>')
         self.assertEqual(("«Аптекарка»", "Інґрід Ноль"), export.parse_chitaka(html)[:2])
+
+    def test_chitaka_rejects_text_books_and_commented_or_unrelated_audio(self):
+        meta = '<meta property="og:title" content="«Аптекарка» Інґрід Ноль ⭐️ fb2, epub">'
+        for extra in ("", '<a href="book.mp3">download</a>',
+                      '<!-- <audio src="book.mp3"></audio> -->', '<audio src="book.epub"></audio>'):
+            with self.subTest(extra=extra):
+                self.assertEqual(("", "", ""), export.parse_chitaka(meta + extra))
+        self.assertEqual(("«Аптекарка»", "Інґрід Ноль"),
+                         export.parse_chitaka(meta + '<audio src="book.mp3"></audio>')[:2])
 
     def test_chytaylo_reads_the_book_jsonld(self):
         html = ('<script type="application/ld+json">'

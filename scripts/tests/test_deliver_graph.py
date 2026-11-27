@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location(
     "deliver_graph", Path(__file__).parents[1] / "recommend/deliver_graph.py")
@@ -51,10 +52,38 @@ class DeliveryTest(unittest.TestCase):
     def test_delivers_exact_bytes_and_a_verifiable_signature(self):
         result = delivery.deliver(self.graph, self.key, self.public, self.output)
         delivered = Path(result["graph"]).read_bytes()
-        self.assertEqual(self.graph.read_bytes(), delivered)
-        signature = base64.b64decode(Path(result["signature"]).read_text().strip())
-        self.assertTrue(delivery.verify(Path(result["graph"]), self.public, signature))
+        envelope = json.loads(delivered)
+        captured = self.directory / "captured.json"
+        captured.write_bytes(envelope["graph"].encode("utf-8"))
+        self.assertEqual(self.graph.read_bytes(), captured.read_bytes())
+        signature = base64.b64decode(envelope["signature"])
+        self.assertTrue(delivery.verify(captured, self.public, signature))
         self.assertEqual(len(delivered), result["bytes"])
+        self.assertEqual(1, envelope["formatVersion"])
+
+    def test_failed_atomic_replace_preserves_the_previous_complete_envelope(self):
+        delivery.deliver(self.graph, self.key, self.public, self.output)
+        old = (self.output / "graph.json").read_bytes()
+        self.graph.write_bytes(graph_bytes(workKeys=["a", "new"]))
+        with patch.object(delivery.os, "replace", side_effect=OSError("interrupted")):
+            with self.assertRaises(OSError):
+                delivery.deliver(self.graph, self.key, self.public, self.output)
+        self.assertEqual(old, (self.output / "graph.json").read_bytes())
+        self.assertEqual(["graph.json"], [p.name for p in self.output.iterdir()])
+
+    def test_signing_uses_the_captured_bytes_even_if_worker_input_changes(self):
+        original = self.graph.read_bytes()
+        real_sign = delivery.sign
+        def changing_input(snapshot, key):
+            self.graph.write_bytes(graph_bytes(workKeys=["a", "changed"]))
+            return real_sign(snapshot, key)
+        with patch.object(delivery, "sign", side_effect=changing_input):
+            result = delivery.deliver(self.graph, self.key, self.public, self.output)
+        envelope = json.loads(Path(result["graph"]).read_bytes())
+        self.assertEqual(original, envelope["graph"].encode())
+        captured = self.directory / "captured.json"
+        captured.write_bytes(envelope["graph"].encode())
+        self.assertTrue(delivery.verify(captured, self.public, base64.b64decode(envelope["signature"])))
 
     def test_rejects_a_tampered_graph_and_a_tampered_signature(self):
         signature = delivery.sign(self.graph, self.key)

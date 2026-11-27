@@ -45,12 +45,11 @@ class RecommendationGraphTest {
         try {
             var time = now
             var bodies = 0
-            val fetch: (String, Int) -> String? = { url, _ ->
-                if (url.endsWith(".sig")) signature else {
-                    bodies++
-                    if (bodies == 1) artifact().replace("87400000", (now + 3 * 86_400_000L).toString())
-                    else "broken"
-                }
+            val fetch: (String, Int) -> String? = { _, _ ->
+                bodies++
+                if (bodies == 1) SignedGraphEnvelope.encode(
+                    artifact().replace("87400000", (now + 3 * 86_400_000L).toString()), signature)
+                else "broken"
             }
             fun store() = RecommendationGraphStore(directory, "https://example.org/graph.json",
                 verify, fetch) { time }
@@ -70,17 +69,53 @@ class RecommendationGraphTest {
         try {
             var time = now
             var signed = signature
-            val fetch: (String, Int) -> String? = { url, _ ->
-                if (url.endsWith(".sig")) signed
-                else artifact().replace("87400000", "604800000")
+            val fetch: (String, Int) -> String? = { _, _ ->
+                SignedGraphEnvelope.encode(artifact().replace("87400000", "604800000"), signed)
             }
             fun store() = RecommendationGraphStore(directory, "https://example.org/graph.json",
                 verify, fetch) { time }
             assertNotNull(store().refresh())
+            val accepted = java.io.File(directory, "content-graph.signed.json").readText()
             signed = "attacker"
             time += 86_400_001L
             assertNotNull("the good cache must survive a bad signature", store().refresh())
+            assertEquals(accepted, java.io.File(directory, "content-graph.signed.json").readText())
         } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun `pending update cannot destroy the last complete cached envelope`() {
+        val directory = Files.createTempDirectory("recommend-atomic").toFile()
+        try {
+            val envelope = SignedGraphEnvelope.encode(artifact(), signature)
+            val store = RecommendationGraphStore(directory, "https://example.org/graph.json", verify,
+                { _, _ -> envelope }) { now }
+            assertNotNull(store.refresh())
+            // Simulate interruption after staging the next version but before the single rename.
+            java.io.File(directory, "content-graph.signed.tmp").writeText("incomplete update")
+            val offline = RecommendationGraphStore(directory, "", verify, { _, _ -> error("network") }) { now }
+            assertNotNull(offline.refresh())
+            assertEquals(envelope, java.io.File(directory, "content-graph.signed.json").readText())
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun `old detached cache remains readable during migration`() {
+        val directory = Files.createTempDirectory("recommend-legacy").toFile()
+        try {
+            java.io.File(directory, "content-graph.json").writeText(artifact())
+            java.io.File(directory, "content-graph.json.sig").writeText(signature)
+            val store = RecommendationGraphStore(directory, "", verify, { _, _ -> error("network") }) { now }
+            assertNotNull(store.refresh())
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun `envelope round trip preserves exact signed graph text`() {
+        val body = artifact() + "\n"
+        val encoded = SignedGraphEnvelope.encode(body, signature)
+        val decoded = SignedGraphEnvelope.decode(encoded)!!
+        assertEquals(body, decoded.graph)
+        assertEquals(signature, decoded.signature)
+        assertNull(SignedGraphEnvelope.decode(body))
+        assertNull(SignedGraphEnvelope.decode(encoded.replace("\"formatVersion\":1", "\"formatVersion\":2")))
     }
 
     @Test fun `unsigned cached graph is ignored`() {

@@ -31,6 +31,13 @@ class SeedGraphSignatureTest {
     private val signature = resource("seed-graph.json.sig").trim()
     private val publicKey = resource("seed-graph.pub").trim()
 
+    @Test fun `python signed envelope verifies its exact embedded bytes`() {
+        val envelope = SignedGraphEnvelope.decode(resource("seed-graph.signed.json"))!!
+        assertEquals(body, envelope.graph)
+        assertEquals(signature, envelope.signature)
+        assertTrue(GraphSignatureVerifier(publicKey).verify(envelope.graph, envelope.signature))
+    }
+
     @Test fun `real worker graph verifies and parses`() {
         val verifier = GraphSignatureVerifier(publicKey)
         assertTrue(verifier.verify(body, signature))

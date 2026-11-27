@@ -3,19 +3,19 @@
 
 The model service never sees the signing key. The operator runs this process
 with the graph, the private key and the matching public key; it refuses to
-stage anything unless the signature verifies. The output is the exact graph
-bytes plus `<graph>.sig` (base64 DER ECDSA P-256, SHA-256) for the HTTPS store.
+stage anything unless the signature verifies. One JSON envelope contains the
+exact graph text and base64 DER ECDSA P-256 signature, replaced atomically.
 """
 import argparse
 import base64
 import json
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 
 MAX_BYTES = 8 * 1024 * 1024
+MAX_ENVELOPE_BYTES = 2 * MAX_BYTES + 8192
 SIGNATURE_MAX_BYTES = 4 * 1024
 
 
@@ -40,9 +40,10 @@ def verify(graph: Path, public_key: Path, signature: bytes) -> bool:
 
 
 def validate(graph: Path) -> bytes:
-    if graph.stat().st_size > MAX_BYTES:
+    with graph.open("rb") as stream:
+        content = stream.read(MAX_BYTES + 1)
+    if len(content) > MAX_BYTES:
         raise ValueError("graph exceeds 8 MiB")
-    content = graph.read_bytes()
     payload = json.loads(content)
     if not isinstance(payload, dict) or payload.get("schemaVersion") != 1:
         raise ValueError("graph is not schemaVersion 1")
@@ -56,28 +57,36 @@ def validate(graph: Path) -> bytes:
 
 def deliver(graph: Path, key: Path, public_key: Path, output_dir: Path) -> dict:
     content = validate(graph)
-    signature = sign(graph, key)
-    if not signature or len(signature) > SIGNATURE_MAX_BYTES:
-        raise ValueError("signature is missing or too large")
-    if not verify(graph, public_key, signature):
-        raise ValueError("signature does not verify with the supplied public key")
+    # Sign the captured, validated bytes, not a mutable worker path (no read/sign TOCTOU).
+    with tempfile.TemporaryDirectory() as staging:
+        captured = Path(staging) / "graph.json"
+        captured.write_bytes(content)
+        signature = sign(captured, key)
+        if not signature or len(signature) > SIGNATURE_MAX_BYTES:
+            raise ValueError("signature is missing or too large")
+        if not verify(captured, public_key, signature):
+            raise ValueError("signature does not verify with the supplied public key")
+    envelope = json.dumps({"formatVersion": 1, "graph": content.decode("utf-8"),
+                           "signature": base64.b64encode(signature).decode("ascii")},
+                          ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if len(envelope) > MAX_ENVELOPE_BYTES:
+        raise ValueError("signed envelope exceeds transport limit")
     output_dir.mkdir(parents=True, exist_ok=True)
     graph_out = output_dir / "graph.json"
-    signature_out = output_dir / "graph.json.sig"
-    graph_tmp = output_dir / ".graph.json.tmp"
-    signature_tmp = output_dir / ".graph.json.sig.tmp"
+    temporary = None
     try:
-        graph_tmp.write_bytes(content)
-        signature_tmp.write_text(base64.b64encode(signature).decode("ascii") + "\n")
-        os.chmod(graph_tmp, 0o644)
-        os.chmod(signature_tmp, 0o644)
-        os.replace(graph_tmp, graph_out)
-        os.replace(signature_tmp, signature_out)
+        with tempfile.NamedTemporaryFile(dir=output_dir, prefix=".graph-", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(envelope)
+            stream.flush()
+            os.fchmod(stream.fileno(), 0o644)
+            os.fsync(stream.fileno())
+        os.replace(temporary, graph_out)
     finally:
-        graph_tmp.unlink(missing_ok=True)
-        signature_tmp.unlink(missing_ok=True)
-    return {"graph": str(graph_out), "signature": str(signature_out),
-            "bytes": len(content), "signatureBytes": len(signature)}
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+    return {"graph": str(graph_out), "bytes": len(envelope), "graphBytes": len(content),
+            "signatureBytes": len(signature), "formatVersion": 1}
 
 
 def main():

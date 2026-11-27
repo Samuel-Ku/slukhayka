@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 import re
 import time
-import urllib.request
+from public_catalog_http import fetch_text
 
 from merge_key import merge_key
 
@@ -27,13 +27,10 @@ SPACE = re.compile(r"\s+")
 
 
 def fetch(offset, limit):
-    request = urllib.request.Request(API.format(limit=limit, offset=offset),
-                                     headers={"User-Agent": "slukhayka-catalog/1"})
     last = None
     for attempt in range(3):
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                return json.loads(response.read())
+            return json.loads(fetch_text(API.format(limit=limit, offset=offset), timeout=60))
         except Exception as error:  # bounded retry; a page is never guessed
             last = error
             time.sleep(1 + attempt)

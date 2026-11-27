@@ -22,7 +22,10 @@ import json
 from pathlib import Path
 import re
 import time
-import urllib.request
+from html.parser import HTMLParser
+from urllib.parse import urlsplit
+
+from public_catalog_http import fetch_text
 
 from merge_key import merge_key
 
@@ -34,11 +37,7 @@ LD = re.compile(r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</sc
 
 
 def fetch(url, timeout=25, headers=None):
-    merged = dict(UA)
-    merged.update(headers or {})
-    request = urllib.request.Request(url, headers=merged)
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return response.read().decode("utf-8", "replace")
+    return fetch_text(url, timeout=timeout, headers=headers)
 
 
 def fetch_json(url, headers=None):
@@ -107,7 +106,34 @@ def parse_audiobookcoua(html_text):
     return raw, "", og(html_text, "og:description")
 
 
+class AudioClaim(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.in_audio = False
+        self.playable = False
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "audio":
+            self.in_audio = True
+        if self.in_audio and tag in ("audio", "source"):
+            src = dict(attrs).get("src") or ""
+            if urlsplit(src).path.lower().endswith(".mp3"):
+                self.playable = True
+
+    def handle_endtag(self, tag):
+        if tag == "audio":
+            self.in_audio = False
+
+
+def has_audio(html_text):
+    parser = AudioClaim()
+    parser.feed(html_text)
+    return parser.playable
+
+
 def parse_chitaka(html_text):
+    if not has_audio(html_text):
+        return "", "", ""
     raw = og(html_text, "og:title")
     close = raw.find("»")
     if close < 0:

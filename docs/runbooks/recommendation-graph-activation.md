@@ -9,14 +9,14 @@
 Це спосіб перевірити справжній шлях «підпис → HTTPS → Android» без домену й
 сертифіката. Він **не** є production-публікацією.
 
-1. Віддати лише два файли з локального loopback:
+1. Після запуску deliver_graph.py віддати один підписаний контейнер з локального loopback:
 
    ```sh
    python3 scripts/recommend/serve_graph.py \
      --store ~/.config/slukhayka/store --port 8455
    ```
 
-   Сервер віддає тільки `/graph.json` і `/graph.json.sig`; лістингу й
+   Сервер віддає тільки `/graph.json` (контейнер графа й підпису); лістингу й
    traversal немає.
 
 2. Підняти тимчасовий HTTPS-тунель (вихідне з'єднання, не вхідний порт):
@@ -41,12 +41,13 @@
    Застосунок робить один запит на добу; перевірити кеш:
 
    ```sh
-   adb shell run-as com.slukhayka.audiobooks ls -l files/recommendations
-   adb shell run-as com.slukhayka.audiobooks cat files/recommendations/content-graph.json.sig
+   adb shell run-as com.slukhayka.audiobooks.debug ls -l files/recommendations
+   adb shell run-as com.slukhayka.audiobooks.debug cat files/recommendations/content-graph.signed.json
    ```
 
-   `content-graph.json` і `.sig` разом означають, що підпис перевірено й
-   граф прийнято. Без валідного підпису файли не з'являться.
+   `content-graph.signed.json` з'являється лише після перевірки підпису й
+   формату графа. Це один атомарно оновлюваний файл; незавершений `.tmp`
+   після переривання не замінює попереднього придатного кеша.
 
 5. Після приймання зупинити `cloudflared` і локальний сервер. Тимчасовий URL
    не залишати як production.
@@ -56,9 +57,9 @@
 Потрібні рішення власника:
 
 - **Домен і TLS-сертифікат** (Let's Encrypt або керований хостинг).
-- **Статичний хост** лише для `graph.json` і `graph.json.sig`; без лістингу,
-  без доступу до кешу/каталогу/ключа. Оновлення — атомарне, обидва файли
-  разом; старий граф лишається, поки новий не підписано й не перевірено.
+- **Статичний хост** лише для одного підписаного `graph.json`-контейнера;
+  без лістингу й доступу до кешу/каталогу/ключа. Оновлення — одним атомарним
+  перейменуванням після перевірки підпису.
 - **Публічний ключ оператора** (DER SPKI base64) у релізній збірці:
   `-Precommendation.graphUrl=https://<domain>/graph.json`
   `-Precommendation.graphPublicKey=<base64>`.
@@ -84,3 +85,8 @@
 Тимчасовий тунель відкриває **лише публічний артефакт** і не дає доступу до
 воркера, каталогу, кешу чи ключа. Він не замінює production-хост: URL
 ephemeral, а debug APK не є релізом.
+
+
+Формат після огляду 2026-11-27: `formatVersion=1`, `graph` і `signature`
+в одному JSON. Старий `<url>.sig`-хост потрібно перепублікувати через новий
+скрипт доставки й оновити пробний APK. Деталі переходу — у runbook воркера.

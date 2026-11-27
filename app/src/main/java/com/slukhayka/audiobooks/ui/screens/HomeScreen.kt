@@ -280,7 +280,7 @@ fun HomeScreen(
     // «Ваші цикли» tiers are projected in the ViewModel on Dispatchers.Default
     // (#1743); the screen only draws the already-projected lists.
     val durationBooks by viewModel.homeDurationBooks.collectAsState()
-    val cycleShelves by viewModel.homeCycleShelves.collectAsState()
+    val cycleShelves by viewModel.homeCycleShelves.collectAsStateWithLifecycle()
 
     // IA §4 «Огляд» / expressive «Основні екрани»: the search is permanently
     // visible — finding new content belongs to this tab — so there is no

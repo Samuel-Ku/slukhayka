@@ -105,17 +105,21 @@ class LocalRecommendationRanker {
         }
         val personalSlots = (topN - minOf(2, topN / 3)).coerceAtLeast(0)
         for (item in personal) {
-            if (selected.size >= topN) break
-            add(item, selected.size >= personalSlots)
+            if (selected.size >= personalSlots) break
+            add(item, false)
         }
-        // Daily rotation changes discovery without a timer, random flicker or CPU polling.
-        // Personal picks retain relevance order; discovery also works for a new listener.
-        val discovery = scored.sortedWith(compareBy<RecommendationEngine.Recommendation> {
-            rotationKey(it.candidate.id, day)
-        }.thenBy { it.candidate.id })
-        for (item in discovery) {
+        if (selected.size >= topN) return selected
+        // Rotate related discoveries first. Without personal evidence, prefer
+        // the sources' measured popularity; rotate ties, not the listener's taste.
+        // Compute each daily key once instead of folding long Work IDs per comparison.
+        val discovery = scored.asSequence().filter { it.candidate.id !in ids }
+            .map { Discovery(it, rotationKey(it.candidate.id, day)) }
+            .sortedWith(compareByDescending<Discovery> { it.recommendation.semanticScore > 0.0 }
+                .thenByDescending { if (it.recommendation.semanticScore > 0.0) 0.0 else it.recommendation.score }
+                .thenBy { it.order }.thenBy { it.recommendation.candidate.id })
+        for (entry in discovery) {
             if (selected.size >= topN) break
-            add(item, true)
+            add(entry.recommendation, true)
         }
         return selected
     }
@@ -143,6 +147,7 @@ class LocalRecommendationRanker {
     private fun dot(a: Map<String, Double>, b: Map<String, Double>): Double =
         if (a.size > b.size) dot(b, a) else a.entries.sumOf { (word, value) -> value * (b[word] ?: 0.0) }
 
+    private data class Discovery(val recommendation: RecommendationEngine.Recommendation, val order: Long)
     private data class Features(val author: String, val series: String, val genres: Set<String>)
     private fun key(value: String) = RecommendationPersonalization.identityKey(value)
     private fun rotationKey(id: String, day: Long): Long {

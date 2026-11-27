@@ -38,6 +38,29 @@ class RecommendationQualityRegressionTest {
         assertTrue("Relevant alternatives are available for every slot", result.all { it.candidate.genre == "фентезі" })
     }
 
+    @Test fun `related discovery rotates while strongest personal picks stay stable`() {
+        val candidates = (1..60).map {
+            RecommendationEngine.Candidate("match-$it", "Назва $it", author = "Автор $it", genre = "фентезі")
+        }
+        val signal = RecommendationEngine.Signal("seed", "Магічний світ", genre = "фентезі", weight = 1.0)
+        val ranker = LocalRecommendationRanker()
+        val first = ranker.rank(candidates, listOf(signal), nowEpochMs = 86_400_000)
+        val second = ranker.rank(candidates.reversed(), listOf(signal), nowEpochMs = 172_800_000)
+        assertEquals(first.take(8), second.take(8))
+        assertNotEquals(first.drop(8).map { it.candidate.id }, second.drop(8).map { it.candidate.id })
+        assertTrue((first + second).all { it.semanticScore > 0 })
+    }
+
+    @Test fun `cold start prefers confirmed source popularity before arbitrary rotation`() {
+        val top = RecommendationEngine.Candidate("source-top", "Визнана книжка")
+        val candidates = (1..100).map { RecommendationEngine.Candidate("ordinary-$it", "Назва $it") } + top
+        val result = LocalRecommendationRanker().rank(candidates, emptyList(), topN = 1,
+            nowEpochMs = now, popularityByWorkId = mapOf(top.id to 1.0),
+            sourceLabelsByWorkId = mapOf(top.id to "source"))
+        assertEquals(top.id, result.single().candidate.id)
+        assertEquals("source", result.single().sourceLabel)
+    }
+
     @Test fun `duplicate metadata cannot bypass hidden author and first work wins`() {
         val hidden = RecommendationEngine.Candidate("duplicate", "Hidden book", author = "Hidden")
         val visible = hidden.copy(title = "Visible book", author = "Visible")

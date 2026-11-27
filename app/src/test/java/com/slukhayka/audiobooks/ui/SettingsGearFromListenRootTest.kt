@@ -6,12 +6,15 @@ import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.test.core.app.ApplicationProvider
@@ -136,6 +139,32 @@ class SettingsGearFromListenRootTest {
                 viewModel.selectedTab.value
             )
         }
+    }
+
+
+    @Test
+    fun `a fresh gear entry focuses the heading after a destination visit`() {
+        val (viewModel, dispatcher) = composeRoot()
+
+        awaitTag("listen_screen")
+        compose.onNodeWithTag("settings_gear").assertIsDisplayed().performClick()
+        awaitTag("settings_screen")
+        compose.onNodeWithTag("settings_ContentLanguages").performScrollTo().assertIsDisplayed().performClick()
+        awaitTag("content_languages_screen")
+
+        compose.runOnIdle { dispatcher.onBackPressed() }
+        awaitTag("settings_screen")
+        // Returning from a destination still restores that row.
+        compose.onNodeWithTag("settings_ContentLanguages").assertIsFocused()
+        compose.runOnIdle { dispatcher.onBackPressed() }
+        awaitTag("listen_screen")
+
+        compose.onNodeWithTag("settings_gear").assertIsDisplayed().performClick()
+        awaitTag("settings_screen")
+
+        compose.onNodeWithTag("settings_heading").assertIsFocused()
+        compose.onNodeWithTag("settings_ContentLanguages").assertIsNotFocused()
+        assertEquals(SelectedTab.SETTINGS, viewModel.selectedTab.value)
     }
 
     private fun composeRoot(): Pair<MainViewModel, OnBackPressedDispatcher> {

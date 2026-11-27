@@ -14,14 +14,14 @@ def queue_snapshot(pulls, state, limit=3):
         if not isinstance(record, dict):
             raise ValueError(f'invalid queue record for #{number}')
         fresh = bool(head) and record.get('head') == head
-        reviews = record.get('reviews', {}) if fresh else {}
+        reviews = record.get('reviews', {})
         if not isinstance(reviews, dict):
             raise ValueError(f'invalid reviews for #{number}')
         verdicts = [reviews.get(axis, {}) for axis in ('Spec', 'Standards')]
         if any(not isinstance(v, dict) for v in verdicts):
             raise ValueError(f'invalid review receipt for #{number}')
-        current = [v if v.get('head') == head else {} for v in verdicts]
-        reviewing = any(v.get('status') == 'in-progress' for v in current)
+        current = [v if fresh and v.get('head') == head else {} for v in verdicts]
+        reviewing = any(v.get('status') == 'in-progress' for v in verdicts)
         active += int(reviewing)
         checks = {}
         # Historical failed attempts must not hide a later successful attempt.

@@ -45,3 +45,16 @@ class QueueTest(unittest.TestCase):
     def test_unreadable_receipt_fails(self):
         with self.assertRaises(ValueError):
             queue_snapshot([self.pull()], {'pullRequests': []})
+
+    def test_old_head_review_keeps_slot_until_executor_stops(self):
+        state = {'pullRequests': {}}
+        for n in range(1, 4):
+            state['pullRequests'].update(self.state(n, status='in-progress', head='old')['pullRequests'])
+        pulls = [self.pull(n) for n in range(1, 5)]
+        result = queue_snapshot(pulls, state)
+        self.assertEqual(3, result['activeReviews'])
+        self.assertFalse(any(r['dispatchReview'] for r in result['pullRequests']))
+        state['pullRequests']['1']['reviews'] = {}
+        result = queue_snapshot(pulls, state)
+        self.assertEqual(2, result['activeReviews'])
+        self.assertEqual(1, sum(r['dispatchReview'] for r in result['pullRequests']))

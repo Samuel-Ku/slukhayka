@@ -21,7 +21,7 @@ object EditionId {
 
     private fun currentId(input: String): String {
         recentIds[input]?.let { return it }
-        val id = sha256Hex(input.toByteArray(Charsets.UTF_8)).take(24)
+        val id = sha256Hex(input.toByteArray(Charsets.UTF_8), 12)
         if (recentIds.size >= MAX_RECENT_IDS) recentIds.clear()
         recentIds[input] = id
         return id
@@ -47,5 +47,5 @@ object EditionId {
      * stay byte-for-byte what it shipped as.
      */
     fun forBookLegacy(mergeKey: String, bookId: String, language: String = ""): String =
-        sha256Hex("${mergeKey.ifBlank { bookId }}\u0000$language".toByteArray(Charsets.UTF_8)).take(24)
+        sha256Hex("${mergeKey.ifBlank { bookId }}\u0000$language".toByteArray(Charsets.UTF_8), 12)
 }

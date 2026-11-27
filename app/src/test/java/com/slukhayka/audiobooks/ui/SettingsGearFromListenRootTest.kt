@@ -8,12 +8,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.App
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.AudiobookApp
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
@@ -48,6 +51,23 @@ class SettingsGearFromListenRootTest {
             runCatching { compose.onAllNodesWithTag(tag).fetchSemanticsNodes().size == 1 }
                 .getOrDefault(false)
         }
+    }
+
+    @Test
+    fun `the fresh Listen actions open the catalogue and the import chooser`() {
+        val (viewModel, _) = composeRoot()
+        val app = ApplicationProvider.getApplicationContext<App>()
+        val findBook = app.getString(R.string.profile_view_catalogue)
+        val addFromDevice = app.getString(R.string.profile_import_from_device)
+        compose.waitUntil(20_000) { compose.onAllNodesWithText(findBook).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText(findBook).performClick()
+        awaitTag("home_screen")
+
+        compose.runOnIdle { viewModel.selectTab(SelectedTab.LISTEN) }
+        compose.waitUntil(20_000) { compose.onAllNodesWithText(addFromDevice).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithText(addFromDevice).performClick()
+        awaitTag("library_import_sheet_content")
+        assertEquals(SelectedTab.LIBRARY, viewModel.selectedTab.value)
     }
 
     @Test

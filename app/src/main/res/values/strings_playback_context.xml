@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="player_book_progress_caption">Книга · %1$d%%</string>
+    <string name="player_book_progress_caption_unknown">Книга</string>
+    <string name="book_detail_play_start">Слухати</string>
+    <string name="book_detail_play_pause">Пауза</string>
+    <string name="book_detail_play_relisten">Почати спочатку</string>
+    <string name="book_detail_play_resume">Продовжити з %1$s</string>
+</resources>

@@ -95,7 +95,8 @@ object PlaybackResume {
                 initialChapterId = anchor.chapterId,
                 initialPositionSeconds = latest.currentPositionSeconds,
                 autoPlay = autoPlay,
-                expectedChapterStructureVersion = chapterStructureVersion
+                expectedChapterStructureVersion = chapterStructureVersion,
+                resumePausedAtEpochMs = latest.lastPausedAtEpochMs
             )
         }
         return true

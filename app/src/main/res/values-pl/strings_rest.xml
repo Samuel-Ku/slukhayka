@@ -472,6 +472,19 @@
     <string name="submission_move_up">Przenieś wyżej</string>
     <string name="submission_open_book">Otwórz książkę</string>
     <string name="submission_paste_from_clipboard">Wklej ze schowka</string>
+    <string name="submission_playlist_choose_entries">Wybierz pozycje</string>
+    <plurals name="import_add_one_book_chapters">
+        <item quantity="one">Dodaj jedną książkę z %1$d rozdziałem</item>
+        <item quantity="few">Dodaj jedną książkę z %1$d rozdziałami</item>
+        <item quantity="many">Dodaj jedną książkę z %1$d rozdziałami</item>
+        <item quantity="other">Dodaj jedną książkę z %1$d rozdziałami</item>
+    </plurals>
+    <plurals name="import_add_books">
+        <item quantity="one">Dodaj %1$d książkę</item>
+        <item quantity="few">Dodaj %1$d książki</item>
+        <item quantity="many">Dodaj %1$d książek</item>
+        <item quantity="other">Dodaj %1$d książki</item>
+    </plurals>
     <string name="submission_playlist_select_all">Wybierz wszystkie</string>
     <string name="submission_playlist_selected">Wybrano %1$d z %2$d</string>
     <string name="submission_preview_action">Podejrzyj</string>
@@ -517,4 +530,9 @@
     <string name="update_hide">Ukryj</string>
     <string name="update_available_title">Dostępna wersja %1$s</string>
     <string name="update_available_action">Zaktualizuj</string>
+    <string name="discovery_selected_genres">Wybrane gatunki (%1$d)</string>
+    <string name="discovery_duration_under_five">Do 5 godzin</string>
+    <string name="discovery_duration_five_ten">5–10 godzin</string>
+    <string name="discovery_duration_ten_twenty">10–20 godzin</string>
+    <string name="discovery_duration_over_twenty">20 godzin lub więcej</string>
 </resources>

@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkResumeAction
 import com.slukhayka.audiobooks.ui.icons.PaperInkIconSizes
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
@@ -92,6 +93,7 @@ import com.slukhayka.audiobooks.data.availability.AvailabilityView
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.ui.adaptive.rememberIsLandscapePhoneWindow
 import com.slukhayka.audiobooks.ui.bookPersonPath
+import com.slukhayka.audiobooks.data.imports.PlannedBook
 import com.slukhayka.audiobooks.data.imports.ImportPlanner
 import com.slukhayka.audiobooks.data.imports.LocalFolderGrouping
 import com.slukhayka.audiobooks.data.imports.SourceRef
@@ -159,6 +161,8 @@ fun LibraryScreen(
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit,
     onBrowseClick: () -> Unit,
+    showImportSheet: Boolean,
+    onShowImportSheetChange: (Boolean) -> Unit,
     onPersonClick: (CatalogPerson) -> Unit = {},
     restoreFocusBookId: String? = null,
     onBookFocusRestored: (String) -> Unit = {},
@@ -362,9 +366,6 @@ fun LibraryScreen(
         ?.projection?.year
     // Spec-28 #193: the rare filters, sort and view toggle live in the sheet.
     var showFilterSheet by remember { mutableStateOf(false) }
-    // Spec-28 #194: import is one «+ Додати» action opening a sheet; the
-    // storage destination is reached from Settings.
-    var showImportSheet by remember { mutableStateOf(false) }
     // Spec-601 T3/T5 — the «Надіслати посилання» sheet: paste a YouTube/TG
     // link; publication happens only after the imported copy really plays.
     var showSubmissionSheet by remember { mutableStateOf(false) }
@@ -562,7 +563,7 @@ fun LibraryScreen(
                             // existing collections, opened where they live.
                             onOpenShelves = { viewModel.openCollectionsIndex() },
                             onOpenManualAdd = { manualAddOpen = true },
-                            onAdd = { showImportSheet = true },
+                            onAdd = { onShowImportSheetChange(true) },
                             importFocusRequester = importFocusRequester
                         )
                     }
@@ -644,6 +645,13 @@ fun LibraryScreen(
 
             when (activeTab) {
                 0 -> {
+                    if (libraryLoaded && libraryBooks.isNotEmpty() && (filter != LibraryFilter.ALL || query.isNotBlank())) {
+                        LibraryResultsSummary(
+                            filter = filter,
+                            count = libraryProjection.shownBooks.size,
+                            onResetFilter = { filter = LibraryFilter.ALL }
+                        )
+                    }
                     when {
                         // Only claim the library is empty once it has
                         // actually been read (#1066). While the first read is
@@ -1010,20 +1018,20 @@ fun LibraryScreen(
         if (showImportSheet) {
             LibraryImportSheet(
                 onImportFile = {
-                    showImportSheet = false
+                    onShowImportSheetChange(false)
                     importLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg"))
                 },
                 onImportFolder = {
-                    showImportSheet = false
+                    onShowImportSheetChange(false)
                     folderLauncher.launch(null)
                 },
                 onSubmitLink = {
-                    showImportSheet = false
+                    onShowImportSheetChange(false)
                     viewModel.dismissSubmission()
                     viewModel.refreshSubmissionRemaining()
                     showSubmissionSheet = true
                 },
-                onDismiss = { showImportSheet = false }
+                onDismiss = { onShowImportSheetChange(false) }
             )
         }
 
@@ -1307,7 +1315,8 @@ internal fun LibraryHeaderActionsInner(
         ) {
             Icon(
                 imageVector = PaperInkIcons.More,
-                contentDescription = stringResource(R.string.a11y_library_more_actions)
+                contentDescription = stringResource(R.string.a11y_library_more_actions),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
         DropdownMenu(
@@ -1405,8 +1414,8 @@ internal fun LibraryHeaderActionsInner(
  *
  * The row is inline from 400 dp — and only while three EQUAL tabs can hold the
  * widest label at the current fontScale (#1627 measures «Збережене»/«Shelves»
- * with a TextMeasurer, not with a guess). The search pill is 140 dp, its floor,
- * so the tabs get `maxWidth − 32 − 4 − 140` and one line is guaranteed only
+ * with a TextMeasurer, not with a guess). The search pill is measured from its localized hint, with a 140 dp floor,
+ * so the tabs get the width left beside that field and one line is guaranteed only
  * when `3 × widest ≤ that`. Below 400 dp, or when the labels do not fit at
  * enlarged text, the search takes its own 48 dp line under the tabs (the same
  * fallback; #1627 also lets a label wrap there rather than be ellipsized).
@@ -1451,7 +1460,13 @@ internal fun LibraryTabsWithSearch(
                 ).size.width
             }.toDp()
         }
-        val inline = maxWidth >= 400.dp && widestTab * 3 <= maxWidth - 32.dp - 4.dp - 140.dp
+        val searchWidth = with(LocalDensity.current) {
+            textMeasurer.measure(
+                text = AnnotatedString(stringResource(R.string.lib_search_short_hint)),
+                style = if (LocalPaperInkDesign.current) PaperInkType.Body else MaterialTheme.typography.bodyMedium
+            ).size.width.toDp() + 44.dp
+        }.coerceAtLeast(140.dp)
+        val inline = maxWidth >= 400.dp && widestTab * 3 <= maxWidth - 32.dp - 4.dp - searchWidth
         if (inline) {
             Row(
                 modifier = Modifier
@@ -1470,13 +1485,10 @@ internal fun LibraryTabsWithSearch(
                     topPadding = 0.dp
                 )
                 Spacer(modifier = Modifier.width(4.dp))
-                // The 140 dp floor, not a wider pill: the three tab labels keep
-                // one line at 411 dp, and below 400 the row falls back to two
-                // bands anyway.
                 LibrarySearchField(
                     query = query,
                     onQueryChange = onQueryChange,
-                    modifier = Modifier.width(140.dp)
+                    modifier = Modifier.width(searchWidth)
                 )
             }
         } else {
@@ -1514,7 +1526,7 @@ internal fun LibraryTabsWithSearch(
  * lets the books list start ≤240 dp from the top.
  *
  * Shape: a 44 dp pill inside a 48 dp touch zone, leading magnifier, short
- * localized hint («Пошук» / «Search» / «Szukaj»), a 40 dp ✕ only while a query
+ * localized hint naming the personal library, a 40 dp ✕ only while a query
  * exists. TalkBack names it with [R.string.a11y_library_search]; typing and the
  * system-Back-clears rule are unchanged (IME Back still owns the first press).
  */
@@ -1627,10 +1639,35 @@ internal fun LibrarySearchField(
     }
 }
 
+@Composable
+internal fun LibraryResultsSummary(
+    filter: LibraryFilter,
+    count: Int,
+    onResetFilter: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = PaperInkDimens.SpacePage),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val countLabel = pluralStringResource(R.plurals.lib_result_books, count, count)
+        Text(
+            text = stringResource(R.string.lib_filtered_results, stringResource(filter.labelRes), countLabel),
+            style = PaperInkType.Meta,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f).testTag("library_results_summary"),
+        )
+        if (filter != LibraryFilter.ALL) {
+            TextButton(onClick = onResetFilter, modifier = Modifier.testTag("library_reset_filter")) {
+                Text(stringResource(R.string.lib_reset_status_filter))
+            }
+        }
+    }
+}
+
 /**
  * UI (v1.5 review) — «Продовжити»: the one book the listener is inside right
  * now, as the first thing on the screen, with the resume action as a single
- * wide CTA. It scrolls away with the list; it is content, not chrome.
+ * wide CTA. It scrolls with the list and reserves a readable progress line.
  */
 @Composable
 internal fun LibraryContinueCard(
@@ -1671,18 +1708,8 @@ internal fun LibraryContinueCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
-        Column(modifier = Modifier.padding(AppDimens.SpaceLg)) {
-            Text(
-                // F12 (audit 2026-10-28) — the direction forbids caps (§3.2),
-                // and the resource is sentence case now; `.uppercase()` would
-                // put the loudest register on the smallest size again.
-                text = stringResource(R.string.lib_continue_label),
-                style = PaperInkType.TrackingLabel,
-                // F4 — amber AS TEXT: `tertiary` (Lamp #A96A12) is the graphic
-                // accent and measures 3.80:1 on paper; the text role is 6.2:1.
-                color = PaperInkColors.lampText
-            )
-            Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
+        val largeText = LocalDensity.current.fontScale >= 1.5f
+        Column(modifier = Modifier.padding(PaperInkDimens.SpaceMd)) {
             Row(
                 // The caller may hand in the route-return focus requester: this
                 // row IS the book's card, so focus must be able to land here.
@@ -1705,15 +1732,17 @@ internal fun LibraryContinueCard(
                     book = book.book,
                     semantics = BookCoverSemantics.Decorative,
                     modifier = Modifier
-                        .size(width = 84.dp, height = 112.dp)
+                        .size(width = if (largeText) 40.dp else PaperInkDimens.CoverRowWidth, height = if (largeText) 60.dp else PaperInkDimens.CoverRowHeight)
                         .clip(RoundedCornerShape(AppDimens.RadiusCover)),
                     contentScale = ContentScale.Crop
                 )
-                Spacer(modifier = Modifier.width(AppDimens.SpaceLg))
+                Spacer(modifier = Modifier.width(PaperInkDimens.SpaceMd))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = book.book.title,
-                        style = PaperInkType.BookTitleHero,
+                        style = PaperInkType.RowTitle.copy(
+                            lineBreak = androidx.compose.ui.text.style.LineBreak.Heading
+                        ),
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
@@ -1736,74 +1765,36 @@ internal fun LibraryContinueCard(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                    // #1187 — ADR-0014: an unknown duration renders as NOTHING.
-                    // `knownPercent` is null when no total proves one, and the
-                    // card drew an empty bar plus «Прослухано 0%» for such a
-                    // book — the sentinel read as a reading. The bar keeps
-                    // `percent` (unchanged for the totals that ARE known); only
-                    // its visibility is gated here.
-                    val knownPercent = book.knownPercent
-                    if (knownPercent != null) {
-                        Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
-                        LinearProgressIndicator(
-                            progress = { book.percent },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
-                            color = MaterialTheme.colorScheme.tertiary,
-                            trackColor = MaterialTheme.colorScheme.outlineVariant,
-                            // #292: the M3 stop dot sat at the track's end like a
-                            // second, unexplained marker (device review, 2026-09-16).
-                            drawStopIndicator = {}
-                        )
-                        Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
-                        // The remaining time lives in the CTA right below — repeating
-                        // it here made the two labels fight for one line on a phone
-                        // (on-device check, 2026-09-15: «Прослухано 1%» wrapped).
-                        Text(
-                            text = stringResource(
-                                R.string.lib_progress_percent,
-                                knownPercent
-                            ),
-                            style = PaperInkType.Micro,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
                 }
             }
-            Spacer(modifier = Modifier.height(AppDimens.SpaceLg))
-            Button(
+            book.knownPercent?.let { percent ->
+                Spacer(modifier = Modifier.height(PaperInkDimens.SpaceSm))
+                Text(
+                    text = stringResource(R.string.lib_progress_percent, percent),
+                    style = PaperInkType.BodyStrong,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(modifier = Modifier.height(PaperInkDimens.SpaceXs))
+                LinearProgressIndicator(
+                    progress = { book.percent },
+                    modifier = Modifier.fillMaxWidth().height(PaperInkDimens.ShelfProgressLine),
+                    color = MaterialTheme.colorScheme.tertiary,
+                    trackColor = MaterialTheme.colorScheme.outlineVariant,
+                    drawStopIndicator = {}
+                )
+            }
+            Spacer(modifier = Modifier.height(PaperInkDimens.SpaceSm))
+            PaperInkResumeAction(
+                text = if (remaining != null) {
+                    stringResource(R.string.lib_listen_continue_remaining, remaining)
+                } else {
+                    stringResource(R.string.lib_listen_continue)
+                },
                 onClick = onPlay,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 56.dp)
                     .testTag("library_continue_play"),
-                shape = RoundedCornerShape(PaperInkDimens.RadiusLarge),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.tertiary,
-                    contentColor = MaterialTheme.colorScheme.onTertiary,
-                ),
-            ) {
-                Icon(
-                    imageVector = PaperInkIcons.Play,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onTertiary,
-                    modifier = Modifier.size(PaperInkIconSizes.Chrome)
-                )
-                Spacer(modifier = Modifier.width(AppDimens.SpaceSm))
-                Text(
-                    text = if (remaining != null) {
-                        stringResource(R.string.lib_listen_continue_remaining, remaining)
-                    } else {
-                        stringResource(R.string.lib_listen_continue)
-                    },
-                    style = PaperInkType.Label,
-                    color = MaterialTheme.colorScheme.onTertiary
-                )
-            }
+            )
         }
     }
 }
@@ -2852,6 +2843,40 @@ fun ClearCacheConfirmDialog(
     )
 }
 
+@Composable
+private fun ImportPreviewWithSummary(
+    books: List<PlannedBook>,
+    content: @Composable BoxScope.() -> Unit
+) {
+    val (newBooks, attachments) = books.partition { it.mergedIntoBookId == null }
+    val summary = buildList {
+        if (newBooks.size == 1) {
+            val chapters = newBooks.single().chapters.size
+            add(pluralStringResource(R.plurals.import_add_one_book_chapters, chapters, chapters))
+        } else if (newBooks.isNotEmpty() || attachments.isEmpty()) {
+            add(pluralStringResource(R.plurals.import_add_books, newBooks.size, newBooks.size))
+        }
+        for (group in attachments.groupBy { it.mergedIntoBookId }.values) {
+            val chapters = group.sumOf { it.chapters.size }
+            val title = group.first().suggestion?.existingTitle ?: stringResource(R.string.lib_import_existing_book)
+            add(pluralStringResource(R.plurals.lib_import_attach_chapters, chapters, chapters, title))
+        }
+    }
+    Column {
+        Box(modifier = Modifier.weight(1f, fill = false), content = content)
+        Text(
+            text = summary.joinToString("\n"),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+                .heightIn(max = 96.dp)
+                .verticalScroll(rememberScrollState())
+                .semantics { liveRegion = LiveRegionMode.Polite }
+        )
+    }
+}
+
 /**
  * The smart-import preview dialog (wayfinder #29): scan → plan → confirm →
  * apply. Shows the planned books (grouping + natural order) and the #54
@@ -2873,7 +2898,6 @@ fun ImportPreviewDialog(
     onFolderGroupingChange: (com.slukhayka.audiobooks.data.imports.LocalFolderGrouping) -> Unit = {},
     onMergePlannedBooks: (String, String) -> Unit = { _, _ -> }
 ) {
-    val mergedCount = preview.plan.books.count { it.mergedIntoBookId != null }
     val folder = preview.plan.source as? SourceRef.Folder
     val hasRootFiles = preview.plan.books.any { book -> book.chapters.any { it.file.parentFolder.isNullOrBlank() } }
     val headingFocusRequester = remember { FocusRequester() }
@@ -2923,7 +2947,7 @@ fun ImportPreviewDialog(
             )
         },
         text = {
-            Box {
+            ImportPreviewWithSummary(preview.plan.books) {
 
             val previewScrollState = rememberScrollState()
             val previewAutoScroll = remember {
@@ -2946,10 +2970,7 @@ fun ImportPreviewDialog(
                     .verticalScroll(previewScrollState)
             ) {
                 Text(
-                    text = stringResource(
-                        R.string.lib_import_preview_found,
-                        preview.plan.books.size
-                    ),
+                    text = stringResource(R.string.lib_import_preview_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -3129,14 +3150,8 @@ fun ImportPreviewDialog(
                 Text(
                     if (preview.retryable) {
                         stringResource(R.string.lib_import_retry)
-                    } else if (mergedCount > 0) {
-                        stringResource(
-                            R.string.lib_import_confirm_merged,
-                            preview.plan.books.size - mergedCount,
-                            mergedCount
-                        )
                     } else {
-                        stringResource(R.string.lib_import_confirm, preview.plan.books.size)
+                        stringResource(R.string.submission_preview_add)
                     }
                 )
             }

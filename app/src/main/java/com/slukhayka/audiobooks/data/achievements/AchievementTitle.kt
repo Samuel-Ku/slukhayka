@@ -1,5 +1,8 @@
 package com.slukhayka.audiobooks.data.achievements
 
+import androidx.annotation.StringRes
+import com.slukhayka.audiobooks.R
+
 /**
  * #704 (T6) — the listener's title.
  *
@@ -12,13 +15,18 @@ package com.slukhayka.audiobooks.data.achievements
  *    "time spent" measure the spec rules out;
  *  - a minimum means every rung needs breadth as well as depth — the synergy
  *    the spec names.
+ *
+ * #1824 — the rung carries a resource, not the words. The Ukrainian label used
+ * to live inline in the enum, so the App Locale could not reach it: EN and PL
+ * rendered «Title: Слухач». The ladder below still decides WHICH rung; the
+ * strings live in `values/`, `values-en/` and `values-pl/`.
  */
-enum class ListenerTitle(val label: String) {
-    LISTENER("Слухач"),
-    PAGE_TRAVELLER("Мандрівник сторінками"),
-    STORYTELLER("Оповідач"),
-    STORY_KEEPER("Хранитель історій"),
-    LIBRARY_VOICE("Голос бібліотеки")
+enum class ListenerTitle(@StringRes val labelRes: Int) {
+    LISTENER(R.string.achievement_title_listener),
+    PAGE_TRAVELLER(R.string.achievement_title_page_traveller),
+    STORYTELLER(R.string.achievement_title_storyteller),
+    STORY_KEEPER(R.string.achievement_title_story_keeper),
+    LIBRARY_VOICE(R.string.achievement_title_library_voice)
 }
 
 object AchievementTitle {

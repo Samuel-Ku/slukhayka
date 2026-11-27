@@ -45,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -152,9 +153,9 @@ private fun StarIcon(filled: Boolean, size: Int) {
     )
 }
 
-/** «12 серп. 2026 р.» style label for a review's createdAt stamp. */
-fun reviewDateLabel(createdAtMillis: Long): String =
-    DateFormat.getDateInstance(DateFormat.MEDIUM, Locale("uk")).format(Date(createdAtMillis))
+/** «12 серп. 2026 р.» style label for a review's createdAt stamp in [locale]. */
+fun reviewDateLabel(createdAtMillis: Long, locale: Locale): String =
+    DateFormat.getDateInstance(DateFormat.MEDIUM, locale).format(Date(createdAtMillis))
 
 /**
  * One listener review, Google-style: stars above everything, optional text,
@@ -190,6 +191,11 @@ fun ReviewCard(
         review.authorName
     )
     val paperInk = com.slukhayka.audiobooks.ui.theme.LocalPaperInkDesign.current
+    // #1824 — the date follows the INTERFACE locale, not the content language.
+    // `LocalConfiguration` is the AppLocale-pinned configuration (ADR-0029);
+    // `Locale.getDefault()` stays the device locale and would write a
+    // Ukrainian date under an English UI.
+    val interfaceLocale = LocalConfiguration.current.locales[0]
     Column(modifier = Modifier.fillMaxWidth()) {
     Card(
         modifier = modifier
@@ -294,7 +300,7 @@ fun ReviewCard(
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = reviewDateLabel(review.createdAt),
+                        text = reviewDateLabel(review.createdAt, interfaceLocale),
                         style = if (paperInk) {
                             com.slukhayka.audiobooks.ui.theme.PaperInkType.Micro
                         } else {

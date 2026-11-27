@@ -111,10 +111,13 @@ internal class CastUpstream(
             // CastMimeTypes.forCast(watch URL). A stream of another family
             // (WebM/Opus) would make that declaration a lie, so the chapter is
             // refused honestly rather than mislabelled.
-            if (!CastMimeTypes.declaresFamily(CastMimeTypes.forCast(persistedUrl), resolved.mimeType)) {
-                return null
-            }
-            val playable = Playable(resolved.url, resolved.mimeType)
+            val declared = CastMimeTypes.forCast(persistedUrl)
+            if (!CastMimeTypes.declaresFamily(declared, resolved.mimeType)) return null
+            // An extractor that says nothing cannot prove the declaration
+            // wrong, so the proxy's own Content-Type keeps the declared
+            // family instead of falling back to an extension guess that a
+            // googlevideo URL can never satisfy (no extension → audio/mpeg).
+            val playable = Playable(resolved.url, resolved.mimeType ?: declared)
             resolvedByChapter[index] = playable
             return playable
         }

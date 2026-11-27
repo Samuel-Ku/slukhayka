@@ -17,10 +17,13 @@ def snapshot(text='', title='queue', posted=None):
 
 class Ui:
     def __init__(self, snapshots):
-        self.snapshots = iter(snapshots)
+        self.snapshots = list(snapshots)
+        self.position = 0
         self.taps = []
     def nodes(self):
-        return next(self.snapshots)
+        result = self.snapshots[min(self.position, len(self.snapshots) - 1)]
+        self.position += 1
+        return result
     def tap(self, node):
         self.taps.append(node)
     def type_text(self, message):

@@ -1,55 +1,57 @@
-# #1796 signed-graph acceptance test artifacts
+# #1796: тестовий HTTPS для підписаного графа
 
-**Test-only public host. Not production activation.** Approved production
-HTTPS delivery remains blocked. This branch exists only so the Android
-acceptance agent can fetch the signed `formatVersion=1` container and the
-negative controls over public HTTPS.
+Це тестовий майданчик, не production. Production-доставка підписаного графа
+ще заблокована. Гілка потрібна лише для Android-приймання: тут лежить
+підписаний контейнер і три негативні контролі, які можна взяти з публічного
+HTTPS.
 
-No workflows, releases, merges, timers, ports or tunnels. No catalogue,
-vector cache, credentials or private keys. The only key material here is the
-public key below.
+Нічого зайвого: без workflows, релізів, мерджів, таймерів, портів і тунелів.
+Немає каталогу, кешу, credentials чи приватних ключів. Публічний ключ нижче —
+єдине, що тут є з ключів.
 
-## Valid artifact
+## Валідний артефакт
 
-- `graph.signed.json`
+`graph.signed.json`
+
 - SHA256: `3ec6d8d8cd5487645ab689aea4e234734e33ed0432363cb4c85b30562e2ab094`
-- `formatVersion=1`, graph 8 201 504 bytes, signature 72 bytes.
-- Expiry: 2026-12-04T08:58:41Z.
-- Public key (DER SPKI base64):
+- `formatVersion=1`, граф 8 201 504 байти, підпис 72 байти.
+- Чинний до 2026-12-04T08:58:41Z.
+- Публічний ключ (DER SPKI base64):
   `MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEHsvDhg/Ibg/tnfTVswBjdKsp86yNOFND0FfIoDFmtYoTT5G/77w7TqgjB2iKDqoezW2CB9mTU1C3z0OrTU8XhA==`
 
-Expected: signature verifies, graph parses, TTL is still valid on the test day.
+Це той самий файл, який пінить APK на коміті `96a60a4e`. JSON-байти не
+змінювалися; цей README — docs-only доповнення.
 
-## Negative controls
+## Негативні контролі
 
 ### `negative/tampered-graph-old-signature.json`
 
 - SHA256: `029946f57e3e78162ace9211c7a1d2ec5b3bd0b46799929ec084d31945bb57b9`
-- The embedded graph has `expiresAt` incremented by 1 ms; the original valid
-  signature is retained.
+- У графі збільшено `expiresAt` на 1 мс; старий підпис залишено.
 
-Expected: cryptographic signature verification fails.
+Очікування: перевірка підпису падає.
 
 ### `negative/wrong-signature.json`
 
 - SHA256: `13e15972d790a89d0d64219bfbbe3dd6989c743159255f3d8193dc6a60ac532a`
-- The valid graph is paired with the public seed-fixture signature (a valid
-  ECDSA signature from a different test key, not the operator key).
+- Валідний граф із публічним підписом seed-фікстури (інший тестовий ключ).
 
-Expected: signature verification fails.
+Очікування: перевірка підпису падає.
 
 ### `negative/expired-graph.json`
 
 - SHA256: `41c82f8fb3a739a2a1848f5a7d4381d577844d92495a7213d101d3f18c7f4c41`
-- Signed by the **existing operator key**; the signature itself is valid
-  (`Verified OK`), but `expiresAt` is 2026-11-26T09:19:18Z (already past).
+- Підписаний наявним операторським ключем; підпис валідний, але `expiresAt`
+  = 2026-11-26T09:19:18Z, тобто вже минув.
 
-Expected: signature verifies, but expiry/TTL rejection occurs before the graph
-can enter ranking.
+Очікування: підпис проходить, TTL відхиляє граф до ранжування.
 
-## Constraints
+## Що не робити
 
-- No private keys are present or transmitted.
-- No raw catalogue, vector cache or credentials.
-- The valid artifact is unchanged; negative controls are separate files.
-- This branch is not production activation and must not be merged.
+- Не вважай це production-активацією.
+- Не мерджи гілку.
+- Не шукай тут приватний ключ — його немає.
+- Не використовуй старі кількості або detached `.sig` як доказ.
+
+APK пінить коміт `96a60a4e`; цей README доданий окремим docs-only комітом,
+історія збережена.

@@ -4441,6 +4441,8 @@ class MainViewModel @JvmOverloads constructor(
             sourceLabelsByWorkId = sourceLabelsByWorkId,
             contentGraph = graph
         )
+    }.onCompletion {
+        localRecommendationRanker.clearPersonalization()
     }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 

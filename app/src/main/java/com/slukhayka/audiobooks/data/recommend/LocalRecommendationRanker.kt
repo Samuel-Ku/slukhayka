@@ -5,7 +5,7 @@ import kotlin.math.ln
 import kotlin.math.sqrt
 
 /** Local, sparse content retrieval. No native model, network, or persistent vector cache.
- * The corpus index survives feedback changes; only changed catalogues rebuild it.
+ * While active, the corpus index survives feedback changes. Idle screens can release it.
  * Explicit dislikes are vetoes. Each positive interest competes independently so a
  * listener who likes both history and fantasy does not get their averaged midpoint.
  */

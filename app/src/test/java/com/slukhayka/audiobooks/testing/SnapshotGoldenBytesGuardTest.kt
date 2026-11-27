@@ -118,6 +118,11 @@ import java.security.MessageDigest
  * `large-leading-mini-player-library`, `listen_empty_state`,
  * `listen_shelves_sheet`) and are recorded in the same commit.
  *
+ * 2026-11-26 — #1813/#1815: six pins deliberately changed after canonical
+ * record workflow45789953833. The library frames use the smaller resume card
+ * and scoped search hint. Player frames add a compact whole-book caption,
+ * so the adaptive cover yields height to keep transport visible.
+ *
  * This guard does not bless those bytes — it pins them. They are exactly the
  * files a blind «оновили золота» commit touches, and nothing else in the
  * repository would notice: the compare step in `.github/workflows/ci.yml` runs
@@ -793,6 +798,16 @@ class SnapshotGoldenBytesGuardTest {
          * `listen_shelves_sheet`, `storage_destination` and
          * `work_feed_filter_sheet` are the four with the largest share
          * (2.866 / 1.544 / 1.683 / 1.108 %).
+         *
+         * ## Library menu contrast re-pinned on 2026-11-26 (#1813)
+         *
+         * Canonical record 45803480032 (attempt 2, UI revision 3197d603)
+         * changed only the More glyph in the three library frames: the
+         * 9x43 box at (706,134). Its explicit onSurfaceVariant foreground
+         * follows the ink/paper scheme instead of an inherited content color.
+         * Every pixel outside that glyph and all six other pins stayed put.
+         * The normal mini-player frames stayed identical; its new minimum
+         * height only grows when enlarged text needs more than 64 dp.
          */
         val PINS = listOf(
             Pin(
@@ -813,32 +828,32 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "dbbc17b27bf5d1c6b0513dff1cc833ce" + "5c776d76d03862366ce6e791ac2c6b9c"
+                "0959e1c25abd967bbeb619a824e9025d" + "3b91fb88834b125472497faa73629ceb"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "ec05d4862c9a79520b12ca1a27dc1b6f" + "78b91af7c87446c41f01a946a3404366"
+                "773daa66961afa08672daa5db3e8ccba" + "29395c2e25522a1a91ea0e1bccea5dcd"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "da1a5b0ac987e6c071bfc4214b0dd9e3" + "fa1b36084ef92e61cf405eaeb70b7514"
+                "9bc497586f80810ee32a5356f16d1072" + "892941f01a289d131a0321b7cc3717e0"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_" + "no_narrator.png",
-                "6a1ff3be6c372daafbc7b82e6dc8ca6e" + "8a415fd4dc3ba0989b1759e9d3b6e8d8"
+                "014fc30e37892e7ab24222c93195443e" + "7e373a2bdb945e843c3bd274d31bc2f4"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_redesign_" + "dark.png",
-                "1f1f03fb984f6509043297009398aa0b" + "7b841d0b2ceb34214004d4320f4c4397"
+                "91864622dda0fc078f07632ea5f6f38c" + "be4eb88f3cff9502b5ee2abdb7cda1c9"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_tight_" + "viewport.png",
-                "c717ab176166ec57b61d20b39c5a59eb" + "10b5eba369b7e0bbff4698db56fade7b"
+                "8e73d0a5bfaec0b8d0d1463970f84b37" + "3c0c9820158f2c0e3b6b20149730155f"
             )
         )
     }

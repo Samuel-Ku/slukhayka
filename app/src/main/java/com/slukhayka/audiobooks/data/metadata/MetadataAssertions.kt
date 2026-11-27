@@ -64,7 +64,7 @@ object MetadataAssertions {
      */
     fun normalizeClaimedText(value: String?): String? {
         val trimmed = decodeEntities(value?.trim().orEmpty())
-        if (trimmed.isEmpty() || trimmed.contains("4read", ignoreCase = true)) return null
+        if (trimmed.isEmpty() || ('4' in trimmed && trimmed.contains("4read", ignoreCase = true))) return null
         return trimmed
     }
 

@@ -18,7 +18,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -182,7 +181,10 @@ fun BookCoverImage(
                     Text(
                         text = initials,
                         color = onAccent,
-                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                        // U7 — the serif family has ONE face; a Bold override
+                        // is a synthetic weight, not a heavier cut. In the
+                        // paper scheme this slot is Literata SemiBold.
+                        style = MaterialTheme.typography.headlineMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Clip
                     )
@@ -191,7 +193,7 @@ fun BookCoverImage(
                 Text(
                     text = book.title,
                     color = onAccent,
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                    style = MaterialTheme.typography.labelMedium,
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center

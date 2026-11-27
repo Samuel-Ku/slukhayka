@@ -86,6 +86,7 @@ import com.slukhayka.audiobooks.data.privacy.PrivacySettingsStore
 import com.slukhayka.audiobooks.data.privacy.SharedPreferencesPrivacySettingsStore
 import com.slukhayka.audiobooks.data.privacy.TransportPrivacy
 import com.slukhayka.audiobooks.startup.AndroidStartupSource
+import com.slukhayka.audiobooks.startup.StartupAppCheck
 import com.slukhayka.audiobooks.startup.StartupReads
 import com.slukhayka.audiobooks.startup.StartupValues
 import com.slukhayka.audiobooks.data.source.AudiobookCoUaAdapter
@@ -190,6 +191,16 @@ class App : Application() {
     private val privacyInstalled = CompletableDeferred<Unit>()
 
     /**
+     * #1741 — the App Check install and the gate that keeps Firestore startup
+     * work ordered behind it. The installer is the old synchronous call; it
+     * now runs on [startupScope] (IO) and only the blocks that can open
+     * Firestore wait for it — main never does.
+     */
+    private val startupAppCheck by lazy {
+        StartupAppCheck(install = { installAppCheckIfConfigured() })
+    }
+
+    /**
      * Completed after the batch has PUBLISHED its values (not merely loaded
      * them): the first achievement refresh must not race the assignment of
      * [completedStartupValues] and match the curated lists as empty.
@@ -227,6 +238,18 @@ class App : Application() {
             privacyInstalled.await()
             block()
         }
+    }
+
+    /**
+     * #1741 — the Firestore door for startup. The shared metadata, search,
+     * bookmarks and identity clients may open only after App Check is
+     * installed; the old code installed it synchronously on main, so every
+     * later block was ordered by construction. The install now runs on IO, so
+     * the order is explicit here: persisted route first (as before), then the
+     * attestation, then the block.
+     */
+    private fun launchAfterAppCheck(block: suspend CoroutineScope.() -> Unit) {
+        startupAppCheck.launchAfter(startupScope, privacyInstalled, block)
     }
 
     /** #411 — the only process-wide door to anonymous crash reporting. */
@@ -1834,6 +1857,12 @@ class App : Application() {
         TransportPrivacy.install(persistedPrivacy)
         _privacyPrefs.value = persistedPrivacy
         privacyInstalled.complete(Unit)
+        // #1741 — start the App Check install here, before the rest of startup
+        // is laid out: Firebase is initialised on IO while main only registers
+        // coroutines. Firestore-touching blocks below await it through
+        // launchAfterAppCheck; the startup batch awaits it before the first
+        // sourceCatalog construction.
+        startupAppCheck.start(startupScope, privacyInstalled)
         // #1723 — the one startup batch: crash consent, showcase consent,
         // curated JSON and the cold-start seed. It starts HERE on IO and every
         // consumer below awaits it; the main thread never reads a preference
@@ -1843,6 +1872,11 @@ class App : Application() {
             try {
                 val values = startup.await()
                 _completedStartupValues.value = values
+                // #1741 — constructing sourceCatalog opens the shared
+                // Firestore stores; App Check must be installed first. The
+                // values above are already published, so the first frame does
+                // not wait for Firebase.
+                startupAppCheck.awaitInstalled()
                 // The catalogue may already have refreshed with the empty
                 // provider value; re-match now that the curated lists exist.
                 sourceCatalog.refreshCuratedCollections()
@@ -1891,13 +1925,14 @@ class App : Application() {
             unexpectedExitReporter.inspectLatest()
         }
         // #1723 — the periodic worker may start at any moment once scheduled,
-        // and its refresh touches Source hosts; schedule it only after the
-        // persisted route is installed.
-        launchAfterPrivacy { PeopleNewArrivalWorker.schedule(this@App) }
-        // Install the attestation provider before any background module may
-        // open Firestore; bookmark sync starts immediately below.
-        installAppCheckIfConfigured()
-        launchAfterPrivacy { personBookmarksSync.sync() }
+        // and its refresh touches Source hosts and builds sourceCatalog (whose
+        // shared stores are Firestore); schedule it only after the persisted
+        // route and the App Check install are in place.
+        launchAfterAppCheck { PeopleNewArrivalWorker.schedule(this@App) }
+        // #1741 — bookmark sync opens Firestore; the gate preserves the old
+        // "attestation before the first request" order now that the install
+        // runs on IO.
+        launchAfterAppCheck { personBookmarksSync.sync() }
         // ADR-0042 — warm the local Work index on start (BACKGROUND traffic
         // through the Source Request Gate); the per-Work checks are driven by
         // the availability queue (visible cards first, a daily delta scan).
@@ -1916,7 +1951,9 @@ class App : Application() {
         // ADR-0002 (#138): cold start performs no network I/O during module
         // construction — the catalogue sync is an explicit composition-root
         // call, kicked off here (best-effort, never blocks startup).
-        launchAfterPrivacy {
+        // #1741 — constructing sourceCatalog also opens its Firestore-backed
+        // shared stores, so it waits for App Check.
+        launchAfterAppCheck {
             runCatching { sourceCatalog.fetchCatalogSections() }
         }
         // Spec-24 T1: scrub SEO title suffixes from rows stored before the
@@ -1943,7 +1980,9 @@ class App : Application() {
         // later launch writes the same documents). A no-op without Firebase
         // keys (FirestoreUniverseStore.create returns null) and silent on any
         // failure — the local curated asset works either way.
-        launchAfterPrivacy {
+        // #1741 — this block creates its own Firestore client; the gate keeps
+        // the old "App Check installed before it" order.
+        launchAfterAppCheck {
             CuratedSeed.seed(
                 FirestoreUniverseStore.create(this@App),
                 UniverseAssets.load(this@App)
@@ -1955,7 +1994,9 @@ class App : Application() {
         // idempotent by contract), then fill the coverless library rows
         // from the shared base through the existing cover write path.
         // Both are best-effort and silent — a no-op without Firebase keys.
-        launchAfterPrivacy {
+        // #1741 — sharedMetaStore and the cover resolver read Firestore, so
+        // both wait for App Check.
+        launchAfterAppCheck {
             CuratedCoverSeed.seed(
                 sharedMetaStore,
                 CuratedCoverAssets.load(this@App)
@@ -1968,7 +2009,8 @@ class App : Application() {
         // Wikidata's 429 window) so Wikidata changes reach every cache and the
         // shared base (T6 write-back) even for books no one opens. Best-effort
         // and silent; the loop itself never blocks startup.
-        launchAfterPrivacy {
+        // #1741 — the pass reads/writes the shared universe store (Firestore).
+        launchAfterAppCheck {
             while (true) {
                 runCatching { universeRefreshPass.runOnce() }
                 delay(UNIVERSE_REFRESH_INTERVAL_MILLIS)
@@ -1982,13 +2024,15 @@ class App : Application() {
         // series listings — pagination included, under the module's own page
         // budget — so depth accumulates run over run via merge-on-write.
         // Best-effort and silent; never blocks startup.
-        launchAfterPrivacy {
+        // #1741 — the crawl goes through sourceCatalog, whose shared stores
+        // are Firestore, so it waits for App Check like the sync above.
+        launchAfterAppCheck {
             delay(CATALOG_HYDRATION_START_DELAY_MILLIS)
             val prefs = getSharedPreferences(PREFS_CATALOG_HYDRATION, MODE_PRIVATE)
             if (System.currentTimeMillis() - prefs.getLong(KEY_LAST_HYDRATED_AT, 0L) <
                 CATALOG_HYDRATION_INTERVAL_MILLIS
             ) {
-                return@launchAfterPrivacy
+                return@launchAfterAppCheck
             }
             runCatching { sourceCatalog.hydrateFourReadCatalog() }
             prefs.edit()
@@ -2006,7 +2050,9 @@ class App : Application() {
         // launch creates the profile (anonymous auth + generated credentials),
         // every later launch is a no-op returning the same one. Best-effort
         // and silent by contract — ensure() never throws outward anyway.
-        launchAfterPrivacy {
+        // #1741 — the identity bootstraps anonymous auth and device bindings
+        // through Firestore, so it waits for App Check.
+        launchAfterAppCheck {
             runCatching { listenerIdentity.ensure() }
         }
     }

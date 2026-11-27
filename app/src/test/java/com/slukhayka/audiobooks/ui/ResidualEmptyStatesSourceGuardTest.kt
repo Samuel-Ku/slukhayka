@@ -39,7 +39,10 @@ class ResidualEmptyStatesSourceGuardTest {
             "ui/screens/ChannelImportCard.kt" to "EmptyStateRow(",
             "ui/screens/collections/PublicCollectionsRail.kt" to "EmptyStateRow(",
             "ui/screens/DownloadManagerScreen.kt" to "EmptyState(",
-            "ui/screens/HomeScreen.kt" to "EmptyState("
+            // #1766 — «Огляд»'s first-run catalogue state moved to the shared
+            // paper panel (no icon slot, one action + a quiet link), which is
+            // still a canonical empty state.
+            "ui/screens/HomeScreen.kt" to "EmptyStatePanel("
         )
 
         val missing = surfaces.filter { (path, call) -> !read(path).contains(call) }

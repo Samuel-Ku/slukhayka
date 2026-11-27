@@ -138,7 +138,13 @@ class CatalogRowsSnapshotTest {
         composeTestRule.setContent {
             PaperInkTheme(darkTheme = true) {
                 CatalogSurface {
-                    EmptyCatalogState(onRefreshClick = {}, onImportClick = {})
+                    // #1766 — the feed's item gives the panel a full viewport
+                    // (`fillParentMaxSize`), so the golden must too.
+                    EmptyCatalogState(
+                        onRefreshClick = {},
+                        onImportClick = {},
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
             }
         }

@@ -87,7 +87,9 @@ fun parseDurationSeconds(input: String): Long? {
 
 /** The input with every `<tag>` replaced by [replacement] (default: removed). */
 fun stripTags(input: String, replacement: String = ""): String =
-    Regex("""<[^>]+>""").replace(input, replacement)
+    HTML_TAG.replace(input, replacement)
+
+private val HTML_TAG = Regex("""<[^>]+>""")
 
 /**
  * #268 — [text] cut before the EARLIEST occurrence of any of [markers]

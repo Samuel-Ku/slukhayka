@@ -167,12 +167,48 @@ fun LazyListScope.homeFeedContent(
         }
     }
 
+    // #1509 / #1624 — the feed's own terminal states read these two; they are
+    // declared here because the empty-catalogue gate below needs them too (see
+    // WHY THE CATALOGUE STATE IS CONDITIONAL).
+    val feedRefresh = workFeedItems.loadState.refresh
+    val feedFiltersActive = feedGenreFilters.isNotEmpty() ||
+        feedDurationFilters.isNotEmpty() || feedSharedLibraryOnly
+
     // Empty catalogue (first run, no network): actionable state.
-    if (!isCatalogLoading && sections.isEmpty() && !hasLibraryBooks) {
+    //
+    // #1766 REVIEW REGRESSION — "the catalogue is empty" may only be claimed
+    // when there is genuinely NOTHING to show. `sections.isEmpty() &&
+    // !hasLibraryBooks` is NOT that condition: the endless work feed is a
+    // separate pager over the union catalogue, so it can hold rows while the
+    // curated sections are empty and the listener owns no books. Emitting a
+    // viewport-sized state in front of those rows pushed the sticky
+    // `WorkFeedFilters` toolbar (and every feed row) out of the first screen —
+    // the toolbar was never composed, so a tap could not find it
+    // (`WorkFeedFilterWiringTest`; CI leg «Room native SDK 36»).
+    //
+    // So the state is emitted only when the feed is RESTING-EMPTY as well, and
+    // it is NOT emitted while the feed is loading, failed, or emptied by a
+    // filter: those are the feed's own terminal states (spinner / refresh-error
+    // / «filter matched nothing»), not evidence of an empty catalogue. When the
+    // state IS genuine it is the only content, so giving it the viewport is
+    // honest; the nav row below stays reachable by scrolling.
+    //
+    // NAMED LIMIT: the item starts BELOW the PRECEDING HomeHeader, so its centre
+    // sits one header below the window's centre (unlike Listen/Friends, which
+    // centre in a page Column under their header). It is also not the feed's
+    // last content — the catalogue nav row (and the feed's own terminal state)
+    // follow — so the empty page scrolls with them, it does not own the screen.
+    val catalogGenuinelyEmpty = feedRefresh is LoadState.NotLoading &&
+        workFeedItems.itemCount == 0 &&
+        !feedFiltersActive
+    if (!isCatalogLoading && sections.isEmpty() && !hasLibraryBooks && catalogGenuinelyEmpty) {
         item {
+            // #1766 — the state is handed a whole viewport, so it centres
+            // instead of leaving the bottom two thirds of the page dead.
             EmptyCatalogState(
                 onRefreshClick = onRefreshCatalog,
-                onImportClick = onGoToLibrary
+                onImportClick = onGoToLibrary,
+                modifier = Modifier.fillParentMaxSize(),
             )
         }
     }
@@ -583,9 +619,6 @@ fun LazyListScope.homeFeedContent(
     // an absence in type (Literata 20 + Meta) without a placeholder glyph. The
     // M3 icons that used to stand here (`CloudOff`, `FilterOff`, `Book`) were
     // the last of the audit's «іконка-заглушка» cases on «Огляд».
-    val feedRefresh = workFeedItems.loadState.refresh
-    val feedFiltersActive = feedGenreFilters.isNotEmpty() ||
-        feedDurationFilters.isNotEmpty() || feedSharedLibraryOnly
     if (workFeedItems.itemCount == 0 && feedRefresh is LoadState.Loading) {
         item {
             Box(

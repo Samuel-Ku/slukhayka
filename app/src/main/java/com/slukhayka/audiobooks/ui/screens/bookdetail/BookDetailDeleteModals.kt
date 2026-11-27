@@ -116,7 +116,7 @@ fun BookDeleteOptionsSheet(
         ) {
             Text(
                 text = stringResource(R.string.a11y_book_detail_delete_options_title, workTitle),
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                style = PaperInkType.Heading.Section,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier
                     .focusRequester(headingFocusRequester)

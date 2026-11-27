@@ -225,7 +225,7 @@ fun ChapterRowItem(
                             style = if (paperInk) {
                                 PaperInkType.Label
                             } else {
-                                MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                                MaterialTheme.typography.labelLarge
                             },
                             color = if (paperInk) {
                                 MaterialTheme.colorScheme.onSurfaceVariant
@@ -375,7 +375,7 @@ fun BookmarkRowItem(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = bookmark.chapterTitle,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(

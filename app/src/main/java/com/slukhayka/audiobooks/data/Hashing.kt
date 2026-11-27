@@ -14,11 +14,15 @@ internal const val HASH_BUFFER_SIZE = 64 * 1024
 private val HEX_CHARS = "0123456789abcdef".toCharArray()
 
 /** Hex (lowercase) of a byte array; plain-loop impl stays compatible with minSdk 24. */
-internal fun sha256Hex(bytes: ByteArray): String {
+internal fun sha256Hex(bytes: ByteArray): String = sha256Hex(bytes, 32)
+
+/** Formats only [outputBytes] of the SHA-256 digest. */
+internal fun sha256Hex(bytes: ByteArray, outputBytes: Int): String {
+    require(outputBytes in 0..32)
     val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
-    val sb = StringBuilder(digest.size * 2)
-    for (b in digest) {
-        val v = b.toInt() and 0xFF
+    val sb = StringBuilder(outputBytes * 2)
+    for (index in 0 until outputBytes) {
+        val v = digest[index].toInt() and 0xFF
         sb.append(HEX_CHARS[v ushr 4]).append(HEX_CHARS[v and 0x0F])
     }
     return sb.toString()

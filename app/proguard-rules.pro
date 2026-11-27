@@ -33,3 +33,6 @@
 # R8 renaming any of those breaks Telegram ingest at runtime, not at build
 # time. Keep the generated API surface whole.
 -keep class org.drinkless.tdlib.** { *; }
+
+# Protobuf Lite resolves generated message fields by their original names.
+-keep class * extends com.google.protobuf.GeneratedMessageLite { *; }

@@ -1440,7 +1440,8 @@ class AudioPlayerManager(
         expectedChapterStructureVersion: Long? = null,
         // #1722 — the 4read session cookie resolved on IO by the caller. The
         // immediate prepare consumes it; null keeps the cached value.
-        cookieHeader: String? = null
+        cookieHeader: String? = null,
+        resumePausedAtEpochMs: Long? = null
     ) {
         resetActualCastReceiverEvidence()
         val request = ++loadRequestSequence
@@ -1494,6 +1495,10 @@ class AudioPlayerManager(
         if (relisten) {
             chapterIdx = 0
             positionSeconds = 0L
+        } else if (resumePausedAtEpochMs != null) {
+            positionSeconds = SmartRewind.rewoundPositionMs(
+                positionSeconds * 1000L, now() - resumePausedAtEpochMs
+            ) / 1000L
         }
         // ADR-0007: no source-switch detection — listening identity is the
         // Edition, not the source that happens to play it. (The old code
@@ -1514,8 +1519,6 @@ class AudioPlayerManager(
             undoFromPositionMs = 0L,
             castSessionOutcome = null
         )
-        // The caller already chose this load's start (including any resume
-        // rewind). A pause from the previous item must not shift it again.
         // Clear the incoming book's marker; another book keeps its own history.
         pausedAtEpochMs = null
         persistPausedAt(null)

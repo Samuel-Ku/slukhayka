@@ -30,7 +30,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -293,12 +296,26 @@ fun SubmissionSheetContent(
             )
         }
         submissionStatusText(state)?.let { status ->
+            val refused = state is SubmissionUiState.Refused
+            // #1823 — only a terminal result is announced; Working is a
+            // transient "we are doing it" and must not re-announce on every
+            // recomposition. A refusal is an error, not a neutral line.
+            val announce = state !is SubmissionUiState.Working
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = status,
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.testTag("submission_status")
+                color = if (refused) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier
+                    .testTag("submission_status")
+                    .semantics {
+                        if (announce) liveRegion = LiveRegionMode.Polite
+                        if (refused) error(status)
+                    }
             )
         }
         // #1487 slice 2 — an unknown page the app could not turn into a card:

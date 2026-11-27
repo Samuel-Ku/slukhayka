@@ -3,6 +3,8 @@ package com.slukhayka.audiobooks.ui.screens
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -12,6 +14,7 @@ import com.slukhayka.audiobooks.data.ingest.ChannelImportSession
 import com.slukhayka.audiobooks.data.ingest.ChannelItemKind
 import com.slukhayka.audiobooks.data.ingest.ChannelListItem
 import com.slukhayka.audiobooks.data.ingest.ChannelTab
+import com.slukhayka.audiobooks.testing.assertNamedCheckboxRow
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -113,6 +116,34 @@ class ChannelImportCardTest {
 
         assertEquals(listOf("v111111", "PL1"), calls.toggled)
         compose.onNodeWithText("Додати вибрані (2)").assertExists()
+    }
+
+    @Test
+    fun `an item is one named checkbox and tapping its label toggles it`() {
+        val calls = Calls()
+        var state by mutableStateOf(card(video("v111111")).copy(checkedIds = emptySet()))
+        compose.setContent {
+            AudiobookTheme {
+                ChannelImportCard(
+                    state = state,
+                    callbacks = calls.callbacks().copy(
+                        onToggleItem = {
+                            calls.toggled += it
+                            state = state.copy(checkedIds = state.checkedIds + it)
+                        }
+                    )
+                )
+            }
+        }
+
+        compose.assertNamedCheckboxRow("channel_item_v111111", "Відео v111111")
+        compose.onNodeWithTag("channel_item_v111111").assertIsOff()
+
+        // The label is the target: no need to find the 40 dp visual checkbox.
+        compose.onNodeWithText("Відео v111111").performClick()
+
+        assertEquals(listOf("v111111"), calls.toggled)
+        compose.onNodeWithTag("channel_item_v111111").assertIsOn()
     }
 
     @Test

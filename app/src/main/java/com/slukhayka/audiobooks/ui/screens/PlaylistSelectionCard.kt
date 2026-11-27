@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -126,27 +125,32 @@ fun PlaylistSelectionCard(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Checkbox(
+                    // The checkbox, the title and the duration form ONE toggle
+                    // node; the own-order buttons stay siblings, so TalkBack
+                    // can still reach them instead of merging them away.
+                    CheckboxRow(
                         checked = entry.watchUrl in state.selected,
                         onCheckedChange = { callbacks.onToggleEntry(entry.watchUrl) },
+                        testTag = "playlist_entry_${entry.watchUrl}",
                         enabled = !state.run.running,
-                        modifier = Modifier.testTag("playlist_entry_${entry.watchUrl}")
-                    )
-                    Text(
-                        text = entry.title,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
-                    )
-                    entry.durationSeconds?.takeIf { it > 0 }?.let { seconds ->
-                        Spacer(modifier = Modifier.width(8.dp))
+                    ) {
                         Text(
-                            text = formatEntryDuration(seconds),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = entry.title,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
+                        entry.durationSeconds?.takeIf { it > 0 }?.let { seconds ->
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = formatEntryDuration(seconds),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                     // #1051 — the listener's own order. Buttons, not drag: the
                     // list is short and scrolled, and arrows say the same thing

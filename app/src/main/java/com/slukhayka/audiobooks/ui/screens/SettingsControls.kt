@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.ui.screens
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,6 +14,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
@@ -92,6 +94,51 @@ fun SettingsSwitchRow(
             onCheckedChange = null,
             modifier = Modifier.clearAndSetSemantics { }
         )
+    }
+}
+
+/**
+ * Canonical checkbox row: one whole-row [Role.Checkbox] target at least 48 dp
+ * tall. Like [SettingsSwitchRow], the row owns the only toggleable semantics;
+ * the visual [Checkbox] is silent so TalkBack never announces an unnamed
+ * checkbox beside the label it belongs to, and a tap anywhere on the row —
+ * including the label — toggles the same state.
+ *
+ * `content` is the label (and optional description) laid out after the
+ * checkbox; it is merged into the row's semantics, so it becomes the row's
+ * accessible name.
+ */
+@Composable
+fun CheckboxRow(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    testTag: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    content: @Composable RowScope.() -> Unit
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .testTag(testTag)
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Checkbox,
+                onValueChange = onCheckedChange
+            )
+            .semantics(mergeDescendants = true) {},
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Checkbox(
+            checked = checked,
+            onCheckedChange = null,
+            enabled = enabled,
+            modifier = Modifier.clearAndSetSemantics { }
+        )
+        Spacer(Modifier.width(8.dp))
+        content()
     }
 }
 

@@ -61,6 +61,94 @@ class RecommendationQualityRegressionTest {
         assertEquals("source", result.single().sourceLabel)
     }
 
+    @Test fun `sixty fifth explicit dislike still vetoes related discovery`() {
+        val negatives = (0..64).map {
+            RecommendationEngine.Signal("neg-${it.toString().padStart(2, '0')}", "Rejected$it", author = "Author$it", weight = -1.0)
+        }
+        val target = RecommendationEngine.Candidate("target", "UnrelatedNovel", author = "Author64")
+        assertTrue(LocalRecommendationRanker().rank(listOf(target), negatives).isEmpty())
+    }
+
+    @Test fun `sixty fifth graph only dislike still vetoes related discovery`() {
+        val ids = (0..64).map { "neg-${it.toString().padStart(2, '0')}" } + "target"
+        val rows = ids.indices.joinToString(",") { if (it == 64) "[[65,0.9]]" else "[]" }
+        val wire = graphText().replace("[\"covered-a\",\"covered-b\"]", ids.joinToString(",", "[", "]") { "\"$it\"" })
+            .replace("[[[1,0.9]],[[0,0.9]]]", "[$rows]")
+        val negatives = ids.dropLast(1).map { RecommendationEngine.Signal(it, it, weight = -1.0) }
+        assertTrue(LocalRecommendationRanker().rank(listOf(RecommendationEngine.Candidate("target", "Other")),
+            negatives, nowEpochMs = now, contentGraph = PrecomputedRecommendationGraph.parse(wire, now)!!).isEmpty())
+    }
+
+    @Test fun `negative index agrees with exhaustive graph and metadata scoring`() {
+        val random = java.util.Random(1825)
+        val ranker = LocalRecommendationRanker()
+        repeat(50) {
+            val ids = listOf("target", "positive") + (0 until 90).map { "negative-$it" }
+            val edges = ids.indices.map { mutableListOf<Pair<Int, Double>>() }
+            edges[0] += 1 to .95
+            // Independently choose each edge direction, including absent edges.
+            for (i in 2 until ids.size) {
+                edges[i].clear()
+                edges[0].removeAll { it.first == i }
+                if (random.nextBoolean()) {
+                    val value = random.nextDouble()
+                    if (random.nextBoolean() && edges[0].size < 32) edges[0] += i to value else edges[i] += 0 to value
+                }
+            }
+            val rows = edges.joinToString(",", "[", "]") { row ->
+                row.joinToString(",", "[", "]") { "[${it.first},${it.second}]" }
+            }
+            val wire = graphText().replace("[\"covered-a\",\"covered-b\"]",
+                ids.joinToString(",", "[", "]") { "\"$it\"" })
+                .replace("[[[1,0.9]],[[0,0.9]]]", rows)
+            val graph = PrecomputedRecommendationGraph.parse(wire, now)!!
+            fun feature() = RecommendationFeatures("author${random.nextInt(4)}", "series${random.nextInt(4)}",
+                (0..3).filter { random.nextBoolean() }.mapTo(mutableSetOf()) { "genre$it" })
+            val candidate = feature()
+            val negatives = ids.drop(2).map { id ->
+                val f = feature()
+                RecommendationEngine.Signal(id, id, author = f.author, series = f.series,
+                    genre = f.genres.joinToString(" "), weight = -.3 * random.nextDouble()) to f
+            }
+            val positive = RecommendationEngine.Signal("positive", "Positive", author = candidate.author,
+                series = candidate.series, genre = candidate.genres.joinToString(" "), weight = 1.5)
+            val expectedPositive = (.5 * .95 + candidate.affinity(candidate)) * 1.5
+            val expectedNegative = negatives.maxOf { (signal, f) ->
+                (.5 * graph.similarity("target", signal.id) + candidate.affinity(f)) * -signal.weight
+            }
+            val actual = ranker.rank(listOf(RecommendationEngine.Candidate("target", "Target",
+                author = candidate.author, series = candidate.series, genre = candidate.genres.joinToString(" "))),
+                negatives.map { it.first } + positive, nowEpochMs = now, contentGraph = graph).single()
+            assertEquals(expectedPositive - expectedNegative, actual.semanticScore, 1e-9)
+        }
+    }
+
+    @Test fun `negative cache follows positive changes metadata updates and removal`() {
+        val ranker = LocalRecommendationRanker()
+        val target = RecommendationEngine.Candidate("target", "Novel", author = "Author")
+        val negative = RecommendationEngine.Signal("negative", "Rejected", author = "Author", weight = -1.0)
+        assertTrue(ranker.rank(listOf(target), listOf(negative)).isEmpty())
+        val positive = RecommendationEngine.Signal("positive", "Favourite", author = "Author", weight = 1.5)
+        assertEquals("target", ranker.rank(listOf(target), listOf(negative, positive)).single().candidate.id)
+        assertEquals("target", ranker.rank(listOf(target.copy(author = "Other")), listOf(negative)).single().candidate.id)
+        assertTrue(ranker.rank(listOf(target), listOf(negative)).isEmpty())
+        assertEquals("target", ranker.rank(listOf(target), emptyList()).single().candidate.id)
+        ranker.clearPersonalization()
+        assertTrue(ranker.rank(listOf(target), listOf(negative)).isEmpty())
+    }
+
+    @Test fun `discarded graph clears negative veto even after its weak reference is collected`() {
+        val ranker = LocalRecommendationRanker()
+        val target = RecommendationEngine.Candidate("covered-a", "Novel")
+        val negative = RecommendationEngine.Signal("covered-b", "Rejected", weight = -1.0)
+        assertTrue(ranker.rank(listOf(target), listOf(negative), nowEpochMs = now,
+            contentGraph = PrecomputedRecommendationGraph.parse(graphText(), now)).isEmpty())
+        // Deterministically model collection between graph expiry and the next rank.
+        val reference = LocalRecommendationRanker::class.java.getDeclaredField("negativeGraph").apply { isAccessible = true }
+        (reference.get(ranker) as java.lang.ref.WeakReference<*>).clear()
+        assertEquals("covered-a", ranker.rank(listOf(target), listOf(negative), nowEpochMs = now).single().candidate.id)
+    }
+
     @Test fun `duplicate metadata cannot bypass hidden author and first work wins`() {
         val hidden = RecommendationEngine.Candidate("duplicate", "Hidden book", author = "Hidden")
         val visible = hidden.copy(title = "Visible book", author = "Visible")

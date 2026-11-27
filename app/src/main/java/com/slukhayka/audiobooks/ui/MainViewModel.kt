@@ -4354,7 +4354,10 @@ class MainViewModel @JvmOverloads constructor(
         val (catalog, controls) = inputs
         val (library, works, facts) = catalog
         val (preferences, settings) = controls
-        if (!settings.localPersonalizationEnabled) return@mapLatest emptyList()
+        if (!settings.localPersonalizationEnabled) {
+            localRecommendationRanker.clearPersonalization()
+            return@mapLatest emptyList()
+        }
         val candidates = com.slukhayka.audiobooks.data.recommend.recommendationCandidates(works, facts)
         val reducedWorkIds = preferences
             .filter { it.kind == RecommendationPreferenceEntity.REDUCE_SIMILAR }

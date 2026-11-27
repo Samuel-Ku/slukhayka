@@ -7,6 +7,7 @@ import okio.Buffer
 class PrecomputedRecommendationGraph private constructor(
     val generatedAt: Long,
     val expiresAt: Long,
+    private val workKeys: List<String>,
     private val indices: Map<String, Int>,
     private val rows: Array<Neighbors>
 ) {
@@ -20,7 +21,15 @@ class PrecomputedRecommendationGraph private constructor(
         return maxOf(rows[a].score(b), rows[b].score(a))
     }
 
+    internal fun forEachEdge(visit: (String, String, Double) -> Unit) {
+        for ((source, index) in indices) rows[index].visit(source, workKeys, visit)
+    }
+
     private class Neighbors(private val targets: IntArray, private val scores: DoubleArray) {
+        fun visit(source: String, keys: List<String>, action: (String, String, Double) -> Unit) {
+            for (i in targets.indices) action(source, keys[targets[i]], scores[i])
+        }
+
         fun score(target: Int): Double {
             val index = targets.binarySearch(target)
             return if (index >= 0) scores[index] else 0.0
@@ -75,7 +84,7 @@ class PrecomputedRecommendationGraph private constructor(
                 val targets = neighbors.keys.sorted()
                 Neighbors(targets.toIntArray(), DoubleArray(targets.size) { neighbors.getValue(targets[it]) })
             }
-            PrecomputedRecommendationGraph(generated, expires, indices, edges).also { require(it.isFresh(now)) }
+            PrecomputedRecommendationGraph(generated, expires, names, indices, edges).also { require(it.isFresh(now)) }
         } catch (_: Exception) {
             null
         }

@@ -1,5 +1,6 @@
 package com.slukhayka.audiobooks.data.recommend
 
+import java.lang.ref.WeakReference
 import kotlin.math.ln
 import kotlin.math.sqrt
 
@@ -11,9 +12,24 @@ import kotlin.math.sqrt
 class LocalRecommendationRanker {
     private var indexedCandidates = emptyList<RecommendationEngine.Candidate>()
     private var featuredCandidates = emptyList<RecommendationEngine.Candidate>()
-    private var features = emptyMap<String, Features>()
+    private var features = emptyMap<String, RecommendationFeatures>()
     private var documents = emptyMap<String, Map<String, Double>>()
     private var inverseFrequency = emptyMap<String, Double>()
+
+    private var negativeSignals = emptyList<RecommendationEngine.Signal>()
+    private var negativeFeatures: Map<String, RecommendationFeatures>? = null
+    private var negativeHadGraph = false
+    private var negativeGraph = WeakReference<PrecomputedRecommendationGraph>(null)
+    private var negativeIndex: NegativeRecommendationIndex? = null
+
+    @Synchronized
+    internal fun clearPersonalization() {
+        negativeSignals = emptyList()
+        negativeFeatures = null
+        negativeHadGraph = false
+        negativeGraph.clear()
+        negativeIndex = null
+    }
 
     @Synchronized
     fun rank(
@@ -35,31 +51,38 @@ class LocalRecommendationRanker {
             .sortedWith(compareByDescending<RecommendationEngine.Signal> { kotlin.math.abs(it.weight) }
             .thenBy { it.id })
         val positive = ordered.filter { it.weight > 0 }.take(64)
-        val negative = ordered.filter { it.weight < 0 }.take(64)
+        val negative = ordered.filter { it.weight < 0 }
         val active = positive + negative
         val needsText = active.isNotEmpty() && (graph == null || active.any { !graph.containsWork(it.id) } ||
             catalog.any { !graph.containsWork(it.id) })
-        if (needsText) index(catalog)
+        if (needsText) index(catalog) else {
+            documents = emptyMap()
+            inverseFrequency = emptyMap()
+            indexedCandidates = emptyList()
+        }
         if (catalog != featuredCandidates) {
-            features = catalog.associate { it.id to Features(key(it.author), key(it.series), tokens(it.genre).keys) }
+            features = catalog.associate { it.id to RecommendationFeatures(key(it.author), key(it.series), tokens(it.genre).keys) }
             featuredCandidates = catalog
         }
         val knownSignalIds = signals.mapTo(HashSet()) { it.id }
         val signalVectors = if (needsText) active.associate {
             it.id to (documents[it.id] ?: vector(tokens(it.text)))
         } else emptyMap()
-        val signalFeatures = active.associate { it.id to Features(key(it.author), key(it.series), tokens(it.genre).keys) }
+        val signalFeatures = active.associate { it.id to RecommendationFeatures(key(it.author), key(it.series), tokens(it.genre).keys) }
         fun similarity(candidate: RecommendationEngine.Candidate, signal: RecommendationEngine.Signal): Double {
             val lexical = if (graph != null && graph.containsWork(candidate.id) && graph.containsWork(signal.id)) {
                 graph.similarity(candidate.id, signal.id)
-            } else dot(documents[candidate.id].orEmpty(), signalVectors[signal.id].orEmpty())
-            val a = features.getValue(candidate.id)
-            val b = signalFeatures.getValue(signal.id)
-            val author = if (a.author.isNotEmpty() && a.author == b.author) 1.0 else 0.0
-            val series = if (a.series.isNotEmpty() && a.series == b.series) 1.0 else 0.0
-            val genres = if (a.genres.isEmpty() || b.genres.isEmpty()) 0.0 else
-                a.genres.count { it in b.genres }.toDouble() / minOf(a.genres.size, b.genres.size)
-            return (.5 * lexical + .25 * author + .15 * genres + .10 * series).coerceIn(0.0, 1.0)
+            } else sparseRecommendationDot(documents[candidate.id].orEmpty(), signalVectors[signal.id].orEmpty())
+            return (.5 * lexical + features.getValue(candidate.id).affinity(signalFeatures.getValue(signal.id)))
+                .coerceIn(0.0, 1.0)
+        }
+        if (negative.isEmpty()) clearPersonalization() else if (negative != negativeSignals ||
+            features !== negativeFeatures || (graph != null) != negativeHadGraph || graph !== negativeGraph.get()) {
+            negativeSignals = negative.toList()
+            negativeFeatures = features
+            negativeHadGraph = graph != null
+            negativeGraph = WeakReference<PrecomputedRecommendationGraph>(graph)
+            negativeIndex = NegativeRecommendationIndex(negative, signalFeatures, features, graph, signalVectors)
         }
         val day = nowEpochMs / 86_400_000L
         val scored = catalog.asSequence()
@@ -75,7 +98,8 @@ class LocalRecommendationRanker {
                         affinity = match
                     }
                 }
-                val aversion = negative.maxOfOrNull { similarity(candidate, it) * -it.weight } ?: 0.0
+                val aversion = negativeIndex?.aversion(candidate.id, features.getValue(candidate.id),
+                    documents[candidate.id].orEmpty(), graph?.containsWork(candidate.id) == true, affinity) ?: 0.0
                 // A source's top must not override a listener's explicit dislike.
                 if (aversion > 0 && aversion >= affinity) return@mapNotNull null
                 val popularity = (popularityByWorkId[candidate.id] ?: 0.0).coerceIn(0.0, 1.0)
@@ -144,11 +168,7 @@ class LocalRecommendationRanker {
         .map { it.value }.filter { it.length > 2 && it !in STOP }.take(200)
         .groupingBy { it }.eachCount()
 
-    private fun dot(a: Map<String, Double>, b: Map<String, Double>): Double =
-        if (a.size > b.size) dot(b, a) else a.entries.sumOf { (word, value) -> value * (b[word] ?: 0.0) }
-
     private data class Discovery(val recommendation: RecommendationEngine.Recommendation, val order: Long)
-    private data class Features(val author: String, val series: String, val genres: Set<String>)
     private fun key(value: String) = RecommendationPersonalization.identityKey(value)
     private fun rotationKey(id: String, day: Long): Long {
         var hash = id.fold(1125899906842597L xor day) { acc, c -> acc * 31 + c.code }

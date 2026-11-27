@@ -20,6 +20,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
@@ -168,6 +169,9 @@ fun LazyListScope.searchResultsContent(
             // provenance chips ride the badges slot; the honest action status
             // stays under the row through CatalogCardStatus.
             LaunchedEffect(result.key) { onPreflightGlobalResult(result) }
+            val narrator = MetadataAssertions.normalizeClaimedText(result.narrator)
+            val knownLanguages = (listOf(result.language) + result.sources.map { it.language })
+                .filter { it.isNotBlank() }.distinct()
             BookRow(
                 title = result.title,
                 coverUrl = result.coverImageUrl,
@@ -178,14 +182,27 @@ fun LazyListScope.searchResultsContent(
                 badges = {
                     // Spec-45 (#405) T7 (#495): the card's rendition language —
                     // one EN/UA chip; unknown renders nothing (US3).
-                    if (result.language.isNotBlank()) {
-                        MetadataChip(language = result.language)
+                    knownLanguages.forEach { language ->
+                        MetadataChip(language = language)
                         Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
                     }
                     // Spec-10 T4: which source(s) carry a book.
                     result.sources.forEach { source ->
                         MetadataChip(source = source.sourceName)
                         Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
+                    }
+                },
+                footnoteInColumn = true,
+                footnote = {
+                    if (narrator != null) {
+                        Text(
+                            text = stringResource(
+                                R.string.book_detail_narrator_label,
+                                narrator
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 },
                 contentDescription = stringResource(R.string.a11y_open_work, result.title),

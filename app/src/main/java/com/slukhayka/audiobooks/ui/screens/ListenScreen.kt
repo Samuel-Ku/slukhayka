@@ -64,6 +64,7 @@ import com.slukhayka.audiobooks.ui.library.ListenComposer
 import com.slukhayka.audiobooks.ui.library.ListenContent
 import com.slukhayka.audiobooks.ui.library.ListenShelvesModule
 import com.slukhayka.audiobooks.ui.library.RemainingTimeUnits
+import com.slukhayka.audiobooks.ui.library.stringRemainingTimeUnits
 import com.slukhayka.audiobooks.ui.library.formatRemainingTime
 import com.slukhayka.audiobooks.ui.theme.*
 
@@ -639,12 +640,24 @@ fun ListenHeroCard(
     val totalSec = book.totalDurationSeconds
     val positionSec = cumulativePositionSeconds.coerceAtLeast(0L)
     // Local imports have no duration metadata: percent/remaining would be
-    // meaningless (0/1 -> 100%), so fall back to the bare position instead.
+    // meaningless (0/1 -> 100%), so show the cumulative listening time instead.
     val hasDuration = totalSec > 0
     val progressFraction = if (hasDuration) {
         (positionSec.toFloat() / totalSec.toFloat()).coerceIn(0f, 1f)
     } else {
         0f
+    }
+
+    val listenedLabel = if (hasDuration) {
+        val percent = (positionSec.coerceAtMost(totalSec) * 100.0 / totalSec).toInt()
+        stringResource(R.string.lib_progress_percent, percent)
+    } else {
+        val elapsed = if (positionSec < 60) {
+            stringResource(R.string.listen_elapsed_seconds, positionSec)
+        } else {
+            formatRemainingTime(positionSec, stringRemainingTimeUnits())
+        }
+        stringResource(R.string.listen_elapsed, elapsed)
     }
 
     // #885 (wave 3) — the accessible name of the primary action carries the
@@ -691,14 +704,14 @@ fun ListenHeroCard(
             } else {
                 ""
             },
-            chapterLabel = if (hasDuration) {
+            chapterLabel = if (book.totalChapters > 0) {
                 stringResource(
                     R.string.listen_chapter_of,
                     progress.currentChapterIndex + 1,
-                    book.totalChapters.coerceAtLeast(1)
+                    book.totalChapters
                 )
             } else {
-                MainViewModel.formatTime(positionSec)
+                stringResource(R.string.a11y_chapter_number, progress.currentChapterIndex + 1)
             },
             remainingLabel = if (hasDuration) {
                 formatRemainingLocalized((totalSec - positionSec).coerceAtLeast(0L))
@@ -710,16 +723,8 @@ fun ListenHeroCard(
             modifier = Modifier
                 .padding(horizontal = ListenPageInset, vertical = 10.dp)
                 .testTag("listen_hero_panel"),
-            // #885 — the percent leads the progress row, exactly as before;
-            // the fact is unchanged, only its shape follows the new card.
-            progressLabel = if (hasDuration) {
-                stringResource(
-                    R.string.listen_progress_percent,
-                    (progressFraction * 100).toInt()
-                )
-            } else {
-                null
-            },
+            progressLabel = listenedLabel,
+            progressDescription = stringResource(R.string.listen_book_progress, listenedLabel),
             onClick = onBookClick,
             playContentDescription = resumeDescription,
             cardContentDescription = stringResource(R.string.a11y_open_work, book.title),

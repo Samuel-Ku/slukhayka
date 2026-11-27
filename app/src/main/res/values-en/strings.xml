@@ -65,7 +65,10 @@
     <string name="collections_index_title">Collections</string>
     <string name="collections_index_empty">Collections will appear once the catalogue has loaded.</string>
     <string name="collections_index_refresh">Refresh catalogue</string>
-    <string name="listen_empty_title">Keep listening</string>
+    <string name="listen_elapsed">Listened %1$s</string>
+    <string name="listen_elapsed_seconds">%1$d sec</string>
+    <string name="listen_book_progress">Book progress: %1$s</string>
+    <string name="listen_empty_title">Where would you like to start?</string>
     <string name="listen_empty_body">Your current book will appear here as soon as you start listening.</string>
     <string name="feed_genres">Genres</string>
     <string name="feed_duration">Duration</string>
@@ -106,7 +109,7 @@
     <string name="lib_books_count">Books (%1$d)</string>
     <string name="lib_bookmarks_count">Bookmarks (%1$d)</string>
     <string name="lib_statistics">Statistics</string>
-    <string name="lib_search_short_hint">Search</string>
+    <string name="lib_search_short_hint">My books</string>
     <string name="lib_add_own_files">Add your own files</string>
     <string name="lib_find_book">Find a book</string>
     <string name="lib_import_connect">Connect</string>
@@ -127,8 +130,8 @@
     <string name="listen_book">Book</string>
     <string name="listen_chapter">Chapter</string>
     <string name="listen_note_optional">Note (optional)</string>
-    <string name="profile_view_catalogue">View catalogue</string>
-    <string name="profile_import_from_device">Import from device</string>
+    <string name="profile_view_catalogue">Find an audiobook</string>
+    <string name="profile_import_from_device">Add from device</string>
     <string name="profile_nickname_label">How to show you</string>
     <string name="profile_nickname_hint">Up to 40 characters. The profile exists without any sign-in.</string>
     <string name="profile_save_nick">Save nickname</string>
@@ -516,6 +519,15 @@
     <string name="submission_playlist_one_book">One book (chapters)</string>
     <string name="submission_playlist_separate">Separate books</string>
     <string name="submission_playlist_selected">Selected %1$d of %2$d</string>
+    <string name="submission_playlist_choose_entries">Select entries</string>
+    <plurals name="import_add_one_book_chapters">
+        <item quantity="one">Add one book with %1$d chapter</item>
+        <item quantity="other">Add one book with %1$d chapters</item>
+    </plurals>
+    <plurals name="import_add_books">
+        <item quantity="one">Add %1$d book</item>
+        <item quantity="other">Add %1$d books</item>
+    </plurals>
     <string name="submission_playlist_select_all">Select all</string>
     <string name="submission_preview_edit">Edit</string>
     <string name="submission_preview_single_video">single video</string>
@@ -675,12 +687,15 @@
     <string name="lib_stats_total">Total in the library</string>
     <string name="lib_stats_total_value">%1$d books</string>
     <string name="lib_bookmark_at">At %1$s: %2$s</string>
-    <string name="lib_import_preview_found">Found %1$d books — nothing is written until you confirm.</string>
+    <string name="lib_import_preview_hint">Check the titles and chapter order before adding.</string>
+    <plurals name="lib_import_attach_chapters">
+        <item quantity="one">Add %1$d chapter to “%2$s”</item>
+        <item quantity="other">Add %1$d chapters to “%2$s”</item>
+    </plurals>
     <string name="lib_untitled">Untitled</string>
     <string name="lib_import_similar">Looks like «%1$s» (%2$s)</string>
     <string name="lib_import_will_merge">Will be merged with «%1$s»</string>
     <string name="lib_import_existing_book">a book in the library</string>
-    <string name="lib_import_confirm_merged">Import (%1$d new, %2$d merged)</string>
     <string name="feed_origin_filter_heading">Origin</string>
     <string name="feed_origin_only_shared">Only from the shared library</string>
     <string name="feed_origin_shared_library">From the shared library</string>
@@ -698,7 +713,6 @@
     <string name="lib_import_save">Save</string>
     <string name="lib_import_retry">Retry</string>
     <string name="lib_import_retry_body">The write was interrupted. The plan is kept — try again.</string>
-    <string name="lib_import_confirm">Import %1$d</string>
     <string name="lib_person_role_author">Author</string>
     <string name="lib_person_role_narrator">Narrator</string>
     <string name="lib_person_notify_on">Notifications on</string>
@@ -896,4 +910,15 @@
     <!-- #1752: cast hand-back is an info banner, not a playback failure. -->
     <string name="player_cast_ended">Casting ended. You can keep listening on this phone.</string>
     <string name="player_cast_lost">Lost connection to the cast device. You can keep listening on this phone.</string>
+    <string name="lib_reset_status_filter">Reset filter</string>
+    <string name="lib_filtered_results">%1$s · %2$s</string>
+    <plurals name="lib_result_books">
+        <item quantity="one">%1$d book</item>
+        <item quantity="other">%1$d books</item>
+    </plurals>
+    <string name="discovery_selected_genres">Selected genres (%1$d)</string>
+    <string name="discovery_duration_under_five">Under 5 hours</string>
+    <string name="discovery_duration_five_ten">5–10 hours</string>
+    <string name="discovery_duration_ten_twenty">10–20 hours</string>
+    <string name="discovery_duration_over_twenty">20 hours or more</string>
 </resources>

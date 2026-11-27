@@ -80,10 +80,10 @@ object MergeKey {
      * Blank when nothing usable is present (never merged).
      */
     fun keyFor(title: String, author: String): String {
-        val base = listOf(normalizeTitle(title), normalizePerson(author))
-            .filter { it.isNotBlank() }
-        if (base.size < 2) return ""
-        return base.joinToString("|")
+        val normalizedTitle = normalizeTitle(title)
+        val normalizedAuthor = normalizePerson(author)
+        if (normalizedTitle.isBlank() || normalizedAuthor.isBlank()) return ""
+        return "$normalizedTitle|$normalizedAuthor"
     }
 
     private fun normalize(input: String): String =

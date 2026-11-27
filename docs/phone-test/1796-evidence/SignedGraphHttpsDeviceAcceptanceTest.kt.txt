@@ -1,0 +1,83 @@
+package com.slukhayka.audiobooks.data.recommend
+
+import androidx.test.platform.app.InstrumentationRegistry
+import com.slukhayka.audiobooks.BuildConfig
+import com.slukhayka.audiobooks.data.source.HttpFetcher
+import java.io.File
+import java.security.MessageDigest
+import org.junit.Assert.*
+import org.junit.Test
+
+/** Real HTTPS using the production bounded fetcher and verifier, isolated from the app cache. */
+class SignedGraphHttpsDeviceAcceptanceTest {
+    private fun sha(body: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(body.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+
+    @Test fun realHttpsContainerAndNegativeEndpointsPreserveAcceptedCache() {
+        val arguments = InstrumentationRegistry.getArguments()
+        fun url(name: String): String = arguments.getString(name)!!.also {
+            require(it.startsWith("https://raw.githubusercontent.com/Samuel-Ku/slukhayka/"))
+        }
+        val validUrl = url("graphUrl")
+        assertEquals(validUrl, BuildConfig.RECOMMENDATION_GRAPH_URL)
+        val verifier = GraphSignatureVerifier(BuildConfig.RECOMMENDATION_GRAPH_PUBLIC_KEY)
+        val fetcher = HttpFetcher()
+        val directory = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
+            "https-graph-device-acceptance")
+        assertFalse(directory.exists())
+        var now = System.currentTimeMillis()
+        var calls = 0
+        var expected = "valid"
+        var lastBody: String? = null
+        val fetch: (String, Int) -> String? = { endpoint, limit ->
+            calls++
+            fetcher.getTextBounded(endpoint, limit).also { lastBody = it }
+        }
+        fun validateResponse() {
+            val body = lastBody
+            assertNotNull("HTTPS response $expected", body)
+            val payload = SignedGraphEnvelope.decode(body!!)!!
+            when (expected) {
+                "valid" -> {
+                    assertEquals("3ec6d8d8cd5487645ab689aea4e234734e33ed0432363cb4c85b30562e2ab094", sha(body))
+                    assertTrue(verifier.verify(payload.graph, payload.signature))
+                }
+                "tampered", "wrongSignature" -> assertFalse(verifier.verify(payload.graph, payload.signature))
+                "expired" -> {
+                    assertTrue("expiry probe must have a real signature", verifier.verify(payload.graph, payload.signature))
+                    val expiry = Regex("\"expiresAt\"\\s*:\\s*(\\d+)").find(payload.graph)!!.groupValues[1].toLong()
+                    assertTrue(expiry < System.currentTimeMillis())
+                    assertNull(PrecomputedRecommendationGraph.parse(payload.graph, System.currentTimeMillis()))
+                }
+            }
+            println("HTTPS_GRAPH case=$expected bytes=${body.toByteArray(Charsets.UTF_8).size}")
+        }
+        fun store(endpoint: String) = RecommendationGraphStore(directory, endpoint, verifier::verify, fetch) { now }
+        try {
+            assertNotNull(store(validUrl).refresh())
+            validateResponse()
+            val cache = File(directory, "content-graph.signed.json")
+            val accepted = sha(cache.readText())
+            assertNotNull(store(validUrl).refresh())
+            assertEquals("restart must be throttled", 1, calls)
+            for (name in listOf("tampered", "wrongSignature", "expired")) {
+                expected = name
+                now += 86_400_001L
+                val before = calls
+                lastBody = null
+                assertNotNull("previous fresh cache must survive $name", store(url(name)).refresh())
+                assertEquals(before + 1, calls)
+                validateResponse()
+                assertEquals(accepted, sha(cache.readText()))
+            }
+            val beforeOffline = calls
+            assertNotNull(store("").refresh())
+            assertEquals(beforeOffline, calls)
+            now += 8 * 86_400_000L
+            assertNull(store("").refresh())
+            assertEquals(accepted, sha(cache.readText()))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+}

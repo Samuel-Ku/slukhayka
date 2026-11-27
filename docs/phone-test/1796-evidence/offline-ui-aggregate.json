@@ -1,0 +1,187 @@
+{
+  "initial_settings": {
+    "wifi_on": "1",
+    "mobile_data": "1",
+    "airplane_mode_on": "0"
+  },
+  "steps": [
+    {
+      "args": [
+        "settings",
+        "get",
+        "global",
+        "wifi_on"
+      ],
+      "exit": 0
+    },
+    {
+      "args": [
+        "settings",
+        "get",
+        "global",
+        "mobile_data"
+      ],
+      "exit": 0
+    },
+    {
+      "args": [
+        "settings",
+        "get",
+        "global",
+        "airplane_mode_on"
+      ],
+      "exit": 0
+    },
+    {
+      "args": [
+        "svc",
+        "wifi",
+        "disable"
+      ],
+      "exit": 0
+    },
+    {
+      "args": [
+        "svc",
+        "data",
+        "disable"
+      ],
+      "exit": 0
+    },
+    {
+      "args": [
+        "dumpsys",
+        "connectivity"
+      ],
+      "exit": 0
+    },
+    {
+      "args": [
+        "dumpsys",
+        "connectivity"
+      ],
+      "exit": 0
+    },
+    {
+      "args": [
+        "settings",
+        "get",
+        "global",
+        "wifi_on"
+      ],
+      "exit": 0
+    },
+    {
+      "args": [
+        "settings",
+        "get",
+        "global",
+        "mobile_data"
+      ],
+      "exit": 0
+    },
+    {
+      "args": [
+        "am",
+        "force-stop",
+        "com.slukhayka.audiobooks.recommend1796"
+      ],
+      "exit": 0
+    },
+    {
+      "args": [
+        "am",
+        "start",
+        "-W",
+        "-n",
+        "com.slukhayka.audiobooks.recommend1796/com.slukhayka.audiobooks.MainActivity"
+      ],
+      "exit": 0
+    },
+    {
+      "args": [
+        "input",
+        "tap",
+        "450",
+        "2430"
+      ],
+      "exit": 0
+    },
+    {
+      "args": [
+        "uiautomator",
+        "dump",
+        "/sdcard/window-1796.xml"
+      ],
+      "exit": 0
+    },
+    {
+      "args": [
+        "run-as",
+        "com.slukhayka.audiobooks.recommend1796",
+        "cat",
+        "files/recommendations/content-graph-attempt.txt"
+      ],
+      "exit": 0
+    },
+    {
+      "args": [
+        "svc",
+        "wifi",
+        "enable"
+      ],
+      "exit": 0
+    },
+    {
+      "args": [
+        "svc",
+        "data",
+        "enable"
+      ],
+      "exit": 0
+    },
+    {
+      "args": [
+        "settings",
+        "get",
+        "global",
+        "wifi_on"
+      ],
+      "exit": 0
+    },
+    {
+      "args": [
+        "settings",
+        "get",
+        "global",
+        "mobile_data"
+      ],
+      "exit": 0
+    },
+    {
+      "args": [
+        "settings",
+        "get",
+        "global",
+        "airplane_mode_on"
+      ],
+      "exit": 0
+    }
+  ],
+  "pass": true,
+  "offline_default_network": "none",
+  "offline_settings": {
+    "wifi_on": "0",
+    "mobile_data": "0"
+  },
+  "offline_launch": "Starting: Intent { cmp=com.slukhayka.audiobooks.recommend1796/com.slukhayka.audiobooks.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.slukhayka.audiobooks.recommend1796/com.slukhayka.audiobooks.MainActivity\nTotalTime: 1350\nWaitTime: 1354\nComplete\n",
+  "recommendations_heading_visible": true,
+  "candidate_accessibility_nodes": 70,
+  "cache_sha256": "3ec6d8d8cd5487645ab689aea4e234734e33ed0432363cb4c85b30562e2ab094",
+  "attempt": "1795772076485",
+  "restored_settings": {
+    "wifi_on": "1",
+    "mobile_data": "1",
+    "airplane_mode_on": "0"
+  }
+}

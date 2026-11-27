@@ -1,0 +1,106 @@
+{
+  "raw_invariant_pass": false,
+  "changed_columns_only": {
+    "work_facets": [
+      "updatedAt"
+    ],
+    "work_sources": [
+      "addedAt"
+    ]
+  },
+  "semantic_input_unchanged": true,
+  "tables": {
+    "com.slukhayka.audiobooks.baseline1796": {
+      "works": {
+        "equal": true,
+        "rows": 307
+      },
+      "work_facets": {
+        "equal": true,
+        "rows": 307
+      },
+      "work_genres": {
+        "equal": true,
+        "rows": 382
+      },
+      "work_facet_series": {
+        "equal": true,
+        "rows": 0
+      },
+      "work_sources": {
+        "equal": true,
+        "rows": 309
+      },
+      "sources": {
+        "equal": true,
+        "rows": 7
+      },
+      "editions": {
+        "equal": true,
+        "rows": 313
+      },
+      "audiobooks": {
+        "equal": true,
+        "rows": 24
+      },
+      "library_entries": {
+        "equal": true,
+        "rows": 24
+      },
+      "playback_progress": {
+        "equal": true,
+        "rows": 1
+      },
+      "recommendation_preferences": {
+        "equal": true,
+        "rows": 0
+      }
+    },
+    "com.slukhayka.audiobooks.recommend1796": {
+      "works": {
+        "equal": true,
+        "rows": 307
+      },
+      "work_facets": {
+        "equal": true,
+        "rows": 307
+      },
+      "work_genres": {
+        "equal": true,
+        "rows": 382
+      },
+      "work_facet_series": {
+        "equal": true,
+        "rows": 0
+      },
+      "work_sources": {
+        "equal": true,
+        "rows": 309
+      },
+      "sources": {
+        "equal": true,
+        "rows": 7
+      },
+      "editions": {
+        "equal": true,
+        "rows": 313
+      },
+      "audiobooks": {
+        "equal": true,
+        "rows": 24
+      },
+      "library_entries": {
+        "equal": true,
+        "rows": 24
+      },
+      "playback_progress": {
+        "equal": true,
+        "rows": 1
+      },
+      "recommendation_preferences": {
+        "equal": true,
+        "rows": 0
+      }
+    }
+  }
+}

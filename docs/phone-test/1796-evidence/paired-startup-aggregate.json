@@ -1,0 +1,191 @@
+{
+  "initial_settings": {
+    "wifi": "1",
+    "mobile": "1",
+    "brightness": "50",
+    "brightness_mode": "1"
+  },
+  "audio": "none; browsing only",
+  "scope": "Overview startup; recommendation row presence differs, not matched recommendation inference",
+  "order": [
+    "baseline",
+    "candidate",
+    "candidate",
+    "baseline"
+  ],
+  "trials": [
+    {
+      "package": "com.slukhayka.audiobooks.baseline1796",
+      "index": 0,
+      "battery_start": {
+        "temperature": "349",
+        "level": "85",
+        "AC powered": "true",
+        "USB powered": "false"
+      },
+      "cold_launch_exit": 0,
+      "cold_launch": "Starting: Intent { cmp=com.slukhayka.audiobooks.baseline1796/com.slukhayka.audiobooks.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.slukhayka.audiobooks.baseline1796/com.slukhayka.audiobooks.MainActivity\nTotalTime: 1129\nWaitTime: 1131\nComplete\n",
+      "cold_ready_probe_seconds": {
+        "seconds": 2.25,
+        "recommendation_cards_visible": false
+      },
+      "cold_cpu_seconds_to_probe": 11.5,
+      "cold_memory": {
+        "pss_kib": 436210,
+        "rss_kib": 593136,
+        "exit": 0
+      },
+      "cold_5s_idle_cpu_seconds": 1.6,
+      "warm_launch_exit": 0,
+      "warm_launch": "Starting: Intent { cmp=com.slukhayka.audiobooks.baseline1796/com.slukhayka.audiobooks.MainActivity }\nWarning: Activity not started, its current task has been brought to the front\nStatus: ok\nLaunchState: UNKNOWN (0)\nActivity: com.slukhayka.audiobooks.baseline1796/com.slukhayka.audiobooks.MainActivity\nWaitTime: 17\nComplete\n",
+      "warm_ready_probe_seconds": {
+        "seconds": 2.11,
+        "recommendation_cards_visible": true
+      },
+      "warm_cpu_seconds_to_probe": 0.09,
+      "warm_memory": {
+        "pss_kib": 655970,
+        "rss_kib": 821780,
+        "exit": 0
+      },
+      "battery_end": {
+        "temperature": "350",
+        "level": "85",
+        "AC powered": "true",
+        "USB powered": "false"
+      }
+    },
+    {
+      "package": "com.slukhayka.audiobooks.recommend1796",
+      "index": 1,
+      "battery_start": {
+        "temperature": "350",
+        "level": "85",
+        "AC powered": "true",
+        "USB powered": "false"
+      },
+      "cold_launch_exit": 0,
+      "cold_launch": "Starting: Intent { cmp=com.slukhayka.audiobooks.recommend1796/com.slukhayka.audiobooks.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.slukhayka.audiobooks.recommend1796/com.slukhayka.audiobooks.MainActivity\nTotalTime: 1132\nWaitTime: 1134\nComplete\n",
+      "cold_ready_probe_seconds": {
+        "seconds": 2.265,
+        "recommendation_cards_visible": false
+      },
+      "cold_cpu_seconds_to_probe": 12.67,
+      "cold_memory": {
+        "pss_kib": 426280,
+        "rss_kib": 583716,
+        "exit": 0
+      },
+      "cold_5s_idle_cpu_seconds": 0.58,
+      "warm_launch_exit": 0,
+      "warm_launch": "Starting: Intent { cmp=com.slukhayka.audiobooks.recommend1796/com.slukhayka.audiobooks.MainActivity }\nWarning: Activity not started, its current task has been brought to the front\nStatus: ok\nLaunchState: UNKNOWN (0)\nActivity: com.slukhayka.audiobooks.recommend1796/com.slukhayka.audiobooks.MainActivity\nWaitTime: 14\nComplete\n",
+      "warm_ready_probe_seconds": {
+        "seconds": 2.081,
+        "recommendation_cards_visible": true
+      },
+      "warm_cpu_seconds_to_probe": 0.08,
+      "warm_memory": {
+        "pss_kib": 311572,
+        "rss_kib": 471380,
+        "exit": 0
+      },
+      "battery_end": {
+        "temperature": "350",
+        "level": "85",
+        "AC powered": "true",
+        "USB powered": "false"
+      }
+    },
+    {
+      "package": "com.slukhayka.audiobooks.recommend1796",
+      "index": 2,
+      "battery_start": {
+        "temperature": "350",
+        "level": "85",
+        "AC powered": "true",
+        "USB powered": "false"
+      },
+      "cold_launch_exit": 0,
+      "cold_launch": "Starting: Intent { cmp=com.slukhayka.audiobooks.recommend1796/com.slukhayka.audiobooks.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.slukhayka.audiobooks.recommend1796/com.slukhayka.audiobooks.MainActivity\nTotalTime: 1222\nWaitTime: 1223\nComplete\n",
+      "cold_ready_probe_seconds": {
+        "seconds": 2.185,
+        "recommendation_cards_visible": false
+      },
+      "cold_cpu_seconds_to_probe": 13.76,
+      "cold_memory": {
+        "pss_kib": 389530,
+        "rss_kib": 547180,
+        "exit": 0
+      },
+      "cold_5s_idle_cpu_seconds": 0.47,
+      "warm_launch_exit": 0,
+      "warm_launch": "Starting: Intent { cmp=com.slukhayka.audiobooks.recommend1796/com.slukhayka.audiobooks.MainActivity }\nWarning: Activity not started, its current task has been brought to the front\nStatus: ok\nLaunchState: UNKNOWN (0)\nActivity: com.slukhayka.audiobooks.recommend1796/com.slukhayka.audiobooks.MainActivity\nWaitTime: 16\nComplete\n",
+      "warm_ready_probe_seconds": {
+        "seconds": 2.091,
+        "recommendation_cards_visible": true
+      },
+      "warm_cpu_seconds_to_probe": 0.08,
+      "warm_memory": {
+        "pss_kib": 309202,
+        "rss_kib": 468344,
+        "exit": 0
+      },
+      "battery_end": {
+        "temperature": "350",
+        "level": "85",
+        "AC powered": "true",
+        "USB powered": "false"
+      }
+    },
+    {
+      "package": "com.slukhayka.audiobooks.baseline1796",
+      "index": 3,
+      "battery_start": {
+        "temperature": "350",
+        "level": "85",
+        "AC powered": "true",
+        "USB powered": "false"
+      },
+      "cold_launch_exit": 0,
+      "cold_launch": "Starting: Intent { cmp=com.slukhayka.audiobooks.baseline1796/com.slukhayka.audiobooks.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.slukhayka.audiobooks.baseline1796/com.slukhayka.audiobooks.MainActivity\nTotalTime: 1083\nWaitTime: 1087\nComplete\n",
+      "cold_ready_probe_seconds": {
+        "seconds": 2.185,
+        "recommendation_cards_visible": false
+      },
+      "cold_cpu_seconds_to_probe": 10.49,
+      "cold_memory": {
+        "pss_kib": 466860,
+        "rss_kib": 623796,
+        "exit": 0
+      },
+      "cold_5s_idle_cpu_seconds": 1.73,
+      "warm_launch_exit": 0,
+      "warm_launch": "Starting: Intent { cmp=com.slukhayka.audiobooks.baseline1796/com.slukhayka.audiobooks.MainActivity }\nWarning: Activity not started, its current task has been brought to the front\nStatus: ok\nLaunchState: UNKNOWN (0)\nActivity: com.slukhayka.audiobooks.baseline1796/com.slukhayka.audiobooks.MainActivity\nWaitTime: 17\nComplete\n",
+      "warm_ready_probe_seconds": {
+        "seconds": 2.108,
+        "recommendation_cards_visible": true
+      },
+      "warm_cpu_seconds_to_probe": 0.09,
+      "warm_memory": {
+        "pss_kib": 652649,
+        "rss_kib": 802456,
+        "exit": 0
+      },
+      "battery_end": {
+        "temperature": "356",
+        "level": "85",
+        "AC powered": "true",
+        "USB powered": "false"
+      }
+    }
+  ],
+  "pass": false,
+  "input_unchanged": false,
+  "restored_settings": {
+    "wifi": "1",
+    "mobile": "1",
+    "brightness": "50",
+    "brightness_mode": "1"
+  },
+  "duration_seconds": 59.803
+}

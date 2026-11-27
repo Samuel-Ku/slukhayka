@@ -1,0 +1,9 @@
+{
+  "applicationId": "com.slukhayka.audiobooks.recommend1796",
+  "testApplicationId": "com.slukhayka.audiobooks.recommend1796.test",
+  "app_sha256": "830ee2df5269fb4f19462878556b03b739b1cb478c79d53787088c099b5321ba",
+  "test_sha256": "97c225e91f18877039a6b79e316d544ecff1868b62814da0cd195feceab422ab",
+  "pinned_url": "https://raw.githubusercontent.com/Samuel-Ku/slukhayka/96a60a4ef1edced9366cb0d5dacef2c1b1050e7c/graph.signed.json",
+  "operator_key_in_dex": true,
+  "https_test_class_in_dex": true
+}

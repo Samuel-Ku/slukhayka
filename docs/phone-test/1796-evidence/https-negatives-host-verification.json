@@ -1,0 +1,20 @@
+[
+  {
+    "file": "tampered-graph-old-signature.json",
+    "sha256": "029946f57e3e78162ace9211c7a1d2ec5b3bd0b46799929ec084d31945bb57b9",
+    "openssl_exit": 1,
+    "expired": false
+  },
+  {
+    "file": "wrong-signature.json",
+    "sha256": "13e15972d790a89d0d64219bfbbe3dd6989c743159255f3d8193dc6a60ac532a",
+    "openssl_exit": 1,
+    "expired": false
+  },
+  {
+    "file": "expired-graph.json",
+    "sha256": "41c82f8fb3a739a2a1848f5a7d4381d577844d92495a7213d101d3f18c7f4c41",
+    "openssl_exit": 0,
+    "expired": true
+  }
+]

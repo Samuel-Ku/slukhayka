@@ -1,0 +1,10 @@
+{
+  "container_sha256": "3ec6d8d8cd5487645ab689aea4e234734e33ed0432363cb4c85b30562e2ab094",
+  "container_bytes": 8241667,
+  "graph_bytes": 8201504,
+  "works": 20000,
+  "edges": 440000,
+  "openssl_exit": 0,
+  "openssl_result": "Verified OK",
+  "expiresAt": 1796374721071
+}

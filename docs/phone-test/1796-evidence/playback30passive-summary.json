@@ -1,0 +1,28 @@
+{
+  "samples": 61,
+  "duration_seconds": 1800.005,
+  "playing_samples": 61,
+  "awake_samples": 61,
+  "same_pid": true,
+  "cpu_seconds": 391.87,
+  "mean_one_core_percent": 21.77,
+  "pss_kib_range": [
+    268154,
+    314288
+  ],
+  "rss_kib_range": [
+    248696,
+    485708
+  ],
+  "battery_c_range": [
+    36.4,
+    38.3
+  ],
+  "battery_level_start_end": [
+    "67",
+    "76"
+  ],
+  "physical_charging": true,
+  "screen_off_proven": false,
+  "note": "No matched baseline; old no-URL installed candidate, mixed foreground/background; brief profiler activity within run."
+}

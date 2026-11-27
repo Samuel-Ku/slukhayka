@@ -103,7 +103,7 @@
     <string name="lib_books_count">Книги (%1$d)</string>
     <string name="lib_bookmarks_count">Закладки (%1$d)</string>
     <string name="lib_statistics">Статистика</string>
-    <string name="lib_search_short_hint">Пошук</string>
+    <string name="lib_search_short_hint">Мої книги</string>
     <string name="lib_add_own_files">Додати свої файли</string>
     <string name="lib_find_book">Знайти книгу</string>
     <string name="lib_import_connect">З\'єднати</string>
@@ -124,8 +124,8 @@
     <string name="listen_book">Книга</string>
     <string name="listen_chapter">Розділ</string>
     <string name="listen_note_optional">Нотатка (необов\'язково)</string>
-    <string name="profile_view_catalogue">Переглянути каталог</string>
-    <string name="profile_import_from_device">Імпортувати з пристрою</string>
+    <string name="profile_view_catalogue">Знайти аудіокнижку</string>
+    <string name="profile_import_from_device">Додати з пристрою</string>
     <string name="profile_nickname_label">Як вас показувати</string>
     <string name="profile_nickname_hint">До 40 символів. Профіль існує без жодного входу.</string>
     <string name="profile_save_nick">Зберегти нік</string>
@@ -347,7 +347,10 @@
     <string name="collections_index_empty">Колекції з\'являться після завантаження каталогу.</string>
     <string name="collections_index_refresh">Оновити каталог</string>
     <!-- spec-46 T16 (#577): the Слухати fresh-install empty state. -->
-    <string name="listen_empty_title">Продовжити слухати</string>
+    <string name="listen_elapsed">Прослухано %1$s</string>
+    <string name="listen_elapsed_seconds">%1$d с</string>
+    <string name="listen_book_progress">Прогрес книжки: %1$s</string>
+    <string name="listen_empty_title">З чого почнемо?</string>
     <string name="listen_empty_body">Тут з\'явиться ваша поточна книга, щойно ви почнете слухати.</string>
     <!-- #562 AC: the counter is the header's subtitle, never a free-standing
          badge row — it declines honestly (1 нова / 2 нові / 5 нових). -->
@@ -578,6 +581,19 @@
     <string name="submission_playlist_one_book">Одна книга (розділи)</string>
     <string name="submission_playlist_separate">Окремі книги</string>
     <string name="submission_playlist_selected">Вибрано %1$d з %2$d</string>
+    <string name="submission_playlist_choose_entries">Виберіть записи</string>
+    <plurals name="import_add_one_book_chapters">
+        <item quantity="one">Додати одну книжку з %1$d розділом</item>
+        <item quantity="few">Додати одну книжку з %1$d розділами</item>
+        <item quantity="many">Додати одну книжку з %1$d розділами</item>
+        <item quantity="other">Додати одну книжку з %1$d розділами</item>
+    </plurals>
+    <plurals name="import_add_books">
+        <item quantity="one">Додати %1$d книжку</item>
+        <item quantity="few">Додати %1$d книжки</item>
+        <item quantity="many">Додати %1$d книжок</item>
+        <item quantity="other">Додати %1$d книжок</item>
+    </plurals>
     <string name="submission_playlist_select_all">Вибрати всі</string>
     <string name="submission_preview_edit">Редагувати</string>
     <string name="submission_preview_single_video">одне відео</string>
@@ -742,12 +758,17 @@
     <string name="lib_stats_total">Всього в бібліотеці</string>
     <string name="lib_stats_total_value">%1$d книг</string>
     <string name="lib_bookmark_at">На %1$s: %2$s</string>
-    <string name="lib_import_preview_found">Знайдено %1$d книг — нічого не записано, поки не підтвердите.</string>
+    <string name="lib_import_preview_hint">Перевірте назви й порядок розділів перед додаванням.</string>
+    <plurals name="lib_import_attach_chapters">
+        <item quantity="one">Додати %1$d розділ до «%2$s»</item>
+        <item quantity="few">Додати %1$d розділи до «%2$s»</item>
+        <item quantity="many">Додати %1$d розділів до «%2$s»</item>
+        <item quantity="other">Додати %1$d розділів до «%2$s»</item>
+    </plurals>
     <string name="lib_untitled">Без назви</string>
     <string name="lib_import_similar">Схоже на «%1$s» (%2$s)</string>
     <string name="lib_import_will_merge">Буде з\'єднано з «%1$s»</string>
     <string name="lib_import_existing_book">книгою в бібліотеці</string>
-    <string name="lib_import_confirm_merged">Імпортувати (%1$d нових, %2$d з\'єднати)</string>
     <string name="feed_origin_filter_heading">Походження</string>
     <string name="feed_origin_only_shared">Лише зі спільної бібліотеки</string>
     <string name="feed_origin_shared_library">Зі спільної бібліотеки</string>
@@ -765,7 +786,6 @@
     <string name="lib_import_save">Зберегти</string>
     <string name="lib_import_retry">Повторити</string>
     <string name="lib_import_retry_body">Запис перервався. План збережено — спробуйте ще раз.</string>
-    <string name="lib_import_confirm">Імпортувати %1$d</string>
     <string name="lib_person_role_author">Автор</string>
     <string name="lib_person_role_narrator">Виконавець</string>
     <string name="lib_person_notify_on">Повідомлення увімкнені</string>
@@ -975,4 +995,17 @@
     <string name="player_cast_lost">Зв’язок із пристроєм втрачено. Можна слухати далі на телефоні.</string>
     <!-- #1751: the receiver stayed connected but could not play the chapter. -->
     <string name="player_cast_failed">Пристрій не зміг відтворити цю главу. Можна слухати далі на телефоні.</string>
+    <string name="lib_reset_status_filter">Скинути фільтр</string>
+    <string name="lib_filtered_results">%1$s · %2$s</string>
+    <plurals name="lib_result_books">
+        <item quantity="one">%1$d книжка</item>
+        <item quantity="few">%1$d книжки</item>
+        <item quantity="many">%1$d книжок</item>
+        <item quantity="other">%1$d книжки</item>
+    </plurals>
+    <string name="discovery_selected_genres">Вибрані жанри (%1$d)</string>
+    <string name="discovery_duration_under_five">До 5 год</string>
+    <string name="discovery_duration_five_ten">5–10 год</string>
+    <string name="discovery_duration_ten_twenty">10–20 год</string>
+    <string name="discovery_duration_over_twenty">Від 20 год</string>
 </resources>

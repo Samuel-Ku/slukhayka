@@ -74,12 +74,15 @@ import com.slukhayka.audiobooks.data.entries.LibraryNewArrivals
 import com.slukhayka.audiobooks.data.entries.matchingLibraryQuery
 import com.slukhayka.audiobooks.data.personbookmarks.PersonBookmarks
 import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
+import com.slukhayka.audiobooks.data.metadata.FacetDurationBucket
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
 import com.slukhayka.audiobooks.data.update.UpdateChecker
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.components.AppSectionHeader
 import com.slukhayka.audiobooks.ui.components.paperink.PaperInkTabHeader
-import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.EmptyStatePanel
+import com.slukhayka.audiobooks.ui.components.EmptyStatePrimaryAction
+import com.slukhayka.audiobooks.ui.components.EmptyStateQuietAction
 import com.slukhayka.audiobooks.ui.components.SectionHeaderLevel
 import com.slukhayka.audiobooks.ui.components.AppTabHeader
 import com.slukhayka.audiobooks.ui.components.BookCoverSemantics
@@ -1205,45 +1208,43 @@ fun CatalogNavRow(
 /**
  * First-run empty catalogue: no mocks, just clear actions (spec #8 T1/T6).
  *
- * spec-46 T16 (#577): a thin facade over the canonical [EmptyState] (v1.4 C4,
- * ADR-0033) — one empty-state shape app-wide; the two next actions ride the
- * canonical actions slot instead of a hand-rolled icon/title/body column.
+ * spec-46 T16 (#577) made it a thin facade over the canonical empty state; #1766
+ * moved that state to [EmptyStatePanel] so «Огляд» matches the other five
+ * surfaces: Literata title, one short line, ONE primary action and a quiet link.
  */
 @Composable
 fun EmptyCatalogState(
     onRefreshClick: () -> Unit,
-    onImportClick: () -> Unit
+    onImportClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    EmptyState(
+    // #1766 (audit U9/U13): the canonical paper empty state — one Literata
+    // title, one short line, ONE primary action (refresh) and the import path
+    // as a quiet link. The caller (`homeFeedContent`) hands it the viewport.
+    EmptyStatePanel(
         title = stringResource(R.string.home_empty_catalog_title),
-        body = stringResource(R.string.home_empty_catalog_body)
-    ) {
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Button(
+        body = stringResource(R.string.home_empty_catalog_body),
+        modifier = modifier,
+        action = {
+            // #1775 (unslop U1) — the shared primary CTA. This surface used to
+            // draw the same invitation at 14 dp while «Слухати» drew a full pill
+            // and «Медіатека» 12 dp; one role now has one form.
+            EmptyStatePrimaryAction(
+                text = stringResource(R.string.a11y_refresh_catalogue),
                 onClick = onRefreshClick,
-                modifier = Modifier.heightIn(min = 48.dp).testTag("catalog_empty_refresh"),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                shape = RoundedCornerShape(AppDimens.RadiusCardLg)
-            ) {
-                Icon(imageVector = PaperInkIcons.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(stringResource(R.string.a11y_refresh_catalogue), fontWeight = FontWeight.Bold)
-            }
-            OutlinedButton(
+                icon = PaperInkIcons.Refresh,
+                testTag = "catalog_empty_refresh",
+            )
+        },
+        quietAction = {
+            // #1775 — the shared quiet action (16 dp radius, 48 dp target).
+            EmptyStateQuietAction(
+                text = stringResource(R.string.home_import_file),
                 onClick = onImportClick,
-                modifier = Modifier.heightIn(min = 48.dp).testTag("catalog_empty_import"),
-                shape = RoundedCornerShape(AppDimens.RadiusCardLg),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-            ) {
-                Icon(imageVector = PaperInkIcons.Upload, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(stringResource(R.string.home_import_file), color = MaterialTheme.colorScheme.onSurface)
-            }
-        }
-    }
+                testTag = "catalog_empty_import",
+            )
+        },
+    )
 }
 
 /**
@@ -1277,6 +1278,23 @@ fun WorkFeedFilters(
     var showFilterSheet by rememberSaveable { mutableStateOf(false) }
 
     val paperInk = LocalPaperInkDesign.current
+    val activeFilterLabels = buildList {
+        if (selectedGenreIds.isNotEmpty()) {
+            val names = genres.filter { it.id in selectedGenreIds }.map { it.label }
+            add(
+                if (names.size == selectedGenreIds.size) names.joinToString(", ")
+                else stringResource(R.string.discovery_selected_genres, selectedGenreIds.size)
+            )
+        }
+        if (selectedDurationBucketIds.isNotEmpty()) {
+            val buckets = EditionDurationPolicy.buckets.filter { it.wireName in selectedDurationBucketIds }
+            add(
+                if (buckets.isNotEmpty()) buckets.map { discoveryDurationLabel(it) }.joinToString(", ")
+                else stringResource(R.string.feed_duration)
+            )
+        }
+        if (sharedLibraryOnly) add(stringResource(R.string.feed_origin_only_shared))
+    }
     BoxWithConstraints {
         val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
         val compact = maxWidth < 400.dp * fontScale.coerceAtLeast(1f) || fontScale > 1.3f
@@ -1291,103 +1309,130 @@ fun WorkFeedFilters(
             tonalElevation = if (paperInk) 0.dp else 2.dp,
             modifier = Modifier.fillMaxWidth().testTag("work_feed_toolbar")
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(
-                        horizontal = if (paperInk) PaperInkDimens.SpacePage else 16.dp,
-                        vertical = if (paperInk) 8.dp else 8.dp,
-                    )
-            ) {
-                Box {
-                    OutlinedButton(
-                        onClick = { sortExpanded = true },
-                        contentPadding = PaddingValues(horizontal = 12.dp),
-                        shape = RoundedCornerShape(percent = 50),
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.dp,
-                            MaterialTheme.colorScheme.outlineVariant,
-                        ),
-                        modifier = Modifier
+            Column {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            horizontal = if (paperInk) PaperInkDimens.SpacePage else 16.dp,
+                            vertical = if (paperInk) 8.dp else 8.dp,
+                        )
+                ) {
+                    Box {
+                        OutlinedButton(
+                            onClick = { sortExpanded = true },
+                            contentPadding = PaddingValues(horizontal = 12.dp),
+                            shape = RoundedCornerShape(percent = 50),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                MaterialTheme.colorScheme.outlineVariant,
+                            ),
+                            modifier = Modifier
+                                .height(if (paperInk) 36.dp else 48.dp)
+                                .then(if (compact) Modifier.width(56.dp) else Modifier)
+                                .semantics { contentDescription = sortLabel }
+                                .testTag("feed_sort")
+                        ) {
+                            if (compact) {
+                                Icon(PaperInkIcons.Sort, contentDescription = null)
+                            } else {
+                                Text(
+                                    sortLabel,
+                                    style = if (paperInk) PaperInkType.Label else LocalTextStyle.current,
+                                    maxLines = 1,
+                                    modifier = Modifier.clearAndSetSemantics { }
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(PaperInkIcons.ChevronDown, contentDescription = null)
+                            }
+                        }
+                        DropdownMenu(
+                            expanded = sortExpanded,
+                            onDismissRequest = { sortExpanded = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.feed_sort_newest)) },
+                                onClick = {
+                                    if (sortByTitle) onSortChange(false)
+                                    sortExpanded = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.feed_sort_title)) },
+                                onClick = {
+                                    if (!sortByTitle) onSortChange(true)
+                                    sortExpanded = false
+                                }
+                            )
+                        }
+                    }
+                    FilterChip(
+                        // #885 (wave 3) — same pill as the other chips; this
+                        // trigger sits in the same row and had the same M3 8 dp
+                        // default, so leaving it would have made the row disagree
+                        // with itself.
+                        shape = RoundedCornerShape(AppDimens.RadiusPill),
+                        selected = activeFilterLabels.isNotEmpty(),
+                        onClick = {
+                            if (onOpenFilters != null) onOpenFilters() else showFilterSheet = true
+                        },
+                        label = {
+                            if (compact) {
+                                Icon(PaperInkIcons.Filter, null, Modifier.size(if (paperInk) 18.dp else 24.dp))
+                            } else {
+                                Text(
+                                    filtersLabel,
+                                    style = if (paperInk) PaperInkType.Label else LocalTextStyle.current,
+                                    maxLines = 1,
+                                    modifier = Modifier.clearAndSetSemantics { }
+                                )
+                            }
+                        },
+                        leadingIcon = if (compact) null else { {
+                            Icon(
+                                imageVector = PaperInkIcons.Filter,
+                                contentDescription = null,
+                                modifier = Modifier.size(
+                                    if (paperInk) 18.dp else FilterChipDefaults.IconSize
+                                )
+                            )
+                        } },
+                        modifier = filterTriggerModifier
                             .height(if (paperInk) 36.dp else 48.dp)
                             .then(if (compact) Modifier.width(56.dp) else Modifier)
-                            .semantics { contentDescription = sortLabel }
-                            .testTag("feed_sort")
-                    ) {
-                        if (compact) {
-                            Icon(PaperInkIcons.Sort, contentDescription = null)
-                        } else {
-                            Text(
-                                sortLabel,
-                                style = if (paperInk) PaperInkType.Label else LocalTextStyle.current,
-                                maxLines = 1,
-                                modifier = Modifier.clearAndSetSemantics { }
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(PaperInkIcons.ChevronDown, contentDescription = null)
-                        }
-                    }
-                    DropdownMenu(
-                        expanded = sortExpanded,
-                        onDismissRequest = { sortExpanded = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.feed_sort_newest)) },
-                            onClick = {
-                                if (sortByTitle) onSortChange(false)
-                                sortExpanded = false
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.feed_sort_title)) },
-                            onClick = {
-                                if (!sortByTitle) onSortChange(true)
-                                sortExpanded = false
-                            }
-                        )
+                            .semantics { contentDescription = filtersLabel }
+                            .testTag("feed_filters")
+                    )
+                    contentLanguages?.let { languages ->
+                        ContentLanguageChip(languages, onOpenContentLanguages)
                     }
                 }
-                FilterChip(
-                    // #885 (wave 3) — same pill as the other chips; this
-                    // trigger sits in the same row and had the same M3 8 dp
-                    // default, so leaving it would have made the row disagree
-                    // with itself.
-                    shape = RoundedCornerShape(AppDimens.RadiusPill),
-                    selected = selectedGenreIds.isNotEmpty() || selectedDurationBucketIds.isNotEmpty(),
-                    onClick = {
-                        if (onOpenFilters != null) onOpenFilters() else showFilterSheet = true
-                    },
-                    label = {
-                        if (compact) {
-                            Icon(PaperInkIcons.Filter, null, Modifier.size(if (paperInk) 18.dp else 24.dp))
-                        } else {
-                            Text(
-                                filtersLabel,
-                                style = if (paperInk) PaperInkType.Label else LocalTextStyle.current,
-                                maxLines = 1,
-                                modifier = Modifier.clearAndSetSemantics { }
-                            )
-                        }
-                    },
-                    leadingIcon = if (compact) null else { {
-                        Icon(
-                            imageVector = PaperInkIcons.Filter,
-                            contentDescription = null,
-                            modifier = Modifier.size(
-                                if (paperInk) 18.dp else FilterChipDefaults.IconSize
-                            )
+                if (activeFilterLabels.isNotEmpty()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = if (paperInk) PaperInkDimens.SpacePage else 16.dp)
+                    ) {
+                        Text(
+                            text = activeFilterLabels.joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f).testTag("feed_active_filters")
                         )
-                    } },
-                    modifier = filterTriggerModifier
-                        .height(if (paperInk) 36.dp else 48.dp)
-                        .then(if (compact) Modifier.width(56.dp) else Modifier)
-                        .semantics { contentDescription = filtersLabel }
-                        .testTag("feed_filters")
-                )
-                contentLanguages?.let { languages ->
-                    ContentLanguageChip(languages, onOpenContentLanguages)
+                        TextButton(
+                            onClick = {
+                                onGenresChange(emptySet())
+                                onDurationBucketsChange(emptySet())
+                                onSharedLibraryOnlyChange(false)
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp).testTag("feed_active_filters_reset")
+                        ) { Text(stringResource(R.string.feed_reset_all)) }
+                    }
                 }
             }
         }
@@ -1406,6 +1451,17 @@ fun WorkFeedFilters(
         )
     }
 }
+
+@Composable
+private fun discoveryDurationLabel(bucket: FacetDurationBucket): String =
+    stringResource(
+        when (bucket) {
+            FacetDurationBucket.UNDER_FIVE_HOURS -> R.string.discovery_duration_under_five
+            FacetDurationBucket.FIVE_TO_TEN_HOURS -> R.string.discovery_duration_five_ten
+            FacetDurationBucket.TEN_TO_TWENTY_HOURS -> R.string.discovery_duration_ten_twenty
+            FacetDurationBucket.TWENTY_HOURS_OR_MORE -> R.string.discovery_duration_over_twenty
+        }
+    )
 
 /** Modal catalogue-facet surface, kept outside the Home underlay by its owner. */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -1458,7 +1514,12 @@ fun WorkFeedFilterSheet(
             ) {
                 Text(
                     text = stringResource(R.string.feed_filters),
-                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                    // Unslop audit 2026-11-01 (U6): a sheet heading is UI, so
+                    // it takes the ladder's third step. Before this it borrowed
+                    // `headlineSmall`, which in paper is the Literata book
+                    // title — a book face on chrome, i.e. exactly the blurred
+                    // serif/UI boundary the direction forbids.
+                    style = PaperInkType.Heading.Sub,
                     modifier = Modifier
                         .focusRequester(headingFocusRequester)
                         .focusable()
@@ -1586,7 +1647,7 @@ fun WorkFeedFilterSheet(
                                     }
                                 )
                             },
-                            label = { Text(EditionDurationPolicy.labelFor(bucket)) },
+                            label = { Text(discoveryDurationLabel(bucket)) },
                             modifier = Modifier
                                 .heightIn(min = 48.dp)
                                 .testTag("feed_duration_${bucket.wireName}")
@@ -1603,6 +1664,7 @@ fun WorkFeedFilterSheet(
                         onClick = {
                             onGenresChange(emptySet())
                             onDurationBucketsChange(emptySet())
+                            onSharedLibraryOnlyChange(false)
                         },
                         modifier = Modifier
                             .heightIn(min = 48.dp)

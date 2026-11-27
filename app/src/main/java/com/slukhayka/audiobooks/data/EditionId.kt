@@ -22,7 +22,7 @@ object EditionId {
      * differ in [narrator] and therefore in id.
      */
     fun forBook(mergeKey: String, bookId: String, narrator: String = "", language: String = ""): String =
-        sha256Hex("${mergeKey.ifBlank { bookId }}\u0000$narrator\u0000$language".toByteArray(Charsets.UTF_8)).take(24)
+        sha256Hex("${mergeKey.ifBlank { bookId }}\u0000$narrator\u0000$language".toByteArray(Charsets.UTF_8), 12)
 
     /**
      * The v13→v14-era formula — narrator inside the mergeKey, no separate
@@ -32,5 +32,5 @@ object EditionId {
      * stay byte-for-byte what it shipped as.
      */
     fun forBookLegacy(mergeKey: String, bookId: String, language: String = ""): String =
-        sha256Hex("${mergeKey.ifBlank { bookId }}\u0000$language".toByteArray(Charsets.UTF_8)).take(24)
+        sha256Hex("${mergeKey.ifBlank { bookId }}\u0000$language".toByteArray(Charsets.UTF_8), 12)
 }

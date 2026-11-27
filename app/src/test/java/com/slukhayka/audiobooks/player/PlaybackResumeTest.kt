@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
+import com.slukhayka.audiobooks.data.db.PlaybackEventKind
 import com.slukhayka.audiobooks.data.db.PlaybackProgressEntity
 import com.slukhayka.audiobooks.data.entries.LibraryEntries
 import com.slukhayka.audiobooks.data.listening.ListeningStateStore
@@ -43,6 +44,8 @@ import org.robolectric.annotation.Config
 class PlaybackResumeTest {
 
     private val dispatcher = StandardTestDispatcher()
+    private val nowMs = 1_000_000L
+    private val pausedAtMs = nowMs - 5 * 60_000L
 
     private lateinit var context: Context
     private lateinit var dao: FakeAudiobookDao
@@ -103,6 +106,49 @@ class PlaybackResumeTest {
         // trackless («No playable locator») and the restore carried no audio.
         runCurrent()
         assertEquals(1, factory.current.mediaItems.size)
+    }
+
+    @Test
+    fun `cold resume rewinds once for the persisted pause`() = resumeTest { manager, factory ->
+        val book = books[1]
+        dao.savePlaybackProgress(
+            PlaybackProgressEntity(
+                editionId = book.id,
+                bookId = book.id,
+                currentPositionSeconds = 600L,
+                lastPausedAtEpochMs = pausedAtMs
+            )
+        )
+
+        assertTrue(resume(manager))
+        runCurrent()
+        assertNull(listeningState.getProgressSync(book.id)!!.lastPausedAtEpochMs)
+        val engine = factory.current
+        engine.simulateReady(dao.getChaptersListForBook(book.id).first().durationSeconds * 1000L)
+        assertEquals(597_000L, engine.currentPosition)
+        manager.play()
+        assertEquals(597_000L, engine.currentPosition)
+    }
+
+    @Test
+    fun `cold autoplay at the end of the last chapter starts a relisten`() = resumeTest { manager, _ ->
+        val book = books[0]
+        val chapters = dao.getChaptersListForBook(book.id)
+        dao.savePlaybackProgress(
+            PlaybackProgressEntity(
+                editionId = book.id,
+                bookId = book.id,
+                currentChapterIndex = chapters.lastIndex,
+                currentPositionSeconds = chapters.last().durationSeconds,
+                lastPausedAtEpochMs = pausedAtMs
+            )
+        )
+
+        assertTrue(resume(manager, autoPlay = true))
+        runCurrent()
+        assertEquals(0, manager.playerState.value.currentChapterIndex)
+        assertEquals(0L, manager.playerState.value.currentPositionMs)
+        assertEquals(listOf(PlaybackEventKind.RELISTEN), dao.savedPlaybackEvents.map { it.kind })
     }
 
     @Test
@@ -206,7 +252,8 @@ class PlaybackResumeTest {
             PlaybackProgressEntity(
                 editionId = book.id,
                 bookId = book.id,
-                lastListenedAt = 9_000L
+                lastListenedAt = 9_000L,
+                lastPausedAtEpochMs = pausedAtMs
             )
         )
 
@@ -221,14 +268,16 @@ class PlaybackResumeTest {
 
         assertFalse("an empty playable list never reaches the engine", resumed)
         assertNull(manager.playerState.value.currentBook)
+        runCurrent()
+        assertEquals(pausedAtMs, listeningState.getProgressSync(book.id)?.lastPausedAtEpochMs)
     }
 
-    private suspend fun TestScope.resume(manager: AudioPlayerManager): Boolean =
+    private suspend fun TestScope.resume(manager: AudioPlayerManager, autoPlay: Boolean = false): Boolean =
         PlaybackResume.resumeMostRecent(
             playerManager = manager,
             libraryEntries = libraryEntries,
             playableFor = { bookId -> playableFor(bookId) },
-            autoPlay = false,
+            autoPlay = autoPlay,
             ioDispatcher = dispatcher,
             playerDispatcher = dispatcher
         )
@@ -255,6 +304,7 @@ class PlaybackResumeTest {
             listeningState,
             { dao.getChaptersListForBook(it).map { chapter -> SourceCatalog.PlayableChapter(chapter, null) } },
             injectedPlayerFactory = factory,
+            now = { nowMs },
             ioDispatcher = dispatcher,
             // Spec-22 T4: widget sync is a forever-running sampled collector;
             // keep it off the test scheduler.

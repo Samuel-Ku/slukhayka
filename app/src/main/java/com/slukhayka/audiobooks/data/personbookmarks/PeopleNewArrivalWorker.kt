@@ -45,8 +45,24 @@ class PeopleNewArrivalWorker(
 
     companion object {
         const val UNIQUE_WORK = "people-new-arrivals"
-        private const val CHANNEL_ID = "people_new"
+        internal const val CHANNEL_ID = "people_new"
         private const val NOTIFICATION_ID = 403
+
+        /** #1811 — same id updates the name/description; importance is unchanged. */
+        internal fun ensureChannel(
+            context: Context,
+            copy: PeopleNewArrivalNotificationText
+        ) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            val manager = context.getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_ID,
+                    copy.channelName,
+                    NotificationManager.IMPORTANCE_DEFAULT
+                ).apply { description = copy.channelDescription }
+            )
+        }
 
         fun schedule(context: Context) {
             // Tests and Firebase-less recovery builds may intentionally omit
@@ -79,12 +95,7 @@ class PeopleNewArrivalWorker(
             // Channels exist from API 26 only; API 24–25 posts the same
             // notification the old way, without one.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val manager = context.getSystemService(NotificationManager::class.java)
-                if (manager.getNotificationChannel(CHANNEL_ID) == null) {
-                    manager.createNotificationChannel(NotificationChannel(
-                        CHANNEL_ID, copy.channelName, NotificationManager.IMPORTANCE_DEFAULT
-                    ))
-                }
+                ensureChannel(context, copy)
             }
             // ADR-0052 §6 — the alert carries the identity of the first
             // person it is about so its tap opens THAT page, not the feed.

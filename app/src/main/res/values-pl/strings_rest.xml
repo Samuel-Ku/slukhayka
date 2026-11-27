@@ -250,6 +250,7 @@
     <string name="people_new_notification_some_people">Twoich autorów</string>
     <string name="people_new_notification_action">Zobacz</string>
     <string name="people_new_notification_channel_name">Nowości od ludzi</string>
+    <string name="people_new_notification_channel_description">Nowości od osób, które obserwujesz.</string>
     <string name="home_personal_picks_loading">Przygotowujemy osobiste kolekcje…</string>
     <string name="home_recommendation_source_badge">Źródło poleca · %1$s</string>
     <string name="home_recommendation_updated">Rekomendacja zaktualizowana</string>
@@ -435,6 +436,8 @@
     <string name="source_audio_refusal_title">Audio źródeł</string>
     <string name="source_watch_notification_text">Źródło: %1$s. Dotknij, aby otworzyć książkę.</string>
     <string name="source_watch_notification_title">Pojawiło się źródło dla tej książki</string>
+    <string name="source_watch_notification_channel_name">Czeka na źródło</string>
+    <string name="source_watch_notification_channel_description">Powiadamia, gdy pojawi się źródło dla książki.</string>
     <string name="speed_default_for_all">Standard dla wszystkich</string>
     <string name="storage_danger_heading">Strefa niebezpieczna</string>
     <string name="storage_delete_action">Usuń pobrane pliki</string>

@@ -3,6 +3,7 @@ import importlib.util
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 RECOMMEND = Path(__file__).parents[1] / "recommend"
 sys.path.insert(0, str(RECOMMEND))
@@ -37,6 +38,11 @@ class UkrainianExportTest(unittest.TestCase):
                 self.assertEqual(("", "", ""), export.parse_chitaka(meta + extra))
         self.assertEqual(("«Аптекарка»", "Інґрід Ноль"),
                          export.parse_chitaka(meta + '<audio src="book.mp3"></audio>')[:2])
+
+    def test_security_policy_failure_is_not_silently_treated_as_an_absent_book(self):
+        with patch.object(export, "fetch", side_effect=export.CatalogSecurityError("blocked URL")):
+            with self.assertRaises(export.CatalogSecurityError):
+                export.sample_page("https://chitaka.com.ua/knigi/book", export.parse_chitaka)
 
     def test_chytaylo_reads_the_book_jsonld(self):
         html = ('<script type="application/ld+json">'

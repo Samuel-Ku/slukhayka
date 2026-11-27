@@ -21,22 +21,30 @@ ALLOWED_HOSTS = frozenset({
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 
 
+class CatalogSecurityError(ValueError):
+    """A policy violation must stop an export, not look like an absent source."""
+
+
 def validate_url(url):
-    parsed = urllib.parse.urlsplit(url)
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        port = parsed.port
+    except ValueError as error:
+        raise CatalogSecurityError("invalid catalogue URL") from error
     if (parsed.scheme != "https" or parsed.hostname not in ALLOWED_HOSTS
             or parsed.username is not None or parsed.password is not None
-            or parsed.port not in (None, 443) or parsed.fragment):
-        raise ValueError("catalog URL must use HTTPS on an approved public source")
+            or port not in (None, 443) or parsed.fragment):
+        raise CatalogSecurityError("catalog URL must use HTTPS on an approved public source")
     return parsed.hostname
 
 
 def public_connection(address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None):
     host, port = address
     if host not in ALLOWED_HOSTS or port != 443:
-        raise ValueError("connection destination is not an approved source")
+        raise CatalogSecurityError("connection destination is not an approved source")
     addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
-        raise ValueError("catalog host resolves to a non-public address")
+        raise CatalogSecurityError("catalog host resolves to a non-public address")
     last_error = None
     for family, kind, protocol, _, target in addresses:
         connection = socket.socket(family, kind, protocol)
@@ -77,7 +85,7 @@ def fetch_text(url, timeout=25, headers=None):
     host = validate_url(url)
     proxies = urllib.request.getproxies()
     if (proxies.get("https") or proxies.get("all")) and not urllib.request.proxy_bypass(host):
-        raise ValueError("configured proxy needs an explicitly validated catalogue transport; it is not bypassed")
+        raise CatalogSecurityError("configured proxy needs an explicitly validated catalogue transport; it is not bypassed")
     request_headers = {"User-Agent": "slukhayka-catalog/1", "Accept-Encoding": "identity"}
     request_headers.update(headers or {})
     request = urllib.request.Request(url, headers=request_headers)
@@ -87,8 +95,8 @@ def fetch_text(url, timeout=25, headers=None):
         validate_url(response.geturl())
         length = response.headers.get("Content-Length")
         if length is not None and int(length) > MAX_RESPONSE_BYTES:
-            raise ValueError("catalog response exceeds 8 MiB")
+            raise CatalogSecurityError("catalog response exceeds 8 MiB")
         content = response.read(MAX_RESPONSE_BYTES + 1)
         if len(content) > MAX_RESPONSE_BYTES:
-            raise ValueError("catalog response exceeds 8 MiB")
+            raise CatalogSecurityError("catalog response exceeds 8 MiB")
         return content.decode("utf-8", "replace")

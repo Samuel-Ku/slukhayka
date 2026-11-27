@@ -16,10 +16,11 @@ class PublicCatalogHttpTest(unittest.TestCase):
     def test_rejects_schemes_credentials_private_hosts_and_ports_before_io(self):
         for url in ("file:///etc/hosts", "http://chitaka.com.ua/a", "https://127.0.0.1/a",
                     "https://[::1]/a", "https://chitaka.com.ua.evil.test/a",
-                    "https://user:password@chitaka.com.ua/a", "https://chitaka.com.ua:8443/a"):
+                    "https://user:password@chitaka.com.ua/a", "https://chitaka.com.ua:8443/a",
+                    "https://chitaka.com.ua:invalid/a"):
             with self.subTest(url=url), patch.object(transport.urllib.request, "getproxies", return_value={}), \
                     patch.object(transport.urllib.request, "build_opener") as opener:
-                with self.assertRaises(ValueError):
+                with self.assertRaises(transport.CatalogSecurityError):
                     transport.fetch_text(url)
                 opener.assert_not_called()
 
@@ -27,7 +28,7 @@ class PublicCatalogHttpTest(unittest.TestCase):
         handler = transport.PublicRedirectHandler()
         request = urllib.request.Request(URL)
         for destination in ("file:///tmp/data", "http://chitaka.com.ua/a", "https://localhost/a"):
-            with self.assertRaises(ValueError):
+            with self.assertRaises(transport.CatalogSecurityError):
                 handler.redirect_request(request, None, 302, "Found", {}, destination)
         redirected = handler.redirect_request(request, None, 302, "Found", {},
                                               "https://www.chitaka.com.ua/knigi/next/")
@@ -38,7 +39,7 @@ class PublicCatalogHttpTest(unittest.TestCase):
             with self.subTest(address=address), patch.object(transport.socket, "getaddrinfo",
                     return_value=[(socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, 443))]), \
                     patch.object(transport.socket, "socket") as connect:
-                with self.assertRaises(ValueError):
+                with self.assertRaises(transport.CatalogSecurityError):
                     transport.public_connection(("chitaka.com.ua", 443))
                 connect.assert_not_called()
 

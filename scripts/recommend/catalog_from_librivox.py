@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 import re
 import time
-from public_catalog_http import fetch_text
+from public_catalog_http import CatalogSecurityError, fetch_text
 
 from merge_key import merge_key
 
@@ -31,6 +31,8 @@ def fetch(offset, limit):
     for attempt in range(3):
         try:
             return json.loads(fetch_text(API.format(limit=limit, offset=offset), timeout=60))
+        except CatalogSecurityError:
+            raise
         except Exception as error:  # bounded retry; a page is never guessed
             last = error
             time.sleep(1 + attempt)

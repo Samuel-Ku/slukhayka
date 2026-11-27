@@ -25,7 +25,7 @@ import time
 from html.parser import HTMLParser
 from urllib.parse import urlsplit
 
-from public_catalog_http import fetch_text
+from public_catalog_http import CatalogSecurityError, fetch_text
 
 from merge_key import merge_key
 
@@ -173,6 +173,8 @@ def words(value):
 def sample_page(url, parser):
     try:
         title, author, description = parser(fetch(url))
+    except CatalogSecurityError:
+        raise
     except Exception:
         return None
     if not title.strip() or not author.strip():
@@ -208,6 +210,8 @@ def main():
         try:
             payload = fetch_json(f"https://sluhay.com.ua/find/allcards?search=&page={page}",
                                  headers={"x-requested-with": "XMLHttpRequest"})
+        except CatalogSecurityError:
+            raise
         except Exception:
             break
         page_count = int(payload.get("pageCount") or page)
@@ -227,6 +231,8 @@ def main():
         html_sources.append(("soundbooks", [
             url for url in sitemap("https://sound-books.net/news_pages.xml")
             if re.search(r"/\d+-[^/]+\.html$", url) and "/reklama/" not in url], parse_soundbooks))
+    except CatalogSecurityError:
+        raise
     except Exception:
         pass
     try:
@@ -235,15 +241,21 @@ def main():
                           "https://audiobook.co.ua/post-sitemap2.xml",
                           "https://audiobook.co.ua/post-sitemap3.xml")
             for url in sitemap(m)], parse_audiobookcoua))
+    except CatalogSecurityError:
+        raise
     except Exception:
         pass
     try:
         html_sources.append(("chytaylo", [
             url for url in sitemap("https://chytaylo.com.ua/sitemap.xml") if "/books/" in url], parse_chytaylo))
+    except CatalogSecurityError:
+        raise
     except Exception:
         pass
     try:
         html_sources.append(("knigionline", sitemap("https://knigi-online.com.ua/post-sitemap.xml"), parse_knigi))
+    except CatalogSecurityError:
+        raise
     except Exception:
         pass
     if args.chitaka_limit:
@@ -252,6 +264,8 @@ def main():
                             if "/knigi-sitemap" in url]
             chitaka_urls = [url for m in chitaka_maps for url in sitemap(m)][:args.chitaka_limit]
             html_sources.append(("chitaka", chitaka_urls, parse_chitaka))
+        except CatalogSecurityError:
+            raise
         except Exception:
             pass
 

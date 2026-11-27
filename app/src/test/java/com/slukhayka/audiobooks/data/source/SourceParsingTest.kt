@@ -7,6 +7,51 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/** Manual host JVM probe for plain, entity-heavy and mixed synthetic text. */
+object RunEntityDecoderBenchmark {
+    private val ENTITY_PATTERN = Regex("""&(?:#(?:[xX]([0-9a-fA-F]+)|(\d+))|(quot|amp));""")
+
+    private fun reference(input: String): String = ENTITY_PATTERN.replace(input) { match ->
+        val hex = match.groupValues[1]
+        val decimal = match.groupValues[2]
+        val named = match.groupValues[3]
+        when {
+            hex.isNotEmpty() -> referenceCodePoint(hex.toIntOrNull(16), match.value)
+            decimal.isNotEmpty() -> referenceCodePoint(decimal.toIntOrNull(), match.value)
+            named == "quot" -> "\""
+            named == "amp" -> "&"
+            else -> match.value
+        }
+    }
+
+    private fun referenceCodePoint(code: Int?, literal: String): String {
+        if (code == null || code !in 1..0x10FFFF || code in 0xD800..0xDFFF) return literal
+        return String(Character.toChars(code))
+    }
+    @JvmStatic
+    fun main(args: Array<String>) {
+        val names = listOf("Тарас Шевченко", "Кобзар", "Gabriel García", "Іван Франко", "Айя Нея — Ім'я тіні (Книга 1)")
+        val encoded = listOf("Дев&#039;ятко", "Ім&#x27;я", "&quot;Книга&quot; &amp; світ", "&#x1f3a7;", "&unknown; &#0;", "&#x26;amp;")
+        val plain = List(1000) { "${names[it % names.size]} $it" }
+        val entities = List(1000) { "${encoded[it % encoded.size]} $it" }
+        val mixed = List(1000) { if (it % 10 == 0) entities[it] else plain[it] }
+        var checksum = 0L
+        for ((name, inputs) in listOf("plain" to plain, "entities" to entities, "mixed" to mixed)) {
+            check(inputs.all { reference(it) == decodeEntities(it) })
+            fun sample(current: Boolean): Long = measureNanoTime { repeat(50) { for (input in inputs) {
+                checksum += (if (current) decodeEntities(input) else reference(input)).hashCode()
+            } } }
+            repeat(50) { sample(false); sample(true) }
+            val before = mutableListOf<Long>(); val after = mutableListOf<Long>()
+            repeat(9) { i -> if (i % 2 == 0) { before += sample(false); after += sample(true) }
+                else { after += sample(true); before += sample(false) } }
+            println("$name reference=$before candidate=$after")
+            println("$name ms/1000 reference=${before.sorted()[4] / 50e6} candidate=${after.sorted()[4] / 50e6}")
+        }
+        println("checksum=$checksum")
+    }
+}
+
 /**
  * Spec-35 T1 — table-driven tests for the shared pure-JVM parse helpers
  * (ogMeta / decodeEntities / titleFromSlug / parseDurationSeconds).

@@ -23,7 +23,6 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.annotation.StringRes
 import androidx.compose.ui.unit.dp
@@ -198,7 +197,7 @@ fun PeopleContent(
                             // v1.4 E6 (#575): index chrome comes from the
                             // resources — the English run reads it in English.
                             text = stringResource(R.string.people_index_backfill),
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.secondary,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
                         )

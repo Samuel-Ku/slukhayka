@@ -76,6 +76,8 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.ui.components.paperink.PaperInkResumeAction
+import com.slukhayka.audiobooks.ui.icons.PaperInkIconSizes
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
@@ -91,6 +93,7 @@ import com.slukhayka.audiobooks.data.availability.AvailabilityView
 import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.ui.adaptive.rememberIsLandscapePhoneWindow
 import com.slukhayka.audiobooks.ui.bookPersonPath
+import com.slukhayka.audiobooks.data.imports.PlannedBook
 import com.slukhayka.audiobooks.data.imports.ImportPlanner
 import com.slukhayka.audiobooks.data.imports.LocalFolderGrouping
 import com.slukhayka.audiobooks.data.imports.SourceRef
@@ -102,6 +105,9 @@ import com.slukhayka.audiobooks.ui.components.BookCoverImage
 import com.slukhayka.audiobooks.ui.SubmissionBadge
 import com.slukhayka.audiobooks.ui.components.BookRow
 import com.slukhayka.audiobooks.ui.components.EmptyState
+import com.slukhayka.audiobooks.ui.components.EmptyStatePanel
+import com.slukhayka.audiobooks.ui.components.EmptyStatePrimaryAction
+import com.slukhayka.audiobooks.ui.components.EmptyStateQuietAction
 import com.slukhayka.audiobooks.ui.components.EmptyStateRow
 import com.slukhayka.audiobooks.ui.components.MetadataChip
 import com.slukhayka.audiobooks.ui.components.PosterWidth
@@ -155,6 +161,8 @@ fun LibraryScreen(
     onBookClick: (String) -> Unit,
     onPlayClick: (AudiobookEntity) -> Unit,
     onBrowseClick: () -> Unit,
+    showImportSheet: Boolean,
+    onShowImportSheetChange: (Boolean) -> Unit,
     onPersonClick: (CatalogPerson) -> Unit = {},
     restoreFocusBookId: String? = null,
     onBookFocusRestored: (String) -> Unit = {},
@@ -358,9 +366,6 @@ fun LibraryScreen(
         ?.projection?.year
     // Spec-28 #193: the rare filters, sort and view toggle live in the sheet.
     var showFilterSheet by remember { mutableStateOf(false) }
-    // Spec-28 #194: import is one «+ Додати» action opening a sheet; the
-    // storage destination is reached from Settings.
-    var showImportSheet by remember { mutableStateOf(false) }
     // Spec-601 T3/T5 — the «Надіслати посилання» sheet: paste a YouTube/TG
     // link; publication happens only after the imported copy really plays.
     var showSubmissionSheet by remember { mutableStateOf(false) }
@@ -558,7 +563,7 @@ fun LibraryScreen(
                             // existing collections, opened where they live.
                             onOpenShelves = { viewModel.openCollectionsIndex() },
                             onOpenManualAdd = { manualAddOpen = true },
-                            onAdd = { showImportSheet = true },
+                            onAdd = { onShowImportSheetChange(true) },
                             importFocusRequester = importFocusRequester
                         )
                     }
@@ -640,6 +645,13 @@ fun LibraryScreen(
 
             when (activeTab) {
                 0 -> {
+                    if (libraryLoaded && libraryBooks.isNotEmpty() && (filter != LibraryFilter.ALL || query.isNotBlank())) {
+                        LibraryResultsSummary(
+                            filter = filter,
+                            count = libraryProjection.shownBooks.size,
+                            onResetFilter = { filter = LibraryFilter.ALL }
+                        )
+                    }
                     when {
                         // Only claim the library is empty once it has
                         // actually been read (#1066). While the first read is
@@ -652,13 +664,17 @@ fun LibraryScreen(
                             CircularProgressIndicator()
                         }
                         libraryBooks.isEmpty() -> {
+                            // #1766 — the state takes the height the chrome
+                            // leaves over, so it sits in the middle of the
+                            // page instead of hugging the filter strip.
                             LibraryEmptyState(
                                 onImportClick = {
                                     importLauncher.launch(
                                         arrayOf("audio/*", "application/ogg", "application/mpeg")
                                     )
                                 },
-                                onBrowseClick = onBrowseClick
+                                onBrowseClick = onBrowseClick,
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
                             )
                         }
 
@@ -1002,20 +1018,20 @@ fun LibraryScreen(
         if (showImportSheet) {
             LibraryImportSheet(
                 onImportFile = {
-                    showImportSheet = false
+                    onShowImportSheetChange(false)
                     importLauncher.launch(arrayOf("audio/*", "application/ogg", "application/mpeg"))
                 },
                 onImportFolder = {
-                    showImportSheet = false
+                    onShowImportSheetChange(false)
                     folderLauncher.launch(null)
                 },
                 onSubmitLink = {
-                    showImportSheet = false
+                    onShowImportSheetChange(false)
                     viewModel.dismissSubmission()
                     viewModel.refreshSubmissionRemaining()
                     showSubmissionSheet = true
                 },
-                onDismiss = { showImportSheet = false }
+                onDismiss = { onShowImportSheetChange(false) }
             )
         }
 
@@ -1175,34 +1191,36 @@ internal fun LibraryModalUnderlay(
 @Composable
 fun LibraryEmptyState(
     onImportClick: () -> Unit,
-    onBrowseClick: () -> Unit
+    onBrowseClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    EmptyState(
-        icon = PaperInkIcons.Book,
+    // #1766 (audit U9/U13): the 2026 empty-state anatomy — Literata title, one
+    // line, ONE primary action, the catalogue path demoted to a quiet link. The
+    // legacy glyph is gone; the caller hands the panel the height it may own.
+    EmptyStatePanel(
         title = stringResource(R.string.library_empty_title),
-        body = stringResource(R.string.library_empty_body)
-    ) {
-        Button(
-            onClick = onImportClick,
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-            shape = RoundedCornerShape(AppDimens.RadiusCard),
-            modifier = Modifier
-                .heightIn(min = 48.dp)
-                .testTag("library_empty_import")
-        ) {
-            Text(stringResource(R.string.lib_add_own_files))
-        }
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedButton(
-            onClick = onBrowseClick,
-            shape = RoundedCornerShape(AppDimens.RadiusCard),
-            modifier = Modifier
-                .heightIn(min = 48.dp)
-                .testTag("library_empty_browse")
-        ) {
-            Text(stringResource(R.string.lib_find_book))
-        }
-    }
+        body = stringResource(R.string.library_empty_body),
+        modifier = modifier,
+        action = {
+            // #1775 (unslop U1) — the shared primary CTA. This surface used to
+            // draw the same invitation at 12 dp while «Слухати» drew a full pill
+            // and the book page 24 dp; the radius now has one owner.
+            EmptyStatePrimaryAction(
+                text = stringResource(R.string.lib_add_own_files),
+                onClick = onImportClick,
+                testTag = "library_empty_import",
+            )
+        },
+        quietAction = {
+            // #1775 — the shared quiet action (16 dp radius, 48 dp target),
+            // so the second path is the same control as on «Слухати»/«Огляд».
+            EmptyStateQuietAction(
+                text = stringResource(R.string.lib_find_book),
+                onClick = onBrowseClick,
+                testTag = "library_empty_browse",
+            )
+        },
+    )
 }
 
 /**
@@ -1297,7 +1315,8 @@ internal fun LibraryHeaderActionsInner(
         ) {
             Icon(
                 imageVector = PaperInkIcons.More,
-                contentDescription = stringResource(R.string.a11y_library_more_actions)
+                contentDescription = stringResource(R.string.a11y_library_more_actions),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
         DropdownMenu(
@@ -1395,8 +1414,8 @@ internal fun LibraryHeaderActionsInner(
  *
  * The row is inline from 400 dp — and only while three EQUAL tabs can hold the
  * widest label at the current fontScale (#1627 measures «Збережене»/«Shelves»
- * with a TextMeasurer, not with a guess). The search pill is 140 dp, its floor,
- * so the tabs get `maxWidth − 32 − 4 − 140` and one line is guaranteed only
+ * with a TextMeasurer, not with a guess). The search pill is measured from its localized hint, with a 140 dp floor,
+ * so the tabs get the width left beside that field and one line is guaranteed only
  * when `3 × widest ≤ that`. Below 400 dp, or when the labels do not fit at
  * enlarged text, the search takes its own 48 dp line under the tabs (the same
  * fallback; #1627 also lets a label wrap there rather than be ellipsized).
@@ -1441,7 +1460,13 @@ internal fun LibraryTabsWithSearch(
                 ).size.width
             }.toDp()
         }
-        val inline = maxWidth >= 400.dp && widestTab * 3 <= maxWidth - 32.dp - 4.dp - 140.dp
+        val searchWidth = with(LocalDensity.current) {
+            textMeasurer.measure(
+                text = AnnotatedString(stringResource(R.string.lib_search_short_hint)),
+                style = if (LocalPaperInkDesign.current) PaperInkType.Body else MaterialTheme.typography.bodyMedium
+            ).size.width.toDp() + 44.dp
+        }.coerceAtLeast(140.dp)
+        val inline = maxWidth >= 400.dp && widestTab * 3 <= maxWidth - 32.dp - 4.dp - searchWidth
         if (inline) {
             Row(
                 modifier = Modifier
@@ -1460,13 +1485,10 @@ internal fun LibraryTabsWithSearch(
                     topPadding = 0.dp
                 )
                 Spacer(modifier = Modifier.width(4.dp))
-                // The 140 dp floor, not a wider pill: the three tab labels keep
-                // one line at 411 dp, and below 400 the row falls back to two
-                // bands anyway.
                 LibrarySearchField(
                     query = query,
                     onQueryChange = onQueryChange,
-                    modifier = Modifier.width(140.dp)
+                    modifier = Modifier.width(searchWidth)
                 )
             }
         } else {
@@ -1504,7 +1526,7 @@ internal fun LibraryTabsWithSearch(
  * lets the books list start ≤240 dp from the top.
  *
  * Shape: a 44 dp pill inside a 48 dp touch zone, leading magnifier, short
- * localized hint («Пошук» / «Search» / «Szukaj»), a 40 dp ✕ only while a query
+ * localized hint naming the personal library, a 40 dp ✕ only while a query
  * exists. TalkBack names it with [R.string.a11y_library_search]; typing and the
  * system-Back-clears rule are unchanged (IME Back still owns the first press).
  */
@@ -1578,7 +1600,7 @@ internal fun LibrarySearchField(
                         imageVector = PaperInkIcons.Search,
                         contentDescription = null,
                         tint = colorScheme.primary,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(PaperInkIconSizes.Inline)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Box(
@@ -1607,7 +1629,7 @@ internal fun LibrarySearchField(
                                 imageVector = PaperInkIcons.Close,
                                 contentDescription = stringResource(R.string.a11y_library_clear_search),
                                 tint = colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(PaperInkIconSizes.Inline)
                             )
                         }
                     }
@@ -1617,10 +1639,35 @@ internal fun LibrarySearchField(
     }
 }
 
+@Composable
+internal fun LibraryResultsSummary(
+    filter: LibraryFilter,
+    count: Int,
+    onResetFilter: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = PaperInkDimens.SpacePage),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val countLabel = pluralStringResource(R.plurals.lib_result_books, count, count)
+        Text(
+            text = stringResource(R.string.lib_filtered_results, stringResource(filter.labelRes), countLabel),
+            style = PaperInkType.Meta,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f).testTag("library_results_summary"),
+        )
+        if (filter != LibraryFilter.ALL) {
+            TextButton(onClick = onResetFilter, modifier = Modifier.testTag("library_reset_filter")) {
+                Text(stringResource(R.string.lib_reset_status_filter))
+            }
+        }
+    }
+}
+
 /**
  * UI (v1.5 review) — «Продовжити»: the one book the listener is inside right
  * now, as the first thing on the screen, with the resume action as a single
- * wide CTA. It scrolls away with the list; it is content, not chrome.
+ * wide CTA. It scrolls with the list and reserves a readable progress line.
  */
 @Composable
 internal fun LibraryContinueCard(
@@ -1661,18 +1708,8 @@ internal fun LibraryContinueCard(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
-        Column(modifier = Modifier.padding(AppDimens.SpaceLg)) {
-            Text(
-                // F12 (audit 2026-10-28) — the direction forbids caps (§3.2),
-                // and the resource is sentence case now; `.uppercase()` would
-                // put the loudest register on the smallest size again.
-                text = stringResource(R.string.lib_continue_label),
-                style = PaperInkType.TrackingLabel,
-                // F4 — amber AS TEXT: `tertiary` (Lamp #A96A12) is the graphic
-                // accent and measures 3.80:1 on paper; the text role is 6.2:1.
-                color = PaperInkColors.lampText
-            )
-            Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
+        val largeText = LocalDensity.current.fontScale >= 1.5f
+        Column(modifier = Modifier.padding(PaperInkDimens.SpaceMd)) {
             Row(
                 // The caller may hand in the route-return focus requester: this
                 // row IS the book's card, so focus must be able to land here.
@@ -1695,15 +1732,17 @@ internal fun LibraryContinueCard(
                     book = book.book,
                     semantics = BookCoverSemantics.Decorative,
                     modifier = Modifier
-                        .size(width = 84.dp, height = 112.dp)
+                        .size(width = if (largeText) 40.dp else PaperInkDimens.CoverRowWidth, height = if (largeText) 60.dp else PaperInkDimens.CoverRowHeight)
                         .clip(RoundedCornerShape(AppDimens.RadiusCover)),
                     contentScale = ContentScale.Crop
                 )
-                Spacer(modifier = Modifier.width(AppDimens.SpaceLg))
+                Spacer(modifier = Modifier.width(PaperInkDimens.SpaceMd))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = book.book.title,
-                        style = PaperInkType.BookTitleHero,
+                        style = PaperInkType.RowTitle.copy(
+                            lineBreak = androidx.compose.ui.text.style.LineBreak.Heading
+                        ),
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
@@ -1726,74 +1765,36 @@ internal fun LibraryContinueCard(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                    // #1187 — ADR-0014: an unknown duration renders as NOTHING.
-                    // `knownPercent` is null when no total proves one, and the
-                    // card drew an empty bar plus «Прослухано 0%» for such a
-                    // book — the sentinel read as a reading. The bar keeps
-                    // `percent` (unchanged for the totals that ARE known); only
-                    // its visibility is gated here.
-                    val knownPercent = book.knownPercent
-                    if (knownPercent != null) {
-                        Spacer(modifier = Modifier.height(AppDimens.SpaceMd))
-                        LinearProgressIndicator(
-                            progress = { book.percent },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(AppDimens.RadiusProgress)),
-                            color = MaterialTheme.colorScheme.tertiary,
-                            trackColor = MaterialTheme.colorScheme.outlineVariant,
-                            // #292: the M3 stop dot sat at the track's end like a
-                            // second, unexplained marker (device review, 2026-09-16).
-                            drawStopIndicator = {}
-                        )
-                        Spacer(modifier = Modifier.height(AppDimens.SpaceXs))
-                        // The remaining time lives in the CTA right below — repeating
-                        // it here made the two labels fight for one line on a phone
-                        // (on-device check, 2026-09-15: «Прослухано 1%» wrapped).
-                        Text(
-                            text = stringResource(
-                                R.string.lib_progress_percent,
-                                knownPercent
-                            ),
-                            style = PaperInkType.Micro,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
                 }
             }
-            Spacer(modifier = Modifier.height(AppDimens.SpaceLg))
-            Button(
+            book.knownPercent?.let { percent ->
+                Spacer(modifier = Modifier.height(PaperInkDimens.SpaceSm))
+                Text(
+                    text = stringResource(R.string.lib_progress_percent, percent),
+                    style = PaperInkType.BodyStrong,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(modifier = Modifier.height(PaperInkDimens.SpaceXs))
+                LinearProgressIndicator(
+                    progress = { book.percent },
+                    modifier = Modifier.fillMaxWidth().height(PaperInkDimens.ShelfProgressLine),
+                    color = MaterialTheme.colorScheme.tertiary,
+                    trackColor = MaterialTheme.colorScheme.outlineVariant,
+                    drawStopIndicator = {}
+                )
+            }
+            Spacer(modifier = Modifier.height(PaperInkDimens.SpaceSm))
+            PaperInkResumeAction(
+                text = if (remaining != null) {
+                    stringResource(R.string.lib_listen_continue_remaining, remaining)
+                } else {
+                    stringResource(R.string.lib_listen_continue)
+                },
                 onClick = onPlay,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 56.dp)
                     .testTag("library_continue_play"),
-                shape = RoundedCornerShape(PaperInkDimens.RadiusLarge),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.tertiary,
-                    contentColor = MaterialTheme.colorScheme.onTertiary,
-                ),
-            ) {
-                Icon(
-                    imageVector = PaperInkIcons.Play,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onTertiary,
-                    modifier = Modifier.size(22.dp)
-                )
-                Spacer(modifier = Modifier.width(AppDimens.SpaceSm))
-                Text(
-                    text = if (remaining != null) {
-                        stringResource(R.string.lib_listen_continue_remaining, remaining)
-                    } else {
-                        stringResource(R.string.lib_listen_continue)
-                    },
-                    style = PaperInkType.Label,
-                    color = MaterialTheme.colorScheme.onTertiary
-                )
-            }
+            )
         }
     }
 }
@@ -2067,7 +2068,7 @@ private fun LibraryCoverOfflineBadge(
                 imageVector = PaperInkIcons.Downloaded,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(15.dp)
+                modifier = Modifier.size(PaperInkIconSizes.Inline)
             )
         }
 
@@ -2083,7 +2084,7 @@ private fun LibraryCoverOfflineBadge(
                     downloadCount?.downloaded ?: 0,
                     downloadCount?.total ?: 0
                 ),
-                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
             )
@@ -2321,7 +2322,7 @@ fun LibraryBookCard(
                                 Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
                                 Text(
                                     text = stringResource(com.slukhayka.audiobooks.R.string.submission_awaiting_badge),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    style = MaterialTheme.typography.labelSmall,
                                     maxLines = 1,
                                     softWrap = false,
                                     color = MaterialTheme.colorScheme.primary,
@@ -2337,7 +2338,7 @@ fun LibraryBookCard(
                                 Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
                                 Text(
                                     text = stringResource(R.string.submission_watching_source),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    style = MaterialTheme.typography.labelSmall,
                                     maxLines = 1,
                                     softWrap = false,
                                     // F4 — text, so the text role; `tertiary` is the graphic lamp.
@@ -2353,7 +2354,7 @@ fun LibraryBookCard(
                                 Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
                                 Text(
                                     text = stringResource(R.string.submission_deferred_publication_badge),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    style = MaterialTheme.typography.labelSmall,
                                     maxLines = 1,
                                     softWrap = false,
                                     color = MaterialTheme.colorScheme.secondary,
@@ -2368,7 +2369,7 @@ fun LibraryBookCard(
                                 Spacer(modifier = Modifier.width(AppDimens.SpaceXs))
                                 Text(
                                     text = stringResource(submissionBadgeRes(submissionBadge)),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = when (submissionBadge) {
                                         SubmissionBadge.REJECTED -> MaterialTheme.colorScheme.error
                                         // F4 — the amber cue as TEXT: `tertiary` is the
@@ -2475,7 +2476,7 @@ private fun LibraryBookGridContent(
                 style = if (paperInk) {
                     PaperInkType.Meta.copy(fontWeight = FontWeight.SemiBold)
                 } else {
-                    MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                    MaterialTheme.typography.titleSmall
                 },
                 color = MaterialTheme.colorScheme.onSurface,
                 minLines = 2,
@@ -2595,7 +2596,7 @@ fun ListeningStatsCard(
     ) {
         Text(
             text = stringResource(R.string.lib_stats_heading),
-            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+            style = PaperInkType.Heading.Section,
             color = MaterialTheme.colorScheme.onSurface
         )
 
@@ -2667,12 +2668,12 @@ fun StatItemCard(
                 imageVector = icon,
                 contentDescription = null,
                 tint = color,
-                modifier = Modifier.size(28.dp)
+                modifier = Modifier.size(PaperInkIconSizes.Header)
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = value,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface
             )
             Text(
@@ -2722,7 +2723,7 @@ fun GlobalBookmarkItem(
                 imageVector = PaperInkIcons.Bookmark,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.secondary,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(PaperInkIconSizes.Header)
             )
 
             Spacer(modifier = Modifier.width(12.dp))
@@ -2730,7 +2731,7 @@ fun GlobalBookmarkItem(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = bookTitle,
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -2842,6 +2843,40 @@ fun ClearCacheConfirmDialog(
     )
 }
 
+@Composable
+private fun ImportPreviewWithSummary(
+    books: List<PlannedBook>,
+    content: @Composable BoxScope.() -> Unit
+) {
+    val (newBooks, attachments) = books.partition { it.mergedIntoBookId == null }
+    val summary = buildList {
+        if (newBooks.size == 1) {
+            val chapters = newBooks.single().chapters.size
+            add(pluralStringResource(R.plurals.import_add_one_book_chapters, chapters, chapters))
+        } else if (newBooks.isNotEmpty() || attachments.isEmpty()) {
+            add(pluralStringResource(R.plurals.import_add_books, newBooks.size, newBooks.size))
+        }
+        for (group in attachments.groupBy { it.mergedIntoBookId }.values) {
+            val chapters = group.sumOf { it.chapters.size }
+            val title = group.first().suggestion?.existingTitle ?: stringResource(R.string.lib_import_existing_book)
+            add(pluralStringResource(R.plurals.lib_import_attach_chapters, chapters, chapters, title))
+        }
+    }
+    Column {
+        Box(modifier = Modifier.weight(1f, fill = false), content = content)
+        Text(
+            text = summary.joinToString("\n"),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+                .heightIn(max = 96.dp)
+                .verticalScroll(rememberScrollState())
+                .semantics { liveRegion = LiveRegionMode.Polite }
+        )
+    }
+}
+
 /**
  * The smart-import preview dialog (wayfinder #29): scan → plan → confirm →
  * apply. Shows the planned books (grouping + natural order) and the #54
@@ -2863,7 +2898,6 @@ fun ImportPreviewDialog(
     onFolderGroupingChange: (com.slukhayka.audiobooks.data.imports.LocalFolderGrouping) -> Unit = {},
     onMergePlannedBooks: (String, String) -> Unit = { _, _ -> }
 ) {
-    val mergedCount = preview.plan.books.count { it.mergedIntoBookId != null }
     val folder = preview.plan.source as? SourceRef.Folder
     val hasRootFiles = preview.plan.books.any { book -> book.chapters.any { it.file.parentFolder.isNullOrBlank() } }
     val headingFocusRequester = remember { FocusRequester() }
@@ -2913,7 +2947,7 @@ fun ImportPreviewDialog(
             )
         },
         text = {
-            Box {
+            ImportPreviewWithSummary(preview.plan.books) {
 
             val previewScrollState = rememberScrollState()
             val previewAutoScroll = remember {
@@ -2936,10 +2970,7 @@ fun ImportPreviewDialog(
                     .verticalScroll(previewScrollState)
             ) {
                 Text(
-                    text = stringResource(
-                        R.string.lib_import_preview_found,
-                        preview.plan.books.size
-                    ),
+                    text = stringResource(R.string.lib_import_preview_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -2999,7 +3030,7 @@ fun ImportPreviewDialog(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = book.title.ifBlank { untitled },
-                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    style = MaterialTheme.typography.titleSmall,
                                     color = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.weight(1f)
                                 )
@@ -3119,14 +3150,8 @@ fun ImportPreviewDialog(
                 Text(
                     if (preview.retryable) {
                         stringResource(R.string.lib_import_retry)
-                    } else if (mergedCount > 0) {
-                        stringResource(
-                            R.string.lib_import_confirm_merged,
-                            preview.plan.books.size - mergedCount,
-                            mergedCount
-                        )
                     } else {
-                        stringResource(R.string.lib_import_confirm, preview.plan.books.size)
+                        stringResource(R.string.submission_preview_add)
                     }
                 )
             }
@@ -3441,7 +3466,7 @@ fun BookmarkedPersonRow(
                         imageVector = PaperInkIcons.Person,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(PaperInkIconSizes.Inline)
                     )
                 }
 
@@ -3450,7 +3475,7 @@ fun BookmarkedPersonRow(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = displayName,
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onSurface
@@ -3471,7 +3496,7 @@ fun BookmarkedPersonRow(
                     imageVector = PaperInkIcons.Bookmark,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(PaperInkIconSizes.Inline)
                 )
             }
         }
@@ -4084,12 +4109,12 @@ internal fun LibrarySectionTabs(
                             else Modifier.width(0.dp)
                         )
                         .background(
-                            when {
-                                selected && com.slukhayka.audiobooks.ui.theme
-                                    .LocalPaperInkDesign.current -> MaterialTheme.colorScheme.tertiary
-                                selected -> MaterialTheme.colorScheme.primary
-                                else -> Color.Transparent
-                            }
+                            // Unslop audit 2026-11-01 (U3): the lamp role belongs to
+                            // sound, not to navigation. A selected tab is a quiet
+                            // action state, so it uses verdigris in both vocabularies;
+                            // amber here made «Książki» look like playback next to the
+                            // verdigris filter chip right below it.
+                            if (selected) MaterialTheme.colorScheme.primary else Color.Transparent
                         )
                 )
             }

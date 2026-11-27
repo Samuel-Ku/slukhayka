@@ -12,6 +12,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
+import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.ui.screens.bookdetail.BookUniverseLine
 import com.slukhayka.audiobooks.ui.screens.bookdetail.BookDetailDownloadAction
 import com.slukhayka.audiobooks.ui.screens.bookdetail.BookDetailPrimaryActions
@@ -130,7 +131,13 @@ class BookDetailActionsSnapshotTest {
                             downloadProgress = 0f,
                             onPlay = {},
                             onDownload = {},
-                            onAddBookmark = {}
+                            onAddBookmark = {},
+                            editionBook = AudiobookEntity(
+                                id = "selected-edition", title = "Трохи ненависті",
+                                author = "Джо Аберкромбі", narrator = "Pik CAH4E3",
+                                description = "", coverDrawableRes = 0, genre = "Фентезі",
+                                sourceUrl = "https://example.invalid/selected", totalDurationSeconds = 3600,
+                            ).apply { language = "uk" },
                         )
                     }
                 }

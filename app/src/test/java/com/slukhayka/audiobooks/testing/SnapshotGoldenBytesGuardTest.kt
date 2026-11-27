@@ -78,6 +78,51 @@ import java.security.MessageDigest
  * the other eight, including `explore_header_*` and `library_redesign_*` whose
  * header icons #1534 changed, match the icon-system digests byte-for-byte.
  *
+ * **2026-11-01 — unslop pass (lamp role, hero reserve):** THREE pins moved,
+ * all `library_redesign_*`. The selected section tab's underline was the lamp
+ * (tertiary) while the filter chip right below it was verdigris, so the same
+ * screen reported "selected" in two colours; the underline is now primary in
+ * both vocabularies (`LibraryScreen.kt`). That is the only visible change on
+ * those three frames — same size, same layout, one 3 dp line changes hue.
+ * `listen_hero_card*` and `paperink_cards*` moved for the hero reserve (68 dp
+ * under the play disc) and are not in this pin set.
+ *
+ * **2026-11-01 — #1776 icons batch A («Слухати» + «Медіатека»):** THREE pins
+ * moved, all `library_redesign_*`. The two migrated screens stopped sizing
+ * their icons with dp literals at 11 call sites (ListenScreen 3, LibraryScreen
+ * 8) and now name a `PaperInkIconSizes` role: 18→Inline, 15→Inline, 16→Chrome,
+ * 22→Chrome, 20→Inline, 24→Header and 28→Header (the stat-card glyph is not a
+ * transport control, so it did not become `Transport`). Measured against the
+ * previous record, frame by frame:
+ *  - `library_redesign_browsing` and `library_redesign_dense` — 4163 / 4162
+ *    pixels (0.161 % of 1078×2399, max channel delta 222), spanning
+ *    `(195,360)-(902,1919)`: the search row's PLACEHOLDER glyph 18→20, the
+ *    offline cover badge 15→20 and the stat-card glyphs 28→24. The clear-search
+ *    button was re-sized to Inline 20 (16→20) in code, but it is NOT in any pinned frame: every
+ *    snapshot composes the search field with an empty query, so the button is
+ *    not rendered — the reason above names only what the pixels show.
+ *
+ *    Roles were chosen by the icon's JOB, not by nearest number: the clear is
+ *    Inline 20 (a quiet clear, the same weight as the field's leading Search),
+ *    Play inside the labelled «Продовжити» row is Chrome 22 (a row/chrome
+ *    action), while Compass inside the empty-state CTA stays Inline 20 (a
+ *    content action). StatItemCard chose Header 24 rather than the
+ *    pixel-identical Transport 28, which is why its frame visibly moved;
+ *  - `library_redesign_grid` — 4161 pixels (0.161 %, max delta 186) on the
+ *    grid's rendering of the same surfaces.
+ * A full fresh record on `dragonborn` rewrote exactly 14 of the 157 goldens;
+ * the other 143, including all six non-library pins (`explore_header_*`,
+ * `home_feed_phone_fold`, the three player frames), came back byte-identical.
+ * The eleven non-pinned changed files are Library/Listen surfaces too
+ * (`library_book_card_*`, `library-grid-*`, `library_stats_card_*`,
+ * `large-leading-mini-player-library`, `listen_empty_state`,
+ * `listen_shelves_sheet`) and are recorded in the same commit.
+ *
+ * 2026-11-26 — #1813/#1815: six pins deliberately changed after canonical
+ * record workflow45789953833. The library frames use the smaller resume card
+ * and scoped search hint. Player frames add a compact whole-book caption,
+ * so the adaptive cover yields height to keep transport visible.
+ *
  * This guard does not bless those bytes — it pins them. They are exactly the
  * files a blind «оновили золота» commit touches, and nothing else in the
  * repository would notice: the compare step in `.github/workflows/ci.yml` runs
@@ -694,6 +739,75 @@ class SnapshotGoldenBytesGuardTest {
          * do not render these glyphs), and a full fresh CI record reproduced the
          * committed set byte-for-byte.
          *
+         * ## Three re-pinned on 2026-11-01 (#1776 — icons batch A)
+         *
+         * The «Слухати» and «Медіатека» screens now take every icon size from
+         * `PaperInkIconSizes` instead of a dp literal (11 call sites). The three
+         * library frames that render the migrated chrome moved by 0.161 % of
+         * their 1078×2399 pixels (max channel delta 222 / 222 / 186), and the
+         * six other pins kept AE=0. Full record on `dragonborn`; the eleven
+         * other changed goldens are not pinned and are named in the header
+         * changelog.
+         *
+         * ## Seven re-pinned on 2026-11-02 (#1771 — one heading ladder, no
+         * synthetic weight)
+         *
+         * The four heading steps moved into `PaperInkType.Heading` and the
+         * call sites stopped stacking `fontWeight = Bold` on tokens that
+         * already carry SemiBold/Bold; the Literata overrides are gone. Every
+         * changed frame kept its exact dimensions, and every diff is glyph ink
+         * inside a text box — no layout moved.
+         *
+         * Seven of the nine pins show text the change touched, and what is
+         * VISIBLE in them is one thing per class:
+         *
+         *  - `player_no_narrator`, `player_redesign_dark`,
+         *    `player_tight_viewport` — 1715 px (0.066 / 0.066 / 0.084 % of
+         *    1078×2399 / 1078×2399 / 1078×1890, max channel delta 134) inside
+         *    the TYPOGRAPHIC COVER's book-title line (bbox `454,853–627,884`
+         *    on the first two, `454,578–627,609` on the tight viewport). The
+         *    serif `Н` above it and the rest of the player are byte-identical:
+         *    the cover's title line stopped asking for the Onest Bold FACE and
+         *    now takes the SemiBold its label token carries. The player's own
+         *    title did not move — `headlineMedium` is the single-face Literata
+         *    and was already on its token weight.
+         *  - `home_feed_phone_fold` — 6527 px (0.252 %, max channel delta 204)
+         *    inside the four cover-placeholder titles in the feed: «Хроніки
+         *    Нарнії», «451° за Фаренгейтом», «Вкради мене… Зараз!» and «Темна
+         *    матерія» are a step lighter for the same reason (the cover
+         *    placeholder title now takes its `labelSmall` token instead of
+         *    Bold).
+         *  - `library_redesign_browsing`, `library_redesign_dense`,
+         *    `library_redesign_grid` — 3713 / 2904 / 4004 px (0.144 / 0.112 /
+         *    0.155 %, max channel delta 231) inside the list and grid book
+         *    titles; the tile title is a step lighter because its `titleSmall`
+         *    call site stopped adding Bold, which in paper was the real Onest
+         *    Bold face on a SemiBold token.
+         *
+         * The two `explore_header_*` pins did NOT move: their frame is the
+         * wordmark and the search field, which paint no changed glyph.
+         *
+         * The remaining 45 changed goldens are not pinned; measured the same
+         * way, they are the same four visible classes — cover-placeholder
+         * titles (`CatalogCoverImage` / `BookCoverImage`), sheet headings now
+         * on the ladder (the work-feed filter sheet's «Фільтри» is visibly
+         * SMALLER because it left the Literata `headlineSmall` slot for the
+         * 16 sp step; the import/listen/library sheets' headings are a step
+         * lighter from the same 16 sp step), library badges, and the book
+         * detail title (Literata's fake Bold gone). `library_import_sheet`,
+         * `listen_shelves_sheet`, `storage_destination` and
+         * `work_feed_filter_sheet` are the four with the largest share
+         * (2.866 / 1.544 / 1.683 / 1.108 %).
+         *
+         * ## Library menu contrast re-pinned on 2026-11-26 (#1813)
+         *
+         * Canonical record 45803480032 (attempt 2, UI revision 3197d603)
+         * changed only the More glyph in the three library frames: the
+         * 9x43 box at (706,134). Its explicit onSurfaceVariant foreground
+         * follows the ink/paper scheme instead of an inherited content color.
+         * Every pixel outside that glyph and all six other pins stayed put.
+         * The normal mini-player frames stayed identical; its new minimum
+         * height only grows when enlarged text needs more than 64 dp.
          */
         val PINS = listOf(
             Pin(
@@ -709,37 +823,37 @@ class SnapshotGoldenBytesGuardTest {
             Pin(
                 "HomeFeedPhoneFold" + "SnapshotTest",
                 "home_feed_" + "phone_fold.png",
-                "6fd40e13e20bb5285c8e7fbde828e698" + "f4855930c151f2ab881a9a9981ce1e1f"
+                "6f988a63f6673c71eae465e7f79f3fbb" + "52130292528b6e78508e60fd9a8ef758"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "browsing.png",
-                "b978b23267b27181d45bf07d469bbf8f" + "fc764972a549c4572f4d30646ed2046c"
+                "0959e1c25abd967bbeb619a824e9025d" + "3b91fb88834b125472497faa73629ceb"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "dense.png",
-                "482509dcb37a58038ec85b9d23161fa1" + "738c1c925a721846bed82722e7ff159c"
+                "773daa66961afa08672daa5db3e8ccba" + "29395c2e25522a1a91ea0e1bccea5dcd"
             ),
             Pin(
                 "LibraryRedesign" + "SnapshotTest",
                 "library_redesign_" + "grid.png",
-                "9f4c0c3c95622d069b1e60b486b0c530" + "e5e8ce3560ef7b7c76aadbce20e68d1f"
+                "9bc497586f80810ee32a5356f16d1072" + "892941f01a289d131a0321b7cc3717e0"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_" + "no_narrator.png",
-                "e335268c7187bc8c71d06f207233a61b" + "c967f6caca808e92a30855d3d65a1c67"
+                "014fc30e37892e7ab24222c93195443e" + "7e373a2bdb945e843c3bd274d31bc2f4"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_redesign_" + "dark.png",
-                "95a3e0dba918d8cef7ae61fa41a4a27c" + "020a710fc5623d5ac444892f53c89da8"
+                "91864622dda0fc078f07632ea5f6f38c" + "be4eb88f3cff9502b5ee2abdb7cda1c9"
             ),
             Pin(
                 "PlayerScreen" + "SnapshotTest",
                 "player_tight_" + "viewport.png",
-                "88699c42d7ab1b8e514c6766b9260850" + "51cace6a6254223edf638cbd88c191a6"
+                "8e73d0a5bfaec0b8d0d1463970f84b37" + "3c0c9820158f2c0e3b6b20149730155f"
             )
         )
     }

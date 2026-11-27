@@ -371,6 +371,10 @@ fun AudiobookApp(
     val windowLayout = rememberWindowLayout()
     val selectedTab by viewModel.selectedTab.collectAsState()
     val selectedBookId by viewModel.selectedBookId.collectAsState()
+    var libraryImportOpen by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(selectedTab) {
+        if (selectedTab != SelectedTab.LIBRARY) libraryImportOpen = false
+    }
     var libraryBookFocusReturnId by rememberSaveable { mutableStateOf<String?>(null) }
     var settingsReturnDestination by rememberSaveable { mutableStateOf<SettingsDestination?>(null) }
     // #860 — Settings left the bottom bar: the gear opens it from a root, and
@@ -839,6 +843,8 @@ fun AudiobookApp(
                 viewModel.playAudiobook(book)
                 viewModel.setShowFullPlayer(true)
             },
+            showImportSheet = libraryImportOpen,
+            onShowImportSheetChange = { libraryImportOpen = it },
             onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
             onPersonClick = { person ->
                 viewModel.openPersonBooks(person)
@@ -1601,7 +1607,10 @@ fun AudiobookApp(
                                     viewModel.setShowFullPlayer(true)
                                 },
                                 onBrowseClick = { viewModel.selectTab(SelectedTab.EXPLORE) },
-                                onImportClick = { viewModel.selectTab(SelectedTab.LIBRARY) },
+                                onImportClick = {
+                                    libraryImportOpen = true
+                                    viewModel.selectTab(SelectedTab.LIBRARY)
+                                },
                                 // #1703 — dismissals are answered by the root
                                 // undo snackbar, so changing tabs cannot
                                 // silently consume the only way back.

@@ -92,14 +92,8 @@ class ListenScreenBlocksSnapshotTest {
         // Spec-24 T5 (#166): the mid-book hero shows the CUMULATIVE percent
         // (1680 / 1980 s = 84 %), never the in-chapter offset (420 s = 21 %)
         // that would read as 0 % early in a long chapter.
-        //
-        // #885 (wave 3) — the prototype's hero puts the percent, the track and
-        // the remaining time in ONE row (`.sl-hero-progress`, :1086), so the
-        // two facts are now separate nodes rather than one glued string. The
-        // contract is unchanged and still asserted: the percent is the
-        // cumulative one, and the in-chapter 21 % appears nowhere.
-        composeTestRule.onNodeWithText("84%").assertExists()
-        composeTestRule.onNodeWithText("21%").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Прослухано 84%").assertExists()
+        composeTestRule.onNodeWithText("Прослухано 21%").assertDoesNotExist()
         composeTestRule.onRoot().captureRoboImage(
             filePath = "src/test/snapshots/listen_hero_card.png"
         )
@@ -357,9 +351,14 @@ class ListenScreenBlocksSnapshotTest {
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
                 ListenSurface {
+                    // #1766 — the real host hands the panel a viewport
+                    // (`fillParentMaxSize` in the Listen LazyColumn), so the
+                    // golden shows the anchored state, not a wrap-content
+                    // impostor pinned to the top.
                     ListenEmptyState(
                         onBrowseClick = {},
-                        onImportClick = {}
+                        onImportClick = {},
+                        modifier = Modifier.fillMaxSize()
                     )
                 }
             }

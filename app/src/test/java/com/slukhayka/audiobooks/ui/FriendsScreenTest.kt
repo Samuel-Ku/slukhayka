@@ -84,6 +84,14 @@ class FriendsScreenTest {
 
         composeTestRule.onNodeWithTag("friends_empty_no_friends").assertExists().assertIsDisplayed()
         composeTestRule.onNodeWithText("Поки немає друзів").assertExists()
+        // #1766 review — the state has NO action (no friend search, no reader
+        // profile), so the copy must carry the reason the buttons are missing:
+        // «adding friends / own profile are not ready». Removing that sentence
+        // would leave an empty page with no explanation and no control.
+        composeTestRule.onNodeWithText(
+            "Додавання друзів за іменем і власний профіль ще не готові — " +
+                "тут з’являться їхні дописи."
+        ).assertExists()
         // The "friends, but no posts" state must NOT also be shown: the two
         // facts are different and the screen never merges them.
         composeTestRule.onNodeWithTag("friends_empty_no_posts").assertDoesNotExist()
@@ -104,9 +112,12 @@ class FriendsScreenTest {
 
         // The body copy is the honest "how" — it names the audience that makes
         // a post appear here rather than promising a feature that is not built.
+        // #1766: one sentence (the direction's anatomy is title + ONE short
+        // line), so the «Лише я» aside that used to make a second sentence is
+        // gone; the fact that a post appears is what the state has to say.
         composeTestRule.onNodeWithText(
             "Щойно хтось із друзів поділиться враженням про книгу з аудиторією «Друзі», " +
-                "допис з’явиться тут. Дописи з аудиторією «Лише я» не показуються нікому."
+                "допис з’явиться тут."
         ).assertExists()
     }
 

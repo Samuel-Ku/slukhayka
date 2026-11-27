@@ -252,7 +252,13 @@ fun BookDetailCanonicalSummary(
     }
     Text(
         text = presentation.title,
-        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+        // Unslop audit 2026-11-01 (U7): no weight override. In the paper
+        // scheme `headlineMedium` is `PaperInkType.BookTitlePlayer` — Literata
+        // at SemiBold — and the family ships exactly one face
+        // (`literata_semibold.ttf`), so `FontWeight.Bold` only asked the
+        // renderer to fake a second one. A book title stays the serif's own
+        // weight, never a synthetic one.
+        style = MaterialTheme.typography.headlineMedium,
         color = MaterialTheme.colorScheme.onSurface,
         maxLines = if (startAligned) 3 else 2,
         overflow = TextOverflow.Ellipsis,

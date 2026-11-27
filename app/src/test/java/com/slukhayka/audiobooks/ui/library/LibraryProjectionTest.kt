@@ -159,7 +159,7 @@ class LibraryProjectionTest {
 
         val searched = project(rows, query = "Б", denseTitle = "Пошук")
         assertEquals(listOf("b"), searched.shownBooks.map { it.book.id })
-        assertTrue("a search narrows the list too", searched.summarisesRemaining)
+        assertFalse("search has a compact result summary above the grid", searched.summarisesRemaining)
 
         val blank = project(rows, query = "   ")
         assertFalse("a blank query is not a search", blank.summarisesRemaining)
@@ -464,4 +464,19 @@ class LibraryProjectionTest {
 
         assertEquals(-1, projection.indexOfReturnAnchor(projection.entries(""), "missing"))
     }
+    @Test
+    fun `search starts with the matching Work without duplicating its summary`() {
+        val rows = listOf(
+            row("a", "k1", title = "Кобзар", position = 90),
+            row("b", "k2", title = "Інша книжка", started = false)
+        )
+        for (gridMode in listOf(false, true)) {
+            val projection = project(rows, query = "Кобзар", gridMode = gridMode, denseTitle = "Пошук")
+            val entries = projection.entries("Залишилося 2 год")
+            assertFalse(entries.any { it is LibraryGridEntry.Section })
+            assertEquals("a", (entries.first() as LibraryGridEntry.BookEntry).book.book.id)
+            assertEquals(listOf("k1"), libraryWorkKeysAt(entries, listOf(0)))
+        }
+    }
+
 }

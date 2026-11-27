@@ -112,27 +112,30 @@ class HomeFeedEmptyStateGlyphTest {
 
     @Test
     fun `every empty state on the feed surface is built without an icon argument`() {
-        // #1638 — the guard now covers BOTH the feed's three terminal states
-        // and the catalogue's first-run empty state (the last icon-bearing
-        // empty state on «Огляд»), and reads balanced argument lists instead
-        // of a 400-character window.
-        val files = mapOf(
-            "ui/screens/HomeFeedContent.kt" to 3,
-            "ui/screens/HomeScreen.kt" to 1
+        // #1638 — the guard covers the feed's three terminal states, and reads
+        // balanced argument lists instead of a 400-character window.
+        val feed = sourceFile("ui/screens/HomeFeedContent.kt").readText()
+        assertEquals(
+            "ui/screens/HomeFeedContent.kt EmptyState call sites",
+            3,
+            EmptyStateGlyphGuard.calls(feed).size
         )
-        files.forEach { (path, expectedCalls) ->
-            val source = sourceFile(path).readText()
-            assertEquals(
-                "$path EmptyState call sites",
-                expectedCalls,
-                EmptyStateGlyphGuard.calls(source).size
-            )
-            assertTrue(
-                "a $path empty state must not pass a placeholder glyph: " +
-                    EmptyStateGlyphGuard.iconCalls(source),
-                EmptyStateGlyphGuard.iconCalls(source).isEmpty()
-            )
-        }
+        assertTrue(
+            "a feed empty state must not pass a placeholder glyph: " +
+                EmptyStateGlyphGuard.iconCalls(feed),
+            EmptyStateGlyphGuard.iconCalls(feed).isEmpty()
+        )
+
+        // #1766 — the catalogue's first-run state moved off `EmptyState` to the
+        // shared `EmptyStatePanel`, which HAS no icon parameter at all. A call
+        // to the legacy component reappearing in HomeScreen.kt would be a
+        // migration revert; `EmptyStatePanelGuardTest` owns the positive half.
+        val catalogue = sourceFile("ui/screens/HomeScreen.kt").readText()
+        assertTrue(
+            "the catalogue empty state must render through EmptyStatePanel, " +
+                "not the legacy EmptyState: ${EmptyStateGlyphGuard.calls(catalogue)}",
+            EmptyStateGlyphGuard.calls(catalogue).isEmpty()
+        )
     }
 
     @Test

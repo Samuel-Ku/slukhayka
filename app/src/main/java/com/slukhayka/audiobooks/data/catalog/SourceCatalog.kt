@@ -40,6 +40,11 @@ import com.slukhayka.audiobooks.data.facets.WorkFacetFilter
 import com.slukhayka.audiobooks.data.facets.applyEditionFacet
 import com.slukhayka.audiobooks.data.imports.LibraryImport
 import com.slukhayka.audiobooks.data.merge.MergeKey
+import com.slukhayka.audiobooks.data.merge.WorkIdentityAccess
+import com.slukhayka.audiobooks.data.merge.requireWorkCreationEntryReferences
+import com.slukhayka.audiobooks.data.merge.SourceWorkIdentity
+import com.slukhayka.audiobooks.data.merge.IdentityWriteRefusal
+import com.slukhayka.audiobooks.data.merge.WorkIdentityWriteRefused
 import com.slukhayka.audiobooks.player.SmartRetryPolicy
 import com.slukhayka.audiobooks.data.metadata.EditionDurationPolicy
 import com.slukhayka.audiobooks.data.metadata.MetadataAssertions
@@ -145,14 +150,14 @@ class SourceCatalog(
     // other consumers, but never suppresses this query's source volley.
     // HTTP/feed caches own transport freshness. Null without Firebase keys.
     private val searchCache: SearchCache? = null,
-    // Catalogue-hydration batch seam: a crawl runs each page's merge-on-write
-    // block through this runner so N upserts land as ONE Room transaction —
-    // one invalidation of the endless feed's PagingSource instead of two per
-    // row. Row-by-row invalidations starve every freshly-switched feed
-    // generation, which is exactly why the feed's filters looked dead while
-    // the catalogue kept syncing. Identity by default; the composition root
-    // supplies the real Room withTransaction.
-    private val writeBatchRunner: suspend (suspend () -> Unit) -> Unit = { it() },
+    // Local catalog writes commit one item (rows, facets and index) atomically.
+    // The default enters the generated Room DAO transaction; explicit runners
+    // must await the same local row block transactionally. No network or external
+    // publication belongs in this block. Access-backed writes instead own their
+    // Gate→Room boundary and never acquire Gate inside this legacy transaction.
+    private val writeBatchRunner: suspend (suspend () -> Unit) -> Unit = { block ->
+        dao.runCatalogRowTransaction(block)
+    },
     private val sharedFacetStore: SharedBookMetaStore? = null,
     private val facetSyncCursorStore: FacetSyncCursorStore? = null,
     private val facetSyncNowMillis: () -> Long = System::currentTimeMillis,
@@ -207,7 +212,10 @@ class SourceCatalog(
      * constructor/static-list behaviour tests and older callers rely on.
      */
     private val collectionListsProvider: (() -> List<com.slukhayka.audiobooks.data.collections.CollectionList>)? = null,
+    private val workIdentityAccess: WorkIdentityAccess? = null,
 ) {
+    init { workIdentityAccess?.requireDao(dao) }
+
     /** Frozen local-write seam consumed by the later shared delta lane. */
     val facetWriter: LocalFacetWriter = RoomLocalFacetWriter(dao)
 
@@ -522,14 +530,15 @@ class SourceCatalog(
                 // mergeable card lands locally through the same merge-on-write door
                 // as hydration, so discovery surfaces and the endless feed read the
                 // mirror, never the live source.
-                persistEnumerated(books)
+                val refused = persistEnumerated(books)
+                val admittedBooks = books.filterNot { (it.sourceId to it.url) in refused }
                 // Spec-45 (#405) T5 (#493): the content-language filter cuts
                 // the union at publish — a hidden-language card never reaches
                 // the flow, the collections (matched over the visible corpus),
                 // or the recommendation row (candidates = the union). The
                 // MERGED corpus is retained so a later selection change
                 // re-filters live (R6 #513) without re-fetching.
-                val merged = withLocalCovers(mergeGlobalSearchResults(books))
+                val merged = withLocalCovers(mergeGlobalSearchResults(admittedBooks))
                 _unifiedCatalogMerged.value = merged
                 val visible = merged.visibleInContentLanguages(contentLanguageSelection.value)
                 _unifiedCatalog.value = visible
@@ -725,14 +734,22 @@ class SourceCatalog(
             }
             // ADR-0041 (#731): the feed enumeration feeds the Catalog Mirror too —
             // best-effort, bounded to the same cards the feed itself carries.
-            persistEnumerated(enumerated)
-            _sourceFeeds.value = feeds
+            val refused = persistEnumerated(enumerated)
+            val admittedFeeds = feeds.mapNotNull { feed ->
+                val admitted = feed.books.filterNot { (it.sourceId to it.url) in refused }
+                when {
+                    admitted.isNotEmpty() -> feed.copy(books = admitted)
+                    feed.books.isEmpty() -> feed
+                    else -> null
+                }
+            }
+            _sourceFeeds.value = admittedFeeds
             // The rail's own half is the feeds just computed; the section half
             // comes from the latest published catalogue (spec-28 #197: never a
             // re-read of a half this call did not produce — each caller passes
             // its own result).
-            publishNewArrivals(catalogSections.value, feeds)
-            feeds
+            publishNewArrivals(catalogSections.value, admittedFeeds)
+            admittedFeeds
         } finally {
             _isFeedsLoading.value = false
         }
@@ -1086,27 +1103,10 @@ class SourceCatalog(
         val failures = outcomes.count { it.failed }
         currentCoroutineContext().ensureActive()
         Log.d("SourceCatalog", "search path=live local=${localBooks.size} live=${live.size} sources=${outcomes.size} failed=$failures")
-        try {
-            persistSearchGapFill(live)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            Log.w("SourceCatalog", "search gap-fill skipped", failure)
-        }
-        val matched = localBooks + live
-        // ADR-0040 — search cards carrying a claimed genre land a
-        // SEARCH-rank genre document through the one facet door (fill-gap;
-        // an enumeration document always supersedes it by provenance rank,
-        // never the other way). Best-effort and silent — facet
-        // bookkeeping never breaks or delays search.
-        try {
-            persistSearchGenreAssertions(live)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (e: Exception) {
-            Log.w("SourceCatalog", "search genre assertions skipped", e)
-        }
-        val merged = mergeGlobalSearchResults(matched)
+        // Interactive search publishes all matches; bounded cache/facet writes are best-effort.
+        persistSearchGapFill(live)
+        persistSearchGenreAssertions(live)
+        val merged = mergeGlobalSearchResults(localBooks + live)
         val ordered = orderSearchResults(merged, cleanQuery, localBooks.isNotEmpty())
         // Spec-30 T2 (#217): attach the resolved durations (local DB →
         // shared cache) to the visible cards. Best-effort and silent — a
@@ -1236,46 +1236,26 @@ class SourceCatalog(
      * never promotion-by-persistence (ADR-0040). Bounded and best-effort.
      */
     private suspend fun persistSearchGapFill(books: List<SourceBook>) {
-        val mergeable = books
-            .filter {
-                !SourceRegistry.isScam(it.sourceId) &&
-                    it.title.isNotBlank() && it.author.isNotBlank() && it.url.isNotBlank() &&
-                    MergeKey.keyFor(it.title, it.author).isNotBlank()
+        val mergeable = books.filter {
+            !SourceRegistry.isScam(it.sourceId) && it.title.isNotBlank() &&
+                it.author.isNotBlank() && it.url.isNotBlank() &&
+                MergeKey.keyFor(it.title, it.author).isNotBlank()
+        }.take(searchGapFillMax)
+        for (book in mergeable) {
+            try {
+                writeWorkEdition(
+                    sourceId = book.sourceId, title = book.title, author = book.author,
+                    narrator = book.narrator, sourceUrl = book.url,
+                    streamOnly = streamOnlyFor(book.sourceId), coverImageUrl = book.coverImageUrl,
+                    durationSeconds = book.totalDurationSeconds.takeIf { it > 0 },
+                    seriesTitle = book.seriesTitle, seriesIndex = book.seriesIndex,
+                    genreTexts = null, language = book.language
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Log.w("SourceCatalog", "search gap-fill skipped", failure)
             }
-            .take(searchGapFillMax)
-        if (mergeable.isEmpty()) return
-        try {
-            writeBatchRunner {
-                for (book in mergeable) {
-                    try {
-                        val mergeKey = MergeKey.keyFor(book.title, book.author)
-                        val existing = dao.findWorkByMergeKey(mergeKey)
-                        if (dao.isBookTombstoned(existing?.id ?: mergeKey)) continue
-                        writeWorkEdition(
-                            sourceId = book.sourceId,
-                            title = book.title,
-                            author = book.author,
-                            narrator = book.narrator,
-                            sourceUrl = book.url,
-                            streamOnly = streamOnlyFor(book.sourceId),
-                            coverImageUrl = book.coverImageUrl,
-                            durationSeconds = book.totalDurationSeconds.takeIf { it > 0 },
-                            seriesTitle = book.seriesTitle,
-                            seriesIndex = book.seriesIndex,
-                            genreTexts = null,
-                            language = book.language
-                        )
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (failure: Exception) {
-                        Log.w("SourceCatalog", "search gap-fill skipped", failure)
-                    }
-                }
-            }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            Log.w("SourceCatalog", "search gap-fill pass skipped", failure)
         }
     }
 
@@ -1322,46 +1302,46 @@ class SourceCatalog(
      */
     private suspend fun persistSearchGenreAssertions(books: List<SourceBook>) {
         val observedAt = System.currentTimeMillis()
-        // G (spec `2026-09-10-remove-4read-source`) — bounded: a search pass
-        // must never write a row per matched result (the device stall).
-        // The genre fill-gap is served by the first slice; a wider catalogue
-        // enumeration supersedes it by rank anyway (ADR-0040).
         val maxWrites = 50
         for (book in books.take(maxWrites)) {
             val genre = book.genre.trim()
             if (genre.isBlank() || book.title.isBlank() || book.url.isBlank()) continue
-            val mergeKey = MergeKey.keyFor(book.title, book.author)
-            val existing = if (mergeKey.isNotBlank()) dao.findWorkByMergeKey(mergeKey) else null
-            if (existing != null && dao.isBookTombstoned(existing.id)) continue
-            val write = writeWorkEdition(
-                sourceId = book.sourceId,
-                title = book.title,
-                author = book.author,
-                narrator = book.narrator,
-                sourceUrl = book.url,
-                streamOnly = streamOnlyFor(book.sourceId),
-                coverImageUrl = book.coverImageUrl,
-                durationSeconds = book.totalDurationSeconds.takeIf { it > 0 },
-                language = book.language
-            )
-            facetWriter.apply(
-                listOf(
-                    LocalFacetDelta(
-                        work = WorkFacetDelta(
-                            workId = write.work.id,
-                            genres = listOf(
-                                GenreFacetAssertion(
-                                    rawText = genre,
-                                    sourceId = book.sourceId,
-                                    observedAt = observedAt,
-                                    provenance = GenreAssertionProvenance.SEARCH
-                                )
-                            ),
-                            updatedAt = observedAt
+            try {
+                writeWorkEditionAdmitted(
+                    sourceId = book.sourceId,
+                    title = book.title,
+                    author = book.author,
+                    narrator = book.narrator,
+                    sourceUrl = book.url,
+                    streamOnly = streamOnlyFor(book.sourceId),
+                    coverImageUrl = book.coverImageUrl,
+                    durationSeconds = book.totalDurationSeconds.takeIf { it > 0 },
+                    language = book.language
+                ) { write ->
+                    facetWriter.apply(
+                        listOf(
+                        LocalFacetDelta(
+                            work = WorkFacetDelta(
+                                workId = write.work.id,
+                                genres = listOf(
+                                    GenreFacetAssertion(
+                                        rawText = genre,
+                                        sourceId = book.sourceId,
+                                        observedAt = observedAt,
+                                        provenance = GenreAssertionProvenance.SEARCH
+                                    )
+                                ),
+                                updatedAt = observedAt
+                            )
+                        )
                         )
                     )
-                )
-            )
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                Log.w("SourceCatalog", "search genre assertions skipped", failure)
+            }
         }
     }
 
@@ -1392,7 +1372,9 @@ class SourceCatalog(
                 ?: return@withContext HydrationResult(sourceId, found = 0, imported = 0, merged = 0, failed = 0)
             val catalog = try {
                 adapter.fetchCatalog(limit)
-            } catch (e: Exception) {
+            } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (e: Exception) {
                 emptyList()
             }
             var imported = 0
@@ -1411,9 +1393,7 @@ class SourceCatalog(
                     // id is deterministic, so re-hydration never duplicates.
                     // The per-source policy rides along (stream-only flags),
                     // and playback already routes Referer/UA via headersFor.
-                    var written: WorkWriteResult? = null
-                    writeBatchRunner {
-                        written = writeWorkEdition(
+                    val written = writeWorkEdition(
                             sourceId = sourceId,
                             title = detail.title,
                             author = detail.author,
@@ -1426,10 +1406,11 @@ class SourceCatalog(
                             seriesIndex = detail.series?.position,
                             genreTexts = detail.genres.ifEmpty { listOf(book.genre) }
                         )
-                    }
                     // Count honestly: a Work that already existed is a merge
                     // (the new source was attached to the mirror card).
-                    if (written?.workCreated == true) imported++ else merged++
+                    if (written.workCreated) imported++ else merged++
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
                 } catch (e: Exception) {
                     failed++
                 }
@@ -1935,111 +1916,197 @@ class SourceCatalog(
         // Edition yet (a book page fetch materializes it later).
         language: String = ""
     ): WorkWriteResult {
-        // ADR-0010: the Work key is bibliographic (title|author) — the
-        // narrator is a rendition (Edition) property, never part of the Work.
-        val mergeKey = MergeKey.keyFor(title, author)
-        val existing = if (mergeKey.isNotBlank()) dao.findWorkByMergeKey(mergeKey) else null
-        val work = existing ?: if (mergeKey.isNotBlank()) {
-            WorkEntity(
-                id = mergeKey,
-                mergeKey = mergeKey,
-                // Spec-24 T1: the Work row stores the scrubbed title — the
-                // merge key keeps the RAW claim so stored identities never
-                // churn under the SEO-suffix scrub.
-                title = MetadataAssertions.normalizeTitle(title, author),
-                // #964 follow-up: the Work row's author is what the author
-                // facet identity derives from, so it goes through the ONE
-                // claim-normalization seam too — a raw claim keeps its source
-                // entity otherwise (and a second author facet is born).
-                author = MetadataAssertions.normalizeClaimedText(author).orEmpty(),
-                seriesTitle = seriesTitle,
-                seriesIndex = seriesIndex,
-                coverImageUrl = coverImageUrl,
-                addedAt = System.currentTimeMillis()
-            )
-        } else {
-            val id = "w-$sourceId-${stableIdOf(sourceUrl)}"
-            WorkEntity(
-                id = id,
-                mergeKey = "",
-                title = MetadataAssertions.normalizeTitle(title, author),
-                author = MetadataAssertions.normalizeClaimedText(author).orEmpty(),
-                seriesTitle = seriesTitle,
-                seriesIndex = seriesIndex,
-                coverImageUrl = coverImageUrl,
-                addedAt = System.currentTimeMillis()
-            )
-        }
-        val workSourceId = "${work.id}|$sourceId|${stableIdOf(sourceUrl)}"
-        // Every persisted Work immediately participates in the canonical
-        // cross-Source author index. This is idempotent and entirely local.
-        authorIndex.indexWorks(listOf(work), sourceId)
-        val sourceAlreadyKnown = dao.getWorkSourcesForWorkSync(work.id).any { it.id == workSourceId }
-        val workSource = WorkSourceEntity(
-            id = workSourceId,
-            workId = work.id,
-            sourceId = sourceId,
-            sourceUrl = sourceUrl,
-            streamOnly = streamOnly,
-            coverImageUrl = coverImageUrl,
-            durationSeconds = durationSeconds,
-            addedAt = System.currentTimeMillis()
+        return writeWorkEditionAdmitted(
+            sourceId, title, author, narrator, sourceUrl, streamOnly,
+            coverImageUrl, durationSeconds, seriesTitle, seriesIndex, genreTexts, language
         )
-        // #388 — use safe/transactional upsert. If the Work was just
-        // created, both rows are written atomically; if it already
-        // existed, a missing parent (race/tombstone) degrades gracefully.
-        if (existing == null) {
-            dao.upsertWorkWithSource(work, workSource)
-        } else {
-            dao.safeUpsertWorkSource(workSource)
-        }
-        if (genreTexts != null) {
-            val facetObservedAt = System.currentTimeMillis()
-            facetWriter.apply(
-                listOf(
-                    LocalFacetDelta(
-                        WorkFacetDelta(
-                            workId = work.id,
-                            genres = genreTexts.map { raw ->
-                                GenreFacetAssertion(raw, sourceId, facetObservedAt)
-                            },
-                            genreSourceReplacements = if (genreTexts.isEmpty()) {
-                                listOf(GenreSourceFacetReplacement(sourceId, facetObservedAt, emptyList()))
-                            } else {
-                                emptyList()
-                            },
-                            updatedAt = facetObservedAt
+    }
+
+    private suspend fun writeWorkEditionAdmitted(
+        sourceId: String,
+        title: String,
+        author: String,
+        narrator: String,
+        sourceUrl: String,
+        streamOnly: Boolean = false,
+        coverImageUrl: String? = null,
+        durationSeconds: Long? = null,
+        seriesTitle: String? = null,
+        seriesIndex: Int? = null,
+        genreTexts: List<String>? = null,
+        // Spec-45 (#405) R1 (#508): the catalogue write's Edition language —
+        // the source's declared catalogue language (4read → uk) when the
+        // crawl row has no per-book claim; blank = catalogue-only row with no
+        // Edition yet (a book page fetch materializes it later).
+        language: String = "",
+        additionalRows: suspend (WorkWriteResult) -> Unit = {}
+    ): WorkWriteResult {
+        val mergeKey = MergeKey.keyFor(title, author)
+        val unmergeableWorkId = "w-$sourceId-${stableIdOf(sourceUrl)}"
+        suspend fun rows(identity: SourceWorkIdentity?): WorkWriteResult {
+            // ADR-0010: the Work key is bibliographic (title|author) — the
+            // narrator is a rendition (Edition) property, never part of the Work.
+            val existing = if (workIdentityAccess != null) identity?.work
+                else if (mergeKey.isNotBlank()) dao.findWorkByMergeKey(mergeKey) else null
+            val work = existing ?: if (mergeKey.isNotBlank()) {
+                WorkEntity(
+                    id = mergeKey,
+                    mergeKey = mergeKey,
+                    // Spec-24 T1: the Work row stores the scrubbed title — the
+                    // merge key keeps the RAW claim so stored identities never
+                    // churn under the SEO-suffix scrub.
+                    title = MetadataAssertions.normalizeTitle(title, author),
+                    // #964 follow-up: the Work row's author is what the author
+                    // facet identity derives from, so it goes through the ONE
+                    // claim-normalization seam too — a raw claim keeps its source
+                    // entity otherwise (and a second author facet is born).
+                    author = MetadataAssertions.normalizeClaimedText(author).orEmpty(),
+                    seriesTitle = seriesTitle,
+                    seriesIndex = seriesIndex,
+                    coverImageUrl = coverImageUrl,
+                    addedAt = System.currentTimeMillis()
+                )
+            } else {
+                val id = "w-$sourceId-${stableIdOf(sourceUrl)}"
+                WorkEntity(
+                    id = id,
+                    mergeKey = "",
+                    title = MetadataAssertions.normalizeTitle(title, author),
+                    author = MetadataAssertions.normalizeClaimedText(author).orEmpty(),
+                    seriesTitle = seriesTitle,
+                    seriesIndex = seriesIndex,
+                    coverImageUrl = coverImageUrl,
+                    addedAt = System.currentTimeMillis()
+                )
+            }
+            // Legacy constructors still enforce raw identity tombstones inside this row transaction.
+            // Access-backed callers already checked canonical and verified aliases before entering rows.
+            if (workIdentityAccess == null) {
+                val keys = listOf(work.id, mergeKey).filter { it.isNotBlank() }.distinct()
+                if (keys.chunked(128).any { dao.manualMergeTombstones(it).isNotEmpty() }) {
+                    throw WorkIdentityWriteRefused(IdentityWriteRefusal.Tombstoned)
+                }
+            }
+            if (workIdentityAccess != null && existing == null && dao.getWorkById(work.id) != null) {
+                throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+            }
+            if (workIdentityAccess == null && existing == null && dao.getWorkById(work.id) == null) {
+                requireWorkCreationEntryReferences(dao, work.id)
+            }
+            val claims = dao.getWorkSourcesForWorkSync(work.id)
+            val matchingClaims = claims.filter { it.sourceId == sourceId && it.sourceUrl == sourceUrl }
+            if (workIdentityAccess != null && matchingClaims.size > 1) {
+                throw WorkIdentityWriteRefused(IdentityWriteRefusal.AmbiguousSource)
+            }
+            val preservedClaim = if (workIdentityAccess != null) matchingClaims.singleOrNull() else null
+            val workSourceId = preservedClaim?.id ?: "${work.id}|$sourceId|${stableIdOf(sourceUrl)}"
+            val occupiedClaim = dao.getWorkSourceById(workSourceId)
+            if (occupiedClaim != null && (
+                    occupiedClaim.workId != work.id || occupiedClaim.sourceId != sourceId ||
+                    occupiedClaim.sourceUrl != sourceUrl
+                )) {
+                throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+            }
+            val sourceAlreadyKnown = claims.any { it.id == workSourceId }
+            val workSource = WorkSourceEntity(
+                id = workSourceId,
+                workId = work.id,
+                sourceId = sourceId,
+                sourceUrl = sourceUrl,
+                streamOnly = streamOnly,
+                coverImageUrl = coverImageUrl,
+                durationSeconds = durationSeconds,
+                addedAt = preservedClaim?.addedAt ?: System.currentTimeMillis()
+            )
+            // Required rows are strict writes in the admitted transaction.
+            // Existing canonical Work raw cells are never rewritten here.
+            if (existing == null) dao.upsertWork(work)
+            dao.upsertWorkSource(workSource)
+            dao.refreshWorkSearchIndex(work.id)
+            // Local author/facet projections share the same rollback boundary.
+            authorIndex.indexWorks(listOf(work), sourceId)
+            if (genreTexts != null) {
+                val facetObservedAt = System.currentTimeMillis()
+                facetWriter.apply(
+                    listOf(
+                        LocalFacetDelta(
+                            WorkFacetDelta(
+                                workId = work.id,
+                                genres = genreTexts.map { raw ->
+                                    GenreFacetAssertion(raw, sourceId, facetObservedAt)
+                                },
+                                genreSourceReplacements = if (genreTexts.isEmpty()) {
+                                    listOf(GenreSourceFacetReplacement(sourceId, facetObservedAt, emptyList()))
+                                } else {
+                                    emptyList()
+                                },
+                                updatedAt = facetObservedAt
+                            )
                         )
                     )
                 )
-            )
-        }
-        // R1 (#508): a catalogue write that KNOWS its rendition language
-        // lands the Edition row (narrator unknown at catalogue depth) and its
-        // facet projection through the shared seam, so the Work participates
-        // in the feed's language dimension from the moment it is written.
-        if (language.isNotBlank()) {
-            val editionId = EditionId.forBook(mergeKey, work.id, narrator, language)
-            if (dao.getEditionById(editionId) == null) {
-                dao.insertEdition(
-                    EditionEntity(
-                        id = editionId,
-                        workId = work.id,
-                        narrator = narrator,
-                        language = language,
-                        totalChapters = 0,
-                        totalDurationSeconds = durationSeconds ?: 0L
-                    )
-                )
-                facetWriter.applyEditionFacet(
-                    editionId = editionId,
-                    domainWorkId = work.id,
-                    narrator = narrator,
-                    language = language
-                )
             }
+            // R1 (#508): a catalogue write that KNOWS its rendition language
+            // lands the Edition row (narrator unknown at catalogue depth) and its
+            // facet projection through the shared seam, so the Work participates
+            // in the feed's language dimension from the moment it is written.
+            if (language.isNotBlank() && identity?.existingSource == null) {
+                val editionId = EditionId.forBook(mergeKey, work.id, narrator, language)
+                val storedEdition = dao.getEditionById(editionId)
+                if (workIdentityAccess != null) {
+                    if (storedEdition != null && (
+                            storedEdition.workId != work.id ||
+                            storedEdition.narrator != narrator || storedEdition.language != language ||
+                            dao.findBookByEditionId(storedEdition.id) != null ||
+                            dao.getSourcesForEditionSync(storedEdition.id).isNotEmpty()
+                        )) {
+                        throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+                    }
+                    // No durable claim→catalog Edition relation exists. An exact
+                    // known claim plus preserved opaque renditions cannot identify
+                    // which rendition belongs to this page merely by ID shape.
+                    if (storedEdition == null && preservedClaim != null &&
+                        dao.manualMergeEditions(listOf(work.id), emptyList()).isNotEmpty()
+                    ) {
+                        throw WorkIdentityWriteRefused(IdentityWriteRefusal.AmbiguousSource)
+                    }
+                }
+                if (storedEdition == null) {
+                    dao.insertEdition(
+                        EditionEntity(
+                            id = editionId,
+                            workId = work.id,
+                            narrator = narrator,
+                            language = language,
+                            totalChapters = 0,
+                            totalDurationSeconds = durationSeconds ?: 0L
+                        )
+                    )
+                    facetWriter.applyEditionFacet(
+                        editionId = editionId,
+                        domainWorkId = work.id,
+                        narrator = narrator,
+                        language = language
+                    )
+                }
+            }
+            val result = WorkWriteResult(work = work, workCreated = existing == null, editionCreated = !sourceAlreadyKnown)
+            additionalRows(result)
+            return result
         }
-        return WorkWriteResult(work = work, workCreated = existing == null, editionCreated = !sourceAlreadyKnown)
+        val access = workIdentityAccess
+        if (access != null) {
+            return access.writeCatalogSource(
+                mergeKey = mergeKey, sourceId = sourceId, sourceUrl = sourceUrl,
+                narrator = narrator, language = language,
+                unmergeableWorkId = unmergeableWorkId
+            ) { identity -> rows(identity) }
+        }
+        var result: WorkWriteResult? = null
+        dao.runCatalogRowTransaction {
+            writeBatchRunner { result = rows(null) }
+        }
+        return checkNotNull(result)
     }
 
     /**
@@ -2080,54 +2147,37 @@ class SourceCatalog(
      * hydration. Tombstoned Works are never resurrected (ADR-0005); cards
      * without an identity are skipped instead of materializing a synthetic
      * blank-key Work that could never merge; a repeated enumeration is a
-     * no-op write. The pass rides one [writeBatchRunner] transaction so the
-     * endless feed is invalidated once, not per row; best-effort — a failing
-     * card never aborts the refresh or the published list, and an empty
+     * no-op write. Each item commits its own admitted row transaction;
+     * feed invalidations may occur per committed item. Best-effort — a failing
+     * card never aborts the refresh; refused cards are omitted from its published list. An empty
      * enumeration writes nothing.
      */
-    private suspend fun persistEnumerated(books: List<SourceBook>) {
-        // A scam source never enters the Catalog Mirror: its audio is not the
-        // book, and the mirror feeds every discovery surface.
+    private suspend fun persistEnumerated(books: List<SourceBook>): Set<Pair<String, String>> {
         val mergeable = books.filter {
-            !SourceRegistry.isScam(it.sourceId) &&
-                it.title.isNotBlank() && it.author.isNotBlank() && it.url.isNotBlank()
+            !SourceRegistry.isScam(it.sourceId) && it.title.isNotBlank() &&
+                it.author.isNotBlank() && it.url.isNotBlank()
         }
-        if (mergeable.isEmpty()) return
-        try {
-            writeBatchRunner {
-                for (book in mergeable) {
-                    try {
-                        val mergeKey = MergeKey.keyFor(book.title, book.author)
-                        if (mergeKey.isBlank()) continue
-                        val existing = dao.findWorkByMergeKey(mergeKey)
-                        if (dao.isBookTombstoned(existing?.id ?: mergeKey)) continue
-                        writeWorkEdition(
-                            sourceId = book.sourceId,
-                            title = book.title,
-                            author = book.author,
-                            narrator = book.narrator,
-                            sourceUrl = book.url,
-                            streamOnly = streamOnlyFor(book.sourceId),
-                            coverImageUrl = book.coverImageUrl,
-                            durationSeconds = book.totalDurationSeconds.takeIf { it > 0 },
-                            seriesTitle = book.seriesTitle,
-                            seriesIndex = book.seriesIndex,
-                            genreTexts = book.genre.trim().takeIf { it.isNotBlank() }
-                                ?.let { listOf(it) },
-                            language = book.language
-                        )
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (failure: Exception) {
-                        Log.w("SourceCatalog", "catalog mirror write skipped", failure)
-                    }
-                }
+        val refused = mutableSetOf<Pair<String, String>>()
+        for (book in mergeable) {
+            try {
+                if (MergeKey.keyFor(book.title, book.author).isBlank()) continue
+                writeWorkEdition(
+                    sourceId = book.sourceId, title = book.title, author = book.author,
+                    narrator = book.narrator, sourceUrl = book.url,
+                    streamOnly = streamOnlyFor(book.sourceId), coverImageUrl = book.coverImageUrl,
+                    durationSeconds = book.totalDurationSeconds.takeIf { it > 0 },
+                    seriesTitle = book.seriesTitle, seriesIndex = book.seriesIndex,
+                    genreTexts = book.genre.trim().takeIf { it.isNotBlank() }?.let { listOf(it) },
+                    language = book.language
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                refused += book.sourceId to book.url
+                Log.w("SourceCatalog", "catalog mirror write skipped", failure)
             }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            Log.w("SourceCatalog", "catalog mirror pass skipped", failure)
         }
+        return refused
     }
 
     // Spec-37 depth budget: a polite crawl deepens the catalogue across daily
@@ -2162,7 +2212,9 @@ class SourceCatalog(
         }
         val homepage = try {
             fourReadFetcher.getText("https://4read.org/")
-        } catch (e: Exception) {
+        } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
             ""
         }
         if (homepage.isBlank()) {
@@ -2181,7 +2233,9 @@ class SourceCatalog(
             categoryUrls += CatalogParser.parseHomepage(homepage)
                 .flatMap { it.series }
                 .mapNotNull { it.url }
-        } catch (e: Exception) {
+        } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
             // Unparseable homepage degrades to an empty crawl.
         }
 
@@ -2213,12 +2267,14 @@ class SourceCatalog(
                         ?.contentLanguage.orEmpty()
                 )
                 if (result.workCreated) imported++ else merged++
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 failed++
             }
         }
 
-        writeBatchRunner { homepageBooks.forEach { write(it) } }
+        homepageBooks.forEach { write(it) }
 
         for (url in categoryUrls) {
             // Follow the listing's own pagination until a budget stops us:
@@ -2229,7 +2285,9 @@ class SourceCatalog(
             while (currentUrl != null && pages < maxPagesPerRun) {
                 val html = try {
                     fourReadFetcher.getText(currentUrl)
-                } catch (e: Exception) {
+                } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
                     ""
                 }
                 if (html.isBlank()) {
@@ -2239,14 +2297,16 @@ class SourceCatalog(
                 pages++
                 val books = try {
                     CatalogParser.parseSeriesPage(html)
-                } catch (e: Exception) {
+                } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
                     emptyList()
                 }
                 if (books.isEmpty()) {
                     failed++
                     break
                 }
-                writeBatchRunner { books.forEach { write(it) } }
+                books.forEach { write(it) }
                 currentUrl = CatalogParser.parseNextPageUrl(html)?.takeIf { next ->
                     visitedUrls.add(next) && visitedUrls.size <= maxPagesPerListing
                 }

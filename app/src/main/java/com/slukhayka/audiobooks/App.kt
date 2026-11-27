@@ -80,6 +80,8 @@ import com.slukhayka.audiobooks.data.recommend.RecommendationSettingsStore
 import com.slukhayka.audiobooks.data.recommend.RecommendationPreferences
 import com.slukhayka.audiobooks.data.search.FirestoreSearchCache
 import com.slukhayka.audiobooks.data.merge.DuplicateWorkMerger
+import com.slukhayka.audiobooks.data.merge.ManualWorkMergeGate
+import com.slukhayka.audiobooks.data.merge.WorkIdentityAccess
 import com.slukhayka.audiobooks.data.privacy.BrowserIdentity
 import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
 import com.slukhayka.audiobooks.data.privacy.PrivacySettingsStore
@@ -1290,6 +1292,7 @@ class App : Application() {
             database.audiobookDao(),
             this,
             sourceAdapters,
+            workIdentityAccess = manualWorkIdentityAccess,
             popularityAssertionStore = PopularityAssertionStore(database.audiobookDao()),
             // Spec-26 T8 (#182): a new imported book whose series belongs to
             // a cached universe immediately re-validates that universe's
@@ -1400,6 +1403,7 @@ class App : Application() {
             database.audiobookDao(),
             sourceAdapters,
             libraryImport,
+            workIdentityAccess = manualWorkIdentityAccess,
             popularityAssertionStore = PopularityAssertionStore(database.audiobookDao()),
             // #1723 — the curated lists are loaded by the startup batch on IO;
             // the provider is read at match time, so building this module on
@@ -1682,6 +1686,13 @@ class App : Application() {
         LibraryCoverResolver(database.audiobookDao(), sharedMetaStore)
     }
 
+    /** Manual commands and the automatic merger share the same live-Room Book gate. */
+    val manualWorkMergeGate: ManualWorkMergeGate by lazy { ManualWorkMergeGate(database) }
+
+    val manualWorkIdentityAccess: WorkIdentityAccess by lazy {
+        WorkIdentityAccess(database, manualWorkMergeGate)
+    }
+
     /**
      * Spec-27 (#184) BUG-002 — the one-time duplicate-Work merge runner.
      * Collapses library rows that share a hardened merge key (SEO-suffix
@@ -1689,7 +1700,7 @@ class App : Application() {
      * surviving card. Idempotent by construction and best-effort.
      */
     val duplicateWorkMerger: DuplicateWorkMerger by lazy {
-        DuplicateWorkMerger(database.audiobookDao()) { block ->
+        DuplicateWorkMerger(database.audiobookDao(), manualWorkMergeGate) { block ->
             database.withTransaction { block() }
         }
     }

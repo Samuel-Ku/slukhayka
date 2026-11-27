@@ -82,32 +82,49 @@ class EditionSourceWriter(
         existingEdition: EditionEntity?,
         draftEdition: EditionEntity
     ): Written {
-        val edition = existingEdition ?: draftEdition
-        // ADR-0007: source ids are deterministic per (type, edition); the type
-        // and the access facts come from the adapter's own id, never a literal.
-        val source = SourceEntity(
-            id = "$sourceId-${edition.id}",
-            bookId = bookId,
-            editionId = edition.id,
-            type = sourceId,
-            url = detail.url.ifBlank { pageUrl },
-            streamOnly = streamOnlyFor(sourceId),
-            addedAt = System.currentTimeMillis()
-        )
-        val materialized = MetadataAssertions.materializeChaptersAndTracks(
-            editionId = edition.id,
-            sourceId = source.id,
-            bookId = bookId,
-            bookTitle = bookTitle,
-            chapters = detail.chapters
-        )
-        var writtenChapters = materialized.chapters
+        val proposedEdition = existingEdition ?: draftEdition
+        var written: Written? = null
         writeBatchRunner {
-            if (existingEdition == null) dao.insertEdition(edition)
+            val url = detail.url.ifBlank { pageUrl }
+            val sourceKey = "$sourceId-${proposedEdition.id}"
+            val matching = (dao.getSourcesForBookSync(bookId) + dao.getSourcesForEditionSync(proposedEdition.id))
+                .distinctBy { it.id }
+                .filter { it.type == sourceId && it.url == url && it.editionId == proposedEdition.id }
+            require(matching.size <= 1) { "Ambiguous source page identity" }
+            val existingSource = matching.singleOrNull() ?: dao.getSourceById(sourceKey)
+            val edition = if (existingSource != null) {
+                val storedEdition = dao.getEditionById(proposedEdition.id)
+                require(existingSource.bookId == bookId && existingSource.editionId == proposedEdition.id &&
+                    existingSource.type == sourceId && dao.getAudiobookById(bookId) != null &&
+                    storedEdition?.workId == bookId) {
+                    "Source page belongs to another Book or Edition"
+                }
+                checkNotNull(storedEdition)
+            } else proposedEdition
+            // Preserve discovery time, scan memory and an existing opaque ID.
+            // The stable type/Edition source can still update its URL and policy.
+            val source = existingSource?.copy(url = url, streamOnly = streamOnlyFor(sourceId))
+                ?: SourceEntity(
+                    id = sourceKey,
+                    bookId = bookId,
+                    editionId = edition.id,
+                    type = sourceId,
+                    url = url,
+                    streamOnly = streamOnlyFor(sourceId),
+                    addedAt = System.currentTimeMillis()
+                )
+            val materialized = MetadataAssertions.materializeChaptersAndTracks(
+                editionId = edition.id,
+                sourceId = source.id,
+                bookId = bookId,
+                bookTitle = bookTitle,
+                chapters = detail.chapters
+            )
+            if (existingSource == null && existingEdition == null) dao.insertEdition(edition)
             // ADR-0007/0056: an Edition that already owns its logical chapters
             // keeps them exactly — this write only attaches the physical
             // Source and its tracks.
-            writtenChapters = if (dao.getChaptersListForBook(bookId).isEmpty()) {
+            val writtenChapters = if (dao.getChaptersListForBook(bookId).isEmpty()) {
                 dao.insertChapters(materialized.chapters)
                 materialized.chapters
             } else {
@@ -115,7 +132,8 @@ class EditionSourceWriter(
             }
             dao.insertSources(listOf(source))
             dao.insertTracks(materialized.tracks)
+            written = Written(edition, source, writtenChapters, materialized.tracks)
         }
-        return Written(edition, source, writtenChapters, materialized.tracks)
+        return checkNotNull(written)
     }
 }

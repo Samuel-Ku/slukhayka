@@ -423,7 +423,7 @@ if [[ $runner_kind == python ]]; then
   task="python3 -m unittest $test_class"
   partition=script-tests
 else
-  test_path="app/src/test/java/${test_class//./\/}.kt"
+  test_path="app/src/test/java/${test_class//.//}.kt"
   [[ -f "$repo_root/$test_path" ]] ||
     refuse "no test source for $test_class (expected $test_path)"
 

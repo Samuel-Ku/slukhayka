@@ -26,6 +26,12 @@ import com.slukhayka.audiobooks.data.facets.LocalFacetWriter
 import com.slukhayka.audiobooks.data.facets.RoomLocalFacetWriter
 import com.slukhayka.audiobooks.data.facets.applyEditionFacet
 import com.slukhayka.audiobooks.data.merge.MergeKey
+import com.slukhayka.audiobooks.data.merge.WorkIdentityAccess
+import com.slukhayka.audiobooks.data.merge.requireWorkCreationEntryReferences
+import com.slukhayka.audiobooks.data.merge.WorkIdentityWriteRefused
+import com.slukhayka.audiobooks.data.merge.IdentityWriteRefusal
+import com.slukhayka.audiobooks.data.merge.SourceWorkIdentity
+import com.slukhayka.audiobooks.data.metadata.PopularityAssertionPolicy
 import com.slukhayka.audiobooks.data.metadata.BookProfile
 import com.slukhayka.audiobooks.data.metadata.BookProfileLimits
 import com.slukhayka.audiobooks.data.metadata.BookProfileMapping
@@ -45,6 +51,8 @@ import com.slukhayka.audiobooks.data.source.SourceRegistry
 import com.slukhayka.audiobooks.data.source.SeriesRef
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
 import com.slukhayka.audiobooks.data.source.streamOnlyFor
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
@@ -118,8 +126,11 @@ class LibraryImport(
      */
     private val onChapterOrderCommitted: suspend (String, List<String>) -> Unit = { _, _ -> },
     /** Same post-commit publication boundary for confirmed and automatic topology repair. */
-    private val onChapterStructureCommitted: suspend (AudiobookEntity) -> Unit = {}
+    private val onChapterStructureCommitted: suspend (AudiobookEntity) -> Unit = {},
+    private val workIdentityAccess: WorkIdentityAccess? = null,
 ) {
+    init { workIdentityAccess?.requireDao(dao) }
+
     private val authorIndex: AuthorIndex = RoomAuthorIndex(dao)
 
     /** Source-declared resolve budget; callers keep their own Player-start limit. */
@@ -195,298 +206,378 @@ class LibraryImport(
         onNewBookImported: ((AudiobookEntity) -> Unit)? = null
     ): AudiobookEntity =
         withContext(Dispatchers.IO) {
-            // ADR-0063 §2 — the ONE write rule: only a personal origin makes
-            // the link personal. A technical materialization stays fully
-            // playable (Edition, Chapters, Sources) with a hidden anchor and
-            // never pretends to be the listener's choice.
-            val writesEntry = com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy
-                .writesLibraryEntry(origin)
-            // ADR-0010: the Work key is bibliographic (title|author) — the
-            // narrator is an Edition property, never part of the Work.
-            val mergeKey = MergeKey.keyFor(detail.title, detail.author)
-            // #485: the resolved page is an observation — the source's
-            // claimed rating persists as a provenance-bearing assertion
-            // (best-effort; a failing write never breaks the import).
-            popularityAssertionStore?.recordRatingSignal(
-                mergeKey = mergeKey,
-                sourceId = sourceId,
-                rating = detail.rating,
-                observedAt = System.currentTimeMillis()
-            )
-            // #1487 slice 2 — the internal `unknown` marker is not a source
-            // name: a fabricated «unknown narrator» would be DISPLAYED as a
-            // person (BookDisplay blanks only registered-source placeholders).
-            val narrator = MetadataAssertions.normalizeClaimedText(detail.narrator)
-                ?: if (sourceId == com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID) "" else "$sourceId narrator"
-            val language = com.slukhayka.audiobooks.data.LanguageCode.normalize(
-                detail.language.ifBlank { sourceAdapters.firstOrNull { it.sourceId == sourceId }?.contentLanguage.orEmpty() }
-            ).orEmpty()
-            // ADR-0011: the Edition id is the rendition identity and is
-            // deterministic for mergeable books (the bookId fallback applies
-            // only to blank keys), so the same narration resolves to its card
-            // and a different narration of the same Work resolves to nothing.
-            val existing = if (mergeKey.isNotBlank()) {
-                dao.findBookByEditionId(EditionId.forBook(mergeKey, "", narrator, language))
-                    ?: if (language.isNotBlank()) {
-                        // Pre-language Editions retain their identity and listening state.
-                        dao.findBookByEditionId(EditionId.forBook(mergeKey, "", narrator, ""))
-                    } else null
-            } else {
-                null
+            val access = workIdentityAccess
+            if (access == null) {
+                importBookFromSourceAdmitted(sourceId, detail, writeBackProfile, origin, onNewBookImported, null)
+            } else access.withKnownSourceImport(sourceId, detail.url) { admission ->
+                importBookFromSourceAdmitted(sourceId, detail, writeBackProfile, origin, onNewBookImported, admission)
             }
-            val bookId = existing?.id ?: adapterBookId(sourceId, detail.url)
-            // The canonical Edition id the stored rows use (the same formula
-            // as the Edition insert below) — the shared profile is keyed by it.
-            val editionId = existing?.let { dao.getEditionForWork(it.id)?.id }
-                ?: EditionId.forBook(mergeKey, bookId, narrator, language)
+        }
 
-            // Spec-32 T2 (#232): a resolved page contributes its full profile
-            // to the shared base, best-effort — the next listener skips the
-            // fetch (import, detail-open AND catalogue hydration all resolve
-            // pages, so all contribute). A failing write never breaks the
-            // import.
-            if (writeBackProfile && detail.chapters.isNotEmpty()) {
-                runCatching {
-                    profileStore?.putProfile(
-                        sourceId = sourceId,
-                        editionId = editionId,
-                        profile = BookProfileMapping.fromDetail(detail.copy(language = language)),
-                        provenance = ProfileProvenance(
-                            ProfileProvenance.SOURCE_RESOLVED,
-                            System.currentTimeMillis()
-                        )
-                    )
+    private data class CommittedSourceImport(
+        val book: AudiobookEntity,
+        val created: Boolean,
+        val profileEditionId: String,
+        val language: String,
+        val relationshipKey: String?,
+        val importedSeriesWorkId: String?,
+    )
+
+    private suspend fun importBookFromSourceAdmitted(
+        sourceId: String, received: SourceBookDetail, writeBackProfile: Boolean,
+        origin: com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin,
+        onNewBookImported: ((AudiobookEntity) -> Unit)?,
+        admission: WorkIdentityAccess.SourceImportAdmission?,
+    ): AudiobookEntity {
+        val detail = received.copy(chapters = received.chapters.toList(), genres = received.genres.toList(),
+            related = received.related.toList())
+        val mergeKey = MergeKey.keyFor(detail.title, detail.author)
+        val narrator = MetadataAssertions.normalizeClaimedText(detail.narrator)
+            ?: if (sourceId == com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID) "" else "$sourceId narrator"
+        val language = com.slukhayka.audiobooks.data.LanguageCode.normalize(
+            detail.language.ifBlank { sourceAdapters.firstOrNull { it.sourceId == sourceId }?.contentLanguage.orEmpty() }
+        ).orEmpty()
+        val fallbackEditionIds = if (mergeKey.isBlank()) emptyList() else buildList {
+            add(EditionId.forBook(mergeKey, "", narrator, language))
+            if (language.isNotBlank()) add(EditionId.forBook(mergeKey, "", narrator, ""))
+        }
+        val prospectiveBookId = admission?.scope?.source?.bookId
+            ?: if (workIdentityAccess != null) adapterBookId(sourceId, detail.url) else null
+        val rows: suspend (WorkIdentityAccess.AdmittedSourceImport?) -> CommittedSourceImport = { admitted ->
+            writeSourceImportRows(sourceId, detail, origin, mergeKey, narrator, language, prospectiveBookId,
+                admitted?.identity, admitted?.creationWorkId)
+        }
+        val publish: suspend (CommittedSourceImport) -> Unit = { committed ->
+            publishSourceImport(committed, sourceId, detail, writeBackProfile, onNewBookImported)
+        }
+        val access = workIdentityAccess
+        val committed = if (access == null) {
+            // The DAO transaction also covers legacy constructors whose writer hook is a no-op.
+            var outcome: CommittedSourceImport? = null
+            dao.runCatalogRowTransaction {
+                writeBatchRunner {
+                    outcome = rows(null)
+                    currentCoroutineContext().ensureActive()
                 }
             }
+            checkNotNull(outcome) { "Import transaction did not execute" }.also { publish(it) }
+        } else access.writeSourceImport(admission, mergeKey, sourceId, detail.url, detail.narrator, language,
+            detail.chapters.map { it.title }, checkNotNull(prospectiveBookId), fallbackEditionIds,
+            com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy.writesLibraryEntry(origin), rows, publish)
+        return committed.book
+    }
 
-            if (existing == null) {
-                // Spec-14 T2/T3: the shared import path persists the enriched
-                // profile the seam now provides (genres → genre, rating,
-                // series) — every import door's card agrees with the source.
-                // ADR-0004: claim normalization (brand-scrub, duration
-                // sentinel) and materialization come from the one
-                // MetadataAssertions module; the door keeps only its insert
-                // defaults (id scheme, placeholder author/narrator, template).
-                // ADR-0007: one domain Edition owns the logical chapter list;
-                // the importing Source gets its physical tracks (1:1 by index).
-                // ADR-0009: the audiobooks row carries only the persisted
-                // metadata; the fused columns (series, mergeKey) are written
-                // to the Works + Library Entry rows alongside it.
-                // Spec-24 T1: the claimed title is scrubbed of SEO suffixes
-                // (one rule, one module — the Work row below stores the same
-                // clean title). The merge key keeps the RAW claim so stored
-                // identities never churn under the scrub.
-                val book = AudiobookEntity(
-                    id = bookId,
-                    title = MetadataAssertions.normalizeTitle(detail.title, detail.author),
-                    author = MetadataAssertions.normalizeClaimedText(detail.author)
-                        ?: if (sourceId == com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID) "" else sourceId,
-                    narrator = narrator,
-                    // #264: the claimed description passes the same one-rule
-                    // treatment as the title — SEO templates scrub to empty
-                    // and fall back to the honest source phrase.
-                    description = MetadataAssertions.normalizeDescription(detail.description)
-                        .ifBlank {
-                            if (sourceId == com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID) {
-                                ""
-                            } else {
-                                "Аудіокнига з джерела $sourceId"
-                            }
-                        },
-                    coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
-                    coverImageUrl = MetadataAssertions.coverDelta(detail.coverImageUrl),
-                    genre = detail.genres.joinToString(" · ").ifBlank { "Каталог" },
-                    sourceUrl = detail.url,
-                    isDownloaded = false,
-                    // The page-reported total ("Триває:" / schema.org) is the
-                    // book's advertised length and wins; the chapter-duration
-                    // sum is only a fallback for pages that carry none.
-                    totalDurationSeconds = MetadataAssertions.normalizeDurationSeconds(detail.totalDurationSeconds)
-                        ?: MetadataAssertions.normalizeDurationSeconds(detail.chapters.sumOf { it.durationSeconds })
-                        ?: 0L,
-                    totalChapters = detail.chapters.size,
-                    rating = detail.rating?.toFloat() ?: 0f
-                )
-                dao.insertAudiobooks(listOf(book))
-                // ADR-0009: the Works row and the Library Entry row are
-                // written ALONGSIDE the audiobooks row — series/identity reads
-                // join through the entry, so the card keeps its series and the
-                // merge key stays the dedup identity.
-                val workId = if (mergeKey.isNotBlank()) {
-                    (dao.findWorkByMergeKey(mergeKey) ?: WorkEntity(
-                        id = mergeKey,
-                        mergeKey = mergeKey,
-                        title = book.title,
-                        author = book.author,
-                        seriesTitle = detail.series?.name,
-                        seriesUrl = detail.series?.url,
-                        seriesIndex = detail.series?.position,
-                        coverImageUrl = book.coverImageUrl,
-                        addedAt = System.currentTimeMillis()
-                    ).also { dao.upsertWork(it) }).id
-                } else {
-                    bookId
-                }
-                dao.getWorkById(workId)?.let { work -> authorIndex.indexWorks(listOf(work), sourceId) }
-                // ADR-0063 — the anchor row links the book to its Work and
-                // carries the origin fact. A non-personal origin keeps it
-                // hidden from every personal surface (and out of «Імпортоване»);
-                // it is a relational anchor, not a library choice. It goes
-                // through the UPSERT, not `INSERT OR REPLACE`: when the Edition
-                // lookup missed but the bookId is the same (blank merge key, a
-                // changed narrator/language claim), the conflict arm preserves
-                // the listener's isFavorite/createdAt/download columns and never
-                // downgrades a personal origin.
-                dao.upsertLibraryEntry(
-                    id = bookId,
-                    workId = workId,
-                    isFavorite = false,
-                    createdAt = System.currentTimeMillis(),
-                    downloadProgress = 0f,
-                    downloadState = DownloadState.IDLE,
-                    preserveExistingDownloads = true,
-                    origin = origin.name
-                )
-                if (writesEntry) {
-                    // #581 W0.3 — the honest moment for the cloud: the Work
-                    // entered the listener's library, so its relationship row
-                    // becomes `entry` (over any older tombstone, per the
-                    // server-stamp LWW). Best-effort — never breaks the import.
-                    if (mergeKey.isNotBlank()) {
-                        runCatching {
-                            workRelationshipsSync?.pushEntry(mergeKey, book.title, book.author)
+    /** Only local rows: the admitted Access owns the same-Room transaction around this entire body. */
+    private suspend fun writeSourceImportRows(
+        sourceId: String, detail: SourceBookDetail,
+        origin: com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin,
+        mergeKey: String, narrator: String, language: String, prospectiveBookId: String?,
+        identity: SourceWorkIdentity?, creationWorkId: String?,
+    ): CommittedSourceImport {
+        val writesEntry = com.slukhayka.audiobooks.data.entries.LibraryEntryOriginPolicy.writesLibraryEntry(origin)
+        val existing = if (identity != null) {
+            // Access selected and revalidated this actual Book BEFORE Gate admission.
+            identity.existingSource?.book ?: identity.importBook
+        } else if (mergeKey.isNotBlank()) {
+            // Optional legacy mode retains the original unadmitted lookup contract.
+            dao.findBookByEditionId(EditionId.forBook(mergeKey, "", narrator, language))
+                ?: if (language.isNotBlank()) {
+                    dao.findBookByEditionId(EditionId.forBook(mergeKey, "", narrator, ""))
+                } else null
+        } else null
+        val createsWork = identity != null && existing == null && identity.work == null && mergeKey.isNotBlank()
+        val admittedCreationWorkId = if (createsWork) {
+            if (creationWorkId != mergeKey) throw WorkIdentityWriteRefused(IdentityWriteRefusal.StaleAdmission)
+            checkNotNull(creationWorkId)
+        } else {
+            if (identity != null && creationWorkId != null) throw WorkIdentityWriteRefused(IdentityWriteRefusal.StaleAdmission)
+            null
+        }
+        val admittedEdition = identity?.existingSource?.edition ?: identity?.importEdition
+        if (identity != null && existing != null && admittedEdition == null) {
+            throw WorkIdentityWriteRefused(IdentityWriteRefusal.DanglingSource)
+        }
+        val bookId = existing?.id ?: prospectiveBookId ?: adapterBookId(sourceId, detail.url)
+        // The canonical Edition id the stored rows use (the same formula
+        // as the Edition insert below) — the shared profile is keyed by it.
+        val editionId = admittedEdition?.id
+            ?: existing?.takeIf { identity == null }?.let { dao.getEditionForWork(it.id)?.id }
+            ?: EditionId.forBook(mergeKey, bookId, narrator, language)
+
+        if (identity != null && existing == null && dao.getAudiobookById(bookId) != null) {
+            throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+        }
+        val legacyWork = if (identity == null && existing == null && mergeKey.isNotBlank()) {
+            dao.findWorkByMergeKey(mergeKey)
+        } else null
+        if (identity == null && existing == null && mergeKey.isNotBlank() && legacyWork == null &&
+            dao.getWorkById(mergeKey) == null) {
+            requireWorkCreationEntryReferences(dao, mergeKey)
+        }
+        val tombstoneKeys = listOfNotNull(bookId, existing?.workId, existing?.mergeKey,
+            identity?.work?.id, identity?.work?.mergeKey,
+            mergeKey.takeIf { it.isNotBlank() }).filter { it.isNotBlank() }.distinct()
+        // Access already compared the owner-bound attempt's start snapshot and cleared only
+        // unchanged observed-old explicit tombstones in this transaction. Legacy optional mode
+        // retains its previous behavior; it cannot claim prefetch deletion ordering.
+        if (identity == null) {
+            if (!writesEntry && tombstoneKeys.any { dao.isBookTombstoned(it) }) {
+                throw WorkIdentityWriteRefused(IdentityWriteRefusal.Tombstoned)
+            }
+            if (writesEntry) tombstoneKeys.forEach { dao.deleteTombstone(it) }
+        }
+
+        return if (existing == null) {
+            // Spec-14 T2/T3: the shared import path persists the enriched
+            // profile the seam now provides (genres → genre, rating,
+            // series) — every import door's card agrees with the source.
+            // ADR-0004: claim normalization (brand-scrub, duration
+            // sentinel) and materialization come from the one
+            // MetadataAssertions module; the door keeps only its insert
+            // defaults (id scheme, placeholder author/narrator, template).
+            // ADR-0007: one domain Edition owns the logical chapter list;
+            // the importing Source gets its physical tracks (1:1 by index).
+            // ADR-0009: the audiobooks row carries only the persisted
+            // metadata; the fused columns (series, mergeKey) are written
+            // to the Works + Library Entry rows alongside it.
+            // Spec-24 T1: the claimed title is scrubbed of SEO suffixes
+            // (one rule, one module — the Work row below stores the same
+            // clean title). The merge key keeps the RAW claim so stored
+            // identities never churn under the scrub.
+            val book = AudiobookEntity(
+                id = bookId,
+                title = MetadataAssertions.normalizeTitle(detail.title, detail.author),
+                author = MetadataAssertions.normalizeClaimedText(detail.author)
+                    ?: if (sourceId == com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID) "" else sourceId,
+                narrator = narrator,
+                // #264: the claimed description passes the same one-rule
+                // treatment as the title — SEO templates scrub to empty
+                // and fall back to the honest source phrase.
+                description = MetadataAssertions.normalizeDescription(detail.description)
+                    .ifBlank {
+                        if (sourceId == com.slukhayka.audiobooks.data.source.UNKNOWN_SOURCE_ID) {
+                            ""
+                        } else {
+                            "Аудіокнига з джерела $sourceId"
                         }
-                    }
-                }
-                // Spec-26 T8 (#182): a NEW book with a series fires the
-                // import event trigger (the callback is wired to the universe
-                // chain validation in the composition root). Best-effort and
-                // silent — a failing callback never breaks the import.
-                if (workId.isNotBlank() && detail.series?.name?.isNotBlank() == true) {
-                    runCatching { onWorkImported?.invoke(workId) }
-                }
-                // ADR-0010: the Edition id carries the narrator — two
-                // narrations of the same Work keep distinct listening state.
-                // ADR-0004 + ADR-0007: the Edition, its logical Chapters and
-                // the Source's physical Tracks land through the shared write
-                // module; the page's own sourceId is the stored provenance.
-                val draftEdition = EditionEntity(
-                    id = editionId,
-                    workId = bookId,
-                    narrator = book.narrator,
-                    language = language,
-                    totalChapters = detail.chapters.size,
-                    totalDurationSeconds = book.totalDurationSeconds
-                )
-                editionSourceWriter.writeResolvedPage(
-                    bookId = bookId,
-                    bookTitle = book.title,
+                    },
+                coverDrawableRes = R.drawable.img_neuromancer_cover_1785247475170,
+                coverImageUrl = MetadataAssertions.coverDelta(detail.coverImageUrl),
+                genre = detail.genres.joinToString(" · ").ifBlank { "Каталог" },
+                sourceUrl = detail.url,
+                isDownloaded = false,
+                // The page-reported total ("Триває:" / schema.org) is the
+                // book's advertised length and wins; the chapter-duration
+                // sum is only a fallback for pages that carry none.
+                totalDurationSeconds = MetadataAssertions.normalizeDurationSeconds(detail.totalDurationSeconds)
+                    ?: MetadataAssertions.normalizeDurationSeconds(detail.chapters.sumOf { it.durationSeconds })
+                    ?: 0L,
+                totalChapters = detail.chapters.size,
+                rating = detail.rating?.toFloat() ?: 0f
+            )
+            dao.insertAudiobooks(listOf(book))
+            // ADR-0009: the Works row and the Library Entry row are
+            // written ALONGSIDE the audiobooks row — series/identity reads
+            // join through the entry, so the card keeps its series and the
+            // merge key stays the dedup identity.
+            val workId = identity?.work?.id ?: if (mergeKey.isNotBlank()) {
+                (legacyWork ?: WorkEntity(
+                    id = if (identity == null) mergeKey else checkNotNull(admittedCreationWorkId),
+                    mergeKey = mergeKey,
+                    title = book.title,
+                    author = book.author,
+                    seriesTitle = detail.series?.name,
+                    seriesUrl = detail.series?.url,
+                    seriesIndex = detail.series?.position,
+                    coverImageUrl = book.coverImageUrl,
+                    addedAt = System.currentTimeMillis()
+                ).also { dao.upsertWork(it) }).id
+            } else {
+                bookId
+            }
+            dao.getWorkById(workId)?.let { work -> authorIndex.indexWorks(listOf(work), sourceId) }
+            // ADR-0063 — the anchor row links the book to its Work and
+            // carries the origin fact. A non-personal origin keeps it
+            // hidden from every personal surface (and out of «Імпортоване»);
+            // it is a relational anchor, not a library choice. It goes
+            // through the UPSERT, not `INSERT OR REPLACE`: when the Edition
+            // lookup missed but the bookId is the same (blank merge key, a
+            // changed narrator/language claim), the conflict arm preserves
+            // the listener's isFavorite/createdAt/download columns and never
+            // downgrades a personal origin.
+            dao.upsertLibraryEntry(
+                id = bookId,
+                workId = workId,
+                isFavorite = false,
+                createdAt = System.currentTimeMillis(),
+                downloadProgress = 0f,
+                downloadState = DownloadState.IDLE,
+                preserveExistingDownloads = true,
+                origin = origin.name
+            )
+            // ADR-0010: the Edition id carries the narrator — two
+            // narrations of the same Work keep distinct listening state.
+            // ADR-0004 + ADR-0007: the Edition, its logical Chapters and
+            // the Source's physical Tracks land through the shared write
+            // module; the page's own sourceId is the stored provenance.
+            val draftEdition = EditionEntity(
+                id = editionId,
+                workId = bookId,
+                narrator = book.narrator,
+                language = language,
+                totalChapters = detail.chapters.size,
+                totalDurationSeconds = book.totalDurationSeconds
+            )
+            editionSourceWriter.writeResolvedPage(
+                bookId = bookId,
+                bookTitle = book.title,
+                sourceId = sourceId,
+                pageUrl = detail.url,
+                detail = detail,
+                existingEdition = null,
+                draftEdition = draftEdition
+            )
+            // R1 (#508): the Edition's facet projection (language +
+            // narrator) lands in the same transactional write seam the
+            // shared lane and the catalogue use.
+            writeEditionFacet(
+                editionId = editionId,
+                domainWorkId = workId,
+                narrator = book.narrator,
+                language = language,
+                chapterCount = detail.chapters.size
+            )
+            // The JOINed projection carries the series/mergeKey the Works
+            // row now holds, so callers get a fully shaped row.
+            val imported = dao.getAudiobookById(bookId)?.toAudiobookEntity() ?: book
+            recordImportRating(workId, sourceId, detail)
+            CommittedSourceImport(imported, true, editionId, language,
+                if (writesEntry) mergeKey.takeIf { it.isNotBlank() } else null,
+                if (detail.series?.name?.isNotBlank() == true) workId.takeIf { it.isNotBlank() } else null)
+        } else {
+            // Merge: attach the new source (unless it is already known)
+            // and give it its physical tracks. The Edition's logical
+            // chapter list stays the FIRST source's list (ADR-0007); the
+            // shared write module only materializes it when the Edition
+            // still has none, never replacing an existing order (ADR-0056).
+            val known = dao.getSourcesForBookSync(existing.id).any { it.type == sourceId && it.url == detail.url }
+            val firstMaterialization = identity?.existingSource?.firstMaterialization == true
+            if (!known || firstMaterialization) {
+                val storedEdition = admittedEdition
+                    ?: if (identity == null) dao.getEditionForWork(existing.id) else null
+                val editionId = storedEdition?.id ?: EditionId.forBook(mergeKey, existing.id, existing.narrator, language)
+                // ADR-0004 + ADR-0007: attaching a physical Source goes
+                // through the SAME write module as the new-book import.
+                // An Edition that already owns logical Chapters keeps
+                // them (ADR-0056 manual order survives); one that does
+                // not materializes them from this page — the rule lives
+                // in the module, not at the door.
+                val written = editionSourceWriter.writeResolvedPage(
+                    bookId = existing.id,
+                    bookTitle = existing.title,
                     sourceId = sourceId,
                     pageUrl = detail.url,
                     detail = detail,
-                    existingEdition = null,
-                    draftEdition = draftEdition
-                )
-                // R1 (#508): the Edition's facet projection (language +
-                // narrator) lands in the same transactional write seam the
-                // shared lane and the catalogue use.
-                writeEditionFacet(
-                    editionId = editionId,
-                    domainWorkId = workId,
-                    narrator = book.narrator,
-                    language = language,
-                    chapterCount = detail.chapters.size
-                )
-                // An explicit import is a user action: any tombstone of the
-                // work is cleared so a re-added book never stays hidden. A
-                // technical materialization never resurrects a hidden Work
-                // into the mirror.
-                if (writesEntry) {
-                    dao.deleteTombstone(bookId)
-                }
-                // The JOINed projection carries the series/mergeKey the Works
-                // row now holds, so callers get a fully shaped row.
-                val imported = dao.getAudiobookById(bookId)?.toAudiobookEntity() ?: book
-                onNewBookImported?.invoke(imported)
-                imported
-            } else {
-                // Merge: attach the new source (unless it is already known)
-                // and give it its physical tracks. The Edition's logical
-                // chapter list stays the FIRST source's list (ADR-0007); the
-                // shared write module only materializes it when the Edition
-                // still has none, never replacing an existing order (ADR-0056).
-                val known = dao.getSourcesForBookSync(existing.id).any { it.url == detail.url }
-                if (!known) {
-                    val storedEdition = dao.getEditionForWork(existing.id)
-                    val editionId = storedEdition?.id ?: EditionId.forBook(mergeKey, existing.id, existing.narrator, language)
-                    // ADR-0004 + ADR-0007: attaching a physical Source goes
-                    // through the SAME write module as the new-book import.
-                    // An Edition that already owns logical Chapters keeps
-                    // them (ADR-0056 manual order survives); one that does
-                    // not materializes them from this page — the rule lives
-                    // in the module, not at the door.
-                    val written = editionSourceWriter.writeResolvedPage(
-                        bookId = existing.id,
-                        bookTitle = existing.title,
-                        sourceId = sourceId,
-                        pageUrl = detail.url,
-                        detail = detail,
-                        existingEdition = storedEdition,
-                        draftEdition = EditionEntity(
-                            id = editionId,
-                            workId = existing.id,
-                            narrator = existing.narrator,
-                            language = language,
-                            totalChapters = existing.totalChapters,
-                            totalDurationSeconds = existing.totalDurationSeconds
-                        )
+                    existingEdition = storedEdition,
+                    draftEdition = EditionEntity(
+                        id = editionId,
+                        workId = existing.id,
+                        narrator = existing.narrator,
+                        language = language,
+                        totalChapters = existing.totalChapters,
+                        totalDurationSeconds = existing.totalDurationSeconds
                     )
-                    if (storedEdition == null) {
-                        // R1 (#508): the Edition's facet projection — the
-                        // domain Work id anchors the facet row (the same
-                        // anchor the feed and the shared sync read).
-                        val domainWorkId = existing.workId
-                            ?.takeIf { it.isNotBlank() }
-                            ?: existing.id
-                        writeEditionFacet(
-                            editionId = editionId,
-                            domainWorkId = domainWorkId,
-                            narrator = existing.narrator,
-                            language = language,
-                            chapterCount = written.chapters.size
-                        )
-                    }
+                )
+                if (firstMaterialization) {
+                    // The shared Writer preserves exact existing Source/Edition IDs and addedAt.
+                    // Only empty logical/physical target graphs without listening anchors are admitted.
+                    val duration = MetadataAssertions.durationDelta(existing.totalDurationSeconds, detail.totalDurationSeconds)
+                    dao.replaceEdition(written.edition.copy(
+                        totalChapters = written.chapters.size, totalDurationSeconds = duration))
+                    dao.updateBookStats(existing.id, written.chapters.size, duration)
                 }
-                // ADR-0063 — the same rule on the merge path: a personal
-                // origin creates or upgrades the link; a technical one only
-                // adds the missing anchor so the Works row stays reachable,
-                // and never overwrites a personal origin.
-                val existingEntry = dao.libraryEntryById(existing.id)
-                val workId = existing.workId?.takeIf { it.isNotBlank() } ?: existing.id
-                when {
-                    existingEntry == null -> dao.insertLibraryEntryWithOrigin(
-                        id = existing.id,
-                        workId = workId,
-                        origin = origin.name,
-                        createdAt = System.currentTimeMillis()
+                if (storedEdition == null) {
+                    // R1 (#508): the Edition's facet projection — the
+                    // domain Work id anchors the facet row (the same
+                    // anchor the feed and the shared sync read).
+                    val domainWorkId = existing.workId
+                        ?.takeIf { it.isNotBlank() }
+                        ?: existing.id
+                    writeEditionFacet(
+                        editionId = editionId,
+                        domainWorkId = domainWorkId,
+                        narrator = existing.narrator,
+                        language = language,
+                        chapterCount = written.chapters.size
                     )
-                    writesEntry && existingEntry.origin != origin.name ->
-                        dao.updateLibraryEntryOrigin(existing.id, origin.name)
                 }
-                if (writesEntry) {
-                    dao.deleteTombstone(existing.id)
-                    // #581 W0.3 — an explicit re-add over a tombstone is a
-                    // user action: the relationship row flips back to `entry`.
-                    val reAddKey = existing.mergeKey
-                    if (!reAddKey.isNullOrBlank()) {
-                        runCatching {
-                            workRelationshipsSync?.pushEntry(reAddKey, existing.title, existing.author)
-                        }
-                    }
-                }
-                existing.toAudiobookEntity()
             }
+            // ADR-0063 — the same rule on the merge path: a personal
+            // origin creates or upgrades the link; a technical one only
+            // adds the missing anchor so the Works row stays reachable,
+            // and never overwrites a personal origin.
+            val existingEntry = dao.libraryEntryById(existing.id)
+            val workId = identity?.work?.id ?: existing.workId?.takeIf { it.isNotBlank() } ?: existing.id
+            when {
+                existingEntry == null -> dao.insertLibraryEntryWithOrigin(
+                    id = existing.id,
+                    workId = workId,
+                    origin = origin.name,
+                    createdAt = System.currentTimeMillis()
+                )
+                writesEntry && existingEntry.origin != origin.name ->
+                    dao.updateLibraryEntryOrigin(existing.id, origin.name)
+            }
+            recordImportRating(workId, sourceId, detail)
+            val refreshed = dao.getAudiobookById(existing.id)?.toAudiobookEntity()
+                ?: throw WorkIdentityWriteRefused(IdentityWriteRefusal.DanglingSource)
+            CommittedSourceImport(refreshed, false, editionId, language,
+                if (writesEntry) existing.mergeKey?.takeIf { it.isNotBlank() } else null, null)
         }
+    }
+
+    /** Keep source/raw rating provenance while joining the locally resolved canonical Work. */
+    private suspend fun recordImportRating(workId: String, sourceId: String, detail: SourceBookDetail) {
+        if (popularityAssertionStore == null) return
+        val key = dao.getWorkById(workId)?.mergeKey.orEmpty()
+        val row = PopularityAssertionPolicy.ratingRecord(key, sourceId, detail.rating, System.currentTimeMillis()) ?: return
+        try {
+            dao.upsertPopularityAssertions(listOf(row))
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Source ratings remain best-effort; no observation precedes identity/tombstone validation.
+        }
+    }
+
+    /** A publication error cannot roll back the committed rows or trigger an alternate import. */
+    private suspend fun publishSourceImport(
+        committed: CommittedSourceImport, sourceId: String, detail: SourceBookDetail,
+        writeBackProfile: Boolean, onNewBookImported: ((AudiobookEntity) -> Unit)?,
+    ) {
+        if (writeBackProfile && detail.chapters.isNotEmpty()) publishImportBestEffort {
+            profileStore?.putProfile(sourceId, committed.profileEditionId,
+                BookProfileMapping.fromDetail(detail.copy(language = committed.language)),
+                ProfileProvenance(ProfileProvenance.SOURCE_RESOLVED, System.currentTimeMillis()))
+        }
+        committed.relationshipKey?.let { key -> publishImportBestEffort {
+            workRelationshipsSync?.pushEntry(key, committed.book.title, committed.book.author)
+        } }
+        committed.importedSeriesWorkId?.let { id -> publishImportBestEffort { onWorkImported?.invoke(id) } }
+        if (committed.created) publishImportBestEffort { onNewBookImported?.invoke(committed.book) }
+    }
+
+    private suspend fun publishImportBestEffort(action: suspend () -> Unit) {
+        currentCoroutineContext().ensureActive()
+        try {
+            action()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Best-effort post-commit publication never means the row import failed.
+        }
+        currentCoroutineContext().ensureActive()
+    }
 
     /**
      * Spec-14 T5 — the book id for an import door: the source's adapter owns
@@ -531,62 +622,93 @@ class LibraryImport(
         onNewBookImported: ((AudiobookEntity) -> Unit)? = null
     ): AudiobookEntity? =
         withContext(Dispatchers.IO) {
-            // A scam source is never fetched, never profiled, never imported.
-            if (SourceRegistry.isScam(sourceId)) return@withContext null
-            val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
-                ?: return@withContext null
-            val store = profileStore
-            // Read-skip: the shared key is the Edition id, which derives from
-            // title|author|narrator — so only a caller that knows the Work
-            // identity can ask the shared base at all. The entry is fetched
-            // ONCE and serves both the fresh check and the stale fail-open.
-            val editionId = known?.let { editionIdOf(sourceId, it) }
-            val entry = when {
-                sourceId == "4read" && known != null && verifiedProfileReader != null -> when (
-                    val verified = verifiedProfileReader.read(sourceId, editionId!!)
-                ) {
-                    is VerifiedProfileReadOutcome.Ready -> verified.entry
-                    // A stale, blocked or missing profile must lead to the
-                    // listener-controlled browser path, not a hidden 4read
-                    // transport attempt from this import door.
-                    VerifiedProfileReadOutcome.BrowserRequired,
-                    VerifiedProfileReadOutcome.Missing -> return@withContext null
-                }
-                known != null && store != null ->
-                    runCatching { store.getProfileEntry(sourceId, editionId!!) }.getOrNull()
-                else -> null
+            if (SourceRegistry.isScam(sourceId) || sourceAdapters.none { it.sourceId == sourceId }) {
+                return@withContext null
             }
-            if (entry != null && ProfileFreshness.isFresh(entry.resolvedAt, System.currentTimeMillis()) &&
-                entry.profile.chapters.isNotEmpty()
-            ) {
-                // A cache hit is imported WITHOUT the page — and never
-                // re-written back (no resolution happened; a re-write would
-                // roll the freshness forward and burn the write quota).
-                val imported = runCatching {
-                    importBookFromSource(sourceId, detailFromProfile(known!!, entry.profile, url), writeBackProfile = false, origin = origin, onNewBookImported = onNewBookImported)
-                }.getOrNull()
-                if (imported != null) return@withContext imported
-            }
-            try {
-                val detail = adapter.fetchBookPage(url)
-                if (detail.chapters.isEmpty()) return@withContext null
-                // The card's cover survives a page that carries none (see
-                // KnownBookIdentity.coverImageUrl).
-                val withCover = if (detail.coverImageUrl == null && known?.coverImageUrl != null) {
-                    detail.copy(coverImageUrl = known.coverImageUrl)
-                } else detail
-                importBookFromSource(sourceId, withCover, origin = origin, onNewBookImported = onNewBookImported)
-            } catch (e: Exception) {
-                // Fail-open: the re-fetch failed (source down / Cloudflare) —
-                // serve the STALE profile when one exists, never nothing, and
-                // never re-write it (the page was not resolved).
-                if (entry != null && entry.profile.chapters.isNotEmpty()) {
-                    runCatching {
-                        importBookFromSource(sourceId, detailFromProfile(known!!, entry.profile, url), writeBackProfile = false, origin = origin, onNewBookImported = onNewBookImported)
-                    }.getOrNull()
-                } else null
+            val access = workIdentityAccess
+            if (access == null) importFromSourceUrlAdmitted(sourceId, url, known, origin, onNewBookImported, null)
+            else access.withKnownSourceImport(sourceId, url) { admission ->
+                importFromSourceUrlAdmitted(sourceId, url, known, origin, onNewBookImported, admission)
             }
         }
+
+    private suspend fun importFromSourceUrlAdmitted(
+        sourceId: String, url: String, known: KnownBookIdentity?,
+        origin: com.slukhayka.audiobooks.data.entries.LibraryEntryOrigin,
+        onNewBookImported: ((AudiobookEntity) -> Unit)?, admission: WorkIdentityAccess.SourceImportAdmission?,
+    ): AudiobookEntity? = run sourceImport@ {
+
+        // A scam source is never fetched, never profiled, never imported.
+        if (SourceRegistry.isScam(sourceId)) return@sourceImport null
+        val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
+            ?: return@sourceImport null
+        val store = profileStore
+        // Read-skip: the shared key is the Edition id, which derives from
+        // title|author|narrator — so only a caller that knows the Work
+        // identity can ask the shared base at all. The entry is fetched
+        // ONCE and serves both the fresh check and the stale fail-open.
+        val editionId = known?.let { editionIdOf(sourceId, it) }
+        val entry = when {
+            sourceId == "4read" && known != null && verifiedProfileReader != null -> when (
+                val verified = verifiedProfileReader.read(sourceId, editionId!!)
+            ) {
+                is VerifiedProfileReadOutcome.Ready -> verified.entry
+                // A stale, blocked or missing profile must lead to the
+                // listener-controlled browser path, not a hidden 4read
+                // transport attempt from this import door.
+                VerifiedProfileReadOutcome.BrowserRequired,
+                VerifiedProfileReadOutcome.Missing -> return@sourceImport null
+            }
+            known != null && store != null ->
+                runCatching { store.getProfileEntry(sourceId, editionId!!) }.getOrElse { failure ->
+                    rethrowImportCancellationOrIdentityRefusal(failure)
+                    null
+                }
+            else -> null
+        }
+        currentCoroutineContext().ensureActive()
+        if (entry != null && ProfileFreshness.isFresh(entry.resolvedAt, System.currentTimeMillis()) &&
+            entry.profile.chapters.isNotEmpty()
+        ) {
+            // A cache hit is imported WITHOUT the page — and never
+            // re-written back (no resolution happened; a re-write would
+            // roll the freshness forward and burn the write quota).
+            val imported = runCatching {
+                importBookFromSourceAdmitted(sourceId, detailFromProfile(known!!, entry.profile, url), false, origin, onNewBookImported, admission)
+            }.getOrElse { failure ->
+                rethrowImportCancellationOrIdentityRefusal(failure)
+                null
+            }
+            if (imported != null) return@sourceImport imported
+        }
+        try {
+            val detail = adapter.fetchBookPage(url)
+            if (detail.chapters.isEmpty()) return@sourceImport null
+            // The card's cover survives a page that carries none (see
+            // KnownBookIdentity.coverImageUrl).
+            val withCover = if (detail.coverImageUrl == null && known?.coverImageUrl != null) {
+                detail.copy(coverImageUrl = known.coverImageUrl)
+            } else detail
+            importBookFromSourceAdmitted(sourceId, withCover, true, origin, onNewBookImported, admission)
+        } catch (e: Exception) {
+            rethrowImportCancellationOrIdentityRefusal(e)
+            // Fail-open: the re-fetch failed (source down / Cloudflare) —
+            // serve the STALE profile when one exists, never nothing, and
+            // never re-write it (the page was not resolved).
+            if (entry != null && entry.profile.chapters.isNotEmpty()) {
+                runCatching {
+                    importBookFromSourceAdmitted(sourceId, detailFromProfile(known!!, entry.profile, url), false, origin, onNewBookImported, admission)
+                }.getOrElse { failure ->
+                    rethrowImportCancellationOrIdentityRefusal(failure)
+                    null
+                }
+            } else null
+        }
+    }
+
+    private fun rethrowImportCancellationOrIdentityRefusal(failure: Throwable) {
+        if (failure is CancellationException || failure is WorkIdentityWriteRefused) throw failure
+    }
 
     /**
      * #1487 (slice 2) — persists a PUBLIC page of a host no source claims.
@@ -632,9 +754,10 @@ class LibraryImport(
      * (a Missing/stale profile is exactly why the page is tried) and issues
      * a single [SourceAdapter.fetchBookPage]: challenge/403/empty playlist →
      * null and the caller opens the explicit browser. A resolved non-empty
-     * page imports through [importBookFromSource] — the same MergeKey/upsert
-     * door (idempotent, contributes its profile back). Never a hidden
-     * WebView; never a background crawl (one call per tap).
+     * page uses [importBookFromSourceAdmitted] under the same pre-fetch
+     * identity admission, including profile publication. Cancellation and
+     * identity refusal propagate; ordinary fetch/import failures return null.
+     * Never a hidden WebView; never a background crawl (one call per tap).
      */
     suspend fun importBrowserSourceDirectPage(
         sourceId: String,
@@ -649,18 +772,34 @@ class LibraryImport(
             if (SourceRegistry.isScam(sourceId)) return@withContext null
             val adapter = sourceAdapters.firstOrNull { it.sourceId == sourceId }
                 ?: return@withContext null
-            val detail = try {
-                adapter.fetchBookPage(url)
-            } catch (_: Exception) {
-                return@withContext null
+            suspend fun importAdmitted(admission: WorkIdentityAccess.SourceImportAdmission?): AudiobookEntity? {
+                val detail = try {
+                    adapter.fetchBookPage(url)
+                } catch (failure: Exception) {
+                    rethrowImportCancellationOrIdentityRefusal(failure)
+                    return null
+                }
+                if (detail.chapters.isEmpty()) return null
+                // The card's cover survives a page that carries none (see
+                // KnownBookIdentity.coverImageUrl).
+                val withCover = if (detail.coverImageUrl == null && known?.coverImageUrl != null) {
+                    detail.copy(coverImageUrl = known.coverImageUrl)
+                } else detail
+                return runCatching {
+                    importBookFromSourceAdmitted(sourceId, withCover, true, origin, onNewBookImported, admission)
+                }.getOrElse { failure ->
+                    rethrowImportCancellationOrIdentityRefusal(failure)
+                    null
+                }
             }
-            if (detail.chapters.isEmpty()) return@withContext null
-            // The card's cover survives a page that carries none (see
-            // KnownBookIdentity.coverImageUrl).
-            val withCover = if (detail.coverImageUrl == null && known?.coverImageUrl != null) {
-                detail.copy(coverImageUrl = known.coverImageUrl)
-            } else detail
-            runCatching { importBookFromSource(sourceId, withCover, origin = origin, onNewBookImported = onNewBookImported) }.getOrNull()
+            try {
+                val access = workIdentityAccess
+                if (access == null) importAdmitted(null)
+                else access.withKnownSourceImport(sourceId, url) { admission -> importAdmitted(admission) }
+            } catch (failure: Exception) {
+                rethrowImportCancellationOrIdentityRefusal(failure)
+                null
+            }
         }
 
     /**
@@ -1610,21 +1749,78 @@ class LibraryImport(
         SubmittedImport(SubmittedImportResult.IMPORTED, bookId, null)
     }
 
-    /**
-     * Spec-14 T1 — catalogue upsert on import (and on catalogue sync). Inserts
-     * or updates a catalogue book row; a known row is enriched with real
-     * duration/series data this source carries, never clobbered with 0.
-     */
-    /**
-     * ADR-0005 — the catalog write path enforces tombstones at the
-     * persistence layer: a tombstoned Work is a no-op here. The guard is an
-     * insert-unless-tombstoned statement ([AudiobookDao.insertCatalogBookIfNotTombstoned])
-     * plus a single-row [AudiobookDao.isBookTombstoned] check for an existing
-     * row — no call site consults a tombstone set anymore. Returns null for a
-     * tombstoned Work (nothing landed), the stored row otherwise. Explicit
-     * imports remain the resurrection door (they clear the marker, unchanged).
-     */
+    /** Catalog posters commit metadata atomically and return null when a deletion marker blocks them. */
     internal suspend fun upsertCatalogBook(book: com.slukhayka.audiobooks.data.catalog.CatalogBook): AudiobookEntity? {
+        return try {
+            val access = workIdentityAccess
+            if (access != null) {
+                access.writeCatalogPoster(MergeKey.keyFor(book.title, book.author), sourceIdForUrl(book.url), book.url, book.id) { target ->
+                    upsertCatalogBookRows(book, target)
+                }
+            } else {
+                var result: AudiobookEntity? = null
+                dao.runCatalogRowTransaction {
+                    if (dao.isBookTombstoned(book.id)) throw WorkIdentityWriteRefused(IdentityWriteRefusal.Tombstoned)
+                    val target = legacyCatalogPosterTarget(book)
+                    val workId = target.entryWorkId
+                    if (dao.isBookTombstoned(workId)) throw WorkIdentityWriteRefused(IdentityWriteRefusal.Tombstoned)
+                    requireLegacyPosterOwnership(book, target)
+                    writeBatchRunner { result = upsertCatalogBookRows(book, target) }
+                    currentCoroutineContext().ensureActive()
+                }
+                result
+            }
+        } catch (failure: WorkIdentityWriteRefused) {
+            if (failure.refusal != IdentityWriteRefusal.Tombstoned) throw failure
+            null
+        }
+    }
+
+    /** The nullable-access compatibility branch has raw ownership checks, not alias resolution. */
+    private suspend fun legacyCatalogPosterTarget(
+        book: com.slukhayka.audiobooks.data.catalog.CatalogBook,
+    ): WorkIdentityAccess.CatalogPosterTarget {
+        val mergeKey = MergeKey.keyFor(book.title, book.author)
+        if (mergeKey.isBlank()) {
+            if (dao.getWorkById(book.id) != null) throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+            return WorkIdentityAccess.CatalogPosterTarget.BookOnly(book.id)
+        }
+        dao.findWorkByMergeKey(mergeKey)?.let { return WorkIdentityAccess.CatalogPosterTarget.ExistingWork(it) }
+        if (dao.getWorkById(mergeKey) != null) throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+        val target = WorkIdentityAccess.CatalogPosterTarget.CreateWork(mergeKey, mergeKey)
+        val stored = dao.getAudiobookById(book.id)
+        val entry = dao.libraryEntryById(book.id)
+        val ownEntry = target.ownEnrollmentEntry(book.id, stored, entry, book.url)
+        requireWorkCreationEntryReferences(dao, mergeKey, ownEntry)
+        return target
+    }
+
+    private suspend fun requireLegacyPosterOwnership(
+        book: com.slukhayka.audiobooks.data.catalog.CatalogBook,
+        target: WorkIdentityAccess.CatalogPosterTarget,
+    ) {
+        val stored = dao.getAudiobookById(book.id)
+        val entry = dao.libraryEntryById(book.id)
+        if (stored == null && entry == null) return
+        if (stored != null && entry == null) {
+            target.requireMetadataOnlyRepair(dao, stored, MergeKey.keyFor(book.title, book.author), book.url)
+            return
+        }
+        if (stored != null && entry != null &&
+            target.matchesLegacySelfAnchor(stored, entry, MergeKey.keyFor(book.title, book.author)) &&
+            dao.getWorkById(book.id) == null) {
+            target.requireRepairSourceUrl(stored, book.url)
+            return
+        }
+        if (entry == null || target !is WorkIdentityAccess.CatalogPosterTarget.ExistingWork || entry.workId != target.work.id) {
+            throw WorkIdentityWriteRefused(IdentityWriteRefusal.ConflictingSource)
+        }
+    }
+
+    private suspend fun upsertCatalogBookRows(
+        book: com.slukhayka.audiobooks.data.catalog.CatalogBook,
+        target: WorkIdentityAccess.CatalogPosterTarget,
+    ): AudiobookEntity? {
         val existing = dao.getAudiobookById(book.id)
         if (existing != null) {
             // Even an existing row is not enriched while its Work is
@@ -1658,7 +1854,7 @@ class LibraryImport(
             // ADR-0009: make sure the Works row and the Library Entry row
             // exist before the series delta — series now persists on the
             // Work, and reads join through the entry.
-            ensureWorkAndEntry(book, book.id)
+            ensureWorkAndEntry(book, book.id, target)
             // Series applies only when its URL changed (the membership signal).
             val series = MetadataAssertions.seriesDelta(
                 existingSeriesUrl = updated.seriesUrl,
@@ -1674,9 +1870,7 @@ class LibraryImport(
                     seriesIndex = series.index
                 )
             }
-            // Return the known updated shape instead of re-querying: the
-            // row may be deleted concurrently and `!!` on a re-query would
-            // crash the whole catalogue sync.
+            // Return the enriched shape, including this pass's series delta.
             return updated.toAudiobookEntity()
         }
         // ADR-0009: the audiobooks row carries only the persisted metadata —
@@ -1740,7 +1934,7 @@ class LibraryImport(
         // Entry rows are written alongside (ADR-0009), so a tombstoned Work
         // gains nothing — not even a browse-row that could resurrect it.
         return if (dao.hasAudiobookRow(book.id)) {
-            ensureWorkAndEntry(book, book.id)
+            ensureWorkAndEntry(book, book.id, target)
             // The JOINed projection carries the series the Works row now holds
             // (and the entry's createdAt/favorite), so callers get a fully
             // shaped row without a second read by them.
@@ -1750,23 +1944,17 @@ class LibraryImport(
         }
     }
 
-    /**
-     * ADR-0009 — links a library row to its Work and writes its Library Entry
-     * alongside. The Works row is found-or-created by the same identity the
-     * browse layer uses (normalized title|author, narrator '' for the
-     * catalogue), so one Work per identity and the entry anchors to it; a
-     * blank identity anchors the entry to the book itself (no Works row). The
-     * Work also gets a work_source for the book's own URL under the
-     * deterministic (work, source, url) id [SourceCatalog.writeWorkEdition]
-     * uses, so a later crawl no-ops on the same row and the merged feed card
-     * can open the Work. Idempotent by construction.
-     */
-    private suspend fun ensureWorkAndEntry(book: com.slukhayka.audiobooks.data.catalog.CatalogBook, bookId: String) {
+    /** Links the physical row to its admitted Work, or retains a blank-key Book-only anchor. */
+    private suspend fun ensureWorkAndEntry(
+        book: com.slukhayka.audiobooks.data.catalog.CatalogBook, bookId: String,
+        target: WorkIdentityAccess.CatalogPosterTarget,
+    ) {
         val mergeKey = MergeKey.keyFor(book.title, book.author)
-        val work = if (mergeKey.isNotBlank()) {
-            dao.findWorkByMergeKey(mergeKey) ?: WorkEntity(
-                id = mergeKey,
-                mergeKey = mergeKey,
+        val work = when (target) {
+            is WorkIdentityAccess.CatalogPosterTarget.ExistingWork -> target.work
+            is WorkIdentityAccess.CatalogPosterTarget.CreateWork -> WorkEntity(
+                id = target.id,
+                mergeKey = target.mergeKey,
                 // Spec-24 T1: the Work row stores the scrubbed title too.
                 title = MetadataAssertions.normalizeTitle(book.title, book.author),
                 author = MetadataAssertions.normalizeClaimedText(book.author).orEmpty(),
@@ -1776,11 +1964,10 @@ class LibraryImport(
                 coverImageUrl = book.coverImageUrl,
                 addedAt = System.currentTimeMillis()
             ).also { dao.upsertWork(it) }
-        } else {
-            null
+            is WorkIdentityAccess.CatalogPosterTarget.BookOnly -> null
         }
-        val workId = work?.id ?: bookId
-        dao.getWorkById(workId)?.let { work ->
+        val workId = target.entryWorkId
+        work?.let { work ->
             authorIndex.indexWorks(
                 listOf(work),
                 sourceId = book.url.takeIf(String::isNotBlank)?.let(::sourceIdForUrl) ?: "catalog-union"

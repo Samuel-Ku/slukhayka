@@ -115,7 +115,7 @@ class LegacyLibraryRestoreMigrationTest {
         AudiobookDatabase.MIGRATION_52_53,
         AudiobookDatabase.MIGRATION_53_54,
         AudiobookDatabase.MIGRATION_54_55,
-        AudiobookDatabase.MIGRATION_55_56,
+        AudiobookDatabase.MIGRATION_55_56, AudiobookDatabase.MIGRATION_56_57, AudiobookDatabase.MIGRATION_57_58,
     )
 
     /** Counts exactly what the library screen counts — the same predicate the DAO uses. */

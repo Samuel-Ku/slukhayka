@@ -346,6 +346,7 @@
     <string name="people_new_notification_some_people">your authors</string>
     <string name="people_new_notification_action">View</string>
     <string name="people_new_notification_channel_name">New arrivals from people</string>
+    <string name="people_new_notification_channel_description">New arrivals from people you follow.</string>
     <string name="a11y_people_new_mark_seen">Mark new arrivals as seen</string>
     <string name="home_search_no_results">Nothing found</string>
     <string name="home_search_no_results_hint">Try a different query or filter.</string>

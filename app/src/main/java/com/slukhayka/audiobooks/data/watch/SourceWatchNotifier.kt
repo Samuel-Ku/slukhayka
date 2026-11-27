@@ -9,6 +9,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.NotificationIntents
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.imports.KnownBookIdentity
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
@@ -28,8 +29,28 @@ import kotlinx.coroutines.flow.first
  */
 object SourceWatchNotifier {
 
-    private const val CHANNEL_ID = "source_watch"
+    internal const val CHANNEL_ID = "source_watch"
     private const val NOTIFICATION_ID = 404
+
+    /**
+     * #1811 — creating the same id again UPDATES the locale-visible name and
+     * description on an existing install; importance is left untouched.
+     */
+    internal fun ensureChannel(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = context.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_ID,
+                context.getString(R.string.source_watch_notification_channel_name),
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = context.getString(
+                    R.string.source_watch_notification_channel_description
+                )
+            }
+        )
+    }
 
     /**
      * The zero-request scan a caller fires on a refresh that already
@@ -109,12 +130,7 @@ object SourceWatchNotifier {
         // Channels exist from API 26 only; API 24–25 posts the same
         // notification the old way, without one.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = context.getSystemService(NotificationManager::class.java)
-            if (manager.getNotificationChannel(CHANNEL_ID) == null) {
-                manager.createNotificationChannel(NotificationChannel(
-                    CHANNEL_ID, "Чекає на джерело", NotificationManager.IMPORTANCE_DEFAULT
-                ))
-            }
+            ensureChannel(context)
         }
 
         val worksById = worksById(app)

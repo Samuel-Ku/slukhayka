@@ -373,6 +373,7 @@
     <string name="people_new_notification_some_people">ваших авторів</string>
     <string name="people_new_notification_action">Переглянути</string>
     <string name="people_new_notification_channel_name">Новинки від людей</string>
+    <string name="people_new_notification_channel_description">Сповіщення про новинки від людей, за якими ви стежите.</string>
     <string name="a11y_people_new_mark_seen">Позначити новинки переглянутими</string>
     <string name="home_search_no_results">Нічого не знайдено</string>
     <string name="home_search_no_results_hint">Спробуйте змінити запит або фільтр.</string>

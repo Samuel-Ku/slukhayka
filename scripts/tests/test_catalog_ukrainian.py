@@ -44,15 +44,22 @@ class UkrainianExportTest(unittest.TestCase):
             with self.assertRaises(export.CatalogSecurityError):
                 export.sample_page("https://chitaka.com.ua/knigi/book", export.parse_chitaka)
 
-    def test_chytaylo_reads_the_book_jsonld(self):
-        html = ('<script type="application/ld+json">'
+    def test_chytaylo_accepts_only_declared_audiobooks(self):
+        audio = ('<script type="application/ld+json">'
+                 '{"@type":"Book","name":"48 законів влади","author":{"@type":"Person",'
+                 '"name":"Роберт Грін"},"bookFormat":["AudiobookFormat"],"description":"Опис"}</script>')
+        text = ('<script type="application/ld+json">'
                 '{"@type":"Book","name":"48 законів влади","author":{"@type":"Person",'
-                '"name":"Роберт Грін"},"description":"Опис"}</script>')
-        self.assertEqual(("48 законів влади", "Роберт Грін", "Опис"), export.parse_chytaylo(html))
+                '"name":"Роберт Грін"},"bookFormat":["EBook"]}</script>')
+        self.assertEqual(("48 законів влади", "Роберт Грін", "Опис"), export.parse_chytaylo(audio))
+        self.assertEqual(("", "", ""), export.parse_chytaylo(text))
 
-    def test_knigionline_and_sluhay_words(self):
-        html = '<meta property="og:title" content="Аудіокнига «Природа» Ольга Кобилянська">'
+    def test_knigionline_requires_the_audio_player_and_reads_words(self):
+        html = ('<div data-tracks-url="/playlist.json"></div>'
+                '<meta property="og:title" content="Аудіокнига «Природа» Ольга Кобилянська">')
+        text = '<meta property="og:title" content="Аудіокнига «Природа» Ольга Кобилянська">'
         self.assertEqual(("«Природа»", "Ольга Кобилянська"), export.parse_knigi(html)[:2])
+        self.assertEqual(("", "", ""), export.parse_knigi(text))
         self.assertEqual(["Ольга Кобилянська"], export.words("['Ольга Кобилянська']"))
         self.assertEqual(["A", "B"], export.words(["A", "B"]))
 

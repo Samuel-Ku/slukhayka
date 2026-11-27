@@ -144,11 +144,23 @@ def parse_chitaka(html_text):
 def parse_chytaylo(html_text):
     for document in jsonld(html_text):
         if isinstance(document, dict) and document.get("@type") == "Book":
+            formats = document.get("bookFormat")
+            if isinstance(formats, str):
+                formats = [formats]
+            # Chytaylo carries both audiobooks and ebooks on the same path;
+            # only a declared AudiobookFormat is admissible.
+            if not any(str(value).rstrip("/").rsplit("/", 1)[-1] == "AudiobookFormat"
+                       for value in (formats or [])):
+                continue
             return name_of(document.get("name")), name_of(document.get("author")), document.get("description", "")
     return "", "", ""
 
 
 def parse_knigi(html_text):
+    # The adapter's audio boundary is the AudioIgniter data-tracks-url block;
+    # a page without it is a text book, not an audiobook.
+    if not re.search(r'data-tracks-url="[^"]+"', html_text):
+        return "", "", ""
     raw = og(html_text, "og:title").removeprefix("Аудіокнига ").strip()
     close = raw.find("»")
     if close < 0:

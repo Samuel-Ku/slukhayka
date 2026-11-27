@@ -31,7 +31,10 @@ def inspect_session(nodes, title):
 def send(ui, title, message):
     if not message or not message.isascii() or any(ord(c) < 32 or ord(c) > 126 for c in message):
         raise DeliveryError('this transport accepts printable ASCII only')
-    composer = inspect_session(ui.nodes(), title)
+    initial = ui.nodes()
+    composer = inspect_session(initial, title)
+    previous_posts = sum(n.get('text') == message and n.get('resource-id') != 'composer-input'
+                         for n in initial)
     if composer.get('text'):
         raise DeliveryError('composer contains a draft; preserved')
     ui.tap(composer)
@@ -46,8 +49,8 @@ def send(ui, title, message):
     for _ in range(5):
         nodes = ui.nodes()
         composer = inspect_session(nodes, title)
-        posted = any(n.get('text') == message and n.get('resource-id') != 'composer-input'
-                     for n in nodes)
+        posted = sum(n.get('text') == message and n.get('resource-id') != 'composer-input'
+                     for n in nodes) > previous_posts
         if posted and not composer.get('text'):
             return {'delivery': 'visible-in-history', 'execution': 'unconfirmed', 'sessionTitle': title}
         time.sleep(.4)

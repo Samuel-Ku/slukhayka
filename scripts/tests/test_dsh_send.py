@@ -67,3 +67,10 @@ class DeliveryTest(unittest.TestCase):
         with self.assertRaises(DeliveryError):
             send(ui, 'queue', 'Привіт')
         self.assertFalse(ui.taps)
+
+    def test_older_identical_message_is_not_a_delivery_receipt(self):
+        ui = Ui([snapshot(posted='hello'), snapshot('hello', posted='hello')]
+                + [snapshot(posted='hello')] * 5)
+        with patch('dsh_send.time.sleep'), self.assertRaises(DeliveryError):
+            send(ui, 'queue', 'hello')
+        self.assertEqual(2, len(ui.taps))

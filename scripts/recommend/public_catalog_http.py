@@ -38,10 +38,17 @@ def validate_url(url):
     return parsed.hostname
 
 
+def require_direct_transport(host):
+    proxies = urllib.request.getproxies()
+    if (proxies.get("https") or proxies.get("all")) and not urllib.request.proxy_bypass(host):
+        raise CatalogSecurityError("configured proxy needs an explicitly validated catalogue transport; it is not bypassed")
+
+
 def public_connection(address, timeout=socket._GLOBAL_DEFAULT_TIMEOUT, source_address=None):
     host, port = address
     if host not in ALLOWED_HOSTS or port != 443:
         raise CatalogSecurityError("connection destination is not an approved source")
+    require_direct_transport(host)
     addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
     if not addresses or any(not ipaddress.ip_address(row[4][0]).is_global for row in addresses):
         raise CatalogSecurityError("catalog host resolves to a non-public address")
@@ -82,10 +89,7 @@ class PublicRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 def fetch_text(url, timeout=25, headers=None):
-    host = validate_url(url)
-    proxies = urllib.request.getproxies()
-    if (proxies.get("https") or proxies.get("all")) and not urllib.request.proxy_bypass(host):
-        raise CatalogSecurityError("configured proxy needs an explicitly validated catalogue transport; it is not bypassed")
+    require_direct_transport(validate_url(url))
     request_headers = {"User-Agent": "slukhayka-catalog/1", "Accept-Encoding": "identity"}
     request_headers.update(headers or {})
     request = urllib.request.Request(url, headers=request_headers)

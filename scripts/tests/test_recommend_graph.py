@@ -24,6 +24,15 @@ class CatalogTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     graph.read_catalog(path)
 
+    def test_work_identity_matches_canonical_whitespace_and_title_boundaries(self):
+        import sys
+        sys.path.insert(0, str(Path(__file__).parents[1] / "recommend"))
+        from merge_key import merge_key
+        fixture = Path(__file__).parents[2] / "app/src/test/resources/recommend/merge-key-boundaries.json"
+        for row in json.loads(fixture.read_text())["entries"]:
+            with self.subTest(title=row["title"], author=row["author"]):
+                self.assertEqual(row["workKey"], merge_key(row["title"], row["author"]))
+
     def test_atomic_write_replaces_whole_file(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "graph.json"

@@ -12,6 +12,16 @@ import org.junit.Test
  * diacritics) and checks every key against the app's real implementation.
  */
 class LibriVoxKeySampleTest {
+    @Test fun `python port boundary fixture agrees with actual Android Work identity`() {
+        val text = javaClass.getResource("/recommend/merge-key-boundaries.json")!!.readText()
+        val document = MiniJson.parse(text) as Map<*, *>
+        val rows = document["entries"] as List<*>
+        for (value in rows) {
+            val row = value as Map<*, *>
+            assertEquals(row.toString(), row["workKey"], MergeKey.keyFor(row["title"] as String, row["author"] as String))
+        }
+    }
+
     @Test fun `python key port matches the app on LibriVox titles`() {
         val text = javaClass.getResource("/recommend/librivox-key-sample.json")?.readText()
             ?: error("missing LibriVox sample")

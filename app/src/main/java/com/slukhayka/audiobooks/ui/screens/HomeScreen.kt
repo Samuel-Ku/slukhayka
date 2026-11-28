@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.Image
@@ -161,7 +162,7 @@ fun HomeScreen(
     // Spec-19 Track A: the on-device «Рекомендовано для вас» row — semantic
     // similarity of catalogue descriptions to favourite/completed/recent
     // signals, computed locally, with a per-card reason chip.
-    val recommendedBooks by viewModel.recommendedBooks.collectAsState()
+    val recommendedBooks by viewModel.recommendedBooks.collectAsStateWithLifecycle()
     val recommendationsReady by viewModel.recommendationsReady.collectAsState()
     val recommendationSettings by viewModel.recommendationSettings.collectAsState()
     var showRecommendationDisclosure by rememberSaveable { mutableStateOf(false) }
@@ -279,7 +280,7 @@ fun HomeScreen(
     // «Ваші цикли» tiers are projected in the ViewModel on Dispatchers.Default
     // (#1743); the screen only draws the already-projected lists.
     val durationBooks by viewModel.homeDurationBooks.collectAsState()
-    val cycleShelves by viewModel.homeCycleShelves.collectAsState()
+    val cycleShelves by viewModel.homeCycleShelves.collectAsStateWithLifecycle()
 
     // IA §4 «Огляд» / expressive «Основні екрани»: the search is permanently
     // visible — finding new content belongs to this tab — so there is no

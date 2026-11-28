@@ -54,7 +54,7 @@ def decode_entities(value):
 
 def normalize(value):
     value = value.strip().lower()
-    value = "".join(ch for ch in value if ch.isspace() or ch.isalnum())
+    value = "".join(ch for ch in value if ch == " " or ch.isalnum())
     return WHITESPACE.sub(" ", value).strip()
 
 
@@ -62,6 +62,9 @@ def normalize_title(raw):
     original = decode_entities(raw.strip())
     title = "".join(ch for ch in original if unicodedata.category(ch) != "So")
     title = title.replace("\ufe0f", "").replace("\u200d", "").strip()
+    soundbooks_wrapper = title.lower().startswith("аудіокнига ") and title.lower().endswith("слухати онлайн українською")
+    if soundbooks_wrapper:
+        title = title[len("Аудіокнига "):].strip()
     title = LEADING_AUDIOBOOK.sub("", title).strip()
     title = TRAILING_BARE.sub("", title).strip()
     changed = True
@@ -73,8 +76,9 @@ def normalize_title(raw):
                 title = TRAILING_SEPARATOR.sub("", title[:match.start()]).strip()
                 changed = True
                 break
+    title = title or original
     title = title.split(":", 1)[0].split("—", 1)[0].split("–", 1)[0].split(" - ", 1)[0]
-    return normalize(title or original)
+    return normalize(title)
 
 
 def normalize_person(raw):

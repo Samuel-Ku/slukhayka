@@ -21,10 +21,20 @@ class RecommendationGraphStore(
     private val snapshot get() = File(directory, "content-graph.signed.json")
     private val attempt get() = File(directory, "content-graph-attempt.txt")
 
+    // This store owns its cache. Retain only the verified parsed snapshot; another
+    // instance/process revalidates disk. Every use still checks the snapshot TTL.
+    private var cacheLoaded = false
+    private var acceptedGraph: PrecomputedRecommendationGraph? = null
+
     @Synchronized
     fun refresh(): PrecomputedRecommendationGraph? {
         val now = clock()
-        val cached = runCatching { cachedGraph(now) }.getOrNull()
+        if (!cacheLoaded) {
+            acceptedGraph = runCatching { cachedGraph(now) }.getOrNull()
+            cacheLoaded = true
+        }
+        acceptedGraph = acceptedGraph?.takeIf { it.isFresh(now) }
+        val cached = acceptedGraph
         val safeUrl = runCatching {
             URI(url).let { it.scheme == "https" && !it.host.isNullOrBlank() && it.userInfo == null }
         }.getOrDefault(false)
@@ -40,6 +50,7 @@ class RecommendationGraphStore(
             if (!verify(payload.graph, payload.signature)) return cached
             val graph = PrecomputedRecommendationGraph.parse(payload.graph, now) ?: return cached
             replace(envelope)
+            acceptedGraph = graph
             graph
         }.getOrElse { cached }
     }

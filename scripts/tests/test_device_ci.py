@@ -12,6 +12,28 @@ spec.loader.exec_module(device_ci)
 
 
 class DeviceCiTest(unittest.TestCase):
+    def test_successful_empty_package_list_means_first_provision(self):
+        device = device_ci.Device('poco')
+        with patch.object(device, 'adb', return_value='') as adb:
+            self.assertFalse(device.ci_package_installed())
+            adb.assert_called_once_with('shell', 'pm', 'list', 'packages', '--user', 'current', device_ci.APP_ID)
+
+    def test_package_presence_uses_exact_id(self):
+        device = device_ci.Device('poco')
+        with patch.object(device, 'adb', return_value=f'package:{device_ci.APP_ID}.test'):
+            self.assertFalse(device.ci_package_installed())
+        with patch.object(device, 'adb', return_value=f'package:{device_ci.APP_ID}'):
+            self.assertTrue(device.ci_package_installed())
+
+    def test_unknown_package_service_response_is_not_absence(self):
+        device = device_ci.Device('poco')
+        with patch.object(device, 'adb', return_value='Error: package service unavailable'):
+            with self.assertRaisesRegex(device_ci.DeviceError, 'presence'):
+                device.ci_package_installed()
+        with patch.object(device, 'adb', side_effect=device_ci.DeviceError('device offline')):
+            with self.assertRaisesRegex(device_ci.DeviceError, 'device offline'):
+                device.ci_package_installed()
+
     def test_device_ci_runs_the_existing_coverage_guard_suite_set(self):
         import re
         script = MODULE.parents[1] / '.github/scripts/run-accessibility-test.sh'

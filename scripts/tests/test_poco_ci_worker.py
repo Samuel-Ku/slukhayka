@@ -69,7 +69,7 @@ class StableSignerTest(unittest.TestCase):
             root = Path(directory)
             signer = root / 'signer'
             device = Mock()
-            device.adb.return_value = ''
+            device.ci_package_installed.return_value = False
             with patch.object(poco_ci_worker, 'signing_command', side_effect=tool):
                 for number in range(2):
                     artifacts = root / str(number)
@@ -80,14 +80,14 @@ class StableSignerTest(unittest.TestCase):
             signs = [c for c in calls if c[1] == 'sign']
             self.assertEqual(len(signs), 4)
             self.assertEqual({c[c.index('--ks') + 1] for c in signs}, {str(signer / 'debug.keystore')})
-            device.adb.assert_called_once_with('shell', 'pm', 'path', device_ci.APP_ID)
+            device.ci_package_installed.assert_called_once_with()
 
     def test_existing_ci_app_with_lost_key_is_refused_without_key_generation(self):
         import tempfile
         from unittest.mock import Mock
         with tempfile.TemporaryDirectory() as directory:
             device = Mock()
-            device.adb.return_value = 'package:/data/app/ci/base.apk'
+            device.ci_package_installed.return_value = True
             with patch.object(poco_ci_worker, 'signing_command') as tool:
                 with self.assertRaisesRegex(device_ci.DeviceError, 'signer is missing'):
                     poco_ci_worker.sign_apks(device, Path(directory), {}, Path(directory) / 'signer')

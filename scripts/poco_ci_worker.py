@@ -36,7 +36,7 @@ def sign_apks(device, artifacts, manifest, signer_dir):
     # test-only signer across jobs so updates never require uninstalling data.
     keystore = signer_dir / 'debug.keystore'
     if not keystore.exists():
-        if device.adb('shell', 'pm', 'path', device_ci.APP_ID):
+        if device.ci_package_installed():
             raise device_ci.DeviceError('CI package exists but its stable signer is missing; restore the signer')
         signer_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         previous_umask = os.umask(0o077)

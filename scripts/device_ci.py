@@ -67,6 +67,15 @@ class Device:
             raise DeviceError(f'unattended input unavailable: {probe}')
         return {'serial': self.serial, 'model': model, 'product': product}
 
+    def ci_package_installed(self):
+        # `pm path` uses exit 1 for an absent package on MIUI. A successful
+        # exact package-list query distinguishes absence from ADB failure.
+        output = self.adb('shell', 'pm', 'list', 'packages', '--user', 'current', APP_ID)
+        lines = output.splitlines()
+        if any(not line.startswith('package:') for line in lines):
+            raise DeviceError(f'could not determine CI package presence: {output}')
+        return f'package:{APP_ID}' in lines
+
 
 def verify_artifacts(directory):
     try:

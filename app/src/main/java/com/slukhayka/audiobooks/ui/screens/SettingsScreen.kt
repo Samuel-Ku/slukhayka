@@ -26,6 +26,8 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.slukhayka.audiobooks.R
+import com.slukhayka.audiobooks.data.personbookmarks.PeopleNewArrivalWorker
+import com.slukhayka.audiobooks.data.watch.SourceWatchNotifier
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcon
 import com.slukhayka.audiobooks.ui.icons.PaperInkIconSizes
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
@@ -54,6 +56,16 @@ internal fun SettingsScreen(
     onThemeModeChange: (AppThemeMode) -> Unit = {},
     playerAlwaysInk: Boolean = true,
     onPlayerAlwaysInkChange: (Boolean) -> Unit = {},
+    notificationSourceAppearance: Boolean = true,
+    onNotificationSourceAppearanceChange: (Boolean) -> Unit = {},
+    notificationPeopleNewArrivals: Boolean = true,
+    onNotificationPeopleNewArrivalsChange: (Boolean) -> Unit = {},
+    // ADR-0052 — Android is the only party that can silence a channel, so the
+    // section says so instead of pretending the app switch does it. The flag is
+    // observed by the caller: false replaces the two event switches with an
+    // honest notice (see NotificationsSection).
+    systemNotificationsEnabled: Boolean = true,
+    onOpenNotificationSettings: (String?) -> Unit = {},
     density: ContentDensity = ContentDensity.COMFORTABLE,
     onDensityChange: (ContentDensity) -> Unit = {},
     // The same destination the system Back returns to; a visible door for the
@@ -135,6 +147,19 @@ internal fun SettingsScreen(
                             onClick = { onOpen(destination) },
                         )
                         PaperDivider()
+                    }
+                    // ADR-0052 — the notification controls sit after the
+                    // network group: a separate section for a separate kind
+                    // (event vs service), not another destination row.
+                    if (group.titleRes == R.string.settings_group_network) {
+                        NotificationsSection(
+                            sourceAppearance = notificationSourceAppearance,
+                            onSourceAppearanceChange = onNotificationSourceAppearanceChange,
+                            peopleNewArrivals = notificationPeopleNewArrivals,
+                            onPeopleNewArrivalsChange = onNotificationPeopleNewArrivalsChange,
+                            systemNotificationsEnabled = systemNotificationsEnabled,
+                            onOpenNotificationSettings = onOpenNotificationSettings,
+                        )
                     }
                 }
             }
@@ -329,6 +354,157 @@ private fun PlayerInkRow(
             onCheckedChange = null,
             modifier = Modifier.testTag("settings_player_always_ink"),
         )
+    }
+}
+
+/**
+ * ADR-0052 §1–4, §8–9 — the notification section: the two EVENT families are
+ * switches (the app stops posting; the system channel stays untouched), the two
+ * SERVICE families are read-only rows with an explanation and a quiet link to
+ * the Android channel. When Android blocks notifications outright the event
+ * switches are replaced by an honest notice, because a live-looking switch
+ * there would do nothing.
+ */
+@Composable
+private fun NotificationsSection(
+    sourceAppearance: Boolean,
+    onSourceAppearanceChange: (Boolean) -> Unit,
+    peopleNewArrivals: Boolean,
+    onPeopleNewArrivalsChange: (Boolean) -> Unit,
+    systemNotificationsEnabled: Boolean,
+    onOpenNotificationSettings: (String?) -> Unit,
+) {
+    GroupLabel(R.string.settings_group_notifications)
+    if (systemNotificationsEnabled) {
+        SettingsSwitchRow(
+            title = stringResource(R.string.settings_notifications_source_appearance),
+            description = stringResource(R.string.settings_notifications_source_appearance_desc),
+            checked = sourceAppearance,
+            onCheckedChange = onSourceAppearanceChange,
+            testTag = "settings_notification_source_appearance",
+        )
+        NotificationChannelLink(
+            testTag = "settings_notification_source_appearance_channel",
+            onClick = { onOpenNotificationSettings(SourceWatchNotifier.CHANNEL_ID) },
+        )
+        PaperDivider()
+        SettingsSwitchRow(
+            title = stringResource(R.string.settings_notifications_people_new_arrivals),
+            description = stringResource(R.string.settings_notifications_people_new_arrivals_desc),
+            checked = peopleNewArrivals,
+            onCheckedChange = onPeopleNewArrivalsChange,
+            testTag = "settings_notification_people_new_arrivals",
+        )
+        NotificationChannelLink(
+            testTag = "settings_notification_people_new_arrivals_channel",
+            onClick = { onOpenNotificationSettings(PeopleNewArrivalWorker.CHANNEL_ID) },
+        )
+    } else {
+        SystemNotificationsDisabledNotice(
+            onOpenSettings = { onOpenNotificationSettings(null) },
+        )
+    }
+    PaperDivider()
+    ServiceNotificationRow(
+        title = stringResource(R.string.settings_notifications_playback_title),
+        description = stringResource(R.string.settings_notifications_playback_desc),
+        rowTag = "settings_notification_playback_row",
+        linkTag = "settings_notification_playback_channel",
+        onClick = { onOpenNotificationSettings(PLAYBACK_NOTIFICATION_CHANNEL_ID) },
+    )
+    PaperDivider()
+    ServiceNotificationRow(
+        title = stringResource(R.string.settings_notifications_downloads_title),
+        description = stringResource(R.string.settings_notifications_downloads_desc),
+        rowTag = "settings_notification_downloads_row",
+        linkTag = "settings_notification_downloads_channel",
+        onClick = { onOpenNotificationSettings(DOWNLOADS_NOTIFICATION_CHANNEL_ID) },
+    )
+}
+
+/** A quiet door into the Android channel the app cannot change after creation. */
+@Composable
+private fun NotificationChannelLink(
+    testTag: String,
+    onClick: () -> Unit,
+) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.heightIn(min = 48.dp).testTag(testTag),
+        colors = ButtonDefaults.textButtonColors(
+            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
+    ) {
+        Text(
+            text = stringResource(R.string.settings_notifications_open_channel),
+            style = PaperInkType.Micro,
+        )
+    }
+}
+
+/**
+ * A service family is shown, never offered as a switch: playback is required by
+ * Android while audio plays, and downloads ride the same foreground work.
+ */
+@Composable
+private fun ServiceNotificationRow(
+    title: String,
+    description: String,
+    rowTag: String,
+    linkTag: String,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(rowTag)
+            .padding(vertical = 8.dp),
+    ) {
+        Text(
+            text = title,
+            style = PaperInkType.RowTitle,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = description,
+            style = PaperInkType.Micro,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        NotificationChannelLink(testTag = linkTag, onClick = onClick)
+    }
+}
+
+/**
+ * ADR-0052 — the honest state when the system permission is off. The listener
+ * still sees WHY there is no switch and where the real one lives.
+ */
+@Composable
+private fun SystemNotificationsDisabledNotice(onOpenSettings: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("settings_notifications_disabled_notice")
+            .padding(vertical = 8.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.settings_notifications_disabled_title),
+            style = PaperInkType.RowTitle,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = stringResource(R.string.settings_notifications_disabled_desc),
+            style = PaperInkType.Micro,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        TextButton(
+            onClick = onOpenSettings,
+            modifier = Modifier.heightIn(min = 48.dp).testTag("settings_notifications_system_settings"),
+        ) {
+            Text(
+                text = stringResource(R.string.settings_notifications_open_system),
+                style = PaperInkType.Micro,
+            )
+        }
     }
 }
 

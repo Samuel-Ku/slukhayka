@@ -127,6 +127,13 @@ object SourceWatchNotifier {
     suspend fun notifyAppearance(app: App, appearance: SourceWatchPolicy.Appearance) {
         val context = app.applicationContext
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
+        // ADR-0052 §1–3 — the listener's app-level mute stops the POSTING, not
+        // the watch: evaluateAndNotify still persists seen-state after this
+        // call, so re-enabling
+        // never dumps a backlog of old appearances, and the Work page keeps
+        // showing the appearance because it reads the watch/catalog, not this
+        // notification.
+        if (!app.notificationPreferences.sourceAppearanceEnabled.value) return
         // Channels exist from API 26 only; API 24–25 posts the same
         // notification the old way, without one.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

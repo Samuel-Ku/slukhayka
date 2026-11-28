@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="search1826_loading">Nadal szukamy</string>
+    <string name="search1826_partial_failure">Wyniki są niepełne</string>
+    <string name="search1826_no_results">Brak wyników dla tego zapytania</string>
+    <string name="search1826_correction">Czy chodziło o: %1$s</string>
+    <string name="search1826_author">Autor: %1$s</string>
+    <string name="search1826_series">Seria: %1$s</string>
+    <string name="search1826_narrator">Lektor: %1$s</string>
+    <string name="search1826_related">Podobne wyniki</string>
+    <string name="search1826_no_results_hint">Spróbuj innego tytułu lub autora.</string>
+</resources>

@@ -74,14 +74,16 @@ class LocalSearchRoomTest {
         vararg adapters: SourceAdapter,
         selection: Set<String> = emptySet(),
         sessionAlive: (String) -> Boolean = { false },
-        refused: Set<String> = emptySet()
+        refused: Set<String> = emptySet(),
+        searchCache: SearchCache? = null
     ) = SourceCatalog(
         dao,
         adapters.toList(),
         LibraryImport(dao, context, adapters.toList()),
         contentLanguageSelection = MutableStateFlow(selection),
         sourceAudioRefusal = MutableStateFlow(refused),
-        sessionAlive = sessionAlive
+        sessionAlive = sessionAlive,
+        searchCache = searchCache
     )
 
     private fun write(
@@ -447,6 +449,237 @@ class LocalSearchRoomTest {
         assertTrue(messages.any { it.contains("path=live local=0 live=1 sources=1 failed=0") })
         assertTrue(messages.any { it.contains("path=settled local=0 live=1 merged=1 visible=1 failed=0") })
         assertTrue(messages.none { it.contains("кобз", ignoreCase = true) || it.contains("https://") })
+    }
+
+    @Test
+    fun `catalog search acceptance corpus ranks known works and one edit queries`() = runBlocking {
+        val repository = catalog()
+        repository.writeWorkEdition(
+            sourceId = "t1", title = "Кобзар", author = "Тарас Шевченко", narrator = "Іван Начитувач",
+            sourceUrl = "https://t1.example/kobzar", language = "uk", seriesTitle = "Українська класика"
+        )
+        write("t1", "Лісова пісня", "Леся Українка", "https://t1.example/lisova")
+        write("t1", "Тіні забутих предків", "Михайло Коцюбинський", "https://t1.example/tini")
+        write("t1", "Захар Беркут", "Іван Франко", "https://t1.example/zakhar")
+        write("t1", "Кобзареві думи", "Автор А", "https://t1.example/dumy")
+        write("t1", "Кобзар", "Інший Автор", "https://t1.example/other-kobzar")
+        val expectedKeys = mapOf(
+            "Кобзар" to "кобзар|тарас шевченко",
+            "Лісова пісня" to "лісова пісня|леся українка",
+            "Тіні забутих предків" to "тіні забутих предків|михайло коцюбинський"
+        )
+        // Scale distractors use the ordinary mirror/index write door; no search stub.
+        for (i in 0 until 10_000) {
+            val title = "Каталогова історія $i"
+            val author = if (i < 60) "Кобсар Автор $i" else "Автор каталогу $i"
+            val key = MergeKey.keyFor(title, author)
+            dao.upsertWorkWithSource(
+                com.slukhayka.audiobooks.data.db.WorkEntity(
+                    id = key, mergeKey = key, title = title, author = author, addedAt = i.toLong()
+                ),
+                com.slukhayka.audiobooks.data.db.WorkSourceEntity(
+                    id = "$key|t1", workId = key, sourceId = "t1",
+                    sourceUrl = "https://t1.example/filler/$i", addedAt = i.toLong()
+                )
+            )
+        }
+        val cases = listOf(
+            Triple("Кобзар", "Кобзар", 1),
+            Triple("Лісова пісня", "Лісова пісня", 1),
+            Triple("Тіні забутих предків", "Тіні забутих предків", 1),
+            Triple("лісова піс", "Лісова пісня", 5),
+            Triple("забутих пред", "Тіні забутих предків", 5),
+            Triple("кобсар", "Кобзар", 5),
+            Triple("кобзаар", "Кобзар", 5),
+            Triple("кобар", "Кобзар", 5),
+            Triple("кобзра", "Кобзар", 5),
+            Triple("тобзар", "Кобзар", 5),
+            Triple("лісова піснч", "Лісова пісня", 5),
+            Triple("Шевченко", "Кобзар", 5),
+            Triple("Шевчнко", "Кобзар", 5),
+            Triple("Українська класика", "Кобзар", 5),
+            Triple("Начитувач", "Кобзар", 5)
+        )
+        val missed = mutableListOf<String>()
+        for ((query, expected, maxRank) in cases) {
+            val start = System.nanoTime()
+            val results = repository.searchAllSources(query)
+            val rank = results.indexOfFirst { it.mergeKey == expectedKeys.getValue(expected) } + 1
+            val elapsedMs = (System.nanoTime() - start) / 1_000_000
+            println("search1826 query=$query rank=$rank ms=$elapsedMs")
+            // The real SourceCatalog facade measured max/p95 310 ms on this
+            // fixed 10,006-Work corpus. One second leaves >3x headroom for JVM
+            // variation while catching an unbounded correction/hydration path.
+            // This is a local Room regression budget, not a live/device SLO.
+            assertTrue("source search query=$query took ${elapsedMs}ms (budget 1000ms)", elapsedMs <= 1000)
+            if (rank !in 1..maxRank) missed += "$query -> $expected rank=$rank"
+        }
+        assertTrue("missed acceptance queries: $missed", missed.isEmpty())
+        assertTrue(repository.searchAllSources("zzzzzz nonexistent").isEmpty())
+    }
+
+    @Test
+    fun `second confirmed narrator is searchable without changing source ownership`() = runBlocking {
+        write("t1", "Кобзар", "Тарас Шевченко", "https://t1.example/first", narrator = "Іван Перший")
+        write("t2", "Кобзар", "Тарас Шевченко", "https://t2.example/second", narrator = "Дмитро Другий")
+        val repository = catalog()
+        val before = repository.searchAllSources("Іван Перший").single()
+        val results = repository.searchAllSources("Дмитро Другий")
+        assertEquals(listOf("Кобзар"), results.map { it.title })
+        assertEquals(setOf("Іван Перший", "Дмитро Другий"), results.single().narrators.toSet())
+        assertEquals(before.sources, results.single().sources)
+        assertEquals(before.narrator, results.single().narrator)
+    }
+
+    @Test
+    fun `fast source results appear while a neighboring source is still pending`() = runBlocking {
+        val releaseSlow = CompletableDeferred<Unit>()
+        val fastPreview = CompletableDeferred<GlobalSearchUpdate>()
+        val slow = object : SourceAdapter by LiveAdapter("t2", emptyList()) {
+            override suspend fun search(query: String): List<SourceBook> {
+                releaseSlow.await()
+                return emptyList()
+            }
+        }
+        val fast = LiveAdapter("t1", listOf(book("Кобзар", "Тарас Шевченко", "https://t1.example/fast")))
+        val job = async {
+            catalog(fast, slow).searchAllSources("кобзар") { update ->
+                if (update.results.any { it.title == "Кобзар" } && update.isSearchingSources) fastPreview.complete(update)
+            }
+        }
+        try {
+            val preview = withTimeout(10_000) { fastPreview.await() }
+            assertEquals(listOf("Кобзар"), preview.results.map { it.title })
+            assertTrue(!job.isCompleted)
+        } finally {
+            releaseSlow.complete(Unit)
+            job.await()
+        }
+    }
+
+    @Test
+    fun `expired session matches cannot fill the window ahead of an eligible work`() = runBlocking {
+        repeat(50) { i -> write("sluhay", "Кобзар $i", "Автор $i", "https://sluhay.com/stale/$i") }
+        write("t1", "Кобзар доступний", "Тарас Шевченко", "https://t1.example/eligible")
+        for (query in listOf("ко", "кобз")) {
+            assertEquals(listOf("Кобзар доступний"), catalog().searchAllSources(query).map { it.title })
+        }
+    }
+
+    @Test
+    fun `blank author cards keep narrator claims attached to their actual works`() = runBlocking {
+        val repository = catalog()
+        val first = repository.writeWorkEdition(
+            "t1", "Перша історія", "Автор А", "Читач Перший", "https://t1.example/one", language = "uk"
+        ).work
+        val second = repository.writeWorkEdition(
+            "t1", "Друга історія", "Автор Б", "Читач Другий", "https://t1.example/two", language = "uk"
+        ).work
+        repository.writeWorkEdition("t1", "Перша історія", "Автор А", "Читач Додатковий Перший",
+            "https://t1.example/one", language = "uk")
+        repository.writeWorkEdition("t1", "Друга історія", "Автор Б", "Читач Додатковий Другий",
+            "https://t1.example/two", language = "uk")
+        // Existing retained Work identities with incomplete display metadata.
+        dao.updateWorkAuthor(first.id, "")
+        dao.updateWorkAuthor(second.id, "")
+        dao.refreshWorkSearchIndex(first.id)
+        dao.refreshWorkSearchIndex(second.id)
+        val results = repository.searchAllSources("читач")
+        assertEquals(2, results.size)
+        val firstCard = results.single { it.title == "Перша історія" }
+        val secondCard = results.single { it.title == "Друга історія" }
+        assertEquals("https://t1.example/one", firstCard.key)
+        assertEquals("https://t1.example/two", secondCard.key)
+        assertEquals(setOf("Читач Перший", "Читач Додатковий Перший"), firstCard.narrators.toSet())
+        assertEquals(setOf("Читач Другий", "Читач Додатковий Другий"), secondCard.narrators.toSet())
+        val wanted = repository.searchAllSources("додатковий перший").single { it.key == "https://t1.example/one" }
+        assertEquals(setOf("Читач Перший", "Читач Додатковий Перший"), wanted.narrators.toSet())
+    }
+
+    @Test
+    fun `an owned rendition narrator is found through the Library Entry link`() = runBlocking {
+        val repository = catalog()
+        val work = repository.writeWorkEdition(
+            "t1", "Кобзар", "Тарас Шевченко", "", "https://t1.example/kobzar", language = "uk"
+        ).work
+        val narrator = "Особливий " + "Довгий Виконавець ".repeat(6) + "Останній"
+        dao.insertAudiobooks(listOf(com.slukhayka.audiobooks.data.db.AudiobookEntity(
+            id = "owned-narration", title = "Кобзар", author = "Тарас Шевченко", narrator = narrator,
+            description = "", coverDrawableRes = 0, genre = "", sourceUrl = "https://t1.example/owned"
+        )))
+        dao.upsertLibraryEntry("owned-narration", work.id, false, 0L, 0f)
+        dao.insertEdition(com.slukhayka.audiobooks.data.db.EditionEntity(
+            "owned-edition", "owned-narration", language = "uk", narrator = narrator
+        ))
+        // The existing first-only index need not be rebuilt to discover the owned voice.
+        val results = repository.searchAllSources("особливий останній")
+        assertEquals(listOf("Кобзар"), results.map { it.title })
+        assertTrue(narrator in results.single().narrators)
+    }
+
+    @Test
+    fun `repeated correction retains local claims without exporting aggregate fields`() = runBlocking {
+        var exported: Map<String, Any>? = null
+        val cache = object : SearchCache {
+            override suspend fun readDocument(documentId: String): Map<String, Any>? = null
+            override suspend fun writeDocument(documentId: String, document: Map<String, Any>) { exported = document }
+        }
+        val repository = catalog(searchCache = cache)
+        repository.writeWorkEdition("t1", "Кобзар", "Тарас Шевченко", "Іван Перший",
+            "https://t1.example/one", language = "uk", seriesTitle = "Поезія")
+        repository.writeWorkEdition("t2", "Кобзар", "Тарас Шевченко", "Дмитро Другий",
+            "https://t2.example/two", language = "uk")
+        val first = repository.searchAllSources("другй").single()
+        val repeated = repository.searchAllSources("другй").single()
+        assertEquals(first, repeated)
+        assertEquals("другий", repeated.correctedQuery)
+        assertEquals(setOf("Іван Перший", "Дмитро Другий"), repeated.narrators.toSet())
+        assertEquals("Поезія", repeated.seriesTitle)
+        val encoded = ((exported!!.getValue("results") as List<*>).single() as Map<*, *>)
+        assertTrue("correction is query-local", "correctedQuery" !in encoded)
+        assertTrue("owner voices are not public cache metadata", "narrators" !in encoded)
+        assertTrue("series lacks public field provenance", "seriesTitle" !in encoded)
+        assertNull(repository.searchAllSources("Кобзар").single().correctedQuery)
+    }
+
+    @Test
+    fun `eligible exact title behind clipped expired exact matches outranks prefixes`() = runBlocking {
+        repeat(50) { i -> write("t1", "Кобзареві історії $i", "Автор $i", "https://t1.example/prefix/$i") }
+        repeat(50) { i -> write("sluhay", "Кобзар", "Стале джерело $i", "https://sluhay.com/exact/$i") }
+        write("t1", "Кобзар", "Тарас Шевченко", "https://t1.example/exact")
+        assertEquals("кобзар|тарас шевченко", catalog().searchAllSources("Кобзар").firstOrNull()?.mergeKey)
+    }
+
+    @Test
+    fun `legacy first narrator projection discovers the other confirmed rendition`() = runBlocking {
+        val repository = catalog()
+        val work = repository.writeWorkEdition("t1", "Кобзар", "Тарас Шевченко", "Іван Перший",
+            "https://t1.example/one", language = "uk").work
+        repository.writeWorkEdition("t2", "Кобзар", "Тарас Шевченко", "Дмитро Другий",
+            "https://t2.example/two", language = "uk")
+        // The persisted projection shipped before #1826 carried only one voice.
+        dao.deleteWorkSearchRows(work.id)
+        dao.insertWorkSearchRow(work.id, "кобзар", "тарас шевченко", "", "іван перший")
+        val result = repository.searchAllSources("Дмитро Другий").single()
+        assertEquals(setOf("Іван Перший", "Дмитро Другий"), result.narrators.toSet())
+    }
+
+    @Test
+    fun `ambiguous source URL does not acquire an owner narrator aggregate`() = runBlocking {
+        val repository = catalog()
+        val first = repository.writeWorkEdition("t1", "Перша історія", "Автор А", "Марко Перший",
+            "https://t1.example/shared", language = "uk").work
+        repository.writeWorkEdition("t1", "Перша історія", "Автор А", "Олег Другий",
+            "https://t1.example/shared", language = "uk")
+        val other = repository.writeWorkEdition("t1", "Інша історія", "Автор Б", "Наталя Інша",
+            "https://t1.example/shared", language = "uk").work
+        dao.updateWorkAuthor(first.id, "")
+        dao.updateWorkAuthor(other.id, "")
+        dao.refreshWorkSearchIndex(first.id)
+        dao.refreshWorkSearchIndex(other.id)
+        val result = repository.searchAllSources("Олег Другий").single()
+        assertEquals("Перша історія", result.title)
+        assertEquals(listOf("Марко Перший"), result.narrators)
     }
 
 }

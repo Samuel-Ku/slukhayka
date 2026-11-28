@@ -505,7 +505,13 @@ class LocalSearchRoomTest {
             val start = System.nanoTime()
             val results = repository.searchAllSources(query)
             val rank = results.indexOfFirst { it.mergeKey == expectedKeys.getValue(expected) } + 1
-            println("search1826 query=$query rank=$rank ms=${(System.nanoTime() - start) / 1_000_000}")
+            val elapsedMs = (System.nanoTime() - start) / 1_000_000
+            println("search1826 query=$query rank=$rank ms=$elapsedMs")
+            // The real SourceCatalog facade measured max/p95 310 ms on this
+            // fixed 10,006-Work corpus. One second leaves >3x headroom for JVM
+            // variation while catching an unbounded correction/hydration path.
+            // This is a local Room regression budget, not a live/device SLO.
+            assertTrue("source search query=$query took ${elapsedMs}ms (budget 1000ms)", elapsedMs <= 1000)
             if (rank !in 1..maxRank) missed += "$query -> $expected rank=$rank"
         }
         assertTrue("missed acceptance queries: $missed", missed.isEmpty())

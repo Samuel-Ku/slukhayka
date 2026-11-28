@@ -1,7 +1,9 @@
 package com.slukhayka.audiobooks.player
 
+import com.slukhayka.audiobooks.data.source.AudioStreamSpec
 import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.ResolvedAudioStream
+import com.slukhayka.audiobooks.data.source.YouTubeStreamResolver
 import java.io.ByteArrayInputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -140,6 +142,42 @@ class CastUpstreamTest {
         assertNull(upstream.open("ch0", "bytes=0-1023"))
         assertEquals(2, resolverCalls)
         assertTrue(fetcher.requested.isEmpty())
+    }
+
+    /**
+     * #1751 review, P2 — the same witness through the real resolver seam: a
+     * non-M4A direct candidate whose extractor knows no MIME resolves to an
+     * unknown family, and the cast door refuses it before any fetch. This is
+     * the exact production path the reviewers named (opus candidate, missing
+     * `ext`, range response without Content-Type).
+     */
+    @Test
+    fun `a real non-m4a candidate with unknown mime never reaches the receiver as mp4`() {
+        val fetcher = RecordingFetcher()
+        fetcher.onRequest = { response(contentType = null) }
+        val resolver = YouTubeStreamResolver(
+            extractAudioStreams = {
+                listOf(
+                    AudioStreamSpec(
+                        webmUrl,
+                        isM4a = false,
+                        isDirectUrl = true,
+                        bitrateKbps = 96,
+                        mimeType = null
+                    )
+                )
+            }
+        )
+        val upstream = CastUpstream(
+            chapterUrls = listOf(watchUrl),
+            bookId = "book-1",
+            fetcher = fetcher,
+            resolver = resolver::resolveStream,
+            headers = { emptyMap() }
+        )
+
+        assertNull(upstream.open("ch0", null))
+        assertTrue("no unproven bytes may reach the receiver", fetcher.requested.isEmpty())
     }
 
     /**

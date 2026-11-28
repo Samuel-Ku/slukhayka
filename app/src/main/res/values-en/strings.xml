@@ -952,6 +952,8 @@
     <!-- #1752: cast hand-back is an info banner, not a playback failure. -->
     <string name="player_cast_ended">Casting ended. You can keep listening on this phone.</string>
     <string name="player_cast_lost">Lost connection to the cast device. You can keep listening on this phone.</string>
+    <!-- #1751: the receiver stayed connected but could not play the chapter. -->
+    <string name="player_cast_failed">The cast device could not play this chapter. You can keep listening on this phone.</string>
     <string name="lib_reset_status_filter">Reset filter</string>
     <string name="lib_filtered_results">%1$s · %2$s</string>
     <plurals name="lib_result_books">

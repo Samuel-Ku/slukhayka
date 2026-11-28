@@ -1849,6 +1849,11 @@ class App : Application() {
             streamUrlHealer = { bookId, chapterIndex, failedUrl ->
                 libraryImport.refreshStreamUrl(bookId, chapterIndex, failedUrl)
             },
+            // #1751 — the cast proxy resolves a YouTube watch URL through the
+            // same per-use resolver as the local engine, and the resolved
+            // stream carries its real MIME family so the playlist declaration
+            // can be proven before any bytes are served.
+            streamUrlResolver = { url -> youTubeStreamResolver.resolveStream(url) },
             onActiveChanged = crashContextTracker::updateCastActive
         ).also { controller ->
             playerManager.attachCastHook(controller)

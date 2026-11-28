@@ -43,8 +43,39 @@ data class AudioStreamSpec(
     val isM4a: Boolean,
     /** True when the URL directly serves bytes (progressive); false for manifests. */
     val isDirectUrl: Boolean,
-    val bitrateKbps: Int
+    val bitrateKbps: Int,
+    /**
+     * The MIME family of the bytes this candidate really serves (`audio/mp4`,
+     * `audio/webm`, …) when the extractor knows it, else null. #1751 — the
+     * cast playlist must declare the family the receiver will get, so the
+     * family has to travel WITH the resolved URL instead of being guessed
+     * from a googlevideo URL that has no extension.
+     */
+    val mimeType: String? = null
 )
+
+/**
+ * A resolved playable stream: the signed URL and the MIME family of its
+ * bytes. Both travel together because a consumer that declares a MIME to
+ * another player ([com.slukhayka.audiobooks.player.CastUpstream], #1751) may
+ * only declare what it will really serve. [mimeType] is null when the stream
+ * passes through unchanged or the chosen candidate's family is unknown — it
+ * is never a guess.
+ */
+data class ResolvedAudioStream(val url: String, val mimeType: String? = null)
+
+/** The MIME family of an audio container by its extension, or null when unknown. */
+internal fun audioMimeTypeOf(extension: String?): String? =
+    when (extension?.lowercase(Locale.ROOT)) {
+        "m4a", "m4b", "mp4" -> "audio/mp4"
+        "webm" -> "audio/webm"
+        "mp3" -> "audio/mpeg"
+        "ogg", "opus" -> "audio/ogg"
+        "flac" -> "audio/flac"
+        "wav" -> "audio/wav"
+        "aac" -> "audio/aac"
+        else -> null
+    }
 
 /**
  * The per-use resolution seam: a persisted track URL in, a playable stream
@@ -67,15 +98,34 @@ class YouTubeStreamResolver(
      * URLs pass through unchanged; a YouTube URL that yields no usable
      * stream returns null (honest failure).
      */
-    suspend fun resolve(persistedUrl: String): String? {
-        if (!YouTubeTracks.isYouTubeWatchUrl(persistedUrl)) return persistedUrl
+    suspend fun resolve(persistedUrl: String): String? = resolveStream(persistedUrl)?.url
+
+    /**
+     * Resolves [persistedUrl] to a stream URL AND the MIME family of its
+     * bytes (#1751). The cast playlist has to declare a MIME before the first
+     * range request, so a consumer that resolves later must be able to prove
+     * the declaration matches what it will serve; [mimeType] is null only
+     * when the stream passes through unchanged, or when the chosen candidate
+     * gives no reliable evidence of its family.
+     */
+    suspend fun resolveStream(persistedUrl: String): ResolvedAudioStream? {
+        if (!YouTubeTracks.isYouTubeWatchUrl(persistedUrl)) return ResolvedAudioStream(persistedUrl)
         // Deliberately no android.util.Log here: this class is pure JVM and
         // the callers own the logging of a null resolution (the player and
         // the download loop both log it where context lives).
         val candidates = runCatching { extractAudioStreams(persistedUrl) }
             .getOrNull()
             .orEmpty()
-        return pickBestAudio(candidates)?.url
+        val best = pickBestAudio(candidates) ?: return null
+        // #1751 review, P2 — the extractor's own MIME is the family when it
+        // knows one. A positive M4A selection is itself reliable evidence of
+        // the MP4 family (NewPipe's MediaFormat.M4A / yt-dlp's `m4a`), so it
+        // may fill a missing MIME; a non-M4A candidate with no other evidence
+        // stays null, and the cast door refuses it honestly instead of
+        // declaring MP4 on silence.
+        val mimeType = best.mimeType?.takeIf { it.isNotBlank() }
+            ?: if (best.isM4a) "audio/mp4" else null
+        return ResolvedAudioStream(best.url, mimeType)
     }
 
     companion object {
@@ -124,7 +174,11 @@ object NewPipeYouTubeExtractor {
                     url = stream.content,
                     isM4a = stream.format == org.schabi.newpipe.extractor.MediaFormat.M4A,
                     isDirectUrl = stream.isUrl,
-                    bitrateKbps = stream.averageBitrate
+                    bitrateKbps = stream.averageBitrate,
+                    // #1751 — NewPipe's format already carries the real
+                    // family (audio/mp4, audio/webm, …); the cast playlist
+                    // must declare exactly that, never a guess.
+                    mimeType = stream.format?.mimeType
                 )
             }
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -267,7 +321,10 @@ object YtDlpStreamExtractor : YtDlpJsonSource {
                 url = url,
                 isM4a = ext == "m4a",
                 isDirectUrl = protocol == "https" || protocol == "http",
-                bitrateKbps = bitrate
+                bitrateKbps = bitrate,
+                // #1751 — `ext` names the container; the cast playlist
+                // declares this family, so it must be the real one.
+                mimeType = audioMimeTypeOf(ext)
             )
         }
     }

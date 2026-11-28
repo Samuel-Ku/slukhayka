@@ -1035,6 +1035,8 @@
          Appended at the end so existing lint-baseline line numbers stay put. -->
     <string name="player_cast_ended">Трансляцію завершено. Можна слухати далі на телефоні.</string>
     <string name="player_cast_lost">Зв’язок із пристроєм втрачено. Можна слухати далі на телефоні.</string>
+    <!-- #1751: the receiver stayed connected but could not play the chapter. -->
+    <string name="player_cast_failed">Пристрій не зміг відтворити цю главу. Можна слухати далі на телефоні.</string>
     <string name="lib_reset_status_filter">Скинути фільтр</string>
     <string name="lib_filtered_results">%1$s · %2$s</string>
     <plurals name="lib_result_books">

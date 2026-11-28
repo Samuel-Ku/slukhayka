@@ -8,6 +8,10 @@ package com.slukhayka.audiobooks.player
  * explanation instead of starting a session that can never play — and a mixed
  * book is refused WHOLE, because silently skipping its local chapters would
  * lie about what is being cast.
+ *
+ * A YouTube watch URL is HTTP too and is deliberately NOT refused here:
+ * fetching the identity itself would return HTML, so the proxy resolves it
+ * through the same per-use resolver the local engine uses (#1751).
  */
 object CastAvailability {
 

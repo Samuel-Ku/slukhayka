@@ -54,6 +54,97 @@ class YouTubeStreamResolverTest {
     }
 
     @Test
+    fun `resolution carries the mime family of the chosen stream`() = runBlocking {
+        val watch = "https://www.youtube.com/watch?v=ozaZXk5Qcwc"
+        val resolver = YouTubeStreamResolver(
+            extractAudioStreams = {
+                listOf(
+                    AudioStreamSpec(
+                        "https://cdn/opus-160", isM4a = false, isDirectUrl = true,
+                        bitrateKbps = 160, mimeType = "audio/webm"
+                    ),
+                    AudioStreamSpec(
+                        "https://cdn/m4a-128", isM4a = true, isDirectUrl = true,
+                        bitrateKbps = 128, mimeType = "audio/mp4"
+                    )
+                )
+            }
+        )
+
+        // M4A wins the selection, so the family is its family — the cast
+        // playlist is held to exactly this (#1751).
+        assertEquals(ResolvedAudioStream("https://cdn/m4a-128", "audio/mp4"), resolver.resolveStream(watch))
+        assertEquals("https://cdn/m4a-128", resolver.resolve(watch))
+    }
+
+    @Test
+    fun `an m4a candidate without an extractor mime still carries its reliable family`() = runBlocking {
+        val resolver = YouTubeStreamResolver(
+            extractAudioStreams = {
+                listOf(
+                    AudioStreamSpec("https://cdn/m4a-128", isM4a = true, isDirectUrl = true, bitrateKbps = 128)
+                )
+            }
+        )
+
+        // #1751 review, P2 — a positive M4A selection is itself evidence of
+        // the MP4 family; the cast door may declare it.
+        assertEquals(
+            ResolvedAudioStream("https://cdn/m4a-128", "audio/mp4"),
+            resolver.resolveStream("https://www.youtube.com/watch?v=ozaZXk5Qcwc")
+        )
+    }
+
+    @Test
+    fun `a non-m4a candidate without any mime evidence stays unknown`() = runBlocking {
+        val resolver = YouTubeStreamResolver(
+            extractAudioStreams = {
+                listOf(
+                    // Exactly the Standards witness: an opus direct candidate
+                    // whose `ext` was missing/unknown, so no family is known.
+                    AudioStreamSpec("https://cdn/opus-96", isM4a = false, isDirectUrl = true, bitrateKbps = 96)
+                )
+            }
+        )
+
+        // The URL still resolves for the local engine, but no family may be
+        // invented for the cast playlist: null is the honest answer.
+        assertEquals(
+            ResolvedAudioStream("https://cdn/opus-96", null),
+            resolver.resolveStream("https://www.youtube.com/watch?v=ozaZXk5Qcwc")
+        )
+    }
+
+    @Test
+    fun `a webm only result keeps its own family`() = runBlocking {
+        val resolver = YouTubeStreamResolver(
+            extractAudioStreams = {
+                listOf(
+                    AudioStreamSpec(
+                        "https://cdn/opus-96", isM4a = false, isDirectUrl = true,
+                        bitrateKbps = 96, mimeType = "audio/webm"
+                    )
+                )
+            }
+        )
+
+        assertEquals(
+            ResolvedAudioStream("https://cdn/opus-96", "audio/webm"),
+            resolver.resolveStream("https://www.youtube.com/watch?v=ozaZXk5Qcwc")
+        )
+    }
+
+    @Test
+    fun `a plain url resolves with no mime claim of its own`() = runBlocking {
+        val resolver = YouTubeStreamResolver(extractAudioStreams = { error("must not extract") })
+
+        assertEquals(
+            ResolvedAudioStream("https://4read.org/audio.mp3"),
+            resolver.resolveStream("https://4read.org/audio.mp3")
+        )
+    }
+
+    @Test
     fun `an extraction failure resolves to null - the honest failure`() = runBlocking {
         val resolver = YouTubeStreamResolver(
             extractAudioStreams = { throw java.io.IOException("extraction broke") }

@@ -1440,6 +1440,7 @@ private fun PlayerScreenContentBody(
                                         when (outcome) {
                                             CastSessionOutcome.LOST -> R.string.player_cast_lost
                                             CastSessionOutcome.ENDED -> R.string.player_cast_ended
+                                            CastSessionOutcome.ERROR -> R.string.player_cast_failed
                                         }
                                     ),
                                     style = MaterialTheme.typography.bodyMedium,

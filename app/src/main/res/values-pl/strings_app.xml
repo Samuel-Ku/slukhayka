@@ -367,6 +367,12 @@
     <string name="achievements_empty_body">Słuchaj książek — nagrody pojawią się tutaj.</string>
     <string name="achievements_empty_title">Nie ma jeszcze nagród</string>
     <string name="achievements_tier">Tytuł: %1$s</string>
+    <!-- #1824 — tytuł słuchacza w zasobach, żeby polski interfejs nie pokazywał «Tytuł: Слухач». -->
+    <string name="achievement_title_listener">Słuchacz</string>
+    <string name="achievement_title_page_traveller">Wędrowiec po stronach</string>
+    <string name="achievement_title_storyteller">Opowiadacz</string>
+    <string name="achievement_title_story_keeper">Strażnik opowieści</string>
+    <string name="achievement_title_library_voice">Głos biblioteki</string>
     <string name="achievements_upcoming">Przed nami</string>
     <!-- F18 — panel bohatera, statusy rejestru i pasek bieżącego tygodnia. -->
     <string name="achievements_status_earned">Zdobyte</string>

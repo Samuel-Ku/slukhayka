@@ -141,7 +141,7 @@ fun AchievementsScreen(
             ) {
                 AchievementHeroPanel(
                     hero = AchievementPresentation.hero(board.earned.size, totalAwards),
-                    tier = stringResource(R.string.achievements_tier, title.label),
+                    tier = stringResource(R.string.achievements_tier, stringResource(title.labelRes)),
                 )
 
                 if (showcase.isNotEmpty()) {

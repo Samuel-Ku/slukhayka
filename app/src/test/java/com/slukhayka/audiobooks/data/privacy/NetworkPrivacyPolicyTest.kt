@@ -131,7 +131,7 @@ class NetworkPrivacyPolicyTest {
     }
 
     @Test
-    fun `every rejection carries an understandable reason`() {
+    fun `every rejection carries a typed reason`() {
         val result = NetworkPrivacy.resolve(
             PrivacyPrefs(routeMode = RouteMode.CUSTOM_PROXY, proxyAddress="192.168.1.10")
         )

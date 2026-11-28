@@ -15,6 +15,8 @@ import com.slukhayka.audiobooks.data.diagnostics.CrashConsent
 import com.slukhayka.audiobooks.data.diagnostics.CrashConsentStore
 import com.slukhayka.audiobooks.data.diagnostics.CrashReportSink
 import com.slukhayka.audiobooks.data.diagnostics.CrashReporting
+import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
+import com.slukhayka.audiobooks.data.privacy.RouteMode
 import com.slukhayka.audiobooks.testing.EnglishChromeWalk
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
@@ -38,8 +40,7 @@ class NetworkPrivacyScreenEnglishChromeTest {
 
     private val app = ApplicationProvider.getApplicationContext<App>()
 
-    private fun setScreen() {
-        val viewModel = MainViewModel(app)
+    private fun setScreen(viewModel: MainViewModel = MainViewModel(app)) {
         val crashReporting = CrashReporting(QuietConsentStore(), QuietSink(), enabledForBuild = true)
         composeTestRule.setContent {
             AudiobookTheme(darkTheme = true) {
@@ -64,6 +65,26 @@ class NetworkPrivacyScreenEnglishChromeTest {
         composeTestRule.onNodeWithText("Format: a full https:// link to the relay worker")
             .assertExists()
         composeTestRule.onNodeWithText("Direct connection").assertExists()
+
+    }
+
+    @Test
+    fun invalidRelayErrorSpeaksEnglish() {
+        val viewModel = MainViewModel(app)
+        viewModel.savePrivacyPrefs(PrivacyPrefs(routeMode = RouteMode.RELAY, proxyAddress = ""))
+        setScreen(viewModel)
+        composeTestRule.onNodeWithTag("privacy_error_text").assertExists()
+        composeTestRule.onNodeWithText("Error: Enter a relay address.").assertExists()
+    }
+
+    @Test
+    @Config(qualifiers = "pl-rPL")
+    fun invalidRelayErrorSpeaksPolish() {
+        val viewModel = MainViewModel(app)
+        viewModel.savePrivacyPrefs(PrivacyPrefs(routeMode = RouteMode.RELAY, proxyAddress = ""))
+        setScreen(viewModel)
+        composeTestRule.onNodeWithTag("privacy_error_text").assertExists()
+        composeTestRule.onNodeWithText("Błąd: Wpisz adres przekaźnika.").assertExists()
     }
 
     @Test
@@ -77,6 +98,7 @@ class NetworkPrivacyScreenEnglishChromeTest {
         composeTestRule.onNodeWithText("Format: pełny link https:// do workera przekaźnika")
             .assertExists()
         composeTestRule.onNodeWithText("Połączenie bezpośrednie").assertExists()
+
     }
 }
 

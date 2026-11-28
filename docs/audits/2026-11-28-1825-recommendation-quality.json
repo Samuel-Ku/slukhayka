@@ -1,0 +1,133 @@
+{
+  "source_commit": "b0cba66b7c8fe6b78db2da3aefe8780e659b02fd",
+  "date": "2026-11-28",
+  "scope": "Host JVM only; synthetic/public inputs; no listener history; not Android PSS or battery",
+  "core_tests": {
+    "tests": 33,
+    "failures": 0
+  },
+  "retention": {
+    "baseline_commit": "71467cfc2e31af37235357431a5e2851f4feb370",
+    "works": 5000,
+    "words_per_description": 80,
+    "before_released_bytes": 0,
+    "final_released_bytes": 52886744,
+    "final_after_off_delta_bytes": 157048,
+    "output_restored": true
+  },
+  "final_verification": {
+    "run_id": 46117072384,
+    "status": "pending",
+    "workflow_commit": "3679cb60c09623bba2000c63ad41475ce85963f2",
+    "source_commit": "b0cba66b7c8fe6b78db2da3aefe8780e659b02fd"
+  },
+  "independent_review": {
+    "spec": "CODE PASS",
+    "standards": "CODE PASS",
+    "final_head": "b0cba66b7c8fe6b78db2da3aefe8780e659b02fd"
+  },
+  "phone_energy": "Not measured; no lock or long phone trial",
+  "paired_host": {
+    "bench": {
+      "baseline": {
+        "cold_single_ms": 1160.84825,
+        "warm_ms": [
+          248.368209,
+          243.609166,
+          271.667792,
+          253.733625,
+          237.801792,
+          240.192083
+        ],
+        "warm_median_ms": 245.9886875
+      },
+      "final": {
+        "cold_single_ms": 1029.402875,
+        "warm_ms": [
+          91.637416,
+          96.825125,
+          97.435,
+          97.639042,
+          88.994417,
+          80.301833
+        ],
+        "warm_median_ms": 94.2312705
+      },
+      "median_ratio": 2.6104783071984583
+    },
+    "graphbench": {
+      "baseline": {
+        "cold_single_ms": 784.554958,
+        "warm_ms": [
+          449.260583,
+          440.163416,
+          442.0115,
+          440.527459,
+          419.233292,
+          420.966334
+        ],
+        "warm_median_ms": 440.3454375
+      },
+      "final": {
+        "cold_single_ms": 556.066208,
+        "warm_ms": [
+          129.549875,
+          119.583459,
+          103.387458,
+          108.936042,
+          97.702625,
+          103.698792
+        ],
+        "warm_median_ms": 106.317417
+      },
+      "median_ratio": 4.141799621599159
+    },
+    "scope": "Same Mac session, sequential baseline then final, one isolated JVM per mode/version; synthetic/public inputs, not phone battery",
+    "baseline_commit": "6258b058278fe4a0ceec04eb1b67ee5a89bc7f92",
+    "final_commit": "b0cba66b7c8fe6b78db2da3aefe8780e659b02fd",
+    "graph_heap": {
+      "baseline": {
+        "retained_delta_bytes": 35277848,
+        "parse_single_ms": 588.014125
+      },
+      "final": {
+        "retained_delta_bytes": 9846064,
+        "parse_single_ms": 701.039458
+      }
+    }
+  },
+  "device": {
+    "source_commit": "b0cba66b7c8fe6b78db2da3aefe8780e659b02fd",
+    "date": "2026-11-28",
+    "tests": 1,
+    "result": "PASS",
+    "scope": "Isolated background HTTPS/graph verification; basic Application runner; no Activity, playback, listener history, or phone lock commands",
+    "battery_efficiency_measured": false,
+    "apk_sha256": "d689519d0327fbccbdba3ec8d240d4e1bd116bc0ddf48d95bf8d097e31114ddd",
+    "log_sha256": "1ffb541fe58a196a44d450c7294d94fd8e3759c9e6549d81a8980c34a00c271a"
+  },
+  "apk_artifacts": [
+    {
+      "kind": "app",
+      "package": "com.slukhayka.audiobooks.recommend1796",
+      "sha256": "d689519d0327fbccbdba3ec8d240d4e1bd116bc0ddf48d95bf8d097e31114ddd",
+      "bytes": 209628296
+    },
+    {
+      "kind": "androidTest",
+      "package": "com.slukhayka.audiobooks.recommend1796.test",
+      "sha256": "d38a50d5e4c5b2b2789716388c6e401808afb191398dc8aa8ed6a548472522f8",
+      "bytes": 2991265
+    }
+  ],
+  "python_domain": {
+    "source_commit": "b0cba66b7c8fe6b78db2da3aefe8780e659b02fd",
+    "command": "python -m unittest scripts.tests.test_public_catalog_http scripts.tests.test_recommend_graph scripts.tests.test_recommend_unit",
+    "interpreter": "Existing isolated test venv",
+    "tests": 23,
+    "failures": 0,
+    "exit_code": 0,
+    "elapsed_test_seconds": 0.026,
+    "scope": "Local host Python domain tests; does not replace Android partitions or canonical mutations"
+  }
+}

@@ -545,7 +545,8 @@ fun HomeScreen(
                         )
                     }
                 }
-            )
+                )
+            }
         }
         curatorProfilePseudonym?.let { pseudonym ->
             com.slukhayka.audiobooks.ui.screens.collections.CollectionPage(

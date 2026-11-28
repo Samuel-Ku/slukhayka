@@ -2,4 +2,18 @@
 <resources>
     <string name="collection1826_search_within">W tej kolekcji</string>
     <string name="collection1826_search_all">Szukaj w całym katalogu</string>
+    <string name="collection1826_filters">Filtry</string>
+    <string name="collection1826_genres">Gatunki</string>
+    <string name="collection1826_languages">Języki</string>
+    <string name="collection1826_duration">Czas trwania</string>
+    <string name="collection1826_hide_completed">Ukryj przesłuchane</string>
+    <string name="collection1826_completed">Przesłuchano</string>
+    <string name="collection1826_reset">Wyczyść wszystko</string>
+    <string name="collection1826_done">Gotowe</string>
+    <string name="collection1826_clear_search">Wyczyść wyszukiwanie</string>
+    <string name="collection1826_results">Wyświetlono %1$d z %2$d</string>
+    <string name="collection1826_show_unknown">Pokaż także: %1$d z nieznanymi danymi</string>
+    <string name="collection1826_hide_unknown">Ukryj: %1$d z nieznanymi danymi</string>
+    <string name="collection1826_empty">Nic nie znaleziono w tej kolekcji</string>
+    <string name="collection1826_filters_count">Filtry (%1$d)</string>
 </resources>

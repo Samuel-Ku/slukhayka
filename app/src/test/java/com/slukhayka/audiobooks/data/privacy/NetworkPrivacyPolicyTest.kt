@@ -96,7 +96,10 @@ class NetworkPrivacyPolicyTest {
             PrivacyPrefs(routeMode = RouteMode.CUSTOM_PROXY, proxyAddress = "   ")
         )
         assertTrue(result is RouteResolution.Invalid)
-        assertTrue((result as RouteResolution.Invalid).reason.isNotBlank())
+        assertEquals(
+            RouteResolution.InvalidReason.PROXY_BLANK,
+            (result as RouteResolution.Invalid).reason
+        )
     }
 
     @Test
@@ -133,8 +136,10 @@ class NetworkPrivacyPolicyTest {
             PrivacyPrefs(routeMode = RouteMode.CUSTOM_PROXY, proxyAddress="192.168.1.10")
         )
         assertTrue(result is RouteResolution.Invalid)
-        // The reason names the expected shape so the user can fix the input.
-        assertTrue("порт" in (result as RouteResolution.Invalid).reason.lowercase())
+        assertEquals(
+            RouteResolution.InvalidReason.PROXY_FORMAT,
+            (result as RouteResolution.Invalid).reason
+        )
     }
 
     // --- relay prototype route (spec-38 T6, #258) ---
@@ -177,7 +182,10 @@ class NetworkPrivacyPolicyTest {
             PrivacyPrefs(routeMode = RouteMode.RELAY, proxyAddress = "   ")
         )
         assertTrue(result is RouteResolution.Invalid)
-        assertTrue((result as RouteResolution.Invalid).reason.contains("реле"))
+        assertEquals(
+            RouteResolution.InvalidReason.RELAY_BLANK,
+            (result as RouteResolution.Invalid).reason
+        )
     }
 
     @Test
@@ -185,6 +193,17 @@ class NetworkPrivacyPolicyTest {
         assertNull(NetworkPrivacy.parseRelayBase("не адреса"))
         assertNull(NetworkPrivacy.parseRelayBase("relay.example.workers.dev"))
         assertNull(NetworkPrivacy.parseRelayBase("https://"))
+    }
+    @Test
+    fun `a malformed relay address rejects with the format reason`() {
+        val result = NetworkPrivacy.resolve(
+            PrivacyPrefs(routeMode = RouteMode.RELAY, proxyAddress = "relay.example.workers.dev")
+        )
+        assertTrue(result is RouteResolution.Invalid)
+        assertEquals(
+            RouteResolution.InvalidReason.RELAY_FORMAT,
+            (result as RouteResolution.Invalid).reason
+        )
     }
 
     @Test

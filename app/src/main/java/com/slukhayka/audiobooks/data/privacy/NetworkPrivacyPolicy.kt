@@ -36,25 +36,20 @@ object NetworkPrivacy {
             RouteResolution.Ok(NetworkRoute.Proxy(RouteProxyType.SOCKS5, TOR_HOST, TOR_SOCKS_PORT))
         RouteMode.CUSTOM_PROXY -> {
             if (prefs.proxyAddress.isBlank()) {
-                RouteResolution.Invalid("Введіть адресу проксі.")
+                RouteResolution.Invalid(RouteResolution.InvalidReason.PROXY_BLANK)
             } else {
                 parseAddress(prefs.proxyAddress)
                     ?.let { RouteResolution.Ok(NetworkRoute.Proxy(it.type, it.host, it.port)) }
-                    ?: RouteResolution.Invalid(
-                        "Адреса має бути виду host:порт — наприклад 192.168.1.10:8080 або socks5://10.0.0.2:1080."
-                    )
+                    ?: RouteResolution.Invalid(RouteResolution.InvalidReason.PROXY_FORMAT)
             }
         }
         RouteMode.RELAY -> {
             if (prefs.proxyAddress.isBlank()) {
-                RouteResolution.Invalid("Введіть адресу реле.")
+                RouteResolution.Invalid(RouteResolution.InvalidReason.RELAY_BLANK)
             } else {
                 parseRelayBase(prefs.proxyAddress)
                     ?.let { RouteResolution.Ok(NetworkRoute.Relay(it)) }
-                    ?: RouteResolution.Invalid(
-                        "Адреса реле має бути повним https://-посиланням на воркер — " +
-                            "наприклад https://slukhayka-relay.example.workers.dev"
-                    )
+                    ?: RouteResolution.Invalid(RouteResolution.InvalidReason.RELAY_FORMAT)
             }
         }
     }
@@ -189,5 +184,8 @@ sealed interface DnsStrategy {
 /** The door's outcome: either a usable route or a reason for the UI. */
 sealed interface RouteResolution {
     data class Ok(val route: NetworkRoute) : RouteResolution
-    data class Invalid(val reason: String) : RouteResolution
+    data class Invalid(val reason: InvalidReason) : RouteResolution
+
+    /** Why an address was rejected; the UI resolves it to a localized sentence. */
+    enum class InvalidReason { PROXY_BLANK, PROXY_FORMAT, RELAY_BLANK, RELAY_FORMAT }
 }

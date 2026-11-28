@@ -50,6 +50,10 @@
     <string name="privacy_doh_title">DNS encryption (DoH)</string>
     <string name="privacy_doh_description">Domain names travel encrypted to a public DNS, so your provider cannot see which sites the app opens. If DoH is unavailable — the system resolver works automatically.</string>
     <string name="privacy_error">Error: %1$s</string>
+    <string name="privacy_invalid_proxy_blank">Enter a proxy address.</string>
+    <string name="privacy_invalid_proxy_format">The address must be host:port — for example 192.168.1.10:8080 or socks5://10.0.0.2:1080.</string>
+    <string name="privacy_invalid_relay_blank">Enter a relay address.</string>
+    <string name="privacy_invalid_relay_format">The relay address must be a full https:// worker link — for example https://slukhayka-relay.example.workers.dev</string>
     <string name="privacy_saved">Privacy settings saved</string>
     <string name="privacy_relay_address_label">Relay address</string>
     <string name="privacy_proxy_address_label">Proxy address</string>

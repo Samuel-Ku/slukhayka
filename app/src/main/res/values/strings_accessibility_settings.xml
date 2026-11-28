@@ -54,6 +54,10 @@
     <string name="privacy_relay_address_format">Формат: повне https://-посилання на воркер-реле</string>
     <string name="privacy_proxy_address_format">Формат: host:порт або socks5://host:порт</string>
     <string name="privacy_error">Помилка: %1$s</string>
+    <string name="privacy_invalid_proxy_blank">Введіть адресу проксі.</string>
+    <string name="privacy_invalid_proxy_format">Адреса має бути виду host:порт — наприклад 192.168.1.10:8080 або socks5://10.0.0.2:1080.</string>
+    <string name="privacy_invalid_relay_blank">Введіть адресу реле.</string>
+    <string name="privacy_invalid_relay_format">Адреса реле має бути повним https://-посиланням на воркер — наприклад https://slukhayka-relay.example.workers.dev</string>
     <string name="privacy_saved">Налаштування приватності збережено</string>
     <string name="privacy_route_failure_note">Якщо обраний маршрут недоступний, запити завершуються помилкою — застосунок ніколи не повертається до прямого з\'єднання мовчки.</string>
     <string name="crash_reporting_prompt_title">Допоможіть зробити Слухайку стабільнішою</string>

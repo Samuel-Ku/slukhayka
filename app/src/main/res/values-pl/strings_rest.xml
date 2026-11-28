@@ -340,6 +340,10 @@
     <string name="privacy_relay_address_format">Format: pełny link https:// do workera przekaźnika</string>
     <string name="privacy_relay_address_label">Adres przekaźnika</string>
     <string name="privacy_error">Błąd: %1$s</string>
+    <string name="privacy_invalid_proxy_blank">Wpisz adres proxy.</string>
+    <string name="privacy_invalid_proxy_format">Adres musi mieć postać host:port — na przykład 192.168.1.10:8080 lub socks5://10.0.0.2:1080.</string>
+    <string name="privacy_invalid_relay_blank">Wpisz adres przekaźnika.</string>
+    <string name="privacy_invalid_relay_format">Adres przekaźnika musi być pełnym linkiem https:// do workera — na przykład https://slukhayka-relay.example.workers.dev</string>
     <string name="privacy_route_failure_note">Jeśli wybrana trasa jest niedostępna, żądania kończą się błędem — aplikacja nigdy po cichu nie wraca do połączenia bezpośredniego.</string>
     <string name="privacy_route_direct_description">Bez proxy. Zapytania wyglądają jak zwykła przeglądarka na Twoim telefonie.</string>
     <string name="privacy_route_direct_title">Połączenie bezpośrednie</string>

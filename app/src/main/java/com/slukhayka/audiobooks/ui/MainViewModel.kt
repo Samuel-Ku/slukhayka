@@ -2515,8 +2515,11 @@ class MainViewModel @JvmOverloads constructor(
     val privacyPrefs: StateFlow<PrivacyPrefs> = App.instance.privacyPrefs
 
     /** The rejection reason of the last save attempt; null when clean. */
-    private val _privacyError = MutableStateFlow<String?>(null)
-    val privacyError: StateFlow<String?> = _privacyError.asStateFlow()
+    private val _privacyError =
+        MutableStateFlow<com.slukhayka.audiobooks.data.privacy.RouteResolution.InvalidReason?>(null)
+    val privacyError:
+        StateFlow<com.slukhayka.audiobooks.data.privacy.RouteResolution.InvalidReason?> =
+        _privacyError.asStateFlow()
 
     fun openPrivacySettings() {
         _privacySettingsOpen.value = true

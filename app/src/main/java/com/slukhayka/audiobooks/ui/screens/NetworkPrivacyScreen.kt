@@ -46,6 +46,7 @@ import com.slukhayka.audiobooks.data.diagnostics.CrashConsent
 import com.slukhayka.audiobooks.data.diagnostics.CrashReporting
 import com.slukhayka.audiobooks.data.privacy.PrivacyPrefs
 import com.slukhayka.audiobooks.data.privacy.RouteMode
+import com.slukhayka.audiobooks.data.privacy.RouteResolution
 import com.slukhayka.audiobooks.ui.MainViewModel
 import com.slukhayka.audiobooks.ui.icons.PaperInkIcons
 
@@ -204,11 +205,24 @@ fun NetworkPrivacyScreen(
                 )
             }
 
-            if (error != null) {
+            val currentError = error
+            if (currentError != null) {
                 Spacer(modifier = Modifier.height(8.dp))
-                key(error, saveResultRevision) {
+                val reason = stringResource(
+                    when (currentError) {
+                        RouteResolution.InvalidReason.PROXY_BLANK ->
+                            R.string.privacy_invalid_proxy_blank
+                        RouteResolution.InvalidReason.PROXY_FORMAT ->
+                            R.string.privacy_invalid_proxy_format
+                        RouteResolution.InvalidReason.RELAY_BLANK ->
+                            R.string.privacy_invalid_relay_blank
+                        RouteResolution.InvalidReason.RELAY_FORMAT ->
+                            R.string.privacy_invalid_relay_format
+                    }
+                )
+                key(currentError, saveResultRevision) {
                     Text(
-                        text = stringResource(R.string.privacy_error, error.orEmpty()),
+                        text = stringResource(R.string.privacy_error, reason),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                         modifier = Modifier

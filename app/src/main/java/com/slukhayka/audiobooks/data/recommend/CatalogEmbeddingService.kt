@@ -1,13 +1,17 @@
 package com.slukhayka.audiobooks.data.recommend
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+
 /**
  * The background embedding pass (#482): given a catalogue and the Room-backed
  * [RoomEmbeddingCache], returns the id → vector map, computing ONLY the books
- * whose text hash is new or changed and persisting them. Embeddings are
+ * whose backend/context/text hash is new or changed and persisting them. Embeddings are
  * derived data; the per-book hash means an unchanged book is never computed
  * twice even when the ephemeral union churns.
  *
- * Failure-safe by contract (spec-19 T2): it never throws. A book whose
+ * Ordinary failures are contained (spec-19 T2); cancellation around external embeddings propagates. A book whose
  * embedding fails is skipped (its missing vector drops it from the ranking,
  * never fabricates a score), and a cache write that fails leaves the
  * in-memory result usable. The caller picks the dispatcher.
@@ -18,7 +22,7 @@ class CatalogEmbeddingService(
     /**
      * The vectors for [catalog]: fresh cache hits serve without the embedder;
      * only new/changed books are computed — at most [limit] per pass, so a
-     * cold 10k pool warms gradually instead of in one storm. Never throws.
+     * cold 10k pool warms gradually instead of in one storm. Cancellation stops further external embeddings.
      */
     suspend fun vectorsFor(
         catalog: List<RecommendationEngine.Candidate>,
@@ -27,23 +31,33 @@ class CatalogEmbeddingService(
     ): Map<String, FloatArray> {
         if (catalog.isEmpty()) return emptyMap()
         val texts = catalog.associate { it.id to it.text }
-        val cached = cache.loadFresh(texts)
+        val context = embedder.cacheContext
+        val cached = context?.let { cache.loadFresh(texts, it) }.orEmpty()
         val missing = catalog.filter { it.id !in cached }
         if (missing.isEmpty()) return cached
 
         val computed = LinkedHashMap(cached)
         val persist = LinkedHashMap<String, Pair<String, FloatArray>>()
         for (candidate in missing.take(limit)) {
+            currentCoroutineContext().ensureActive()
             try {
                 val vector = embedder.embed(candidate.text)
+                currentCoroutineContext().ensureActive()
+                val valid = context?.accepts(vector) ?: (vector.isNotEmpty() &&
+                    vector.all { it.isFinite() } && vector.sumOf { it.toDouble() * it } > 1e-12)
+                if (!valid) continue
                 computed[candidate.id] = vector
-                persist[candidate.id] = candidate.text to vector
+                if (context != null) persist[candidate.id] = candidate.text to vector
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 // One broken embed (or a throwing embedder in tests) must not
                 // take the whole row down — the candidate simply misses.
             }
         }
-        cache.save(persist)
+        currentCoroutineContext().ensureActive()
+        if (context != null) cache.save(persist, context)
+        currentCoroutineContext().ensureActive()
         return computed
     }
 }

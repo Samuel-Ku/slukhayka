@@ -7,6 +7,7 @@ import ai.onnxruntime.OrtSession
 import java.io.File
 import java.io.InputStream
 import java.nio.LongBuffer
+import java.security.MessageDigest
 
 /**
  * The production [TextEmbedder] (spec-19 T3): multilingual-e5-small,
@@ -19,9 +20,9 @@ import java.nio.LongBuffer
  * caller can fall back to the keyword baseline — the row must never crash
  * on a missing model (T2 contract).
  *
- * e5 convention: retrieval text is prefixed `passage: `. For book→book
- * similarity both the signals and the candidates are passages, so the one
- * prefix applies to both sides (the honest document-similarity setting).
+ * The model card prescribes `query: ` for symmetric semantic similarity.
+ * Catalog books and listening signals share that input policy, including
+ * the declared tokenizer boundary tokens and the 512-token total budget.
  *
  * Same `ai.onnxruntime` API on Android and desktop, so this single class
  * serves the app (assets) and the host-side eval script (a file path).
@@ -34,21 +35,18 @@ class OnnxEmbedder private constructor(
     private val attentionMaskName: String,
     private val tokenTypeIdsName: String?,
     private val outputName: String,
-    private val prefix: String
+    private val prefix: String,
+    override val cacheContext: EmbeddingContext
 ) : TextEmbedder, AutoCloseable {
 
     override fun embed(text: String): FloatArray {
-        val ids = tokenizer.encode(prefix + text)
-        // Mean pooling needs at least one real token; empty input degrades
-        // to an all-zero vector (cosine 0 → the item drops out of ranking).
-        if (ids.isEmpty()) return FloatArray(hiddenDim)
-        val seqLen = minOf(ids.size, MAX_SEQ_LEN)
-        val trimmed = IntArray(seqLen) { ids[it] }
+        val ids = E5RecommendationInput.encode(text, tokenizer, prefix)
+        val seqLen = ids.size
         val inputIds = LongBuffer.allocate(seqLen)
         val attention = LongBuffer.allocate(seqLen)
         val tokenTypes = LongBuffer.allocate(seqLen)
         for (i in 0 until seqLen) {
-            inputIds.put(i, trimmed[i].toLong())
+            inputIds.put(i, ids[i].toLong())
             attention.put(i, 1L)
             tokenTypes.put(i, 0L)
         }
@@ -108,22 +106,23 @@ class OnnxEmbedder private constructor(
     }
 
     companion object {
-        private const val MAX_SEQ_LEN = 512
         private const val hiddenDim = 384
 
         /**
          * Creates the embedder from an on-disk model + tokenizer.json, or
          * null when the model file is absent. [prefix] is the e5 retrieval
-         * prefix (default `passage: `); pass `query: ` for a query-side
-         * embedder.
+         * prefix (default `query: ` for symmetric similarity); an explicit
+         * prefix supports a separately defined asymmetric retrieval role.
          */
-        fun fromFiles(modelFile: File, tokenizerFile: File, prefix: String = "passage: "): OnnxEmbedder? {
+        fun fromFiles(modelFile: File, tokenizerFile: File, prefix: String = E5RecommendationInput.DEFAULT_PREFIX): OnnxEmbedder? {
             if (!modelFile.exists()) return null
             val environment = OrtEnvironment.getEnvironment()
             return try {
                 val tokenizer = UnigramTokenizer.fromFile(tokenizerFile)
+                tokenizer.encodeForModel("", 2) // Validate the declared template before allocating a native session.
+                val context = E5RecommendationInput.cacheContext(sha(modelFile), sha(tokenizerFile), environment.version, prefix)
                 val session = environment.createSession(modelFile.absolutePath)
-                create(environment, session, tokenizer, prefix)
+                create(environment, session, tokenizer, prefix, context)
             } catch (e: Exception) {
                 environment.close()
                 null
@@ -139,22 +138,42 @@ class OnnxEmbedder private constructor(
             environment: OrtEnvironment,
             modelBytes: ByteArray,
             tokenizerBytes: ByteArray,
-            prefix: String = "passage: "
+            prefix: String = E5RecommendationInput.DEFAULT_PREFIX
         ): OnnxEmbedder? {
             return try {
                 val tokenizer = UnigramTokenizer.fromStream(tokenizerBytes.inputStream())
+                tokenizer.encodeForModel("", 2)
+                val context = E5RecommendationInput.cacheContext(sha(modelBytes), sha(tokenizerBytes), environment.version, prefix)
                 val session = environment.createSession(modelBytes)
-                create(environment, session, tokenizer, prefix)
+                create(environment, session, tokenizer, prefix, context)
             } catch (e: Exception) {
                 null
             }
         }
 
+        private fun sha(bytes: ByteArray): String = hex(MessageDigest.getInstance("SHA-256").digest(bytes))
+
+        private fun sha(file: File): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(65_536)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+            return hex(digest.digest())
+        }
+
+        private fun hex(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it) }
+
         private fun create(
             environment: OrtEnvironment,
             session: OrtSession,
             tokenizer: UnigramTokenizer,
-            prefix: String
+            prefix: String,
+            cacheContext: EmbeddingContext
         ): OnnxEmbedder {
             val inputNames = session.inputNames
             val inputIdsName = inputNames.firstOrNull { it.contains("input_ids") }
@@ -170,7 +189,7 @@ class OnnxEmbedder private constructor(
                 ?: session.outputNames.first()
             return OnnxEmbedder(
                 environment, session, tokenizer,
-                inputIdsName, attentionMaskName, tokenTypeIdsName, outputName, prefix
+                inputIdsName, attentionMaskName, tokenTypeIdsName, outputName, prefix, cacheContext
             )
         }
     }

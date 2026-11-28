@@ -17,6 +17,7 @@ class RoomEmbeddingCacheTest {
         RecommendationEngine.Candidate(id = id, title = title, author = "Автор", genre = genre)
 
     private fun countingEmbedder(counter: () -> Unit) = object : TextEmbedder {
+        override val cacheContext = EmbeddingContext("counting-test-v1", 2)
         override fun embed(text: String): FloatArray {
             counter()
             return floatArrayOf(text.length.toFloat(), 1f)
@@ -26,9 +27,9 @@ class RoomEmbeddingCacheTest {
     @Test
     fun `a cached vector survives a new cache over the same database`() = runBlocking {
         val dao = FakeAudiobookDao(books = emptyList())
-        RoomEmbeddingCache(dao).save(mapOf("c1" to ("Кобзар" to floatArrayOf(1f, 2f))))
+        RoomEmbeddingCache(dao).save(mapOf("c1" to ("Кобзар" to floatArrayOf(1f, 2f))), EmbeddingContext("test-v1", 2))
 
-        val served = RoomEmbeddingCache(dao).loadFresh(mapOf("c1" to "Кобзар"))
+        val served = RoomEmbeddingCache(dao).loadFresh(mapOf("c1" to "Кобзар"), EmbeddingContext("test-v1", 2))
 
         assertTrue(served["c1"]!!.contentEquals(floatArrayOf(1f, 2f)))
     }
@@ -37,9 +38,9 @@ class RoomEmbeddingCacheTest {
     fun `a changed text misses the cache`() = runBlocking {
         val dao = FakeAudiobookDao(books = emptyList())
         val cache = RoomEmbeddingCache(dao)
-        cache.save(mapOf("c1" to ("old text" to floatArrayOf(1f))))
+        cache.save(mapOf("c1" to ("old text" to floatArrayOf(1f))), EmbeddingContext("test-v1", 1))
 
-        assertTrue(cache.loadFresh(mapOf("c1" to "new text")).isEmpty())
+        assertTrue(cache.loadFresh(mapOf("c1" to "new text"), EmbeddingContext("test-v1", 1)).isEmpty())
     }
 
     @Test
@@ -85,7 +86,8 @@ class RoomEmbeddingCacheTest {
         val dao = FakeAudiobookDao(books = emptyList())
         val service = CatalogEmbeddingService(RoomEmbeddingCache(dao))
         val throwing = object : TextEmbedder {
-            override fun embed(text: String): FloatArray = error("boom")
+            override val cacheContext = EmbeddingContext("counting-test-v1", 2)
+        override fun embed(text: String): FloatArray = error("boom")
         }
 
         val vectors = service.vectorsFor(listOf(candidate("c1", "Кобзар")), throwing)

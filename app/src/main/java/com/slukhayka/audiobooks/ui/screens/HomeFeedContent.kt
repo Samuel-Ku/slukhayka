@@ -87,6 +87,7 @@ fun LazyListScope.homeFeedContent(
     peopleNewArrivals: PersonNewArrivals.CatalogProjection = PersonNewArrivals.CatalogProjection(emptyList(), emptySet()),
     recommendedBooks: List<RecommendationEngine.Recommendation>,
     recommendationsReady: Boolean = true,
+    recommendationModelMode: com.slukhayka.audiobooks.data.recommend.RecommendationModelMode? = null,
     personalCycles: List<com.slukhayka.audiobooks.ui.library.PersonalCycle>,
     similarCycles: List<com.slukhayka.audiobooks.ui.library.SimilarCycle> = emptyList(),
     shortBooks: List<CatalogBook>,
@@ -250,6 +251,23 @@ fun LazyListScope.homeFeedContent(
     // computed, one quiet line says so.
     val hasForYouContent = personalCycles.isNotEmpty() ||
         similarCycles.isNotEmpty() || recommendedBooks.isNotEmpty() || showRecommendationConsent
+    if (recommendationModelMode != null &&
+        recommendationModelMode != com.slukhayka.audiobooks.data.recommend.RecommendationModelMode.FULL
+    ) {
+        item(key = "recommendation_runtime_status") {
+            Text(
+                text = recommendationRuntimeModeText(recommendationModelMode),
+                style = PaperInkType.Meta,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(
+                    horizontal = PaperInkDimens.SpacePage,
+                    vertical = PaperInkDimens.SpaceSm,
+                )
+                    .testTag("home_recommendations_model_status")
+                    .semantics { liveRegion = LiveRegionMode.Polite }
+            )
+        }
+    }
     if (!hasForYouContent && !recommendationsReady) {
         item {
             Text(

@@ -16,6 +16,9 @@ class UnigramTokenizerTest {
     /** A tiny SentencePiece-style Unigram vocab with the real algorithm's shape. */
     private val miniJson = """
         {
+          "normalizer":{"type":"Sequence","normalizers":[
+            {"type":"NFKC"},{"type":"Replace","pattern":{"Regex":" {2,}"},"content":" "}]},
+          "pre_tokenizer":{"type":"Metaspace","replacement":"▁","add_prefix_space":true},
           "model": {
             "type": "Unigram",
             "unk_id": 3,
@@ -61,6 +64,16 @@ class UnigramTokenizerTest {
     }
 
     @Test
+    fun `unknown astral character preserves the known suffix`() {
+        assertArrayEquals(intArrayOf(6, 3, 14), tokenizer().encode("кобзар🥲і"))
+    }
+
+    @Test
+    fun `adjacent unknown scalars fuse without consuming a known suffix`() {
+        assertArrayEquals(intArrayOf(6, 3, 14), tokenizer().encode("кобзар🥲𐐷і"))
+    }
+
+    @Test
     fun `nfkc normalization folds compatible characters`() {
         // NBSP (U+00A0) folds to a plain space under NFKC, so the word
         // boundary appears exactly as for a regular space.
@@ -75,9 +88,9 @@ class UnigramTokenizerTest {
     }
 
     @Test
-    fun `empty and blank inputs encode to nothing`() {
+    fun `empty input has no pieces and declared whitespace retains its marker`() {
         assertTrue(tokenizer().encode("").isEmpty())
-        assertTrue(tokenizer().encode("   ").isEmpty())
+        assertArrayEquals(intArrayOf(4), tokenizer().encode("   "))
     }
 
     @Test

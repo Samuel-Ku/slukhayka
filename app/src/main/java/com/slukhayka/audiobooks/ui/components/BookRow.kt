@@ -157,6 +157,7 @@ fun BookRow(
     footnoteInColumn: Boolean = false,
     testTag: String? = null
 ) {
+    val displayGenre = genre?.let(::compactGenreLabel)?.takeIf(String::isNotBlank)
     val compact = LocalBookRowCompact.current
     val horizontalPadding = if (compact) AppDimens.SpaceSm else AppDimens.PageSides
     val titleMaxLines = if (compact) 2 else 1
@@ -270,9 +271,11 @@ fun BookRow(
                     Spacer(modifier = Modifier.width(AppDimens.SpaceMd))
                 }
                 Column(modifier = Modifier.weight(1f)) {
-                    if (!genre.isNullOrBlank()) {
+                    if (displayGenre != null) {
                         Text(
-                            text = genre,
+                            text = displayGenre,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             style = if (paperInk) {
                                 com.slukhayka.audiobooks.ui.theme.PaperInkType.TrackingLabel
                             } else {

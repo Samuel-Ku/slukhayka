@@ -18,6 +18,7 @@ import com.slukhayka.audiobooks.data.db.AudiobookDao
 import com.slukhayka.audiobooks.data.db.AudiobookDatabase
 import com.slukhayka.audiobooks.data.db.SocialDao
 import com.slukhayka.audiobooks.data.social.SocialStore
+import com.slukhayka.audiobooks.data.notifications.NotificationPreferences
 import com.slukhayka.audiobooks.data.downloads.DownloadNotificationActionCoordinator
 import com.slukhayka.audiobooks.data.downloads.DownloadNotificationService
 import com.slukhayka.audiobooks.data.downloads.NotificationAction
@@ -1355,6 +1356,15 @@ class App : Application() {
      * refreshes and mapping verdicts that already happen.
      */
     val sourceWatchStore: SourceWatchStore by lazy { SourceWatchStore(this) }
+
+    /**
+     * ADR-0052 §1–5 — the app-level mute for the two EVENT notification
+     * families. Local, never synced: the settings screen writes it and both
+     * posters read it at their posting seam.
+     */
+    val notificationPreferences: NotificationPreferences by lazy {
+        NotificationPreferences(this)
+    }
 
     /**
      * #504 — the same-narration direct fallback resolver behind the

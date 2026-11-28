@@ -71,6 +71,8 @@ import com.slukhayka.audiobooks.ui.screens.CrashReportingConsentDialog
 import com.slukhayka.audiobooks.ui.screens.GenreScreen
 import com.slukhayka.audiobooks.ui.screens.HomeScreen
 import com.slukhayka.audiobooks.ui.screens.SettingsScreen
+import com.slukhayka.audiobooks.ui.screens.openSystemNotificationSettings
+import com.slukhayka.audiobooks.ui.screens.rememberSystemNotificationsEnabled
 import com.slukhayka.audiobooks.ui.screens.SettingsDestination
 import com.slukhayka.audiobooks.ui.screens.LibraryScreen
 import com.slukhayka.audiobooks.ui.screens.ListenScreen
@@ -366,6 +368,12 @@ fun AudiobookApp(
     val context = LocalContext.current
     val appearanceStore = appearance ?: remember { AppearancePreferencesStore(context) }
     val playerAlwaysInk by appearanceStore.playerAlwaysInk.collectAsState()
+    // ADR-0052 — the two event families' app-level mutes, read by the notifiers
+    // at their posting seam and by the settings section.
+    val notificationPreferences = remember { App.instance.notificationPreferences }
+    val notificationSourceAppearance by notificationPreferences.sourceAppearanceEnabled.collectAsState()
+    val notificationPeopleNewArrivals by notificationPreferences.peopleNewArrivalsEnabled.collectAsState()
+    val systemNotificationsEnabled = rememberSystemNotificationsEnabled()
     // #900 — the window's own width decides the navigation surface and (from
     // here on) which screens show a list with its detail beside it.
     val windowLayout = rememberWindowLayout()
@@ -1680,6 +1688,16 @@ fun AudiobookApp(
                                 onThemeModeChange = appearanceStore::setThemeMode,
                                 playerAlwaysInk = playerAlwaysInk,
                                 onPlayerAlwaysInkChange = appearanceStore::setPlayerAlwaysInk,
+                                notificationSourceAppearance = notificationSourceAppearance,
+                                onNotificationSourceAppearanceChange =
+                                    notificationPreferences::setSourceAppearanceEnabled,
+                                notificationPeopleNewArrivals = notificationPeopleNewArrivals,
+                                onNotificationPeopleNewArrivalsChange =
+                                    notificationPreferences::setPeopleNewArrivalsEnabled,
+                                systemNotificationsEnabled = systemNotificationsEnabled,
+                                onOpenNotificationSettings = { channelId ->
+                                    openSystemNotificationSettings(context, channelId)
+                                },
                                 density = appearanceStore.density.collectAsState().value,
                                 onDensityChange = appearanceStore::setDensity,
                                 onBackClick = { viewModel.selectTab(settingsReturnTab) },

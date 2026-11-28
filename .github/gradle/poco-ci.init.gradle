@@ -1,0 +1,9 @@
+// CI owns a separate app package. Neither developer builds nor release data
+// may be replaced when APKs are installed on the physical Poco F3.
+gradle.beforeProject { project ->
+    project.plugins.withId('com.android.application') {
+        project.extensions.getByName('androidComponents').finalizeDsl { androidDsl ->
+            androidDsl.buildTypes.getByName('debug').applicationIdSuffix = '.ci.pocof3'
+        }
+    }
+}

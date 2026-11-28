@@ -373,6 +373,7 @@
     <string name="people_new_notification_some_people">ваших авторів</string>
     <string name="people_new_notification_action">Переглянути</string>
     <string name="people_new_notification_channel_name">Новинки від людей</string>
+    <string name="people_new_notification_channel_description">Сповіщення про новинки від людей, за якими ви стежите.</string>
     <string name="a11y_people_new_mark_seen">Позначити новинки переглянутими</string>
     <string name="home_search_no_results">Нічого не знайдено</string>
     <string name="home_search_no_results_hint">Спробуйте змінити запит або фільтр.</string>
@@ -638,6 +639,20 @@
     <string name="settings_desc_app_locale">Окремо від мови книг</string>
     <string name="settings_group_data">Дані та памʼять</string>
     <string name="settings_group_network">Мережа й приватність</string>
+    <string name="settings_group_notifications">Сповіщення</string>
+    <string name="settings_notifications_source_appearance">Поява джерела</string>
+    <string name="settings_notifications_source_appearance_desc">Коли для відстежуваного твору зʼявляється джерело аудіо.</string>
+    <string name="settings_notifications_people_new_arrivals">Новинки від людей</string>
+    <string name="settings_notifications_people_new_arrivals_desc">Коли у збережених авторів або дикторів є нові книжки.</string>
+    <string name="settings_notifications_open_channel">Системний канал</string>
+    <string name="settings_notifications_playback_title">Службове програвання</string>
+    <string name="settings_notifications_playback_desc">Поки грає звук, Android показує керування відтворенням — вимкнути його окремо не можна.</string>
+    <string name="settings_notifications_downloads_title">Завантаження</string>
+    <string name="settings_notifications_downloads_desc">Поступ завантажень, поки вони йдуть; вимкнути його окремо не можна.</string>
+    <string name="settings_notifications_disabled_title">Системні сповіщення вимкнено</string>
+    <string name="settings_notifications_disabled_desc">Android не показує сповіщення застосунку. Увімкніть їх у системних налаштуваннях — тоді тут зʼявляться перемикачі.</string>
+    <string name="settings_notifications_open_system">Системні налаштування</string>
+
     <string name="settings_group_recommendations">Рекомендації</string>
     <string name="settings_group_language">Мова й доступність</string>
     <string name="library_empty_title">Мої книги порожні</string>

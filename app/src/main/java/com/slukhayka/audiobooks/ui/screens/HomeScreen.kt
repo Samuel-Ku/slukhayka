@@ -135,6 +135,7 @@ fun HomeScreen(
     // the ViewModel. Cold flows need an initial value; the catalogue StateFlows
     // carry their own.
     val allBooks by libraryEntries.allBooks.collectAsState(initial = emptyList())
+    val listenerProfile by viewModel.listenerIdentity.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val sections by sourceCatalog.catalogSections.collectAsState()
     val isCatalogLoading by sourceCatalog.isCatalogLoading.collectAsState()
@@ -510,6 +511,7 @@ fun HomeScreen(
     )
     Box(modifier = Modifier.fillMaxSize()) {
         openedPublicCollection?.let { open ->
+            val isOwn = isOwnPublicCollection(open.authorId, listenerProfile?.uid)
             com.slukhayka.audiobooks.ui.screens.collections.CollectionPage(
                 title = open.title,
                 onClose = { viewModel.closePublicCollection() },
@@ -523,6 +525,7 @@ fun HomeScreen(
                         viewModel.closePublicCollection()
                     },
                     myStars = publicCollectionMyVote,
+                    isOwn = isOwn,
                     onVote = { stars ->
                         viewModel.voteCollection(
                             open.bookIds.firstOrNull().orEmpty(),
@@ -531,15 +534,18 @@ fun HomeScreen(
                             stars
                         )
                     },
-                    onReport = {
+                    onReport = if (isOwn) {
+                        null
+                    } else {
+                        {
                         viewModel.reportCollection(
                             open.bookIds.firstOrNull().orEmpty(),
                             open.documentId,
                             open.collectionId
                         )
                     }
-                )
-            }
+                }
+            )
         }
         curatorProfilePseudonym?.let { pseudonym ->
             com.slukhayka.audiobooks.ui.screens.collections.CollectionPage(
@@ -1739,3 +1745,8 @@ private fun com.slukhayka.audiobooks.data.collections.PublishedCollection.toRail
         ratingCount = ratingCount,
         authorId = authorId
     )
+
+/** #1821 — the Listen collection page uses the same curator identity rule as Book Detail. */
+internal fun isOwnPublicCollection(authorId: String, uid: String?): Boolean =
+    !uid.isNullOrBlank() &&
+        authorId == com.slukhayka.audiobooks.data.collections.CuratorIdentity.authorId(uid)

@@ -17,7 +17,8 @@ data class PeopleNewArrivalNotificationText(
     val title: String,
     val body: String,
     val action: String,
-    val channelName: String
+    val channelName: String,
+    val channelDescription: String
 ) {
     companion object {
         fun build(
@@ -45,6 +46,9 @@ data class PeopleNewArrivalNotificationText(
                 action = resources.getString(R.string.people_new_notification_action),
                 channelName = resources.getString(
                     R.string.people_new_notification_channel_name
+                ),
+                channelDescription = resources.getString(
+                    R.string.people_new_notification_channel_description
                 )
             )
         }

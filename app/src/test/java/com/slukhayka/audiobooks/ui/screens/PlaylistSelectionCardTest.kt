@@ -4,6 +4,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -12,6 +14,7 @@ import androidx.compose.ui.test.performClick
 import com.slukhayka.audiobooks.data.ingest.ChannelImportSession
 import com.slukhayka.audiobooks.data.ingest.ListenerSubmissionFlow
 import com.slukhayka.audiobooks.data.ingest.PreviewRunState
+import com.slukhayka.audiobooks.testing.assertNamedCheckboxRow
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -135,6 +138,44 @@ class PlaylistSelectionCardTest {
         compose.onNodeWithTag("playlist_entry_${entries[1].watchUrl}").performClick()
 
         assertEquals(listOf(entries[1].watchUrl), calls.toggled)
+    }
+
+    @Test
+    fun `a position is one named checkbox and tapping its label toggles it`() {
+        val calls = Calls()
+        var state by mutableStateOf(
+            PlaylistSelectionState(selected = setOf(entries[0].watchUrl), separateBooks = false)
+        )
+        compose.setContent {
+            AudiobookTheme {
+                PlaylistSelectionCard(
+                    entries = entries,
+                    state = state,
+                    edits = edits,
+                    callbacks = calls.callbacks().copy(
+                        onToggleEntry = { url ->
+                            calls.toggled += url
+                            state = state.copy(
+                                selected = if (url in state.selected) {
+                                    state.selected - url
+                                } else {
+                                    state.selected + url
+                                }
+                            )
+                        }
+                    )
+                )
+            }
+        }
+
+        val url = entries[1].watchUrl
+        compose.assertNamedCheckboxRow("playlist_entry_$url", "Розділ 2")
+        compose.onNodeWithTag("playlist_entry_$url").assertIsOff()
+
+        compose.onNodeWithText("Розділ 2").performClick()
+
+        assertEquals(listOf(url), calls.toggled)
+        compose.onNodeWithTag("playlist_entry_$url").assertIsOn()
     }
 
     @Test

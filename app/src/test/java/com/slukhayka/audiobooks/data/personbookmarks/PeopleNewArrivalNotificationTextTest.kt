@@ -73,6 +73,10 @@ class PeopleNewArrivalNotificationTextTest {
         val copy = texts(1)
         assertEquals("Переглянути", copy.action)
         assertEquals("Новинки від людей", copy.channelName)
+        assertEquals(
+            "Сповіщення про новинки від людей, за якими ви стежите.",
+            copy.channelDescription
+        )
     }
 
     // --- English and Polish are fully translated ----------------------------
@@ -85,8 +89,9 @@ class PeopleNewArrivalNotificationTextTest {
         assertEquals("From Anna and Bohdan", texts(2, listOf("Anna", "Bohdan")).body)
         assertEquals("View", texts(1).action)
         assertEquals("New arrivals from people", texts(1).channelName)
+        assertEquals("New arrivals from people you follow.", texts(1).channelDescription)
         val copy = texts(3, listOf("Anna"))
-        listOf(copy.title, copy.body, copy.action, copy.channelName).forEach {
+        listOf(copy.title, copy.body, copy.action, copy.channelName, copy.channelDescription).forEach {
             assertFalse("Ukrainian copy leaked on EN: $it", cyrillic.containsMatchIn(it))
         }
     }
@@ -100,8 +105,9 @@ class PeopleNewArrivalNotificationTextTest {
         assertEquals("Od Anna i Bohdan", texts(2, listOf("Anna", "Bohdan")).body)
         assertEquals("Zobacz", texts(1).action)
         assertEquals("Nowości od ludzi", texts(1).channelName)
+        assertEquals("Nowości od osób, które obserwujesz.", texts(1).channelDescription)
         val copy = texts(5, listOf("Anna"))
-        listOf(copy.title, copy.body, copy.action, copy.channelName).forEach {
+        listOf(copy.title, copy.body, copy.action, copy.channelName, copy.channelDescription).forEach {
             assertFalse("Ukrainian copy leaked on PL: $it", cyrillic.containsMatchIn(it))
         }
     }

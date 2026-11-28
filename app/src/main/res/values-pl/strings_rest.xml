@@ -250,6 +250,7 @@
     <string name="people_new_notification_some_people">Twoich autorów</string>
     <string name="people_new_notification_action">Zobacz</string>
     <string name="people_new_notification_channel_name">Nowości od ludzi</string>
+    <string name="people_new_notification_channel_description">Nowości od osób, które obserwujesz.</string>
     <string name="home_personal_picks_loading">Przygotowujemy osobiste kolekcje…</string>
     <string name="home_recommendation_source_badge">Źródło poleca · %1$s</string>
     <string name="home_recommendation_updated">Rekomendacja zaktualizowana</string>
@@ -408,6 +409,20 @@
     <string name="settings_group_data">Dane i pamięć</string>
     <string name="settings_group_language">Język i dostępność</string>
     <string name="settings_group_network">Sieć i prywatność</string>
+    <string name="settings_group_notifications">Powiadomienia</string>
+    <string name="settings_notifications_source_appearance">Pojawienie się źródła</string>
+    <string name="settings_notifications_source_appearance_desc">Gdy pojawi się źródło dla obserwowanej książki.</string>
+    <string name="settings_notifications_people_new_arrivals">Nowości od osób</string>
+    <string name="settings_notifications_people_new_arrivals_desc">Gdy zapisani autorzy lub lektorzy mają nowe książki.</string>
+    <string name="settings_notifications_open_channel">Kanał systemowy</string>
+    <string name="settings_notifications_playback_title">Odtwarzanie w tle</string>
+    <string name="settings_notifications_playback_desc">Gdy gra dźwięk, Android pokazuje sterowanie odtwarzaniem — nie można go wyłączyć osobno.</string>
+    <string name="settings_notifications_downloads_title">Pobieranie</string>
+    <string name="settings_notifications_downloads_desc">Postęp pobierania, gdy trwa; nie można go wyłączyć osobno.</string>
+    <string name="settings_notifications_disabled_title">Powiadomienia systemowe są wyłączone</string>
+    <string name="settings_notifications_disabled_desc">Android nie pokazuje powiadomień aplikacji. Włącz je w ustawieniach systemowych, a przełączniki pojawią się tutaj.</string>
+    <string name="settings_notifications_open_system">Ustawienia systemowe</string>
+
     <!-- Plan 2026-2027: appearance and density. -->
     <string name="settings_group_appearance">Wygląd</string>
     <string name="settings_theme">Motyw</string>
@@ -435,6 +450,8 @@
     <string name="source_audio_refusal_title">Audio źródeł</string>
     <string name="source_watch_notification_text">Źródło: %1$s. Dotknij, aby otworzyć książkę.</string>
     <string name="source_watch_notification_title">Pojawiło się źródło dla tej książki</string>
+    <string name="source_watch_notification_channel_name">Czeka na źródło</string>
+    <string name="source_watch_notification_channel_description">Powiadamia, gdy pojawi się źródło dla książki.</string>
     <string name="speed_default_for_all">Standard dla wszystkich</string>
     <string name="storage_danger_heading">Strefa niebezpieczna</string>
     <string name="storage_delete_action">Usuń pobrane pliki</string>

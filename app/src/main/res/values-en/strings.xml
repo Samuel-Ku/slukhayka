@@ -346,6 +346,7 @@
     <string name="people_new_notification_some_people">your authors</string>
     <string name="people_new_notification_action">View</string>
     <string name="people_new_notification_channel_name">New arrivals from people</string>
+    <string name="people_new_notification_channel_description">New arrivals from people you follow.</string>
     <string name="a11y_people_new_mark_seen">Mark new arrivals as seen</string>
     <string name="home_search_no_results">Nothing found</string>
     <string name="home_search_no_results_hint">Try a different query or filter.</string>
@@ -568,6 +569,20 @@
     <string name="settings_desc_app_locale">Separate from the books’ language</string>
     <string name="settings_group_data">Data and storage</string>
     <string name="settings_group_network">Network and privacy</string>
+    <string name="settings_group_notifications">Notifications</string>
+    <string name="settings_notifications_source_appearance">Source appearance</string>
+    <string name="settings_notifications_source_appearance_desc">When a source appears for a watched work.</string>
+    <string name="settings_notifications_people_new_arrivals">New arrivals from people</string>
+    <string name="settings_notifications_people_new_arrivals_desc">When saved authors or narrators have new books.</string>
+    <string name="settings_notifications_open_channel">System channel</string>
+    <string name="settings_notifications_playback_title">Playback service</string>
+    <string name="settings_notifications_playback_desc">Android shows playback controls while audio plays; they cannot be turned off separately.</string>
+    <string name="settings_notifications_downloads_title">Downloads</string>
+    <string name="settings_notifications_downloads_desc">Download progress while downloads run; it cannot be turned off separately.</string>
+    <string name="settings_notifications_disabled_title">System notifications are off</string>
+    <string name="settings_notifications_disabled_desc">Android is not showing this app’s notifications. Turn them on in system settings and the switches will appear here.</string>
+    <string name="settings_notifications_open_system">System settings</string>
+
     <string name="settings_group_recommendations">Recommendations</string>
     <string name="settings_group_language">Language and accessibility</string>
     <string name="library_empty_title">Your books are empty</string>

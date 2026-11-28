@@ -1,6 +1,5 @@
 package com.slukhayka.audiobooks.ui.screens
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,7 +12,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -102,23 +100,17 @@ fun FirstLanguageChoiceContent(
         )
         Spacer(Modifier.height(12.dp))
         languages.forEach { tag ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        selected = if (tag in selected) selected - tag else selected + tag
-                    }
-                    .padding(vertical = 4.dp)
-                    .testTag("first_language_choice_$tag")
+            // One toggle per language: the row owns the gesture and the
+            // semantics, so TalkBack lands on a named checkbox once — not on a
+            // clickable row AND a separate checkbox for the same choice.
+            CheckboxRow(
+                checked = tag in selected,
+                onCheckedChange = { checked ->
+                    selected = if (checked) selected + tag else selected - tag
+                },
+                testTag = "first_language_choice_$tag",
+                modifier = Modifier.padding(vertical = 4.dp)
             ) {
-                Checkbox(
-                    checked = tag in selected,
-                    onCheckedChange = { checked ->
-                        selected = if (checked) selected + tag else selected - tag
-                    }
-                )
-                Spacer(Modifier.width(8.dp))
                 Text(text = contentLanguageLabel(tag), style = MaterialTheme.typography.bodyLarge)
             }
         }

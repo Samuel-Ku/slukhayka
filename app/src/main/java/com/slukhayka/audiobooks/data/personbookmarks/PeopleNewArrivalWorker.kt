@@ -45,8 +45,24 @@ class PeopleNewArrivalWorker(
 
     companion object {
         const val UNIQUE_WORK = "people-new-arrivals"
-        private const val CHANNEL_ID = "people_new"
+        internal const val CHANNEL_ID = "people_new"
         private const val NOTIFICATION_ID = 403
+
+        /** #1811 — same id updates the name/description; importance is unchanged. */
+        internal fun ensureChannel(
+            context: Context,
+            copy: PeopleNewArrivalNotificationText
+        ) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            val manager = context.getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_ID,
+                    copy.channelName,
+                    NotificationManager.IMPORTANCE_DEFAULT
+                ).apply { description = copy.channelDescription }
+            )
+        }
 
         fun schedule(context: Context) {
             // Tests and Firebase-less recovery builds may intentionally omit
@@ -69,45 +85,47 @@ class PeopleNewArrivalWorker(
             ) ?: return
             val context = app.applicationContext
             if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
-            // #1547 — every word (plural included) comes from resources for the
-            // current locale; nothing user-facing lives in this file anymore.
-            val copy = PeopleNewArrivalNotificationText.build(
-                resources = context.resources,
-                count = decision.count,
-                people = decision.people
-            )
-            // Channels exist from API 26 only; API 24–25 posts the same
-            // notification the old way, without one.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val manager = context.getSystemService(NotificationManager::class.java)
-                if (manager.getNotificationChannel(CHANNEL_ID) == null) {
-                    manager.createNotificationChannel(NotificationChannel(
-                        CHANNEL_ID, copy.channelName, NotificationManager.IMPORTANCE_DEFAULT
-                    ))
+            // ADR-0052 §1–3 — the app-level mute stops the POSTING, not the
+            // feature. The cursor below still advances, so re-enabling never
+            // dumps a backlog of old arrivals; the in-app arrival badge reads
+            // `lastSeenAt`, not this notification cursor, so muting never
+            // hides a person's new books.
+            if (app.notificationPreferences.peopleNewArrivalsEnabled.value) {
+                // #1547 — every word (plural included) comes from resources for the
+                // current locale; nothing user-facing lives in this file anymore.
+                val copy = PeopleNewArrivalNotificationText.build(
+                    resources = context.resources,
+                    count = decision.count,
+                    people = decision.people
+                )
+                // Channels exist from API 26 only; API 24–25 posts the same
+                // notification the old way, without one.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    ensureChannel(context, copy)
                 }
+                // ADR-0052 §6 — the alert carries the identity of the first
+                // person it is about so its tap opens THAT page, not the feed.
+                // `people` and `notifiedCounts` are both projections of the same
+                // eligible list in the same order, so their first entries name
+                // the same person (role from the key, name from `people`).
+                val firstPersonName = decision.people.firstOrNull()?.takeIf { it.isNotBlank() }
+                val firstPersonRole = decision.notifiedCounts.keys.firstOrNull()?.role
+                val intent = NotificationIntents.peopleNew(context, firstPersonName, firstPersonRole)
+                val pending = PendingIntent.getActivity(
+                    context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                NotificationManagerCompat.from(context).notify(
+                    NOTIFICATION_ID,
+                    NotificationCompat.Builder(context, CHANNEL_ID)
+                        .setSmallIcon(com.slukhayka.audiobooks.R.drawable.ic_launcher_foreground)
+                        .setContentTitle(copy.title)
+                        .setContentText(copy.body)
+                        .setContentIntent(pending)
+                        .setAutoCancel(true)
+                        .addAction(0, copy.action, pending)
+                        .build()
+                )
             }
-            // ADR-0052 §6 — the alert carries the identity of the first
-            // person it is about so its tap opens THAT page, not the feed.
-            // `people` and `notifiedCounts` are both projections of the same
-            // eligible list in the same order, so their first entries name
-            // the same person (role from the key, name from `people`).
-            val firstPersonName = decision.people.firstOrNull()?.takeIf { it.isNotBlank() }
-            val firstPersonRole = decision.notifiedCounts.keys.firstOrNull()?.role
-            val intent = NotificationIntents.peopleNew(context, firstPersonName, firstPersonRole)
-            val pending = PendingIntent.getActivity(
-                context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-            NotificationManagerCompat.from(context).notify(
-                NOTIFICATION_ID,
-                NotificationCompat.Builder(context, CHANNEL_ID)
-                    .setSmallIcon(com.slukhayka.audiobooks.R.drawable.ic_launcher_foreground)
-                    .setContentTitle(copy.title)
-                    .setContentText(copy.body)
-                    .setContentIntent(pending)
-                    .setAutoCancel(true)
-                    .addAction(0, copy.action, pending)
-                    .build()
-            )
             app.personBookmarks.markNotified(decision.notifiedCounts)
         }
     }

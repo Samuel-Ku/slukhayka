@@ -9,6 +9,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.slukhayka.audiobooks.App
 import com.slukhayka.audiobooks.NotificationIntents
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.db.WorkEntity
 import com.slukhayka.audiobooks.data.imports.KnownBookIdentity
 import com.slukhayka.audiobooks.data.source.GlobalSearchResult
@@ -19,17 +20,38 @@ import kotlinx.coroutines.flow.first
  * ADR-0037 §6 (spec-49 T4) — delivers one Source Watch appearance as a
  * local notification. The evaluation inputs are zero-request by contract:
  * the union catalog the app already holds and the mapping verdicts the
- * Replacement Mapping (T2a/T2b) just produced. The store's seen-state is
- * persisted only when the notification actually goes out, so a dropped
- * result can legitimately repeat.
+ * Replacement Mapping (T2a/T2b) just produced. The watch's seen-state is
+ * persisted after evaluation even when posting is muted or Android refuses
+ * it, so re-enabling never dumps a backlog; the Work page reads the watch,
+ * not this notification, so the in-app appearance stays visible.
  *
  * Silent auto-import never happens: the appearance announces, the tap
  * opens the book through the ordinary import doors.
  */
 object SourceWatchNotifier {
 
-    private const val CHANNEL_ID = "source_watch"
+    internal const val CHANNEL_ID = "source_watch"
     private const val NOTIFICATION_ID = 404
+
+    /**
+     * #1811 — creating the same id again UPDATES the locale-visible name and
+     * description on an existing install; importance is left untouched.
+     */
+    internal fun ensureChannel(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = context.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_ID,
+                context.getString(R.string.source_watch_notification_channel_name),
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = context.getString(
+                    R.string.source_watch_notification_channel_description
+                )
+            }
+        )
+    }
 
     /**
      * The zero-request scan a caller fires on a refresh that already
@@ -106,15 +128,16 @@ object SourceWatchNotifier {
     suspend fun notifyAppearance(app: App, appearance: SourceWatchPolicy.Appearance) {
         val context = app.applicationContext
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
+        // ADR-0052 §1–3 — the listener's app-level mute stops the POSTING, not
+        // the watch: evaluateAndNotify still persists seen-state after this
+        // call, so re-enabling never dumps a backlog of old appearances, and
+        // the Work page keeps showing the appearance because it reads the
+        // watch/catalog, not this notification.
+        if (!app.notificationPreferences.sourceAppearanceEnabled.value) return
         // Channels exist from API 26 only; API 24–25 posts the same
         // notification the old way, without one.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager = context.getSystemService(NotificationManager::class.java)
-            if (manager.getNotificationChannel(CHANNEL_ID) == null) {
-                manager.createNotificationChannel(NotificationChannel(
-                    CHANNEL_ID, "Чекає на джерело", NotificationManager.IMPORTANCE_DEFAULT
-                ))
-            }
+            ensureChannel(context)
         }
 
         val worksById = worksById(app)

@@ -131,7 +131,7 @@ class NetworkPrivacyPolicyTest {
     }
 
     @Test
-    fun `every rejection carries a typed reason`() {
+    fun `every rejection carries an understandable reason`() {
         val result = NetworkPrivacy.resolve(
             PrivacyPrefs(routeMode = RouteMode.CUSTOM_PROXY, proxyAddress="192.168.1.10")
         )
@@ -194,6 +194,7 @@ class NetworkPrivacyPolicyTest {
         assertNull(NetworkPrivacy.parseRelayBase("relay.example.workers.dev"))
         assertNull(NetworkPrivacy.parseRelayBase("https://"))
     }
+
     @Test
     fun `a malformed relay address rejects with the format reason`() {
         val result = NetworkPrivacy.resolve(

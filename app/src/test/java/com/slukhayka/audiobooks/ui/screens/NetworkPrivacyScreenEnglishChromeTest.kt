@@ -65,7 +65,6 @@ class NetworkPrivacyScreenEnglishChromeTest {
         composeTestRule.onNodeWithText("Format: a full https:// link to the relay worker")
             .assertExists()
         composeTestRule.onNodeWithText("Direct connection").assertExists()
-
     }
 
     @Test
@@ -98,7 +97,6 @@ class NetworkPrivacyScreenEnglishChromeTest {
         composeTestRule.onNodeWithText("Format: pełny link https:// do workera przekaźnika")
             .assertExists()
         composeTestRule.onNodeWithText("Połączenie bezpośrednie").assertExists()
-
     }
 }
 

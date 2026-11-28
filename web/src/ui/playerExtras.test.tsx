@@ -104,6 +104,9 @@ beforeEach(async () => {
 
 afterEach(() => {
   cleanup();
+  // The locale store is module-level; reset it so a later test file in the
+  // same worker never inherits the English strings from this suite.
+  setUiLocale("uk");
   vi.restoreAllMocks();
   vi.useRealTimers();
   Object.defineProperty(navigator, "onLine", {
@@ -884,5 +887,88 @@ describe("player overlay is a modal dialog (#1688)", () => {
       />
     );
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("names play/pause in both UI locales", async () => {
+    const engine = freshEngine();
+    await engine.loadBook(
+      {
+        title: "Книга",
+        chapters: CHAPTERS,
+        editionId: "ed-1",
+        workId: "Книга|Автор",
+      },
+      0,
+      { forceChapter: true }
+    );
+    engine.pause();
+    const props = {
+      engine,
+      onClose: vi.fn(),
+      lastPlayed: {
+        title: "Книга",
+        author: "Автор",
+        narrator: "Диктор",
+        url: "https://4read.org/1.html",
+      },
+      profile: null,
+      reviewsStore: null,
+      bookmarksStore: null,
+    } as const;
+    setUiLocale("uk");
+    const view = render(<PlayerSheet {...props} />);
+    expect(screen.getByRole("button", { name: "Грати" })).toBeTruthy();
+    view.unmount();
+    setUiLocale("en");
+    render(<PlayerSheet {...props} />);
+    expect(screen.getByRole("button", { name: "Play" })).toBeTruthy();
+  });
+
+  it("uses the pause name while the engine is playing", async () => {
+    const engine = freshEngine();
+    await engine.loadBook(
+      {
+        title: "Книга",
+        chapters: CHAPTERS,
+        editionId: "ed-1",
+        workId: "Книга|Автор",
+      },
+      0,
+      { forceChapter: true }
+    );
+    vi.spyOn(engine, "getState").mockReturnValue({
+      ...engine.getState(),
+      status: "playing",
+    });
+    setUiLocale("uk");
+    render(
+      <PlayerSheet
+        engine={engine}
+        onClose={vi.fn()}
+        lastPlayed={null}
+        profile={null}
+        reviewsStore={null}
+        bookmarksStore={null}
+      />
+    );
+    expect(screen.getByRole("button", { name: "Пауза" })).toBeTruthy();
+  });
+
+  it("falls back to the chapter-only heading when no book is loaded", async () => {
+    const engine = freshEngine();
+    await loadPlayer(engine);
+    engine.pause();
+    render(
+      <PlayerSheet
+        engine={engine}
+        onClose={vi.fn()}
+        lastPlayed={null}
+        profile={null}
+        reviewsStore={null}
+        bookmarksStore={null}
+      />
+    );
+    const heading = screen.getByRole("heading", { name: "Розділ 1" });
+    expect(document.activeElement).toBe(heading);
   });
 });

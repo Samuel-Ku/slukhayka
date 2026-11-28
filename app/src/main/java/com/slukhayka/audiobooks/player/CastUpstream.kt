@@ -5,6 +5,7 @@ import com.slukhayka.audiobooks.data.source.ResolvedAudioStream
 import com.slukhayka.audiobooks.data.source.YouTubeTracks
 import com.slukhayka.audiobooks.data.source.headersFor
 import com.slukhayka.audiobooks.data.source.sourceIdForUrl
+import java.util.Locale
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.runBlocking
@@ -108,16 +109,19 @@ internal class CastUpstream(
                 ?.takeIf { it.url != persistedUrl && it.url.startsWith("http", ignoreCase = true) }
                 ?: return null
             // #1751 — the playlist told the receiver this chapter is
-            // CastMimeTypes.forCast(watch URL). A stream of another family
-            // (WebM/Opus) would make that declaration a lie, so the chapter is
-            // refused honestly rather than mislabelled.
+            // CastMimeTypes.forCast(watch URL). Only positive evidence of
+            // that family may pass: a WebM/Opus stream makes the declaration
+            // a lie, and an extractor that says nothing is no evidence of
+            // MP4 either, so both are refused honestly rather than
+            // mislabelled (#1751 review, P2).
             val declared = CastMimeTypes.forCast(persistedUrl)
-            if (!CastMimeTypes.declaresFamily(declared, resolved.mimeType)) return null
-            // An extractor that says nothing cannot prove the declaration
-            // wrong, so the proxy's own Content-Type keeps the declared
-            // family instead of falling back to an extension guess that a
-            // googlevideo URL can never satisfy (no extension → audio/mpeg).
-            val playable = Playable(resolved.url, resolved.mimeType ?: declared)
+            val servedFamily = resolved.mimeType
+            if (servedFamily.isNullOrBlank() ||
+                !CastMimeTypes.declaresFamily(declared, servedFamily)
+            ) {
+                return null
+            }
+            val playable = Playable(resolved.url, servedFamily)
             resolvedByChapter[index] = playable
             return playable
         }
@@ -150,18 +154,45 @@ internal class CastUpstream(
     private fun toResponse(
         response: HttpFetcher.RangeResponse,
         playable: Playable
-    ): PlaybackProxy.UpstreamResponse =
-        PlaybackProxy.UpstreamResponse(
+    ): PlaybackProxy.UpstreamResponse? {
+        // A resolved stream has a proven family, and the playlist already
+        // declared it. The origin's own type may confirm it (and keep any
+        // codecs parameter) but must never contradict the declaration: a
+        // named audio/video family of another kind is the same lie the
+        // resolver check refuses (#1751 review, P2). An unhelpful origin type
+        // (`application/octet-stream`) is not evidence and cannot replace a
+        // family the resolver proved.
+        val servedFamily = playable.mimeType
+        val originFamily = response.contentType
+            ?.substringBefore(';')?.trim()?.lowercase(Locale.ROOT)
+            ?.takeIf { it.isNotEmpty() }
+        if (servedFamily != null && originFamily != null &&
+            isMediaFamily(originFamily) &&
+            !CastMimeTypes.declaresFamily(servedFamily, originFamily)
+        ) {
+            return null
+        }
+        val contentType = if (servedFamily != null) {
+            if (originFamily != null && isMediaFamily(originFamily)) {
+                response.contentType
+            } else {
+                servedFamily
+            }
+        } else {
+            // The origin's own type is evidence (googlevideo serves
+            // `audio/mp4` from a URL with no extension); guessing stays the
+            // fallback — never the override.
+            response.contentType ?: CastMimeTypes.forCast(playable.url)
+        }
+        return PlaybackProxy.UpstreamResponse(
             status = response.status,
             body = response.stream,
             contentLength = response.contentLength,
             contentRange = response.contentRange,
-            // The origin's own type is evidence (googlevideo serves
-            // `audio/mp4` from a URL with no extension); the resolved
-            // stream's real family comes next, guessing stays the fallback —
-            // never the override.
-            contentType = response.contentType
-                ?: playable.mimeType
-                ?: CastMimeTypes.forCast(playable.url)
+            contentType = contentType
         )
+    }
+
+    private fun isMediaFamily(mime: String): Boolean =
+        mime.startsWith("audio/") || mime.startsWith("video/")
 }

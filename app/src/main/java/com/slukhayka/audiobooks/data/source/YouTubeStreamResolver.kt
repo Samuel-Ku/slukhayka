@@ -58,7 +58,9 @@ data class AudioStreamSpec(
  * A resolved playable stream: the signed URL and the MIME family of its
  * bytes. Both travel together because a consumer that declares a MIME to
  * another player ([com.slukhayka.audiobooks.player.CastUpstream], #1751) may
- * only declare what it will really serve.
+ * only declare what it will really serve. [mimeType] is null when the stream
+ * passes through unchanged or the chosen candidate's family is unknown — it
+ * is never a guess.
  */
 data class ResolvedAudioStream(val url: String, val mimeType: String? = null)
 
@@ -103,7 +105,8 @@ class YouTubeStreamResolver(
      * bytes (#1751). The cast playlist has to declare a MIME before the first
      * range request, so a consumer that resolves later must be able to prove
      * the declaration matches what it will serve; [mimeType] is null only
-     * when the stream passes through unchanged or the extractor said nothing.
+     * when the stream passes through unchanged, or when the chosen candidate
+     * gives no reliable evidence of its family.
      */
     suspend fun resolveStream(persistedUrl: String): ResolvedAudioStream? {
         if (!YouTubeTracks.isYouTubeWatchUrl(persistedUrl)) return ResolvedAudioStream(persistedUrl)
@@ -114,7 +117,15 @@ class YouTubeStreamResolver(
             .getOrNull()
             .orEmpty()
         val best = pickBestAudio(candidates) ?: return null
-        return ResolvedAudioStream(best.url, best.mimeType)
+        // #1751 review, P2 — the extractor's own MIME is the family when it
+        // knows one. A positive M4A selection is itself reliable evidence of
+        // the MP4 family (NewPipe's MediaFormat.M4A / yt-dlp's `m4a`), so it
+        // may fill a missing MIME; a non-M4A candidate with no other evidence
+        // stays null, and the cast door refuses it honestly instead of
+        // declaring MP4 on silence.
+        val mimeType = best.mimeType?.takeIf { it.isNotBlank() }
+            ?: if (best.isM4a) "audio/mp4" else null
+        return ResolvedAudioStream(best.url, mimeType)
     }
 
     companion object {

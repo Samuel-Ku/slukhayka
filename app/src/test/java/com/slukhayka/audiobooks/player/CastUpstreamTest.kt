@@ -110,15 +110,72 @@ class CastUpstreamTest {
         assertTrue(fetcher.requested.isEmpty())
     }
 
+    /**
+     * #1751 review, P2 — the witness for the unknown-family path: a
+     * non-M4A direct candidate whose extractor gives no MIME (the resolver
+     * tests pin that it stays null) must never be served as the playlist's
+     * declared `audio/mp4`, even when the range response also omits
+     * Content-Type. Silence is not evidence of MP4: the chapter is refused
+     * before any byte reaches the receiver.
+     */
     @Test
-    fun `an unknown family keeps the declared family as the proxy fallback`() {
+    fun `an unknown family is refused instead of being served as the declared mp4`() {
         val fetcher = RecordingFetcher()
         fetcher.onRequest = { response(contentType = null) }
+        var resolverCalls = 0
         val upstream = CastUpstream(
             chapterUrls = listOf(watchUrl),
             bookId = "book-1",
             fetcher = fetcher,
-            resolver = { ResolvedAudioStream(audioUrl, null) },
+            resolver = { resolverCalls++; ResolvedAudioStream(audioUrl, null) },
+            headers = { emptyMap() }
+        )
+
+        assertNull("an unproven family may not pass under the MP4 declaration", upstream.open("ch0", null))
+        assertEquals(1, resolverCalls)
+        assertTrue("no unproven bytes may reach the receiver", fetcher.requested.isEmpty())
+
+        // The refusal is stable, and the budget ends it (no endless extraction).
+        assertNull(upstream.open("ch0", "bytes=0-1023"))
+        assertNull(upstream.open("ch0", "bytes=0-1023"))
+        assertEquals(2, resolverCalls)
+        assertTrue(fetcher.requested.isEmpty())
+    }
+
+    /**
+     * #1751 review, P2 — even with a proven family, an origin that names a
+     * different audio/video family contradicts what the playlist declared, so
+     * the contradictory response is refused rather than handed over.
+     */
+    @Test
+    fun `an origin naming another family is refused instead of contradicting the declaration`() {
+        val fetcher = RecordingFetcher()
+        fetcher.onRequest = { response(contentType = "audio/webm") }
+        val upstream = CastUpstream(
+            chapterUrls = listOf(watchUrl),
+            bookId = "book-1",
+            fetcher = fetcher,
+            resolver = { ResolvedAudioStream(audioUrl, "audio/mp4") },
+            headers = { emptyMap() }
+        )
+
+        assertNull(upstream.open("ch0", null))
+    }
+
+    /**
+     * #1751 review, P2 — an origin type that names no family (for example
+     * `application/octet-stream`) is not evidence against the resolver's
+     * proven family, and it must not replace it either.
+     */
+    @Test
+    fun `an unhelpful origin type does not replace the proven family`() {
+        val fetcher = RecordingFetcher()
+        fetcher.onRequest = { response(contentType = "application/octet-stream") }
+        val upstream = CastUpstream(
+            chapterUrls = listOf(watchUrl),
+            bookId = "book-1",
+            fetcher = fetcher,
+            resolver = { ResolvedAudioStream(audioUrl, "audio/mp4") },
             headers = { emptyMap() }
         )
 

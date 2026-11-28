@@ -36,9 +36,13 @@ class CastMimeTypesTest {
         assertTrue(CastMimeTypes.declaresFamily("audio/mp4", "audio/mp4"))
         assertTrue("a codecs parameter does not change the container", CastMimeTypes.declaresFamily("audio/mp4", "audio/mp4; codecs=mp4a.40.2"))
         assertFalse("WebM is a different family", CastMimeTypes.declaresFamily("audio/mp4", "audio/webm"))
-        assertTrue(
-            "an extractor that says nothing cannot prove the declaration wrong",
+        assertFalse(
+            "an unknown family is not evidence of MP4",
             CastMimeTypes.declaresFamily("audio/mp4", null)
+        )
+        assertFalse(
+            "a blank family is not evidence of MP4 either",
+            CastMimeTypes.declaresFamily("audio/mp4", "  ")
         )
     }
 }

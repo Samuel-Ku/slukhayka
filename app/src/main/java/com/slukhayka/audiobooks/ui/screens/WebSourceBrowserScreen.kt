@@ -154,16 +154,19 @@ fun WebSourceBrowserScreen(
     var currentWebUrl by remember { mutableStateOf(homeUrl) }
     var isLoading by remember { mutableStateOf(false) }
     var hasWebError by remember { mutableStateOf(false) }
-    var webErrorMsg by remember { mutableStateOf("") }
     var webViewInstance by remember { mutableStateOf<WebView?>(null) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
     var isImporting by remember { mutableStateOf(false) }
     var importResult by remember { mutableStateOf("") }
+    // #1774 — the status tone is explicit state, not a locale-dependent
+    // `startsWith` probe on Ukrainian text.
+    var importResultIsError by remember { mutableStateOf(false) }
     // #528 — the listener-opened category: the path of the category being
     // browsed and the honest result of the last «add to Огляд» action.
     var categoryPath by remember(sourceId) { mutableStateOf<String?>(null) }
     var categoryResult by remember(sourceId) { mutableStateOf("") }
+    var categoryResultIsError by remember(sourceId) { mutableStateOf(false) }
     val nextCategoryCursor by viewModel.categoryNextCursor.collectAsState()
     var structureMismatch by remember { mutableStateOf<com.slukhayka.audiobooks.data.imports.BrowserRecoveryCoordinator.Outcome.StructureMismatch?>(null) }
     var repairHtml by remember { mutableStateOf("") }
@@ -182,6 +185,23 @@ fun WebSourceBrowserScreen(
         currentAddress = currentWebUrl,
         enteredAddress = urlInput
     )
+    // #1774 — status texts are resolved here, once, so the callbacks below
+    // (WebViewClient, capture lambdas) can assign a localized message without
+    // reaching for composition-only APIs.
+    val notSourceCategoryMessage =
+        stringResource(R.string.browser_not_source_category, displayName)
+    val notSourceImportMessage =
+        stringResource(R.string.browser_not_source_import, displayName)
+    val blockedNavigationMessage =
+        stringResource(R.string.browser_navigation_blocked, displayName)
+    val categoryAddingMessage = stringResource(R.string.browser_category_adding)
+    val categoryNextPageMessage = stringResource(R.string.browser_category_next_page)
+    val pageUnreadableMessage = stringResource(R.string.browser_page_unreadable)
+    val importUpdatedMessage = stringResource(R.string.browser_import_updated)
+    val importAddedMessage = stringResource(R.string.browser_import_added)
+    val audioNotFoundMessage = stringResource(R.string.browser_import_audio_not_found)
+    val repairSuccessMessage = stringResource(R.string.browser_repair_success)
+    val repairErrorMessage = stringResource(R.string.browser_repair_error)
 
     // Spec-38 T3 (#255): the WebView session rides the SAME resolved route as
     // the transport (WebViewSessionPrivacy reads TransportPrivacy). Resolved
@@ -333,16 +353,18 @@ fun WebSourceBrowserScreen(
             .facts(sourceId)?.homeUrl.orEmpty().trimEnd('/')
         val pageUrl = currentWebUrl
         if (home.isEmpty() || !pageUrl.startsWith(home)) {
-            categoryResult = "Це не сторінка $displayName — категорія доступна лише з джерела"
+            categoryResult = notSourceCategoryMessage
+            categoryResultIsError = true
             return
         }
         val path = pageUrl.removePrefix(home)
         val continuation = categoryPath?.takeIf { it == path }?.let { nextCategoryCursor }
         categoryPath = path
+        categoryResultIsError = false
         categoryResult = if (continuation != null) {
-            "Відкриваю наступну сторінку категорії…"
+            categoryNextPageMessage
         } else {
-            "Додаю категорію до Огляду…"
+            categoryAddingMessage
         }
         viewModel.openSourceCategory(sourceId, path, continuation)
     }
@@ -363,13 +385,15 @@ fun WebSourceBrowserScreen(
         // navigation): an off-source page can never become a card of this
         // source.
         if (!SourceBrowserPolicy.isUrlAllowed(pageUrl, sourceId)) {
-            importResult = "Це не сторінка $displayName — додавання доступне лише з книг джерела"
+            importResult = notSourceImportMessage
+            importResultIsError = true
             return
         }
         // Snapshot the ordered audio candidates observed so far (deduplicated).
         val audioCandidates = synchronized(capturedAudioUrls) { capturedAudioUrls.toList() }
         isImporting = true
         importResult = ""
+        importResultIsError = false
         structureMismatch = null
         blockedNavMessage = ""
         // ADR-0036 (spec-48 T1) — the capture JS is assembled from the source
@@ -424,7 +448,8 @@ fun WebSourceBrowserScreen(
                 unescapeCapturedHtml(inner)
             } ?: ""
             if (decoded.isBlank() || decoded.length < 200) {
-                importResult = "Сторінку не вдалося прочитати"
+                importResult = pageUnreadableMessage
+                importResultIsError = true
                 isImporting = false
                 if (automaticRecovery) onAutomaticRecoveryFailed()
                 return@evaluateJavascript
@@ -442,12 +467,14 @@ fun WebSourceBrowserScreen(
                     positionMs = recoveryPositionMs,
                     onComplete = { success ->
                     if (success) {
-                        importResult = "Книгу оновлено"
+                        importResult = importUpdatedMessage
+                        importResultIsError = false
                         // Success closes the browser and resumes the same
                         // Chapter/position.
                         onClose()
                     } else {
-                        importResult = "Аудіо ще не знайдено. Відкрийте книгу та запустіть її на сайті, потім спробуйте ще раз."
+                        importResult = audioNotFoundMessage
+                        importResultIsError = true
                         if (automaticRecovery) onAutomaticRecoveryFailed()
                     }
                     isImporting = false
@@ -456,7 +483,12 @@ fun WebSourceBrowserScreen(
                         if (automaticRecovery) {
                             onAutomaticRecoveryFailed()
                         } else {
-                            importResult = mismatch.message
+                            importResult = context.getString(
+                                R.string.browser_repair_needed,
+                                mismatch.storedChapterCount,
+                                mismatch.capturedChapterCount
+                            )
+                            importResultIsError = true
                             structureMismatch = mismatch
                             repairHtml = decoded
                             repairUrl = pageUrl
@@ -473,10 +505,12 @@ fun WebSourceBrowserScreen(
                     capturedAudioUrls = synchronized(capturedAudioUrls) { capturedAudioUrls.toList() }
                 ) { success ->
                     if (success) {
-                        importResult = "Книгу додано до медіатеки"
+                        importResult = importAddedMessage
+                        importResultIsError = false
                         onClose()
                     } else {
-                        importResult = "Аудіо ще не знайдено. Відкрийте книгу та запустіть її на сайті, потім спробуйте ще раз."
+                        importResult = audioNotFoundMessage
+                        importResultIsError = true
                     }
                     isImporting = false
                 }
@@ -584,7 +618,7 @@ fun WebSourceBrowserScreen(
                         IconButton(
                             onClick = {
                                 if (!SourceBrowserPolicy.isUrlAllowed(homeUrl, sourceId)) {
-                                    blockedNavMessage = "Перехід за межі $displayName заблоковано"
+                                    blockedNavMessage = blockedNavigationMessage
                                 } else {
                                     blockedNavMessage = ""
                                     webViewInstance?.loadUrl(homeUrl)
@@ -622,7 +656,11 @@ fun WebSourceBrowserScreen(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = if (isImporting) "Додаю…" else "Додати до медіатеки",
+                            text = if (isImporting) {
+                                stringResource(R.string.browser_importing)
+                            } else {
+                                stringResource(R.string.browser_import_action)
+                            },
                             style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onPrimary
                         )
@@ -667,10 +705,10 @@ fun WebSourceBrowserScreen(
                     Text(
                         text = importResult,
                         style = MaterialTheme.typography.labelMedium,
-                        color = if (importResult.startsWith("Книгу")) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
+                        color = if (importResultIsError) {
                             MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.primary
                         }
                     )
                     if (structureMismatch != null) {
@@ -682,7 +720,7 @@ fun WebSourceBrowserScreen(
                     Text(
                         text = categoryResult,
                         style = MaterialTheme.typography.labelMedium,
-                        color = if (categoryResult.startsWith("Це не сторінка")) {
+                        color = if (categoryResultIsError) {
                             MaterialTheme.colorScheme.error
                         } else {
                             MaterialTheme.colorScheme.primary
@@ -701,7 +739,10 @@ fun WebSourceBrowserScreen(
                 if (lastCapturedAudioCount > 0) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Захоплено $lastCapturedAudioCount аудіо-файл(и) — натисни «Додати до медіатеки»",
+                        text = stringResource(
+                            R.string.browser_captured_audio_hint,
+                            lastCapturedAudioCount
+                        ),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.secondary
                     )
@@ -745,9 +786,11 @@ fun WebSourceBrowserScreen(
                         title = { Text(stringResource(R.string.browser_fix_structure_question)) },
                         text = {
                             Text(
-                                "Розділів було ${mismatch.storedChapterCount}, стане ${mismatch.capturedChapterCount}. " +
-                                    "Будуть очищені локальні файли цієї структури, прогрес по розділах і закладки. " +
-                                    "Назва книги, медіатека та джерело залишаться."
+                                stringResource(
+                                    R.string.browser_repair_consequence,
+                                    mismatch.storedChapterCount,
+                                    mismatch.capturedChapterCount
+                                )
                             )
                         },
                         confirmButton = {
@@ -763,10 +806,11 @@ fun WebSourceBrowserScreen(
                                 ) { repaired ->
                                     importResult = if (repaired) {
                                         structureMismatch = null
-                                        "Структуру книги виправлено"
+                                        repairSuccessMessage
                                     } else {
-                                        "Не вдалося підтвердити нову структуру. Дані не змінено."
+                                        repairErrorMessage
                                     }
+                                    importResultIsError = !repaired
                                     isImporting = false
                                 }
                             }) { Text(stringResource(R.string.browser_fix)) }
@@ -818,7 +862,7 @@ fun WebSourceBrowserScreen(
                                         // Spec-42 #427 — address field cannot bypass allowlist:
                                         // same gate as shouldOverrideUrlLoading.
                                         if (!SourceBrowserPolicy.isUrlAllowed(target, sourceId)) {
-                                            blockedNavMessage = "Перехід за межі $displayName заблоковано"
+                                            blockedNavMessage = blockedNavigationMessage
                                             Log.w("WebSource", "Blocked address-bar navigation outside allowlist for $sourceId: $target")
                                         } else {
                                             blockedNavMessage = ""
@@ -910,7 +954,7 @@ fun WebSourceBrowserScreen(
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "Браузер джерела вимкнено маршрутом приватності",
+                                    text = stringResource(R.string.browser_route_refused_title),
                                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                     color = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.weight(1f)
@@ -1024,7 +1068,6 @@ fun WebSourceBrowserScreen(
                                 }
                                 isLoading = false
                                 hasWebError = true
-                                webErrorMsg = "Сторінка не завантажилася"
                                 // Chromium otherwise paints chrome-error:// with a
                                 // localized ERR_* token underneath our Compose UI.
                                 // Hide it immediately and replace it with a neutral
@@ -1053,7 +1096,7 @@ fun WebSourceBrowserScreen(
                                 // uses the SAME gate — no bypass.
                                 if (!SourceBrowserPolicy.isUrlAllowed(url, sourceId)) {
                                     Log.w("WebSource", "Blocked navigation outside allowlist for $sourceId: $url")
-                                    blockedNavMessage = "Перехід за межі $displayName заблоковано"
+                                    blockedNavMessage = blockedNavigationMessage
                                     return true
                                 }
                                 blockedNavMessage = ""
@@ -1241,7 +1284,7 @@ fun WebSourceBrowserScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Сторінка не завантажилася",
+                                text = stringResource(R.string.browser_page_load_failed),
                                 style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.weight(1f)
@@ -1256,7 +1299,7 @@ fun WebSourceBrowserScreen(
                             }
                         }
                         Text(
-                            text = "Перевірте з'єднання й повторіть. Обраний мережевий маршрут не буде змінено.",
+                            text = stringResource(R.string.browser_page_load_failed_body),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1266,7 +1309,7 @@ fun WebSourceBrowserScreen(
                                 onClick = {
                                     // Spec-42 #427 — retry also through allowlist.
                                     if (!SourceBrowserPolicy.isUrlAllowed(currentWebUrl, sourceId)) {
-                                        blockedNavMessage = "Перехід за межі $displayName заблоковано"
+                                        blockedNavMessage = blockedNavigationMessage
                                         return@OutlinedButton
                                     }
                                     hasWebError = false
@@ -1318,6 +1361,7 @@ private fun WebViewRouteGateCard(
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val closeDescription = stringResource(R.string.a11y_browser_close)
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.secondary),
@@ -1342,9 +1386,9 @@ private fun WebViewRouteGateCard(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = if (failed) {
-                        "Не вдалося підготувати мережевий маршрут"
+                        stringResource(R.string.browser_route_prepare_failed)
                     } else {
-                        "Готуємо захищене з'єднання…"
+                        stringResource(R.string.browser_route_preparing)
                     },
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                     modifier = Modifier.weight(1f)
@@ -1352,7 +1396,7 @@ private fun WebViewRouteGateCard(
                 IconButton(
                     onClick = onClose,
                     modifier = Modifier.semantics {
-                        contentDescription = "Закрити браузер джерела"
+                        contentDescription = closeDescription
                     }
                 ) {
                     Icon(PaperInkIcons.Close, contentDescription = null)
@@ -1360,13 +1404,13 @@ private fun WebViewRouteGateCard(
             }
             if (failed) {
                 Text(
-                    text = "Жоден запит не було надіслано повз обраний проксі або Tor.",
+                    text = stringResource(R.string.browser_route_failure_reassurance),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(onClick = onRetry) {
-                    Text("Повторити")
+                    Text(stringResource(R.string.browser_retry))
                 }
             }
         }

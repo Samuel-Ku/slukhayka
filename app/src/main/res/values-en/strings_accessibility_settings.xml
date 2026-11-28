@@ -24,6 +24,11 @@
     <string name="recommendations_shared_on">Consent saved locally</string>
     <string name="recommendations_shared_off">Not participating</string>
     <string name="recommendations_hidden_heading">Hidden by you</string>
+    <!-- #1774 — the four feedback-kind labels of the hidden-preferences list. -->
+    <string name="recommendations_feedback_hide_work">Don\'t recommend this book</string>
+    <string name="recommendations_feedback_reduce_similar">Fewer similar</string>
+    <string name="recommendations_feedback_hide_author">Don\'t recommend this author</string>
+    <string name="recommendations_feedback_other">Recommendation settings</string>
     <string name="recommendations_reset_action">Reset personalization</string>
     <string name="recommendations_reset_consequence">Resetting deletes only the explicit recommendation settings and locally adapted weights. Books, progress, and playback history stay.</string>
     <string name="recommendations_reset_dialog_title">Reset personalization?</string>
@@ -33,6 +38,7 @@
     <string name="recommendations_restore_description">Restore: %1$s</string>
 
     <string name="privacy_title">Network privacy</string>
+    <string name="privacy_intro">Where the traffic of book sources goes. By default — straight, like a regular browser.</string>
     <string name="privacy_route_direct_title">Direct connection</string>
     <string name="privacy_route_direct_description">No proxy. Requests look like a regular browser on your phone.</string>
     <string name="privacy_route_proxy_title">Own proxy</string>
@@ -45,9 +51,20 @@
     <string name="privacy_doh_description">Domain names travel encrypted to a public DNS, so your provider cannot see which sites the app opens. If DoH is unavailable — the system resolver works automatically.</string>
     <string name="privacy_error">Error: %1$s</string>
     <string name="privacy_saved">Privacy settings saved</string>
+    <string name="privacy_relay_address_label">Relay address</string>
+    <string name="privacy_proxy_address_label">Proxy address</string>
+    <string name="privacy_relay_address_format">Format: a full https:// link to the relay worker</string>
+    <string name="privacy_proxy_address_format">Format: host:port or socks5://host:port</string>
+    <string name="privacy_route_failure_note">If the chosen route is unavailable, requests fail — the app never silently falls back to a direct connection.</string>
 
     <string name="profile_title">Profile</string>
     <string name="profile_loading">Loading profile</string>
+    <string name="profile_intro">The profile creates itself, without registration. Only you see the nickname.</string>
+    <string name="profile_nickname_heading">Nickname</string>
+    <string name="profile_hidden_authors_heading">Hidden authors</string>
+    <string name="profile_sync_heading">Progress sync</string>
+    <string name="profile_sync_title">Your position mirrors across your devices</string>
+    <string name="profile_sync_description">Nothing is sent without your profile. Turned off — everything stays on the phone.</string>
     <string name="profile_nickname_saved">Nickname saved</string>
     <string name="profile_unhide_author_description">Show reviews by author %1$s</string>
     <string name="profile_biometric_unavailable">Biometric verification is unavailable on this device.</string>

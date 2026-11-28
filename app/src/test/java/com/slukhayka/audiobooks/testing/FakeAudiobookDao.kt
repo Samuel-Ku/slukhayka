@@ -1128,10 +1128,32 @@ class FakeAudiobookDao(
         }.map { it.workId }.take(limit.coerceAtLeast(0))
     }
 
+    override suspend fun exactWorkSearch(title: String, limit: Int): List<String> =
+        workSearchState.value.values.filter { it.title == title }.map { it.workId }.take(limit)
+
+    override suspend fun workSearchDocuments(ids: List<String>): List<WorkSearchFtsEntity> =
+        ids.mapNotNull { workSearchState.value[it] }
+
+    override suspend fun workSearchCorrectionCandidates(a: String, b: String, c: String, limit: Int, afterRowId: Long): List<com.slukhayka.audiobooks.data.db.WorkSearchCandidateRow> =
+        workSearchState.value.values.mapIndexed { index, row ->
+            com.slukhayka.audiobooks.data.db.WorkSearchCandidateRow(
+                index.toLong() + 1, row.workId, row.title, row.author, row.series,
+                row.narrator + " " + workSearchNarrators(row.workId).joinToString(" ")
+            )
+        }.filter { row ->
+            val text = "${row.title} ${row.author} ${row.series} ${row.narrator}"
+            listOf(a, b, c).any { text.contains(it.trim('%')) } ||
+                workSearchNarrators(row.workId).size > 1
+        }.filter { it.rowId > afterRowId }.take(limit)
+
     override suspend fun workSearchRowCount(): Int = workSearchState.value.size
 
     override suspend fun missingWorkSearchIds(): List<String> =
         worksState.value.filter { it.mergeKey.isNotBlank() && it.id !in workSearchState.value }.map { it.id }
+
+    override suspend fun workSearchNarrators(workId: String): List<String> =
+        (editionsState.value.filter { it.workId == workId }.map { it.narrator }.filter { it.isNotBlank() } +
+            editionFacetsState.value.filter { it.workId == workId }.mapNotNull { it.narratorId?.takeIf(String::isNotBlank) }).distinct()
 
     override suspend fun firstEditionNarrator(workId: String): String? =
         editionsState.value.firstOrNull { it.workId == workId && it.narrator.isNotBlank() }?.narrator

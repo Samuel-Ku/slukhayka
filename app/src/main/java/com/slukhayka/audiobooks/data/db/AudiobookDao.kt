@@ -659,11 +659,38 @@ interface AudiobookDao {
     @Query("SELECT workId FROM works_fts WHERE works_fts MATCH :match ORDER BY rowid LIMIT :limit")
     suspend fun matchWorkSearch(match: String, limit: Int): List<String>
 
+    @Query("SELECT workId FROM works_fts WHERE title = :title ORDER BY rowid LIMIT :limit")
+    suspend fun exactWorkSearch(title: String, limit: Int): List<String>
+
+    @Query("SELECT workId, title, author, series, narrator FROM works_fts WHERE workId IN (:ids)")
+    suspend fun workSearchDocuments(ids: List<String>): List<WorkSearchFtsEntity>
+
+    /** Bounded reads of the SAME index for one-edit recovery; no independent vocabulary cache. */
+    @Query(
+        "SELECT rowid AS rowId, workId, title, author, series, narrator || ' ' || " +
+            "COALESCE((SELECT GROUP_CONCAT(e.narrator, ' ') FROM editions e WHERE e.workId = works_fts.workId), '') || ' ' || " +
+            "COALESCE((SELECT GROUP_CONCAT(f.narratorId, ' ') FROM edition_facets f WHERE f.workId = works_fts.workId), '') AS narrator " +
+            "FROM works_fts WHERE rowid > :afterRowId AND (" +
+            "title LIKE :a OR title LIKE :b OR title LIKE :c OR " +
+            "author LIKE :a OR author LIKE :b OR author LIKE :c OR " +
+            "series LIKE :a OR series LIKE :b OR series LIKE :c OR " +
+            "narrator LIKE :a OR narrator LIKE :b OR narrator LIKE :c OR " +
+            "workId IN (SELECT workId FROM (SELECT workId, narrator AS name FROM editions WHERE narrator != '' " +
+            "UNION SELECT workId, narratorId AS name FROM edition_facets WHERE narratorId IS NOT NULL AND narratorId != '') " +
+            "GROUP BY workId HAVING COUNT(DISTINCT name) > 1) " +
+            ") ORDER BY rowid LIMIT :limit"
+    )
+    suspend fun workSearchCorrectionCandidates(a: String, b: String, c: String, limit: Int, afterRowId: Long): List<WorkSearchCandidateRow>
+
     @Query("SELECT COUNT(*) FROM works_fts")
     suspend fun workSearchRowCount(): Int
 
     @Query("SELECT id FROM works WHERE mergeKey != '' AND id NOT IN (SELECT workId FROM works_fts)")
     suspend fun missingWorkSearchIds(): List<String>
+
+    @Query("SELECT DISTINCT narrator FROM editions WHERE workId = :workId AND narrator != '' " +
+        "UNION SELECT narratorId FROM edition_facets WHERE workId = :workId AND narratorId IS NOT NULL AND narratorId != ''")
+    suspend fun workSearchNarrators(workId: String): List<String>
 
     @Query("SELECT narrator FROM editions WHERE workId = :workId AND narrator != '' LIMIT 1")
     suspend fun firstEditionNarrator(workId: String): String?
@@ -707,7 +734,7 @@ interface AudiobookDao {
             deleteWorkSearchRows(workId)
             return
         }
-        val narrator = firstEditionNarrator(workId) ?: firstFacetNarrator(workId).orEmpty()
+        val narrator = workSearchNarrators(workId).joinToString(" ")
         deleteWorkSearchRows(workId)
         insertWorkSearchRow(
             workId = workId,

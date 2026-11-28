@@ -61,7 +61,13 @@ data class GlobalSearchResult(
      * a Work with a matching Edition shows). Rendered nowhere today — it
      * feeds the content-language filter (T5) and the EN/UA badges (T7).
      */
-    val language: String = ""
+    val language: String = "",
+    /** Claimed bibliographic series; no name is inferred from the title. */
+    val seriesTitle: String = "",
+    /** Query-local narrator claims across Editions; never a Source binding or shared-cache field. */
+    val narrators: List<String> = listOf(narrator).filter { it.isNotBlank() },
+    /** Query-local explanation; deliberately excluded from the shared search cache. */
+    val correctedQuery: String? = null
 ) {
     /** Stable identity for list keys: the merge key, else the first source url. */
     val key: String get() = mergeKey.ifBlank { sources.firstOrNull()?.url ?: title }
@@ -186,7 +192,9 @@ fun mergeGlobalSearchResults(results: List<SourceBook>): List<GlobalSearchResult
                 // card renders the source's HTML entity as a name.
                 author = MetadataAssertions.normalizeClaimedText(first.author).orEmpty(),
                 narrator = MetadataAssertions.normalizeClaimedText(first.narrator).orEmpty(),
+                narrators = books.mapNotNull { MetadataAssertions.normalizeClaimedText(it.narrator) }.distinct(),
                 mergeKey = MergeKey.keyFor(first.title, first.author),
+                seriesTitle = books.firstNotNullOfOrNull { MetadataAssertions.normalizeClaimedText(it.seriesTitle) }.orEmpty(),
                 coverImageUrl = first.coverImageUrl,
                 // One Work language: known only when every member source
                 // agrees on the same claim; "" (unknown) when any member is

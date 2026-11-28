@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="search1826_loading">Ще шукаємо</string>
+    <string name="search1826_partial_failure">Результати неповні</string>
+    <string name="search1826_no_results">За цим запитом нічого не знайдено</string>
+    <string name="search1826_correction">Можливо, ви шукали: %1$s</string>
+    <string name="search1826_author">Автор: %1$s</string>
+    <string name="search1826_series">Серія: %1$s</string>
+    <string name="search1826_narrator">Виконавець: %1$s</string>
+    <string name="search1826_related">Схожі результати</string>
+    <string name="search1826_no_results_hint">Спробуйте іншу назву або автора.</string>
+</resources>

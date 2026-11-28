@@ -245,6 +245,8 @@ object SearchResultCodec {
 
     /** Optional fields ride the document only when present; reads default null. */
     private fun optionalFields(result: GlobalSearchResult): Map<String, Any> = buildMap {
+        // Query-local corrections and owner-derived narrator aggregates are not public cache data.
+        result.seriesTitle.takeIf { it.isNotBlank() }?.let { put("seriesTitle", it) }
         result.coverImageUrl?.let { put("coverImageUrl", it) }
         result.durationSeconds?.let { put("durationSeconds", it) }
         // Spec-45 (#405) T5 (#493): the content-language claim rides the
@@ -276,7 +278,8 @@ object SearchResultCodec {
             // Old documents carry no language — it decodes to "" (unknown),
             // which no selection ever hides (US17); the next live resolve
             // rewrites the doc with the claim.
-            language = map["language"] as? String ?: ""
+            language = map["language"] as? String ?: "",
+            seriesTitle = map["seriesTitle"] as? String ?: ""
         )
     }
 

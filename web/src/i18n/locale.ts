@@ -34,18 +34,41 @@ export function resolveUiLocale(): UiLocale {
   }
 }
 
+/**
+ * #1787 — the document language is part of the UI-locale dimension
+ * (ADR-0029): screen readers, browser translation and spellcheck must not
+ * hear Ukrainian while the chrome is English. `web/index.html` can only
+ * declare one static language, so the store owns the DOM write. Guarded and
+ * degrade-never: no document (SSR, a worker test) or a hostile DOM is not
+ * a reason to break locale resolution.
+ */
+function applyDocumentLang(locale: UiLocale): void {
+  if (typeof document === 'undefined') return
+  try {
+    document.documentElement.lang = locale
+  } catch {
+    // degrade-never: the in-memory locale still applies this session
+  }
+}
+
 // Lazy init: the first read resolves from the current device/storage state,
 // so a test (or an embedder) can pin the locale before anything renders.
 let current: UiLocale | null = null
 const listeners = new Set<() => void>()
 
 export function getUiLocale(): UiLocale {
-  if (current === null) current = resolveUiLocale()
+  if (current === null) {
+    current = resolveUiLocale()
+    // Resolution happens during the first render, before any effect/paint:
+    // an English device is never announced as `uk` on the first frame.
+    applyDocumentLang(current)
+  }
   return current
 }
 
 export function setUiLocale(locale: UiLocale): void {
   current = locale
+  applyDocumentLang(locale)
   try {
     localStorage.setItem(KEY, locale)
   } catch {

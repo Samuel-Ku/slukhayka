@@ -5,6 +5,7 @@ import com.slukhayka.audiobooks.data.source.HttpFetcher
 import com.slukhayka.audiobooks.data.source.ResolvedAudioStream
 import com.slukhayka.audiobooks.data.source.YouTubeStreamResolver
 import java.io.ByteArrayInputStream
+import java.io.InputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -198,6 +199,51 @@ class CastUpstreamTest {
         )
 
         assertNull(upstream.open("ch0", null))
+    }
+
+    /**
+     * #1751 review, P2 — refusing on an origin MIME mismatch happens AFTER
+     * the fetch opened the body. Nobody downstream will ever see that stream,
+     * so the refusal itself must release it exactly once or every later range
+     * request leaks a socket.
+     */
+    @Test
+    fun `an origin family mismatch closes the fetched body exactly once`() {
+        val body = TrackingInputStream()
+        val fetcher = RecordingFetcher()
+        fetcher.onRequest = { response(contentType = "audio/webm", stream = body) }
+        val upstream = CastUpstream(
+            chapterUrls = listOf(watchUrl),
+            bookId = "book-1",
+            fetcher = fetcher,
+            resolver = { ResolvedAudioStream(audioUrl, "audio/mp4") },
+            headers = { emptyMap() }
+        )
+
+        assertNull(upstream.open("ch0", null))
+        assertEquals("the refused body must be released once", 1, body.closeCount.get())
+    }
+
+    /**
+     * #1751 review, P2 — the opposite ownership rule: a response that is
+     * handed to PlaybackProxy must NOT be closed early; the proxy's
+     * SelfClosingStream owns it from here.
+     */
+    @Test
+    fun `a playable response transfers body ownership without closing it`() {
+        val body = TrackingInputStream()
+        val fetcher = RecordingFetcher()
+        fetcher.onRequest = { response(contentType = null, stream = body) }
+        val upstream = CastUpstream(
+            chapterUrls = listOf(watchUrl),
+            bookId = "book-1",
+            fetcher = fetcher,
+            resolver = { ResolvedAudioStream(audioUrl, "audio/mp4") },
+            headers = { emptyMap() }
+        )
+
+        assertNotNull(upstream.open("ch0", null))
+        assertEquals("the proxy owns the body and closes it later", 0, body.closeCount.get())
     }
 
     /**
@@ -397,14 +443,26 @@ class CastUpstreamTest {
 
     private fun response(
         status: Int = 200,
-        contentType: String? = "audio/mp4"
+        contentType: String? = "audio/mp4",
+        stream: InputStream = ByteArrayInputStream(byteArrayOf(1, 2, 3))
     ): HttpFetcher.RangeResponse = HttpFetcher.RangeResponse(
-        stream = ByteArrayInputStream(byteArrayOf(1, 2, 3)),
+        stream = stream,
         status = status,
         contentLength = 3,
         contentRange = null,
         contentType = contentType
     )
+
+    /** Counts close() calls so ownership can be asserted exactly. */
+    private class TrackingInputStream : InputStream() {
+        val closeCount = AtomicInteger(0)
+
+        override fun read(): Int = -1
+
+        override fun close() {
+            closeCount.incrementAndGet()
+        }
+    }
 
     private class RecordingFetcher : HttpFetcher() {
         val requested = java.util.Collections.synchronizedList(mutableListOf<String>())

@@ -170,6 +170,11 @@ internal class CastUpstream(
             isMediaFamily(originFamily) &&
             !CastMimeTypes.declaresFamily(servedFamily, originFamily)
         ) {
+            // The fetch already opened this body. Refusing at this point means
+            // PlaybackProxy never receives it, so its SelfClosingStream would
+            // never close it: release the socket here or every later range
+            // request leaks one. A close failure is not a playback failure.
+            runCatching { response.stream.close() }
             return null
         }
         val contentType = if (servedFamily != null) {

@@ -1,0 +1,504 @@
+{
+  "entries": [
+    {
+      "title": "Count of Monte Cristo",
+      "author": "Alexandre Dumas",
+      "workKey": "count of monte cristo|alexandre dumas"
+    },
+    {
+      "title": "Letters of Two Brides",
+      "author": "Honoré de Balzac",
+      "workKey": "letters of two brides|honoré de balzac"
+    },
+    {
+      "title": "Bleak House",
+      "author": "Charles Dickens",
+      "workKey": "bleak house|charles dickens"
+    },
+    {
+      "title": "Penguin Island",
+      "author": "Anatole France",
+      "workKey": "penguin island|anatole france"
+    },
+    {
+      "title": "This Side of Paradise",
+      "author": "F. Scott Fitzgerald",
+      "workKey": "this side of paradise|f scott fitzgerald"
+    },
+    {
+      "title": "Secret Garden",
+      "author": "Frances Hodgson Burnett",
+      "workKey": "secret garden|frances hodgson burnett"
+    },
+    {
+      "title": "Twenty Years After",
+      "author": "Alexandre Dumas",
+      "workKey": "twenty years after|alexandre dumas"
+    },
+    {
+      "title": "Adventures of Huckleberry Finn",
+      "author": "Mark Twain",
+      "workKey": "adventures of huckleberry finn|mark twain"
+    },
+    {
+      "title": "Heart of Darkness",
+      "author": "Joseph Conrad",
+      "workKey": "heart of darkness|joseph conrad"
+    },
+    {
+      "title": "Odyssey",
+      "author": "Homer",
+      "workKey": "odyssey|homer"
+    },
+    {
+      "title": "Märchen (Index aller Märchen)",
+      "author": "Jacob & Wilhelm Grimm",
+      "workKey": "märchen index aller märchen|jacob wilhelm grimm"
+    },
+    {
+      "title": "Divine Comedy",
+      "author": "Dante Alighieri",
+      "workKey": "divine comedy|dante alighieri"
+    },
+    {
+      "title": "Unbeaten Tracks in Japan",
+      "author": "Isabella L. Bird",
+      "workKey": "unbeaten tracks in japan|isabella l bird"
+    },
+    {
+      "title": "Canterville Ghost",
+      "author": "Oscar Wilde",
+      "workKey": "canterville ghost|oscar wilde"
+    },
+    {
+      "title": "Fábulas de Esopo, Vol. 1",
+      "author": "Aesop",
+      "workKey": "fábulas de esopo vol 1|aesop"
+    },
+    {
+      "title": "Mother Goose in Prose",
+      "author": "L. Frank Baum",
+      "workKey": "mother goose in prose|l frank baum"
+    },
+    {
+      "title": "Uncle Tom's Cabin",
+      "author": "Harriet Beecher Stowe",
+      "workKey": "uncle toms cabin|harriet beecher stowe"
+    },
+    {
+      "title": "Truth About Jesus. Is He a Myth?",
+      "author": "M. M. Mangasarian",
+      "workKey": "truth about jesus is he a myth|m m mangasarian"
+    },
+    {
+      "title": "Foolish Dictionary",
+      "author": "Charles Wayland Towne",
+      "workKey": "foolish dictionary|charles wayland towne"
+    },
+    {
+      "title": "Ranald Bannerman's Boyhood",
+      "author": "George MacDonald",
+      "workKey": "ranald bannermans boyhood|george macdonald"
+    },
+    {
+      "title": "Fables de La Fontaine, livre 01",
+      "author": "Jean de La Fontaine",
+      "workKey": "fables de la fontaine livre 01|jean de la fontaine"
+    },
+    {
+      "title": "Dream Psychology",
+      "author": "Sigmund Freud",
+      "workKey": "dream psychology|sigmund freud"
+    },
+    {
+      "title": "Winnetou I",
+      "author": "Karl May",
+      "workKey": "winnetou i|karl may"
+    },
+    {
+      "title": "Vindication of the Rights of Woman",
+      "author": "Mary Wollstonecraft",
+      "workKey": "vindication of the rights of woman|mary wollstonecraft"
+    },
+    {
+      "title": "Getting of Wisdom",
+      "author": "Henry Handel Richardson",
+      "workKey": "getting of wisdom|henry handel richardson"
+    },
+    {
+      "title": "Consolation of Philosophy",
+      "author": "Anicius Manlius Severinus Boethius",
+      "workKey": "consolation of philosophy|anicius manlius severinus boethius"
+    },
+    {
+      "title": "Emma",
+      "author": "Jane Austen",
+      "workKey": "emma|jane austen"
+    },
+    {
+      "title": "Mrs. Caudle's Curtain Lectures",
+      "author": "Douglas William Jerrold",
+      "workKey": "mrs caudles curtain lectures|douglas william jerrold"
+    },
+    {
+      "title": "Fábulas de Esopo, Vol. 2",
+      "author": "Aesop",
+      "workKey": "fábulas de esopo vol 2|aesop"
+    },
+    {
+      "title": "Importance of Being Earnest",
+      "author": "Oscar Wilde",
+      "workKey": "importance of being earnest|oscar wilde"
+    },
+    {
+      "title": "Story of a Stuffed Elephant",
+      "author": "Laura Lee Hope",
+      "workKey": "story of a stuffed elephant|laura lee hope"
+    },
+    {
+      "title": "Wind in the Willows",
+      "author": "Kenneth Grahame",
+      "workKey": "wind in the willows|kenneth grahame"
+    },
+    {
+      "title": "Junior Classics Volume 1: Fairy and Wonder Tales",
+      "author": "William Allan Neilson",
+      "workKey": "junior classics volume 1|william allan neilson"
+    },
+    {
+      "title": "Lord Jim",
+      "author": "Joseph Conrad",
+      "workKey": "lord jim|joseph conrad"
+    },
+    {
+      "title": "Villette",
+      "author": "Charlotte Brontë",
+      "workKey": "villette|charlotte brontë"
+    },
+    {
+      "title": "Narrative of Arthur Gordon Pym of Nantucket",
+      "author": "Edgar Allan Poe",
+      "workKey": "narrative of arthur gordon pym of nantucket|edgar allan poe"
+    },
+    {
+      "title": "Merry Adventures of Robin Hood",
+      "author": "Howard Pyle",
+      "workKey": "merry adventures of robin hood|howard pyle"
+    },
+    {
+      "title": "Wives and Daughters",
+      "author": "Elizabeth Cleghorn Gaskell",
+      "workKey": "wives and daughters|elizabeth cleghorn gaskell"
+    },
+    {
+      "title": "Poems Every Child Should Know",
+      "author": "Mary E. Burt",
+      "workKey": "poems every child should know|mary e burt"
+    },
+    {
+      "title": "Art of War",
+      "author": "Sun Tzu 孙武",
+      "workKey": "art of war|sun tzu 孙武"
+    },
+    {
+      "title": "Three Musketeers",
+      "author": "Alexandre Dumas",
+      "workKey": "three musketeers|alexandre dumas"
+    },
+    {
+      "title": "Fábulas de Esopo, Vol. 3",
+      "author": "Aesop",
+      "workKey": "fábulas de esopo vol 3|aesop"
+    },
+    {
+      "title": "Bible (LSG, 1910) NT 04: Évangile selon Jean",
+      "author": "Louis Segond Bible",
+      "workKey": "bible lsg 1910 nt 04|louis segond bible"
+    },
+    {
+      "title": "Amateur Cracksman",
+      "author": "E. W. Hornung",
+      "workKey": "amateur cracksman|e w hornung"
+    },
+    {
+      "title": "Girl of the Limberlost",
+      "author": "Gene Stratton-Porter",
+      "workKey": "girl of the limberlost|gene strattonporter"
+    },
+    {
+      "title": "Rosary",
+      "author": "Florence Louisa Barclay",
+      "workKey": "rosary|florence louisa barclay"
+    },
+    {
+      "title": "Golden mean to 5000 digits",
+      "author": "Jerry Bonnell",
+      "workKey": "golden mean to 5000 digits|jerry bonnell"
+    },
+    {
+      "title": "Queen Lucia",
+      "author": "E. F. Benson",
+      "workKey": "queen lucia|e f benson"
+    },
+    {
+      "title": "Histoires ou Contes du temps passé avec des moralités",
+      "author": "Charles Perrault",
+      "workKey": "histoires ou contes du temps passé avec des moralités|charles perrault"
+    },
+    {
+      "title": "Last of the Mohicans - A Narrative of 1757 (version 2)",
+      "author": "James Fenimore Cooper",
+      "workKey": "last of the mohicans|james fenimore cooper"
+    },
+    {
+      "title": "Jane Eyre",
+      "author": "Charlotte Brontë",
+      "workKey": "jane eyre|charlotte brontë"
+    },
+    {
+      "title": "Eclogues",
+      "author": "Virgil",
+      "workKey": "eclogues|virgil"
+    },
+    {
+      "title": "Eclogae (dramatic reading)",
+      "author": "Virgil",
+      "workKey": "eclogae dramatic reading|virgil"
+    },
+    {
+      "title": "Around the World in Seventy-Two Days",
+      "author": "Nellie Bly",
+      "workKey": "around the world in seventytwo days|nellie bly"
+    },
+    {
+      "title": "My Man Jeeves",
+      "author": "P. G. Wodehouse",
+      "workKey": "my man jeeves|p g wodehouse"
+    },
+    {
+      "title": "Ballad of John Silver",
+      "author": "John Masefield",
+      "workKey": "ballad of john silver|john masefield"
+    },
+    {
+      "title": "Calendar of Sonnets",
+      "author": "Helen Hunt Jackson",
+      "workKey": "calendar of sonnets|helen hunt jackson"
+    },
+    {
+      "title": "Christmas Carol",
+      "author": "Charles Dickens",
+      "workKey": "christmas carol|charles dickens"
+    },
+    {
+      "title": "Connecticut Yankee in King Arthur's Court",
+      "author": "Mark Twain",
+      "workKey": "connecticut yankee in king arthurs court|mark twain"
+    },
+    {
+      "title": "American Indian Fairy Tales",
+      "author": "William Trowbridge Larned",
+      "workKey": "american indian fairy tales|william trowbridge larned"
+    },
+    {
+      "title": "International Episode",
+      "author": "Henry James",
+      "workKey": "international episode|henry james"
+    },
+    {
+      "title": "Andersen's Fairy Tales",
+      "author": "Hans Christian Andersen",
+      "workKey": "andersens fairy tales|hans christian andersen"
+    },
+    {
+      "title": "Anne of Avonlea",
+      "author": "Lucy Maud Montgomery",
+      "workKey": "anne of avonlea|lucy maud montgomery"
+    },
+    {
+      "title": "Anne of Green Gables",
+      "author": "Lucy Maud Montgomery",
+      "workKey": "anne of green gables|lucy maud montgomery"
+    },
+    {
+      "title": "Art and Heart",
+      "author": "Ella Wheeler Wilcox",
+      "workKey": "art and heart|ella wheeler wilcox"
+    },
+    {
+      "title": "Auf der Galerie",
+      "author": "Franz Kafka",
+      "workKey": "auf der galerie|franz kafka"
+    },
+    {
+      "title": "Épigramme",
+      "author": "François Maynard",
+      "workKey": "épigramme|françois maynard"
+    },
+    {
+      "title": "Barbara Frietchie",
+      "author": "John Greenleaf Whittier",
+      "workKey": "barbara frietchie|john greenleaf whittier"
+    },
+    {
+      "title": "Beowulf",
+      "author": "Unknown",
+      "workKey": "beowulf|unknown"
+    },
+    {
+      "title": "Beyond Good and Evil",
+      "author": "Friedrich Nietzsche",
+      "workKey": "beyond good and evil|friedrich nietzsche"
+    },
+    {
+      "title": "Bible (Biblia Sacra Vulgata) 19: Psalmi XXII",
+      "author": "Biblia Sacra Vulgata",
+      "workKey": "bible biblia sacra vulgata 19|biblia sacra vulgata"
+    },
+    {
+      "title": "Bildergeschichten",
+      "author": "Wilhelm Busch",
+      "workKey": "bildergeschichten|wilhelm busch"
+    },
+    {
+      "title": "Black Beauty (The Autobiography of a Horse)",
+      "author": "Anna Sewell",
+      "workKey": "black beauty the autobiography of a horse|anna sewell"
+    },
+    {
+      "title": "Bible (KJV) 17: Esther",
+      "author": "King James Version (KJV)",
+      "workKey": "bible kjv 17|king james version kjv"
+    },
+    {
+      "title": "Caedmon's Hymn",
+      "author": "Caedmon",
+      "workKey": "caedmons hymn|caedmon"
+    },
+    {
+      "title": "Call of the Wild",
+      "author": "Jack London",
+      "workKey": "call of the wild|jack london"
+    },
+    {
+      "title": "Cathay",
+      "author": "Ernest Fenollosa",
+      "workKey": "cathay|ernest fenollosa"
+    },
+    {
+      "title": "Chapters from my Autobiography",
+      "author": "Mark Twain",
+      "workKey": "chapters from my autobiography|mark twain"
+    },
+    {
+      "title": "Vagabond Song",
+      "author": "Bliss Carman",
+      "workKey": "vagabond song|bliss carman"
+    },
+    {
+      "title": "Childhood",
+      "author": "Leo Tolstoy",
+      "workKey": "childhood|leo tolstoy"
+    },
+    {
+      "title": "Dear Enemy",
+      "author": "Jean Webster",
+      "workKey": "dear enemy|jean webster"
+    },
+    {
+      "title": "Domestic Cookery, Useful Receipts, and Hints to Young Housekeepers",
+      "author": "Elizabeth E. Lea",
+      "workKey": "domestic cookery useful receipts and hints to young housekeepers|elizabeth e lea"
+    },
+    {
+      "title": "Anne of the Island",
+      "author": "Lucy Maud Montgomery",
+      "workKey": "anne of the island|lucy maud montgomery"
+    },
+    {
+      "title": "Secret Chambers and Hiding Places",
+      "author": "Allan Fea",
+      "workKey": "secret chambers and hiding places|allan fea"
+    },
+    {
+      "title": "Death Be Not Proud",
+      "author": "John Donne",
+      "workKey": "death be not proud|john donne"
+    },
+    {
+      "title": "Declaration of Independence of the United States of America",
+      "author": "Thomas Jefferson",
+      "workKey": "declaration of independence of the united states of america|thomas jefferson"
+    },
+    {
+      "title": "Declaration of Rights",
+      "author": "Stamp Act Congress",
+      "workKey": "declaration of rights|stamp act congress"
+    },
+    {
+      "title": "Kleine Häwelmann",
+      "author": "Theodor Storm",
+      "workKey": "kleine häwelmann|theodor storm"
+    },
+    {
+      "title": "Schimmelreiter",
+      "author": "Theodor Storm",
+      "workKey": "schimmelreiter|theodor storm"
+    },
+    {
+      "title": "Journey to the Interior of the Earth",
+      "author": "Jules Verne",
+      "workKey": "journey to the interior of the earth|jules verne"
+    },
+    {
+      "title": "Little Princess",
+      "author": "Frances Hodgson Burnett",
+      "workKey": "little princess|frances hodgson burnett"
+    },
+    {
+      "title": "Struwwelpeter (version 2)",
+      "author": "Heinrich Hoffmann",
+      "workKey": "struwwelpeter version 2|heinrich hoffmann"
+    },
+    {
+      "title": "Modest Proposal",
+      "author": "Jonathan Swift",
+      "workKey": "modest proposal|jonathan swift"
+    },
+    {
+      "title": "Noiseless Patient Spider",
+      "author": "Walt Whitman",
+      "workKey": "noiseless patient spider|walt whitman"
+    },
+    {
+      "title": "Struwwelpeter",
+      "author": "Heinrich Hoffmann",
+      "workKey": "struwwelpeter|heinrich hoffmann"
+    },
+    {
+      "title": "Tolle Mensch",
+      "author": "Friedrich Nietzsche",
+      "workKey": "tolle mensch|friedrich nietzsche"
+    },
+    {
+      "title": "Leiden des jungen Werther",
+      "author": "Johann Wolfgang von Goethe",
+      "workKey": "leiden des jungen werther|johann wolfgang von goethe"
+    },
+    {
+      "title": "Schwarze Galeere",
+      "author": "Wilhelm Raabe",
+      "workKey": "schwarze galeere|wilhelm raabe"
+    },
+    {
+      "title": "History of England, from the Accession of James II - (Volume 1, Chapter 05)",
+      "author": "Thomas Babington Macaulay",
+      "workKey": "history of england from the accession of james ii|thomas babington macaulay"
+    },
+    {
+      "title": "I Do Not Love Thee",
+      "author": "Caroline Elizabeth Sarah Norton",
+      "workKey": "i do not love thee|caroline elizabeth sarah norton"
+    }
+  ]
+}

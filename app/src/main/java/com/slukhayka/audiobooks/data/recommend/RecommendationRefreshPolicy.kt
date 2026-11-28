@@ -22,7 +22,8 @@ object RecommendationRefreshPolicy {
         val id: String,
         val isFavorite: Boolean,
         val started: Boolean,
-        val completed: Boolean
+        val completed: Boolean,
+        val progressTier: Int = 0
     )
 
     /**
@@ -39,6 +40,8 @@ object RecommendationRefreshPolicy {
                     append(if (signal.isFavorite) '1' else '0')
                     append(if (signal.started) '1' else '0')
                     append(if (signal.completed) '1' else '0')
+                append(':')
+                append(signal.progressTier)
                 }
             }
 }

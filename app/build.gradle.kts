@@ -77,6 +77,19 @@ android {
 
   defaultConfig {
     applicationId = "com.slukhayka.audiobooks"
+    // Empty until a reviewed public graph is published. Never points at a listener endpoint.
+    val graphUrl = providers.gradleProperty("recommendation.graphUrl").orElse("").get()
+    require(graphUrl.isEmpty() || graphUrl.startsWith("https://"))
+    require(graphUrl.none { it == '"' || it == '\\' || it.isISOControl() })
+    // Base64 of the ECDSA P-256 public key (X.509 SubjectPublicKeyInfo). The
+    // delivery process holds the private key; the app only pins the public one.
+    val graphPublicKey = providers.gradleProperty("recommendation.graphPublicKey").orElse("").get()
+    require(graphPublicKey.isEmpty() || graphPublicKey.matches(Regex("[A-Za-z0-9+/=]{1,400}")))
+    require(graphUrl.isEmpty() || graphPublicKey.isNotEmpty()) {
+      "recommendation.graphUrl requires recommendation.graphPublicKey: unsigned graphs are refused"
+    }
+    buildConfigField("String", "RECOMMENDATION_GRAPH_URL", "\"$graphUrl\"")
+    buildConfigField("String", "RECOMMENDATION_GRAPH_PUBLIC_KEY", "\"$graphPublicKey\"")
     minSdk = 24
     // #779 — Chaquopy ships native CPython per ABI, so an explicit list is required.
     ndk { abiFilters += listOf("arm64-v8a", "x86_64") }

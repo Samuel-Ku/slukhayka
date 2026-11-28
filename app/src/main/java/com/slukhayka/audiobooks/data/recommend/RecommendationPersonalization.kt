@@ -58,12 +58,14 @@ object RecommendationPersonalization {
     }
 
     fun signalsFor(behaviors: List<WorkBehavior>, nowEpochMs: Long): List<RecommendationEngine.Signal> =
-        behaviors.groupBy { it.workId }
-            .values
-            .mapNotNull { editions ->
-                editions.mapNotNull { signalFor(it, nowEpochMs) }
-                    .maxByOrNull { abs(it.weight) }
-            }
+        resolveSignals(behaviors.mapNotNull { signalFor(it, nowEpochMs) })
+
+    /** Explicit negative feedback wins across Editions and separately stored Work preferences. */
+    fun resolveSignals(signals: List<RecommendationEngine.Signal>): List<RecommendationEngine.Signal> =
+        signals.groupBy { it.id }.values.map { alternatives ->
+            alternatives.filter { it.weight < 0 }.minByOrNull { it.weight }
+                ?: alternatives.maxBy { it.weight }
+        }
 
     private fun signalFor(
         behavior: WorkBehavior,
@@ -89,6 +91,14 @@ object RecommendationPersonalization {
                 recordedAt = behavior.progressRecordedAt,
                 nowEpochMs = nowEpochMs
             )
+            // Explicit negative feedback wins over completion and listening progress.
+            if (behavior.reduceSimilar || behavior.rating in listOf(1, 2)) {
+                weight = when {
+                    behavior.reduceSimilar -> -1.0
+                    behavior.rating == 1 -> -1.2
+                    else -> -.8
+                }
+            }
             weight = weight.coerceIn(-1.5, 1.5)
             return if (abs(weight) < 1e-9) null else RecommendationEngine.Signal(
                 id = behavior.workId,

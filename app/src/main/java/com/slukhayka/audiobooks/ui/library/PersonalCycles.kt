@@ -174,6 +174,7 @@ object PersonalCycles {
         // sorts by similarity descending), so first occurrence = strongest
         // pick; dedup keeps exactly that reason.
         for (rec in recommendations) {
+            if (rec.reasonTitle.isBlank()) continue
             val work = worksByMergeKey[rec.candidate.id] ?: continue
             val identity = normalizeOrNull(work.seriesTitle) ?: continue
             if (identity in ownedIdentities || identity in similarSeen) continue

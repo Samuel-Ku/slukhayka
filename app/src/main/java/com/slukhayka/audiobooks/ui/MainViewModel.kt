@@ -1749,7 +1749,7 @@ class MainViewModel @JvmOverloads constructor(
         }
     }
 
-    
+
     fun closeWebSource() {
         _selectedWebSource.value = null
         CatalogBrowserFocusReturn.publishAfterBrowserClose()
@@ -1774,9 +1774,6 @@ class MainViewModel @JvmOverloads constructor(
                     sourceCatalog.unifiedCatalog.value
                 )
             }
-            // Spec-19 T2: the embedding pass runs right after the catalogue
-            // sync, on the background dispatcher — never on the UI thread.
-            refreshEmbeddingVectors()
         }
     }
 
@@ -1833,8 +1830,8 @@ class MainViewModel @JvmOverloads constructor(
         }
     }
 
-    
-    
+
+
     /**
      * ADR-0036 (spec-48 T1) — the door-path recovery for any source whose
      * profile declares a search door: no stored URL → the pre-filled search;
@@ -4123,10 +4120,10 @@ class MainViewModel @JvmOverloads constructor(
                 _hydration.value = result
                 // The unified «Увесь каталог» union is re-computed after a
                 // hydration so the fresh imported books surface immediately;
-                // the embedding pass follows so the recommendation row sees
+                // the local catalogue supplies the recommendation row with
                 // the new catalogue (spec-19 T2).
                 sourceCatalog.refreshUnifiedCatalog()
-                refreshEmbeddingVectors()
+
             } catch (e: Exception) {
                 _hydration.value = com.slukhayka.audiobooks.data.catalog.SourceCatalog.HydrationResult(sourceId, found = 0, imported = 0, failed = 0)
             } finally {
@@ -4158,22 +4155,27 @@ class MainViewModel @JvmOverloads constructor(
         }
     }
 
-    // Spec-19 T2 — the background embedding pass. Embeds every catalogue
-    // book's text through the [TextEmbedder] seam on an idle (IO) dispatcher
-    // and publishes the id → vector map for the recommendation row. Cache
-    // hits (same catalogue version) are a file read; misses compute and
-    // persist. Never throws: CatalogEmbeddingService degrades failures to a
-    // smaller (or empty) map, so the row just goes quiet — no crash.
-    private val _catalogVectors =
-        MutableStateFlow<Map<String, FloatArray>>(emptyMap())
-    val catalogVectors: StateFlow<Map<String, FloatArray>> =
-        _catalogVectors.asStateFlow()
-    /** Distinguishes an empty recommendation result from a pass still computing it. */
-    private val _recommendationsReady = MutableStateFlow(false)
-    val recommendationsReady: StateFlow<Boolean> = _recommendationsReady.asStateFlow()
+    // Local sparse ranking replaces catalogue warming and native inference (#1796).
+    val recommendationsReady: StateFlow<Boolean> = MutableStateFlow(true)
+    private val localRecommendationRanker =
+        com.slukhayka.audiobooks.data.recommend.LocalRecommendationRanker()
+    private val recommendationContentGraph = MutableStateFlow<
+        com.slukhayka.audiobooks.data.recommend.PrecomputedRecommendationGraph?>(null)
+    private val recommendationGraphStore = com.slukhayka.audiobooks.data.recommend.RecommendationGraphStore(
+        File(application.filesDir, "recommendations"),
+        com.slukhayka.audiobooks.BuildConfig.RECOMMENDATION_GRAPH_URL,
+        verify = com.slukhayka.audiobooks.data.recommend.GraphSignatureVerifier(
+            com.slukhayka.audiobooks.BuildConfig.RECOMMENDATION_GRAPH_PUBLIC_KEY
+        )::verify,
+        fetch = { url, limit -> com.slukhayka.audiobooks.data.source.HttpFetcher().getTextBounded(url, limit) }
+    )
 
-    /** Single-flight guard: a running embedding pass is never re-launched. */
-    private val _embeddingPassInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+    fun refreshRecommendationGraph() {
+        viewModelScope.launch(Dispatchers.IO) {
+            recommendationContentGraph.value = recommendationGraphStore.refresh()
+        }
+    }
+
     // ADR-0041: recommendations are a discovery surface of the Mirror, so the
     // pool is the CLAIMED Works only — a Work whose every Source was removed
     // can never be opened and must not be offered (the ghost behind the
@@ -4182,183 +4184,9 @@ class MainViewModel @JvmOverloads constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
 
-    fun refreshEmbeddingVectors() {
-        if (!_embeddingPassInFlight.compareAndSet(false, true)) return
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                // #1723 — the two File.length() stats are disk reads; this
-                // function is called from the UI, so the probe runs here on IO
-                // rather than before the launch. #483 — a listener interaction
-                // with recommendations starts the one-time model install.
-                if (!modelInstaller.isInstalled()) ensureEmbeddingModel()
-                _recommendationsReady.value = false
-                // #484 — the pool is the PERSISTENT Room catalogue, not the
-                // ephemeral union: suggestions are stable across sessions and
-                // cover the whole library. Priority: library works first,
-                // then active-feed (union) works, then the rest.
-                val unionKeys = sourceCatalog.unifiedCatalog.value.mapTo(HashSet()) { it.key }
-                val library = libraryBooks.value
-                val libraryKeys = library.mapTo(HashSet()) { lb ->
-                    lb.book.mergeKey.ifBlank { lb.book.workId.orEmpty().ifBlank { lb.book.id } }
-                }
-                val works = recommendationWorks.value
-                if (works.isEmpty()) {
-                    _catalogVectors.value = emptyMap()
-                    return@launch
-                }
-                val candidates = com.slukhayka.audiobooks.data.recommend.orderedForWarmUp(
-                    com.slukhayka.audiobooks.data.recommend
-                        .recommendationCandidates(works, recommendationFacts.value),
-                    libraryKeys = libraryKeys,
-                    activeFeedKeys = unionKeys
-                )
-                // Catalogue vectors warm gradually (a bounded batch per pass);
-                // the few library signal vectors embed right here on IO too
-                // (T4: never on the UI thread). The combine only reads the
-                // published map.
-                val vectors = embeddingService
-                    .vectorsFor(candidates, currentEmbedder(), limit = EMBEDDING_BATCH)
-                    .toMutableMap()
-                // #482 — signal vectors go through the SAME per-book cache:
-                // only new/changed signals embed, the rest are a Room read.
-                val signals = currentSignals(library)
-                val signalTexts = signals.associate { it.id to it.text }
-                val cachedSignals = embeddingCache.loadFresh(signalTexts)
-                val persistSignals = LinkedHashMap<String, Pair<String, FloatArray>>()
-                for (signal in signals) {
-                    if (signal.id in vectors || signal.id in cachedSignals) continue
-                    try {
-                        val vector = currentEmbedder().embed(signal.text)
-                        vectors[signal.id] = vector
-                        persistSignals[signal.id] = signal.text to vector
-                    } catch (e: Exception) {
-                        // A failing signal simply misses — the row degrades.
-                    }
-                }
-                cachedSignals.forEach { (id, vector) -> vectors.putIfAbsent(id, vector) }
-                if (persistSignals.isNotEmpty()) embeddingCache.save(persistSignals)
-                _catalogVectors.value = vectors
-            } finally {
-                _recommendationsReady.value = true
-                _embeddingPassInFlight.set(false)
-            }
-        }
-    }
-
-    // Spec-19 Track A (on-device recommendations): the «Рекомендовано для
-    // вас» row in Огляд. Signals = favourite (1.0) + completed (0.8) +
-    // recently listened (0.6); candidates = the unified catalogue;
-    // already-known books are excluded. Pure JVM engine behind the
-    // TextEmbedder seam — no network, no telemetry (Q2/Q8).
-    //
-    // Q7: catalogue vectors come from the file cache keyed by catalogue
-    // version (CatalogEmbeddingService) — the background pass recomputes
-    // only on a version change; the row reads the cached map.
-    private val embeddingCache = com.slukhayka.audiobooks.data.recommend.RoomEmbeddingCache(
-        App.instance.audiobookDao
-    )
-    private val embeddingService = com.slukhayka.audiobooks.data.recommend.CatalogEmbeddingService(embeddingCache)
-
-    private val embeddingModelDir = File(application.filesDir, "models/e5")
-    private val _embeddingModelState = MutableStateFlow<com.slukhayka.audiobooks.data.recommend.EmbeddingModelState>(
-        com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.NotInstalled
-    )
-    /** #483 — the honest model state the settings/row render. */
-    val embeddingModelState: StateFlow<com.slukhayka.audiobooks.data.recommend.EmbeddingModelState> =
-        _embeddingModelState.asStateFlow()
-    private val modelInstaller = com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller(
-        dir = embeddingModelDir,
-        fetcher = com.slukhayka.audiobooks.data.source.HttpFetcher(),
-        onState = { _embeddingModelState.value = it }
-    )
-    private val _embeddingInstallInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
-
-    @Volatile
-    private var embedderInstance: com.slukhayka.audiobooks.data.recommend.TextEmbedder? = null
-
-    private fun currentEmbedder(): com.slukhayka.audiobooks.data.recommend.TextEmbedder {
-        embedderInstance?.let { return it }
-        return synchronized(this) {
-            embedderInstance ?: loadEmbedder().also { embedderInstance = it }
-        }
-    }
-
-    /**
-     * The production embedder (spec-19 T3/T4): the ONNX multilingual-e5-small
-     * model. Loaded from the runtime-installed copy first (#483), then the
-     * dev-time asset, else the keyword baseline (T2 contract: the row
-     * degrades, never crashes). Loaded lazily on the IO dispatcher inside the
-     * background pass, never on the UI thread.
-     */
-    private fun loadEmbedder(): com.slukhayka.audiobooks.data.recommend.TextEmbedder {
-        val fromFiles = try {
-            val model = File(embeddingModelDir, com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller.MODEL_NAME)
-                .takeIf { it.length() >= com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller.MIN_MODEL_BYTES }
-            val tokenizer = File(embeddingModelDir, com.slukhayka.audiobooks.data.recommend.EmbeddingModelInstaller.TOKENIZER_NAME)
-                .takeIf { it.length() > 0L }
-            if (model != null && tokenizer != null) {
-                com.slukhayka.audiobooks.data.recommend.OnnxEmbedder.fromBytes(
-                    ai.onnxruntime.OrtEnvironment.getEnvironment(), model.readBytes(), tokenizer.readBytes()
-                )
-            } else {
-                null
-            }
-        } catch (e: Exception) {
-            null
-        }
-        if (fromFiles != null) return fromFiles
-        val fromAssets = try {
-            val assets = getApplication<Application>().assets
-            val model = assets.open("models/e5/model.onnx").use { it.readBytes() }
-            val tokenizer = assets.open("models/e5/tokenizer.json").use { it.readBytes() }
-            com.slukhayka.audiobooks.data.recommend.OnnxEmbedder.fromBytes(
-                ai.onnxruntime.OrtEnvironment.getEnvironment(), model, tokenizer
-            )
-        } catch (e: Exception) {
-            null
-        }
-        return fromAssets ?: com.slukhayka.audiobooks.data.recommend.KeywordEmbedder()
-    }
-
-    /**
-     * #483 — starts the one-time model download on listener interaction
-     * (Overview or settings). Idempotent and single-flight; a successful
-     * install rebuilds the embedder and re-embeds with the full model.
-     */
-    fun ensureEmbeddingModel() {
-        if (_embeddingModelState.value is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed) return
-        if (!_embeddingInstallInFlight.compareAndSet(false, true)) return
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val state = modelInstaller.ensureInstalled()
-                if (state is com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed) {
-                    synchronized(this@MainViewModel) { embedderInstance = null }
-                    refreshEmbeddingVectors()
-                }
-            } finally {
-                _embeddingInstallInFlight.set(false)
-            }
-        }
-    }
-
-    init {
-        // #1723 — two File.length() calls are disk stats; the constructor runs
-        // on main, so the probe moved to IO. The state flow starts NotInstalled
-        // (the honest answer until the stat answers) and the settings row
-        // updates as soon as it does.
-        viewModelScope.launch(Dispatchers.IO) {
-            if (modelInstaller.isInstalled()) {
-                _embeddingModelState.value =
-                    com.slukhayka.audiobooks.data.recommend.EmbeddingModelState.Installed
-            }
-        }
-    }
-
-
     /**
      * The weighted listening signals (Q3): favourite 1.0 > completed 0.8 >
-     * recently listened 0.6 — shared by the background pass (which embeds
-     * them) and the recommendation combine (which ranks against them).
+     * listening progress. Used by the local recommendation ranker.
      */
     private fun currentSignals(
         library: List<com.slukhayka.audiobooks.ui.library.LibraryBook>
@@ -4400,7 +4228,12 @@ class MainViewModel @JvmOverloads constructor(
                             id = lb.book.mergeKey.ifBlank { lb.book.workId.orEmpty().ifBlank { lb.book.id } },
                             isFavorite = lb.book.isFavorite,
                             started = lb.percent > 0f,
-                            completed = lb.isCompleted
+                            completed = lb.isCompleted,
+                            progressTier = when {
+                                lb.percent >= .7f -> 2
+                                lb.percent >= .3f -> 1
+                                else -> 0
+                            }
                         )
                     }
                 )
@@ -4411,7 +4244,7 @@ class MainViewModel @JvmOverloads constructor(
 
     /**
      * #484 — genre/description already known per Work, read ONCE and shared by
-     * the warm-up and the row builder; no per-candidate catalogue scan.
+     * the row builder; no per-candidate catalogue scan.
      */
     private val recommendationFacts:
         StateFlow<Map<String, com.slukhayka.audiobooks.data.db.WorkFacts>> =
@@ -4423,25 +4256,30 @@ class MainViewModel @JvmOverloads constructor(
     val recommendedBooks: StateFlow<List<com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Recommendation>> = combine(
         recommendationLibrarySignals,
         recommendationWorks,
-        catalogVectors,
         recommendationPreferences,
-        recommendationSettings
-    ) { library, works, vectors, preferences, settings ->
-        if (!settings.localPersonalizationEnabled) return@combine emptyList()
-        // T2: an empty (or not-yet-computed) vector map means the background
-        // pass has not finished — degrade to an empty row, never compute on
-        // the UI thread and never crash.
-        if (vectors.isEmpty()) return@combine emptyList()
+        recommendationSettings,
+        recommendationFacts
+    ) { library, works, preferences, settings, facts ->
+        Triple(library, works, facts) to (preferences to settings)
+    }.combine(recommendationContentGraph) { inputs, graph -> inputs to graph }
+        .debounce(1_000L).mapLatest { (inputs, graph) ->
+        val (catalog, controls) = inputs
+        val (library, works, facts) = catalog
+        val (preferences, settings) = controls
+        if (!settings.localPersonalizationEnabled) return@mapLatest emptyList()
+        val candidates = com.slukhayka.audiobooks.data.recommend.recommendationCandidates(works, facts)
         val reducedWorkIds = preferences
             .filter { it.kind == RecommendationPreferenceEntity.REDUCE_SIMILAR }
             .mapTo(mutableSetOf()) { it.targetKey }
-        val feedbackSignals = works.asSequence()
-            .filter { com.slukhayka.audiobooks.data.recommend.recommendationWorkKey(it) in reducedWorkIds }
+        val feedbackSignals = candidates.asSequence()
+            .filter { it.id in reducedWorkIds }
             .map { work ->
                 com.slukhayka.audiobooks.data.recommend.RecommendationEngine.Signal(
-                    id = com.slukhayka.audiobooks.data.recommend.recommendationWorkKey(work),
+                    id = work.id,
                     title = work.title,
                     author = work.author,
+                    genre = work.genre,
+                    series = work.series,
                     weight = -1.0
                 )
             }
@@ -4451,7 +4289,6 @@ class MainViewModel @JvmOverloads constructor(
         // ones the listener has not imported yet: the row needs no union
         // refresh and survives a dead network. The card id is the Work key, so
         // tapping resolves through the same local identity as any other row.
-        val candidates = com.slukhayka.audiobooks.data.recommend.recommendationCandidates(works, recommendationFacts.value)
         val knownIds = library.flatMap { lb ->
             listOfNotNull(lb.book.id, lb.book.workId, lb.book.mergeKey.takeIf { it.isNotBlank() })
         }.toMutableSet().apply {
@@ -4463,21 +4300,7 @@ class MainViewModel @JvmOverloads constructor(
         val hiddenAuthors = preferences
             .filter { it.kind == RecommendationPreferenceEntity.HIDE_AUTHOR }
             .mapTo(mutableSetOf()) { it.targetKey }
-        if (candidates.isEmpty() || allSignals.isEmpty()) return@combine emptyList()
-        // Catalogue vectors come from the background pass (T2), signal
-        // vectors too (T4) — nothing embeds on the UI thread. With the ONNX
-        // embedder a not-yet-embedded signal is skipped for this emission
-        // and the pass is kicked so the row catches up; the keyword baseline
-        // is cheap enough to embed the few missing signals inline.
-        val merged = vectors.toMutableMap()
-        val missing = allSignals.filter { it.id !in merged }
-        if (missing.isNotEmpty()) {
-            if (currentEmbedder() is com.slukhayka.audiobooks.data.recommend.OnnxEmbedder) {
-                refreshEmbeddingVectors()
-            } else {
-                for (signal in missing) merged[signal.id] = currentEmbedder().embed(signal.text)
-            }
-        }
+        if (candidates.isEmpty()) return@mapLatest emptyList()
         // #486 — the persisted source signals (#485): fresh rank positions and
         // claimed ratings feed the ONE small popularity component, and the
         // sources' tops name the «джерело радить» slots. Best-effort: a read
@@ -4517,18 +4340,17 @@ class MainViewModel @JvmOverloads constructor(
             }
             .filterValues { it != null }
             .mapValues { it.value!! }
-        com.slukhayka.audiobooks.data.recommend.RecommendationPersonalization.rank(
+        localRecommendationRanker.rank(
             candidates = candidates,
             signals = allSignals,
-            vectors = merged,
             excludedWorkIds = knownIds,
             excludedAuthors = hiddenAuthors,
-            weights = settings.weights,
             topN = 10,
             popularityByWorkId = popularityByWorkId,
-            sourceLabelsByWorkId = sourceLabelsByWorkId
+            sourceLabelsByWorkId = sourceLabelsByWorkId,
+            contentGraph = graph
         )
-    }.debounce(1_000L).flowOn(Dispatchers.Default)
+    }.flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // #1743 — the Огляд projections that depend only on data, never on scroll.
@@ -6656,8 +6478,6 @@ class MainViewModel @JvmOverloads constructor(
         /** Human rhythm between queued availability checks; the gate throttles requests. */
         private const val AVAILABILITY_CHECK_PAUSE_MS = 200L
 
-        /** #484 — how many new/changed works one embedding pass warms. */
-        private const val EMBEDDING_BATCH = 150
 
         fun formatTime(seconds: Long): String {
             val hrs = seconds / 3600

@@ -1,0 +1,55 @@
+[Unit]
+Description=Build Slukhayka public content graph offline
+# Deployment paths are deliberate; this file does not install or enable itself.
+ConditionPathExists=/opt/slukhayka-content-model/REVISION
+ConditionPathExists=/opt/slukhayka-content-model/model.safetensors
+ConditionPathExists=/opt/slukhayka-content-model/tokenizer.json
+ConditionPathExists=/opt/slukhayka-content-model/config.json
+ConditionPathExists=/srv/slukhayka-public/catalog.json
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+StateDirectory=slukhayka-content
+StateDirectoryMode=0700
+WorkingDirectory=/opt/slukhayka-content-worker
+ExecStart=/opt/slukhayka-content-worker/venv/bin/python -I /opt/slukhayka-content-worker/scripts/recommend/build_graph.py --catalog /srv/slukhayka-public/catalog.json --cache /var/lib/slukhayka-content/vectors.sqlite --output /var/lib/slukhayka-content/graph.json --model-dir /opt/slukhayka-content-model --revision 73908c3438cf03b6a01bcb9611d62b23d0726f08
+Environment=HF_HUB_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1 DO_NOT_TRACK=1 HOME=/nonexistent
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+# MemoryDenyWriteExecute=yes makes pthread_create fail with EPERM for
+# OpenBLAS/numpy on this workload ("can't start new thread"). Kept off
+# deliberately; every other sandbox directive remains in force.
+MemoryDenyWriteExecute=no
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+TasksMax=64
+MemoryMax=4G
+CPUQuota=200%
+Nice=10
+# RuntimeMaxSec is ignored for Type=oneshot; this is the real wall limit.
+TimeoutStartSec=30min
+StandardOutput=journal
+StandardError=journal

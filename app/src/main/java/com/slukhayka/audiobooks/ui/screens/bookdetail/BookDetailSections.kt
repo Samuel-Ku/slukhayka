@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.heading
@@ -54,6 +55,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
+import com.slukhayka.audiobooks.data.db.GenreFacetOption
+import com.slukhayka.audiobooks.data.facets.GenreIdentity
+import com.slukhayka.audiobooks.data.facets.NormalizedGenre
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
@@ -130,7 +134,9 @@ fun BookDetailIdentityHeader(
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
     onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {},
     authorBookmark: PersonBookmarkControl = PersonBookmarkControl(),
-    narratorBookmark: PersonBookmarkControl = PersonBookmarkControl()
+    narratorBookmark: PersonBookmarkControl = PersonBookmarkControl(),
+    genreFacets: List<GenreFacetOption>? = null,
+    onGenreClick: ((String) -> Unit)? = null,
 ) {
     // Plan 2026-2027 / F31 — the compact paper hero: a 118×177 cover with the
     // canonical summary BESIDE it. The full-bleed 72 % art with gradient
@@ -190,7 +196,9 @@ fun BookDetailIdentityHeader(
             onChildRouteOpened = onChildRouteOpened,
             onReturnFocusRestored = onReturnFocusRestored,
                     authorBookmark = authorBookmark,
-                    narratorBookmark = narratorBookmark
+                    narratorBookmark = narratorBookmark,
+                    genreFacets = genreFacets,
+                    onGenreClick = onGenreClick,
                 )
             }
         }
@@ -226,7 +234,9 @@ fun BookDetailCanonicalSummary(
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
     onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {},
     authorBookmark: PersonBookmarkControl = PersonBookmarkControl(),
-    narratorBookmark: PersonBookmarkControl = PersonBookmarkControl()
+    narratorBookmark: PersonBookmarkControl = PersonBookmarkControl(),
+    genreFacets: List<GenreFacetOption>? = null,
+    onGenreClick: ((String) -> Unit)? = null,
 ) {
     val currentEditionState = stringResource(R.string.book_detail_current_edition)
     val titleFocusRequester = remember(entryFocusKey) { FocusRequester() }
@@ -390,9 +400,20 @@ fun BookDetailCanonicalSummary(
         ),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        if (presentation.genre.isNotBlank() && !presentation.genre.contains("4read", ignoreCase = true)) {
+        val genres = if (genreFacets != null) {
+            genreFacets.map { NormalizedGenre(it.id, it.label) }.distinctBy { it.id }
+        } else {
+            GenreIdentity.fromSourceText(presentation.genre)
+        }
+        genres.forEach { genre ->
             MetadataChip(
-                text = presentation.genre,
+                text = genre.label,
+                modifier = Modifier
+                    .testTag("book_detail_genre_${genre.id}")
+                    .then(if (onGenreClick != null) Modifier
+                        .heightIn(min = AppDimens.TouchTarget)
+                        .clickable(role = Role.Button) { onGenreClick(genre.id) }
+                    else Modifier),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             )
         }

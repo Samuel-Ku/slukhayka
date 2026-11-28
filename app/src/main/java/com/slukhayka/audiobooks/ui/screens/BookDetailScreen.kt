@@ -52,8 +52,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.slukhayka.audiobooks.data.catalog.SourceCatalog
 import com.slukhayka.audiobooks.data.catalog.CatalogBook
 import com.slukhayka.audiobooks.data.catalog.CatalogPerson
+import com.slukhayka.audiobooks.data.db.GenreFacetOption
 import com.slukhayka.audiobooks.data.db.AudiobookEntity
 import com.slukhayka.audiobooks.data.db.BookmarkEntity
 import com.slukhayka.audiobooks.data.db.ChapterEntity
@@ -220,7 +222,11 @@ fun BookDetailScreen(
     onRecoverAccessFile: (String) -> Unit = {},
     onRecoverAccessFolder: (String) -> Unit = {},
     onChildRouteOpened: (BookDetailLinkOrigin) -> Unit = {},
-    onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {}
+    onReturnFocusRestored: (BookDetailLinkOrigin) -> Unit = {},
+    genreFacets: List<GenreFacetOption> = emptyList(),
+    onGenreClick: ((String) -> Unit)? = null,
+    onSearchAll: ((String) -> Unit)? = null,
+    sourceCatalog: SourceCatalog = viewModel.sourceCatalog,
 ) {
     val bookRow by viewModel.selectedBook.collectAsState()
     val book = bookRow?.toAudiobookEntity()
@@ -969,6 +975,8 @@ fun BookDetailScreen(
                 BookDetailIdentityHeader(
                         book = currentBook,
                         presentation = detailPresentation,
+                        genreFacets = genreFacets,
+                        onGenreClick = onGenreClick,
                         universeName = bookUniverse?.universeName,
                         requestInitialFocus = initialTitleFocusPending,
                         onInitialFocusHandled = { initialTitleFocusPending = false },

@@ -2,4 +2,18 @@
 <resources>
     <string name="collection1826_search_within">У цій добірці</string>
     <string name="collection1826_search_all">Шукати в усьому каталозі</string>
+    <string name="collection1826_filters">Фільтри</string>
+    <string name="collection1826_genres">Жанри</string>
+    <string name="collection1826_languages">Мови</string>
+    <string name="collection1826_duration">Тривалість</string>
+    <string name="collection1826_hide_completed">Приховати прослухані</string>
+    <string name="collection1826_completed">Прослухано</string>
+    <string name="collection1826_reset">Скинути все</string>
+    <string name="collection1826_done">Готово</string>
+    <string name="collection1826_clear_search">Очистити пошук</string>
+    <string name="collection1826_results">Показано %1$d із %2$d</string>
+    <string name="collection1826_show_unknown">Показати також: %1$d із невідомими даними</string>
+    <string name="collection1826_hide_unknown">Приховати: %1$d із невідомими даними</string>
+    <string name="collection1826_empty">У цій добірці нічого не знайдено</string>
+    <string name="collection1826_filters_count">Фільтри (%1$d)</string>
 </resources>

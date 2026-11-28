@@ -7,8 +7,11 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import com.slukhayka.audiobooks.data.metadata.SharedBookMetaStore
+import com.slukhayka.audiobooks.R
 import com.slukhayka.audiobooks.data.source.SourceAudioRefusal
+import com.slukhayka.audiobooks.data.source.sourceDisplayName
 import com.slukhayka.audiobooks.testing.FakeSharedBookMetaStore
+import com.slukhayka.audiobooks.testing.assertNamedCheckboxRow
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -78,6 +81,29 @@ class SourceAudioRefusalScreenTest {
     }
 
     @Test
+    fun `consent and source rows are named checkboxes and the label toggles`() {
+        runBlocking {
+            val prefs = freshPrefs()
+            show(prefs, FakeSharedBookMetaStore())
+
+            compose.assertNamedCheckboxRow(
+                "source_audio_refusal_publish_checkbox",
+                context().getString(R.string.source_audio_refusal_publish_title)
+            )
+            val label = sourceDisplayName("soundbooks")
+            compose.assertNamedCheckboxRow("source_audio_refusal_soundbooks_checkbox", label)
+            compose.onNodeWithTag("source_audio_refusal_soundbooks_checkbox").assertIsOff()
+
+            // The label is a live target, not a dead neighbour of the checkbox.
+            compose.onNodeWithText(label).performClick()
+            compose.waitForIdle()
+
+            assertTrue(prefs.isRefused("soundbooks"))
+            compose.onNodeWithTag("source_audio_refusal_soundbooks_checkbox").assertIsOn()
+        }
+    }
+
+    @Test
     fun `badge renders known counts and stays hidden otherwise`() {
         runBlocking {
             val store = FakeSharedBookMetaStore()
@@ -85,8 +111,8 @@ class SourceAudioRefusalScreenTest {
             store.publishRefusalVote("soundbooks", "uid-2")
             show(freshPrefs(), store)
 
-            compose.onNodeWithTag("source_audio_refusal_soundbooks_shared_count").assertExists()
-            compose.onNodeWithTag("source_audio_refusal_sluhayua_shared_count").assertDoesNotExist()
+            compose.onNodeWithTag("source_audio_refusal_soundbooks_shared_count", useUnmergedTree = true).assertExists()
+            compose.onNodeWithTag("source_audio_refusal_sluhayua_shared_count", useUnmergedTree = true).assertDoesNotExist()
         }
     }
 
@@ -100,7 +126,7 @@ class SourceAudioRefusalScreenTest {
             compose.waitForIdle()
 
             assertEquals(0L, store.getRefusalCount("soundbooks"))
-            compose.onNodeWithTag("source_audio_refusal_soundbooks_shared_count").assertDoesNotExist()
+            compose.onNodeWithTag("source_audio_refusal_soundbooks_shared_count", useUnmergedTree = true).assertDoesNotExist()
         }
     }
 
@@ -115,7 +141,7 @@ class SourceAudioRefusalScreenTest {
             compose.onNodeWithTag("source_audio_refusal_soundbooks_checkbox").performClick()
             compose.waitForIdle()
             assertEquals(1L, store.getRefusalCount("soundbooks"))
-            compose.onNodeWithTag("source_audio_refusal_soundbooks_shared_count").assertExists()
+            compose.onNodeWithTag("source_audio_refusal_soundbooks_shared_count", useUnmergedTree = true).assertExists()
 
             // Allow and refuse again: the same device never counts twice.
             compose.onNodeWithTag("source_audio_refusal_soundbooks_checkbox").performClick()
@@ -138,7 +164,7 @@ class SourceAudioRefusalScreenTest {
             compose.waitForIdle()
 
             assertEquals(1L, store.getRefusalCount("lihtar"))
-            compose.onNodeWithTag("source_audio_refusal_lihtar_shared_count").assertExists()
+            compose.onNodeWithTag("source_audio_refusal_lihtar_shared_count", useUnmergedTree = true).assertExists()
         }
     }
 
@@ -154,7 +180,7 @@ class SourceAudioRefusalScreenTest {
             compose.waitForIdle()
 
             assertTrue("the local refusal stands on its own", prefs.isRefused("soundbooks"))
-            compose.onNodeWithTag("source_audio_refusal_soundbooks_shared_count").assertDoesNotExist()
+            compose.onNodeWithTag("source_audio_refusal_soundbooks_shared_count", useUnmergedTree = true).assertDoesNotExist()
         }
     }
 

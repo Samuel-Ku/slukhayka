@@ -14,7 +14,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -166,16 +165,12 @@ fun ChannelImportCard(
                         .testTag("channel_item_list")
                 ) {
                     items(state.items, key = { it.id }) { item ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
+                        CheckboxRow(
+                            checked = item.id in state.checkedIds,
+                            onCheckedChange = { callbacks.onToggleItem(item.id) },
+                            testTag = "channel_item_${item.id}",
+                            enabled = !state.running
                         ) {
-                            Checkbox(
-                                checked = item.id in state.checkedIds,
-                                onCheckedChange = { callbacks.onToggleItem(item.id) },
-                                enabled = !state.running,
-                                modifier = Modifier.testTag("channel_item_${item.id}")
-                            )
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = item.title,

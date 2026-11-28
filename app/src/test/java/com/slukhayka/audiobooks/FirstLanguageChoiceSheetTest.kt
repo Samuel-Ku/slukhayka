@@ -1,9 +1,14 @@
 package com.slukhayka.audiobooks
 
+import android.content.Context
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.test.core.app.ApplicationProvider
+import com.slukhayka.audiobooks.testing.assertNamedCheckboxRow
 import com.slukhayka.audiobooks.ui.screens.FirstLanguageChoiceContent
 import com.slukhayka.audiobooks.ui.theme.AudiobookTheme
 import org.junit.Assert.assertEquals
@@ -26,6 +31,9 @@ class FirstLanguageChoiceSheetTest {
 
     @get:Rule
     val compose = createComposeRule()
+
+    private val context: Context
+        get() = ApplicationProvider.getApplicationContext()
 
     private fun setContent(
         languages: List<String> = listOf("uk", "en", "de"),
@@ -86,6 +94,24 @@ class FirstLanguageChoiceSheetTest {
         // «Усі» is carried as the empty selection, so a language that gains
         // content later appears without asking again.
         assertEquals(emptySet<String>(), done)
+    }
+
+    @Test
+    fun `each language is one named checkbox and tapping its label toggles it`() {
+        var done: Set<String>? = null
+        setContent(languages = listOf("uk", "en", "de"), onDone = { done = it })
+
+        val english = context.getString(R.string.content_language_en)
+        // #1809 — the row USED to carry a clickable AND a live checkbox, so
+        // TalkBack found two toggles for one choice; both checks below catch
+        // that regression.
+        compose.assertNamedCheckboxRow("first_language_choice_en", english)
+        compose.onNodeWithTag("first_language_choice_en").assertIsOn()
+
+        compose.onNodeWithText(english).performClick()
+        compose.onNodeWithText("Готово").performClick()
+
+        assertEquals(setOf("uk", "de"), done)
     }
 
     @Test

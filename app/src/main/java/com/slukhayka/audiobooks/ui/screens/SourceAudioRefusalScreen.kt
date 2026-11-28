@@ -14,7 +14,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -173,18 +172,12 @@ private fun SourcePublishConsentRow(
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
+    CheckboxRow(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        testTag = "source_audio_refusal_publish_checkbox",
+        modifier = Modifier.padding(vertical = 4.dp)
     ) {
-        Checkbox(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            modifier = Modifier.testTag("source_audio_refusal_publish_checkbox")
-        )
-        Spacer(modifier = Modifier.width(8.dp))
         Column {
             Text(
                 text = stringResource(R.string.source_audio_refusal_publish_title),
@@ -208,18 +201,12 @@ private fun SourceRefusalRow(
     sharedCount: Long?,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp)
+    CheckboxRow(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        testTag = tag,
+        modifier = Modifier.padding(vertical = 4.dp)
     ) {
-        Checkbox(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            modifier = Modifier.testTag(tag)
-        )
-        Spacer(modifier = Modifier.width(8.dp))
         Column {
             Text(
                 text = label,

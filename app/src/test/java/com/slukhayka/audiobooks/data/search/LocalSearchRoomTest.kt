@@ -510,4 +510,42 @@ class LocalSearchRoomTest {
         assertTrue(repository.searchAllSources("zzzzzz nonexistent").isEmpty())
     }
 
+    @Test
+    fun `second confirmed narrator is searchable without changing source ownership`() = runBlocking {
+        write("t1", "Кобзар", "Тарас Шевченко", "https://t1.example/first", narrator = "Іван Перший")
+        write("t2", "Кобзар", "Тарас Шевченко", "https://t2.example/second", narrator = "Дмитро Другий")
+        val repository = catalog()
+        val before = repository.searchAllSources("Іван Перший").single()
+        val results = repository.searchAllSources("Дмитро Другий")
+        assertEquals(listOf("Кобзар"), results.map { it.title })
+        assertEquals(before.sources, results.single().sources)
+        assertEquals(before.narrator, results.single().narrator)
+    }
+
+    @Test
+    fun `fast source results appear while a neighboring source is still pending`() = runBlocking {
+        val releaseSlow = CompletableDeferred<Unit>()
+        val fastPreview = CompletableDeferred<GlobalSearchUpdate>()
+        val slow = object : SourceAdapter by LiveAdapter("t2", emptyList()) {
+            override suspend fun search(query: String): List<SourceBook> {
+                releaseSlow.await()
+                return emptyList()
+            }
+        }
+        val fast = LiveAdapter("t1", listOf(book("Кобзар", "Тарас Шевченко", "https://t1.example/fast")))
+        val job = async {
+            catalog(fast, slow).searchAllSources("кобзар") { update ->
+                if (update.results.any { it.title == "Кобзар" } && update.isSearchingSources) fastPreview.complete(update)
+            }
+        }
+        try {
+            val preview = withTimeout(10_000) { fastPreview.await() }
+            assertEquals(listOf("Кобзар"), preview.results.map { it.title })
+            assertTrue(!job.isCompleted)
+        } finally {
+            releaseSlow.complete(Unit)
+            job.await()
+        }
+    }
+
 }

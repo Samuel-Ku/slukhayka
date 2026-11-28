@@ -12,6 +12,12 @@ spec.loader.exec_module(device_ci)
 
 
 class DeviceCiTest(unittest.TestCase):
+    def test_device_ci_runs_the_existing_coverage_guard_suite_set(self):
+        import re
+        script = MODULE.parents[1] / '.github/scripts/run-accessibility-test.sh'
+        existing = re.findall(r'^  (com\.slukhayka\.audiobooks\.[A-Za-z.]+)$', script.read_text(), re.MULTILINE)
+        self.assertEqual(list(device_ci.SUITES), existing)
+
     def test_another_device_job_is_refused_without_waiting(self):
         with tempfile.TemporaryDirectory() as directory:
             with patch.dict('os.environ', {'XDG_RUNTIME_DIR': directory}):

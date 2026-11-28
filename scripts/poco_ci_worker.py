@@ -5,7 +5,9 @@ No self-hosted Actions runner, downloaded script execution or arbitrary refs.
 GitHub writes require the explicit --publish flag and existing gh authorization.
 """
 import argparse
+import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -17,6 +19,56 @@ import device_ci
 REPO = 'Samuel-Ku/slukhayka'
 WORKFLOW = 'poco-device.yml'
 CONTEXT = 'device/poco-f3'
+
+
+def signing_command(*args):
+    try:
+        result = subprocess.run(list(args), capture_output=True, text=True, timeout=120, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise device_ci.DeviceError(f'CI signing tool unavailable: {error}') from error
+    if result.returncode:
+        raise device_ci.DeviceError(f'CI signing failed: {result.stderr.strip()}')
+    return result.stdout
+
+
+def sign_apks(device, artifacts, manifest, signer_dir):
+    # A fresh hosted runner has a fresh AGP debug key. Keep one device-local
+    # test-only signer across jobs so updates never require uninstalling data.
+    keystore = signer_dir / 'debug.keystore'
+    if not keystore.exists():
+        if device.adb('shell', 'pm', 'path', device_ci.APP_ID):
+            raise device_ci.DeviceError('CI package exists but its stable signer is missing; restore the signer')
+        signer_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        previous_umask = os.umask(0o077)
+        try:
+            signing_command('keytool', '-genkeypair', '-keystore', str(keystore),
+                            '-storepass', 'android', '-keypass', 'android', '-alias', 'androiddebugkey',
+                            '-dname', 'CN=Slukhayka Poco CI,O=Android,C=US', '-keyalg', 'RSA',
+                            '-keysize', '2048', '-validity', '3650')
+        finally:
+            os.umask(previous_umask)
+        keystore.chmod(0o600)
+    sdk = Path(os.environ.get('ANDROID_HOME', str(Path.home() / 'android-sdk')))
+    apksigner = os.environ.get('SLUKHAYKA_CI_APKSIGNER', str(sdk / 'build-tools/36.0.0/apksigner'))
+    signed = artifacts / 'signed'
+    signed.mkdir()
+    certs, hashes = [], {}
+    for name in device_ci.APK_NAMES:
+        target = signed / name
+        signing_command(apksigner, 'sign', '--ks', str(keystore), '--ks-key-alias', 'androiddebugkey',
+                        '--ks-pass', 'pass:android', '--key-pass', 'pass:android',
+                        '--out', str(target), str(artifacts / name))
+        output = signing_command(apksigner, 'verify', '--print-certs', str(target))
+        match = re.search(r'^Signer #1 certificate SHA-256 digest: ([0-9a-f]{64})$', output, re.MULTILINE)
+        if not match:
+            raise device_ci.DeviceError('signed APK has no verified signer certificate')
+        certs.append(match.group(1))
+        with target.open('rb') as stream:
+            hashes[name] = hashlib.file_digest(stream, 'sha256').hexdigest()
+    if len(set(certs)) != 1:
+        raise device_ci.DeviceError('CI application and test APK signers differ')
+    (signed / 'manifest.json').write_text(json.dumps({**manifest, 'sha256': hashes}) + '\n')
+    return signed, certs[0]
 
 
 def gh(*args):
@@ -64,12 +116,16 @@ def execute(args):
         manifest = device_ci.verify_artifacts(artifacts)
         if manifest['sourceSha'] != sha:
             raise device_ci.DeviceError('artifact source SHA differs from the trusted hosted run')
+        signed, certificate = sign_apks(device, artifacts, manifest, args.signer_dir)
+        signed_hashes = json.loads((signed / 'manifest.json').read_text())['sha256']
         try:
-            device_ci.run_suites(device, artifacts, reports)
+            device_ci.run_suites(device, signed, reports)
         except device_ci.DeviceError as error:
             state, detail = 'failure', str(error)
     receipt = {'runId': args.run_id, 'sourceSha': sha, 'device': facts,
-               'state': state, 'detail': detail, 'suites': list(device_ci.SUITES)}
+               'state': state, 'detail': detail, 'suites': list(device_ci.SUITES),
+               'hostedApkSha256': manifest['sha256'], 'deviceApkSha256': signed_hashes,
+               'deviceSignerSha256': certificate}
     (reports / 'receipt.json').write_text(json.dumps(receipt, indent=2) + '\n')
     if args.publish:
         logs = []
@@ -90,6 +146,8 @@ def main():
     parser.add_argument('--run-id', required=True, type=int)
     parser.add_argument('--serial', required=True)
     parser.add_argument('--reports-dir', required=True, type=Path)
+    parser.add_argument('--signer-dir', type=Path,
+                        default=Path.home() / '.local/state/slukhayka-poco-ci')
     parser.add_argument('--publish', action='store_true', help='publish commit receipt and device/poco-f3 status')
     args = parser.parse_args()
     if args.run_id <= 0:

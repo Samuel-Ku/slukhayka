@@ -49,5 +49,50 @@ class TrustedRunTest(unittest.TestCase):
                 github.assert_not_called()
 
 
+class StableSignerTest(unittest.TestCase):
+    def test_two_jobs_reuse_one_key_and_sign_both_apks_with_it(self):
+        import tempfile
+        from unittest.mock import Mock
+        calls = []
+
+        def tool(*args):
+            calls.append(args)
+            if args[0] == 'keytool':
+                Path(args[args.index('-keystore') + 1]).write_bytes(b'fixed key')
+            elif args[1] == 'sign':
+                Path(args[args.index('--out') + 1]).write_bytes(b'signed APK')
+            else:
+                return 'Signer #1 certificate SHA-256 digest: ' + 'a' * 64 + '\n'
+            return ''
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            signer = root / 'signer'
+            device = Mock()
+            device.adb.return_value = ''
+            with patch.object(poco_ci_worker, 'signing_command', side_effect=tool):
+                for number in range(2):
+                    artifacts = root / str(number)
+                    artifacts.mkdir()
+                    _, cert = poco_ci_worker.sign_apks(device, artifacts, {}, signer)
+                    self.assertEqual(cert, 'a' * 64)
+            self.assertEqual(sum(c[0] == 'keytool' for c in calls), 1)
+            signs = [c for c in calls if c[1] == 'sign']
+            self.assertEqual(len(signs), 4)
+            self.assertEqual({c[c.index('--ks') + 1] for c in signs}, {str(signer / 'debug.keystore')})
+            device.adb.assert_called_once_with('shell', 'pm', 'path', device_ci.APP_ID)
+
+    def test_existing_ci_app_with_lost_key_is_refused_without_key_generation(self):
+        import tempfile
+        from unittest.mock import Mock
+        with tempfile.TemporaryDirectory() as directory:
+            device = Mock()
+            device.adb.return_value = 'package:/data/app/ci/base.apk'
+            with patch.object(poco_ci_worker, 'signing_command') as tool:
+                with self.assertRaisesRegex(device_ci.DeviceError, 'signer is missing'):
+                    poco_ci_worker.sign_apks(device, Path(directory), {}, Path(directory) / 'signer')
+                tool.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()

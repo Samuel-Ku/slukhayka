@@ -304,4 +304,14 @@ class SearchResultsContentTest {
         compose.onNodeWithTag("global_search_result_${sourceHit.key}").assertExists()
     }
 
+    @Test
+    fun aConfirmedCompositeTitleAndAuthorQueryCountsAsFound() {
+        val result = sourceHit.copy(title = "Кобзар", author = "Тарас Шевченко")
+        setSearchContent(emptyList(), listOf(result), searchQuery = "Кобзар Шевченко")
+        compose.onNodeWithText("Знайдені книги (1)").assertExists()
+        compose.onNodeWithText("За цим запитом нічого не знайдено").assertDoesNotExist()
+        compose.onNodeWithText("Схожі результати").assertDoesNotExist()
+        compose.onNodeWithTag("global_search_result_${result.key}").assertExists()
+    }
+
 }

@@ -31,7 +31,7 @@ import org.robolectric.annotation.Config
  * states, pinned through the stateless [searchResultsContent] emitter: the
  * listener's own library always sits above the live Source Catalog, a
  * source-less local section says so without shouting, and the big
- * «Нічого не знайдено» state appears exactly once — never stacked.
+ * «За цим запитом нічого не знайдено» state appears exactly once — never stacked.
  */
 @RunWith(RobolectricTestRunner::class)
 // uk-rUA + a tall viewport so both sections compose and are measurable.
@@ -67,7 +67,9 @@ class SearchResultsContentTest {
         liveSearchActive: Boolean = true,
         isGlobalLoading: Boolean = false,
         globalError: Boolean = false,
-        onRetrySearch: (() -> Unit)? = null
+        onRetrySearch: (() -> Unit)? = null,
+        searchQuery: String = "",
+        onOpenResult: (GlobalSearchResult) -> Unit = {}
     ) {
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
@@ -81,11 +83,12 @@ class SearchResultsContentTest {
                             globalError = globalError,
                             onOpenLocalBook = {},
                             onPlayLocalBook = {},
-                            onOpenGlobalResult = {},
+                            onOpenGlobalResult = onOpenResult,
                             catalogCardActionState = CatalogCardActionState.Idle,
                             onOpenCatalogBrowser = {},
                             onPreflightGlobalResult = {},
-                            onRetrySearch = onRetrySearch
+                            onRetrySearch = onRetrySearch,
+                            searchQuery = searchQuery
                         )
                     }
                 }
@@ -113,7 +116,7 @@ class SearchResultsContentTest {
         compose.onNodeWithTag("search_library_empty").assertExists()
         compose.onNodeWithTag("search_sources_header").assertExists()
         // The big "nothing found" state must not appear when a live hit does.
-        assertEquals(0, compose.onAllNodesWithText("Нічого не знайдено").fetchSemanticsNodes().size)
+        assertEquals(0, compose.onAllNodesWithText("За цим запитом нічого не знайдено").fetchSemanticsNodes().size)
     }
 
     @Test
@@ -121,7 +124,7 @@ class SearchResultsContentTest {
         setSearchContent(localBooks = emptyList(), globalResults = emptyList())
         compose.waitForIdle()
 
-        assertEquals(1, compose.onAllNodesWithText("Нічого не знайдено").fetchSemanticsNodes().size)
+        assertEquals(1, compose.onAllNodesWithText("За цим запитом нічого не знайдено").fetchSemanticsNodes().size)
         // F33: ONE statement, not six blocks — no counted «(0)» headers, no
         // live status, and no placeholder glyph in the empty state.
         compose.onNodeWithTag("search_library_header").assertDoesNotExist()
@@ -138,7 +141,7 @@ class SearchResultsContentTest {
         compose.waitForIdle()
 
         compose.onNodeWithTag("global_search_status").assertExists()
-        assertEquals(0, compose.onAllNodesWithText("Нічого не знайдено").fetchSemanticsNodes().size)
+        assertEquals(0, compose.onAllNodesWithText("За цим запитом нічого не знайдено").fetchSemanticsNodes().size)
     }
 
     @Test
@@ -162,7 +165,7 @@ class SearchResultsContentTest {
         compose.waitForIdle()
 
         compose.onNodeWithTag("search_sources_header").assertDoesNotExist()
-        compose.onNodeWithText("Шукаємо в усіх джерелах").assertExists()
+        compose.onNodeWithText("Ще шукаємо").assertExists()
         compose.onNodeWithTag("global_search_result_${sourceHit.key}").assertExists()
     }
 
@@ -173,7 +176,7 @@ class SearchResultsContentTest {
 
         // No live section at all, and one honest empty state for the library.
         compose.onNodeWithTag("search_sources_header").assertDoesNotExist()
-        assertEquals(1, compose.onAllNodesWithText("Нічого не знайдено").fetchSemanticsNodes().size)
+        assertEquals(1, compose.onAllNodesWithText("За цим запитом нічого не знайдено").fetchSemanticsNodes().size)
     }
 
     @Test
@@ -181,17 +184,17 @@ class SearchResultsContentTest {
         setSearchContent(localBooks = emptyList(), globalResults = listOf(sourceHit), isGlobalLoading = true)
         compose.waitForIdle()
 
-        compose.onNodeWithText("Шукаємо в усіх джерелах").assertExists()
+        compose.onNodeWithText("Ще шукаємо").assertExists()
         compose.onNodeWithTag("global_search_result_${sourceHit.key}").assertExists()
-        compose.onNodeWithText("Нічого не знайдено").assertDoesNotExist()
+        compose.onNodeWithText("За цим запитом нічого не знайдено").assertDoesNotExist()
     }
 
     @Test
-    fun settledSourceResultsDoNotClaimAnExhaustiveCatalogue() {
+    fun settledSourceResultsOfferBooksWithoutGeneralDisclaimers() {
         setSearchContent(localBooks = emptyList(), globalResults = listOf(sourceHit))
         compose.waitForIdle()
 
-        compose.onNodeWithText("Джерела можуть показувати лише частину своїх книг.").assertExists()
+        compose.onNodeWithText("Джерела можуть показувати лише частину своїх книг.").assertDoesNotExist()
         compose.onNodeWithText("Знайдені книги (1)").assertExists()
     }
 
@@ -202,11 +205,11 @@ class SearchResultsContentTest {
             onRetrySearch = { retries++ })
         compose.waitForIdle()
 
-        compose.onNodeWithText("Частина джерел не відповіла. Показано доступні результати.").assertExists()
+        compose.onNodeWithText("Результати неповні").assertExists()
         compose.onNodeWithText("Спробувати ще раз").performClick()
         assertEquals(1, retries)
         compose.onNodeWithTag("global_search_result_${sourceHit.key}").assertExists()
-        compose.onNodeWithText("Нічого не знайдено").assertDoesNotExist()
+        compose.onNodeWithText("За цим запитом нічого не знайдено").assertDoesNotExist()
     }
 
     @Test
@@ -264,6 +267,51 @@ class SearchResultsContentTest {
 
         compose.onNodeWithText("Озвучує:", substring = true).assertDoesNotExist()
         compose.onNodeWithTag("global_search_result_" + sourceHit.key).assertExists()
+    }
+
+    @Test
+    fun aSeriesMatchHasItsOwnNamedSectionAndOpensTheWork() {
+        var opened: String? = null
+        val result = sourceHit.copy(seriesTitle = "Українська класика")
+        setSearchContent(emptyList(), listOf(result), searchQuery = "класика", onOpenResult = { opened = it.key })
+        compose.onNodeWithText("Серія: Українська класика").assertExists()
+        compose.onNodeWithTag("global_search_result_${result.key}").performClick()
+        assertEquals(result.key, opened)
+    }
+
+    @Test
+    fun aSecondNarratorIsShownAsAMatchedPersonWithoutChangingTheDefaultVoice() {
+        val result = sourceHit.copy(narrator = "Іван Перший", narrators = listOf("Іван Перший", "Дмитро Другий"))
+        setSearchContent(emptyList(), listOf(result), searchQuery = "другий")
+        compose.onNodeWithText("Виконавець: Дмитро Другий").assertExists()
+        compose.onNodeWithTag("global_search_result_${result.key}").assertExists()
+    }
+
+    @Test
+    fun aCorrectionIsExplainedBesideTheMatchingWork() {
+        val result = sourceHit.copy(title = "Кобзар", author = "Тарас Шевченко", correctedQuery = "кобзар")
+        setSearchContent(emptyList(), listOf(result), searchQuery = "кобсар")
+        compose.onNodeWithText("Можливо, ви шукали: кобзар").assertExists()
+        compose.onNodeWithText("Кобзар").assertExists()
+    }
+
+    @Test
+    fun unrelatedSuggestionsDoNotPretendTheQueryFoundAMatch() {
+        setSearchContent(emptyList(), listOf(sourceHit), searchQuery = "unrelated query")
+        compose.onNodeWithText("За цим запитом нічого не знайдено").assertExists()
+        compose.onNodeWithText("Знайдені книги (1)").assertDoesNotExist()
+        compose.onNodeWithText("Схожі результати").assertExists()
+        compose.onNodeWithTag("global_search_result_${sourceHit.key}").assertExists()
+    }
+
+    @Test
+    fun aConfirmedCompositeTitleAndAuthorQueryCountsAsFound() {
+        val result = sourceHit.copy(title = "Кобзар", author = "Тарас Шевченко")
+        setSearchContent(emptyList(), listOf(result), searchQuery = "Кобзар Шевченко")
+        compose.onNodeWithText("Знайдені книги (1)").assertExists()
+        compose.onNodeWithText("За цим запитом нічого не знайдено").assertDoesNotExist()
+        compose.onNodeWithText("Схожі результати").assertDoesNotExist()
+        compose.onNodeWithTag("global_search_result_${result.key}").assertExists()
     }
 
 }

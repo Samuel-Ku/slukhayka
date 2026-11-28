@@ -245,6 +245,7 @@ object SearchResultCodec {
 
     /** Optional fields ride the document only when present; reads default null. */
     private fun optionalFields(result: GlobalSearchResult): Map<String, Any> = buildMap {
+        // New matching explanations and owner-derived aggregates stay query-local.
         result.coverImageUrl?.let { put("coverImageUrl", it) }
         result.durationSeconds?.let { put("durationSeconds", it) }
         // Spec-45 (#405) T5 (#493): the content-language claim rides the

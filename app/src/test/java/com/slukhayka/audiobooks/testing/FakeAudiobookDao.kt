@@ -1128,10 +1128,34 @@ class FakeAudiobookDao(
         }.map { it.workId }.take(limit.coerceAtLeast(0))
     }
 
+    override suspend fun exactWorkSearch(title: String, limit: Int): List<String> =
+        workSearchState.value.values.filter { it.title == title }.map { it.workId }.take(limit)
+
+    override suspend fun workSearchDocuments(ids: List<String>): List<WorkSearchFtsEntity> =
+        ids.mapNotNull { workSearchState.value[it] }
+
+    override suspend fun workSearchCorrectionCandidates(a: String, b: String, c: String, limit: Int, afterRowId: Long): List<com.slukhayka.audiobooks.data.db.WorkSearchCandidateRow> =
+        workSearchState.value.values.mapIndexed { index, row ->
+            com.slukhayka.audiobooks.data.db.WorkSearchCandidateRow(
+                index.toLong() + 1, row.workId, row.title, row.author, row.series,
+                row.narrator + " " + workSearchNarrators(row.workId).joinToString(" ")
+            )
+        }.filter { row ->
+            val text = "${row.title} ${row.author} ${row.series} ${row.narrator}"
+            listOf(a, b, c).any { text.contains(it.trim('%')) } ||
+                workSearchNarrators(row.workId).size > 1
+        }.filter { it.rowId > afterRowId }.take(limit)
+
     override suspend fun workSearchRowCount(): Int = workSearchState.value.size
 
     override suspend fun missingWorkSearchIds(): List<String> =
         worksState.value.filter { it.mergeKey.isNotBlank() && it.id !in workSearchState.value }.map { it.id }
+
+    override suspend fun workSearchNarrators(workId: String): List<String> =
+        (editionsState.value.filter { edition ->
+            (libraryEntriesState.value.firstOrNull { it.id == edition.workId }?.workId ?: edition.workId) == workId
+        }.map { it.narrator }.filter { it.isNotBlank() } +
+            editionFacetsState.value.filter { it.workId == workId }.mapNotNull { it.narratorId?.takeIf(String::isNotBlank) }).distinct()
 
     override suspend fun firstEditionNarrator(workId: String): String? =
         editionsState.value.firstOrNull { it.workId == workId && it.narrator.isNotBlank() }?.narrator
@@ -1232,6 +1256,20 @@ class FakeAudiobookDao(
 
     override suspend fun getWorkSourcesForWorkSync(workId: String): List<WorkSourceEntity> =
         workSourcesState.value.filter { it.workId == workId }.sortedBy { it.addedAt }
+
+    override suspend fun getWorkSourcesForWorksSync(workIds: List<String>): List<WorkSourceEntity> =
+        workSourcesState.value.filter { it.workId in workIds && tombstonesState.value.none { t -> t.bookId == it.workId } }
+            .sortedWith(compareBy({ it.workId }, { it.addedAt }))
+
+    override suspend fun getWorkSourcesForUrlsSync(urls: List<String>): List<WorkSourceEntity> =
+        workSourcesState.value.filter { it.sourceUrl in urls }.sortedBy { it.addedAt }
+
+    override suspend fun ownedNarratorSearchRows(afterRowId: Long, limit: Int): List<com.slukhayka.audiobooks.data.db.OwnedNarratorSearchRow> =
+        editionsState.value.mapIndexedNotNull { index, edition ->
+            val entry = libraryEntriesState.value.firstOrNull { it.id == edition.workId }
+            if (entry == null || edition.narrator.isBlank()) null else
+                com.slukhayka.audiobooks.data.db.OwnedNarratorSearchRow(index.toLong() + 1, entry.workId, edition.narrator)
+        }.filter { it.rowId > afterRowId }.take(limit)
 
     override fun observeWorks(): Flow<List<WorkEntity>> = worksState
 

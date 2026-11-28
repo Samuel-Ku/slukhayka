@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="search1826_loading">Still searching</string>
+    <string name="search1826_partial_failure">Results are incomplete</string>
+    <string name="search1826_no_results">No results for this query</string>
+    <string name="search1826_correction">Did you mean: %1$s</string>
+    <string name="search1826_author">Author: %1$s</string>
+    <string name="search1826_series">Series: %1$s</string>
+    <string name="search1826_narrator">Narrator: %1$s</string>
+    <string name="search1826_related">Related results</string>
+    <string name="search1826_no_results_hint">Try another title or author.</string>
+</resources>

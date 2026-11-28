@@ -3,6 +3,7 @@ package com.slukhayka.audiobooks.ui.screens
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.compose.runtime.Composable
@@ -42,21 +43,7 @@ internal const val DOWNLOADS_NOTIFICATION_CHANNEL_ID = DownloadNotificationServi
  * changes channel importance — Android does not allow that after creation.
  */
 internal fun openSystemNotificationSettings(context: Context, channelId: String?) {
-    val intent = if (channelId != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        val manager = context.getSystemService(NotificationManager::class.java)
-        val channelExists = runCatching {
-            manager?.getNotificationChannel(channelId) != null
-        }.getOrDefault(false)
-        if (channelExists) {
-            Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
-                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                .putExtra(Settings.EXTRA_CHANNEL_ID, channelId)
-        } else {
-            appNotificationSettingsIntent(context)
-        }
-    } else {
-        appNotificationSettingsIntent(context)
-    }
+    val intent = systemNotificationSettingsIntent(context, channelId)
     // The caller may hold an application context (preview/test): a missing
     // Settings activity must not take the app down.
     runCatching {
@@ -64,9 +51,36 @@ internal fun openSystemNotificationSettings(context: Context, channelId: String?
     }
 }
 
-private fun appNotificationSettingsIntent(context: Context): Intent =
-    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+/**
+ * API 24-25 have no per-channel screen and no app-notification screen; the
+ * closest useful door is the app's system details page. Both constants used
+ * there exist since API 9, so the minSdk=24 build does not inline a newer API.
+ */
+internal fun systemNotificationSettingsIntent(
+    context: Context,
+    channelId: String?,
+    sdkInt: Int = Build.VERSION.SDK_INT,
+): Intent {
+    if (sdkInt < Build.VERSION_CODES.O) {
+        return Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.parse("package:${context.packageName}"),
+        )
+    }
+    if (channelId != null) {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val channelExists = runCatching {
+            manager?.getNotificationChannel(channelId) != null
+        }.getOrDefault(false)
+        if (channelExists) {
+            return Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                .putExtra(Settings.EXTRA_CHANNEL_ID, channelId)
+        }
+    }
+    return Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
         .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+}
 
 /**
  * ADR-0052 — the section must say honestly when Android blocks every

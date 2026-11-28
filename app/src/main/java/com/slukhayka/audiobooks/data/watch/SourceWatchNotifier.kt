@@ -20,9 +20,10 @@ import kotlinx.coroutines.flow.first
  * ADR-0037 §6 (spec-49 T4) — delivers one Source Watch appearance as a
  * local notification. The evaluation inputs are zero-request by contract:
  * the union catalog the app already holds and the mapping verdicts the
- * Replacement Mapping (T2a/T2b) just produced. The store's seen-state is
- * persisted only when the notification actually goes out, so a dropped
- * result can legitimately repeat.
+ * Replacement Mapping (T2a/T2b) just produced. The watch's seen-state is
+ * persisted after evaluation even when posting is muted or Android refuses
+ * it, so re-enabling never dumps a backlog; the Work page reads the watch,
+ * not this notification, so the in-app appearance stays visible.
  *
  * Silent auto-import never happens: the appearance announces, the tap
  * opens the book through the ordinary import doors.
@@ -129,10 +130,9 @@ object SourceWatchNotifier {
         if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return
         // ADR-0052 §1–3 — the listener's app-level mute stops the POSTING, not
         // the watch: evaluateAndNotify still persists seen-state after this
-        // call, so re-enabling
-        // never dumps a backlog of old appearances, and the Work page keeps
-        // showing the appearance because it reads the watch/catalog, not this
-        // notification.
+        // call, so re-enabling never dumps a backlog of old appearances, and
+        // the Work page keeps showing the appearance because it reads the
+        // watch/catalog, not this notification.
         if (!app.notificationPreferences.sourceAppearanceEnabled.value) return
         // Channels exist from API 26 only; API 24–25 posts the same
         // notification the old way, without one.

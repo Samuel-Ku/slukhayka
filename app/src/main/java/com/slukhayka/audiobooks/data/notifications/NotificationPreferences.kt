@@ -1,6 +1,7 @@
 package com.slukhayka.audiobooks.data.notifications
 
 import android.content.Context
+import androidx.core.content.edit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -44,13 +45,13 @@ class NotificationPreferences(context: Context) {
 
     fun setSourceAppearanceEnabled(enabled: Boolean) {
         if (_sourceAppearanceEnabled.value == enabled) return
-        prefs.edit().putBoolean(KEY_SOURCE_APPEARANCE, enabled).apply()
+        prefs.edit { putBoolean(KEY_SOURCE_APPEARANCE, enabled) }
         _sourceAppearanceEnabled.value = enabled
     }
 
     fun setPeopleNewArrivalsEnabled(enabled: Boolean) {
         if (_peopleNewArrivalsEnabled.value == enabled) return
-        prefs.edit().putBoolean(KEY_PEOPLE_NEW_ARRIVALS, enabled).apply()
+        prefs.edit { putBoolean(KEY_PEOPLE_NEW_ARRIVALS, enabled) }
         _peopleNewArrivalsEnabled.value = enabled
     }
 

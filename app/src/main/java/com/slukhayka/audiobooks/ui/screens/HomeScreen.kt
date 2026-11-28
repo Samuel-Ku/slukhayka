@@ -523,11 +523,6 @@ fun HomeScreen(
                             open.collectionId
                         )
                     }
-                },
-                onDelete = if (isOwn && open.hidden) {
-                    { viewModel.deleteOwnPublishedCollection(open.documentId) }
-                } else {
-                    null
                 }
             )
         }

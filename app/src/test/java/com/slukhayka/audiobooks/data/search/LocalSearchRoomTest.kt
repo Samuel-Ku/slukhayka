@@ -74,14 +74,16 @@ class LocalSearchRoomTest {
         vararg adapters: SourceAdapter,
         selection: Set<String> = emptySet(),
         sessionAlive: (String) -> Boolean = { false },
-        refused: Set<String> = emptySet()
+        refused: Set<String> = emptySet(),
+        searchCache: SearchCache? = null
     ) = SourceCatalog(
         dao,
         adapters.toList(),
         LibraryImport(dao, context, adapters.toList()),
         contentLanguageSelection = MutableStateFlow(selection),
         sourceAudioRefusal = MutableStateFlow(refused),
-        sessionAlive = sessionAlive
+        sessionAlive = sessionAlive,
+        searchCache = searchCache
     )
 
     private fun write(
@@ -518,6 +520,7 @@ class LocalSearchRoomTest {
         val before = repository.searchAllSources("Іван Перший").single()
         val results = repository.searchAllSources("Дмитро Другий")
         assertEquals(listOf("Кобзар"), results.map { it.title })
+        assertEquals(setOf("Іван Перший", "Дмитро Другий"), results.single().narrators.toSet())
         assertEquals(before.sources, results.single().sources)
         assertEquals(before.narrator, results.single().narrator)
     }
@@ -546,6 +549,80 @@ class LocalSearchRoomTest {
             releaseSlow.complete(Unit)
             job.await()
         }
+    }
+
+    @Test
+    fun `expired session matches cannot fill the window ahead of an eligible work`() = runBlocking {
+        repeat(50) { i -> write("sluhay", "Кобзар $i", "Автор $i", "https://sluhay.com/stale/$i") }
+        write("t1", "Кобзар доступний", "Тарас Шевченко", "https://t1.example/eligible")
+        for (query in listOf("ко", "кобз")) {
+            assertEquals(listOf("Кобзар доступний"), catalog().searchAllSources(query).map { it.title })
+        }
+    }
+
+    @Test
+    fun `blank author cards keep narrator claims attached to their actual works`() = runBlocking {
+        val repository = catalog()
+        val first = repository.writeWorkEdition(
+            "t1", "Перша історія", "Автор А", "Читач Перший", "https://t1.example/one", language = "uk"
+        ).work
+        val second = repository.writeWorkEdition(
+            "t1", "Друга історія", "Автор Б", "Читач Другий", "https://t1.example/two", language = "uk"
+        ).work
+        // Existing retained Work identities with incomplete display metadata.
+        dao.upsertWork(first.copy(author = ""))
+        dao.upsertWork(second.copy(author = ""))
+        dao.refreshWorkSearchIndex(first.id)
+        dao.refreshWorkSearchIndex(second.id)
+        val results = repository.searchAllSources("читач")
+        assertEquals(setOf("Читач Перший"), results.single { it.title == "Перша історія" }.narrators.toSet())
+        assertEquals(setOf("Читач Другий"), results.single { it.title == "Друга історія" }.narrators.toSet())
+    }
+
+    @Test
+    fun `an owned rendition narrator is found through the Library Entry link`() = runBlocking {
+        val repository = catalog()
+        val work = repository.writeWorkEdition(
+            "t1", "Кобзар", "Тарас Шевченко", "", "https://t1.example/kobzar", language = "uk"
+        ).work
+        val narrator = "Особливий " + "Довгий Виконавець ".repeat(6) + "Останній"
+        dao.insertAudiobooks(listOf(com.slukhayka.audiobooks.data.db.AudiobookEntity(
+            id = "owned-narration", title = "Кобзар", author = "Тарас Шевченко", narrator = narrator,
+            description = "", coverDrawableRes = 0, genre = "", sourceUrl = "https://t1.example/owned"
+        )))
+        dao.upsertLibraryEntry("owned-narration", work.id, false, 0L, 0f)
+        dao.insertEdition(com.slukhayka.audiobooks.data.db.EditionEntity(
+            "owned-edition", "owned-narration", language = "uk", narrator = narrator
+        ))
+        // The existing first-only index need not be rebuilt to discover the owned voice.
+        val results = repository.searchAllSources("особливий останній")
+        assertEquals(listOf("Кобзар"), results.map { it.title })
+        assertTrue(narrator in results.single().narrators)
+    }
+
+    @Test
+    fun `repeated correction retains local claims without exporting aggregate fields`() = runBlocking {
+        var exported: Map<String, Any>? = null
+        val cache = object : SearchCache {
+            override suspend fun readDocument(documentId: String): Map<String, Any>? = null
+            override suspend fun writeDocument(documentId: String, document: Map<String, Any>) { exported = document }
+        }
+        val repository = catalog(searchCache = cache)
+        repository.writeWorkEdition("t1", "Кобзар", "Тарас Шевченко", "Іван Перший",
+            "https://t1.example/one", language = "uk", seriesTitle = "Поезія")
+        repository.writeWorkEdition("t2", "Кобзар", "Тарас Шевченко", "Дмитро Другий",
+            "https://t2.example/two", language = "uk")
+        val first = repository.searchAllSources("другй").single()
+        val repeated = repository.searchAllSources("другй").single()
+        assertEquals(first, repeated)
+        assertEquals("другий", repeated.correctedQuery)
+        assertEquals(setOf("Іван Перший", "Дмитро Другий"), repeated.narrators.toSet())
+        assertEquals("Поезія", repeated.seriesTitle)
+        val encoded = ((exported!!.getValue("results") as List<*>).single() as Map<*, *>)
+        assertTrue("correction is query-local", "correctedQuery" !in encoded)
+        assertTrue("owner voices are not public cache metadata", "narrators" !in encoded)
+        assertTrue("series lacks public field provenance", "seriesTitle" !in encoded)
+        assertNull(repository.searchAllSources("Кобзар").single().correctedQuery)
     }
 
 }

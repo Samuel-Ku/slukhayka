@@ -67,7 +67,9 @@ class SearchResultsContentTest {
         liveSearchActive: Boolean = true,
         isGlobalLoading: Boolean = false,
         globalError: Boolean = false,
-        onRetrySearch: (() -> Unit)? = null
+        onRetrySearch: (() -> Unit)? = null,
+        searchQuery: String = "",
+        onOpenResult: (GlobalSearchResult) -> Unit = {}
     ) {
         compose.setContent {
             AudiobookTheme(darkTheme = true) {
@@ -81,11 +83,12 @@ class SearchResultsContentTest {
                             globalError = globalError,
                             onOpenLocalBook = {},
                             onPlayLocalBook = {},
-                            onOpenGlobalResult = {},
+                            onOpenGlobalResult = onOpenResult,
                             catalogCardActionState = CatalogCardActionState.Idle,
                             onOpenCatalogBrowser = {},
                             onPreflightGlobalResult = {},
-                            onRetrySearch = onRetrySearch
+                            onRetrySearch = onRetrySearch,
+                            searchQuery = searchQuery
                         )
                     }
                 }
@@ -264,6 +267,41 @@ class SearchResultsContentTest {
 
         compose.onNodeWithText("Озвучує:", substring = true).assertDoesNotExist()
         compose.onNodeWithTag("global_search_result_" + sourceHit.key).assertExists()
+    }
+
+    @Test
+    fun aSeriesMatchHasItsOwnNamedSectionAndOpensTheWork() {
+        var opened: String? = null
+        val result = sourceHit.copy(seriesTitle = "Українська класика")
+        setSearchContent(emptyList(), listOf(result), searchQuery = "класика", onOpenResult = { opened = it.key })
+        compose.onNodeWithText("Серія: Українська класика").assertExists()
+        compose.onNodeWithTag("global_search_result_${result.key}").performClick()
+        assertEquals(result.key, opened)
+    }
+
+    @Test
+    fun aSecondNarratorIsShownAsAMatchedPersonWithoutChangingTheDefaultVoice() {
+        val result = sourceHit.copy(narrator = "Іван Перший", narrators = listOf("Іван Перший", "Дмитро Другий"))
+        setSearchContent(emptyList(), listOf(result), searchQuery = "другий")
+        compose.onNodeWithText("Виконавець: Дмитро Другий").assertExists()
+        compose.onNodeWithTag("global_search_result_${result.key}").assertExists()
+    }
+
+    @Test
+    fun aCorrectionIsExplainedBesideTheMatchingWork() {
+        val result = sourceHit.copy(title = "Кобзар", author = "Тарас Шевченко", correctedQuery = "кобзар")
+        setSearchContent(emptyList(), listOf(result), searchQuery = "кобсар")
+        compose.onNodeWithText("Можливо, ви шукали: кобзар").assertExists()
+        compose.onNodeWithText("Кобзар").assertExists()
+    }
+
+    @Test
+    fun unrelatedSuggestionsDoNotPretendTheQueryFoundAMatch() {
+        setSearchContent(emptyList(), listOf(sourceHit), searchQuery = "unrelated query")
+        compose.onNodeWithText("За цим запитом нічого не знайдено").assertExists()
+        compose.onNodeWithText("Знайдені книги (1)").assertDoesNotExist()
+        compose.onNodeWithText("Схожі результати").assertExists()
+        compose.onNodeWithTag("global_search_result_${sourceHit.key}").assertExists()
     }
 
 }

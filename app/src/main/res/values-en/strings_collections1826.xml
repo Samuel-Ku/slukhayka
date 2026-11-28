@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="collection1826_search_within">In this collection</string>
+    <string name="collection1826_search_all">Search the entire catalogue</string>
+    <string name="collection1826_filters">Filters</string>
+    <string name="collection1826_genres">Genres</string>
+    <string name="collection1826_languages">Languages</string>
+    <string name="collection1826_duration">Duration</string>
+    <string name="collection1826_hide_completed">Hide completed</string>
+    <string name="collection1826_completed">Completed</string>
+    <string name="collection1826_reset">Reset all</string>
+    <string name="collection1826_done">Done</string>
+    <string name="collection1826_clear_search">Clear search</string>
+    <string name="collection1826_results">Showing %1$d of %2$d</string>
+    <string name="collection1826_show_unknown">Also show: %1$d with unknown details</string>
+    <string name="collection1826_hide_unknown">Hide: %1$d with unknown details</string>
+    <string name="collection1826_empty">Nothing found in this collection</string>
+    <string name="collection1826_filters_count">Filters (%1$d)</string>
+</resources>

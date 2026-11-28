@@ -166,8 +166,10 @@ _Avoid_: Полиця, Shelf, тег, папка, плейлист, «розум
 (Нобелівські лауреати, Шевченківська премія, Букер); **Live collections** —
 рейтинги, які тягнуться з джерел на оновленні каталогу (spec-37). Означення й
 поведінка кожного типу — в їхніх статтях нижче; тут лише спільна межа.
-Обидва локально матчаться до Медіатеки (ADR-0041): результати матчингу не
-зберігаються, порожня колекція не показується. Рангові сигнали живих списків
+Обидва локально матчаться до Медіатеки для особистих списків (ADR-0041).
+У тематичних добірках відкриття «Огляду» є окремий матчинг до Дзеркала
+каталогу (#1826), доступний без власних книжок; це не особиста колекція.
+Результати матчингу не зберігаються, порожня колекція не показується. Рангові сигнали живих списків
 можуть зберігатися як popularity assertions (#485). Це не «Добірка слухача» й
 не Recommendation Set.
 _Avoid_: добірка слухача, редагована колекція, «моя колекція», збережені
@@ -602,11 +604,11 @@ Import dedup is per RENDITION (Edition id), not per Work — the same narration 
 _Avoid_: one card per Work with unreachable second narrations
 
 **Smart collections**:
-The «Колекції» Огляд block is curated external lists (Нобелівські лауреати, Шевченківська премія, Букер) shipped as static JSON assets (`assets/collections/`), matched locally against the Media Library’s Works. The strict decoder (`CollectionJson`) and the matcher (`CollectionMatcher`) are pure JVM; the matcher reuses the MergeKey normalization plus diacritics (Cyrillic-preserving) and parenthetical-annotation trimming, requires author agreement, and hides non-matches (author-only fallback for title-less entries). `SourceCatalog.smartCollections` is recomputed on the SAME trigger as the union (`refreshUnifiedCatalog`); empty collections are dropped, nothing about the match itself is persisted — no schema change (ADR-0012).
-_Avoid_: network lists, Room persistence of match results, a collection row for a book the listener does not have
+The «Колекції» Огляд block is curated external lists (Нобелівські лауреати, Шевченківська премія, Букер) shipped as static JSON assets (`assets/collections/`), matched locally against the Media Library’s Works for personal lists, or against the Catalog Mirror for thematic discovery in «Огляд» (#1826). The strict decoder (`CollectionJson`) and the matcher (`CollectionMatcher`) are pure JVM; the matcher reuses the MergeKey normalization plus diacritics (Cyrillic-preserving) and parenthetical-annotation trimming, requires author agreement, and hides non-matches (author-only fallback for title-less entries). `SourceCatalog.smartCollections` is recomputed on the SAME trigger as the union (`refreshUnifiedCatalog`); empty collections are dropped, nothing about the match itself is persisted — no schema change (ADR-0012).
+_Avoid_: network lists, Room persistence of match results, a personal collection row for a book the listener does not have, catalog discovery presented as ownership
 
 **Live collections**:
-The same matcher also consumes LIVE lists over the `LiveCollectionSource` seam (keyless OpenLibrary trending → «Популярне зараз»; sluhay.com.ua most-viewed → «Популярне у sluhay.com.ua»; sound-books.net top-100 → «ТОП-100 sound-books», spec-37), fetched through the shared HttpFetcher on the union refresh, TTL-cached per source like the feeds, best-effort (failure → no collection, never a broken refresh). Static + live feed one `matchAll` against the Media Library; the JSON parser behind the assets is the shared pure-JVM `MiniJson` (ADR-0013).
+The same matcher also consumes LIVE lists over the `LiveCollectionSource` seam (keyless OpenLibrary trending → «Популярне зараз»; sluhay.com.ua most-viewed → «Популярне у sluhay.com.ua»; sound-books.net top-100 → «ТОП-100 sound-books», spec-37), fetched through the shared HttpFetcher on the union refresh, TTL-cached per source like the feeds, best-effort (failure → no collection, never a broken refresh). Static + live feed `matchAll` against the Media Library for personal lists and separately against the Catalog Mirror for thematic discovery (#1826); the JSON parser behind the assets is the shared pure-JVM `MiniJson` (ADR-0013).
 _Avoid_: raw connections in live sources, live lists persisted to Room as a collection row
 
 ## Discovery surfaces (spec-28)
@@ -673,10 +675,10 @@ _Avoid_: inline-only series row, new series data source, a series row with no li
 
 **«Колекції» index screen**:
 A pushed screen listing every curated collection (smart + live) matched against the Media Library (Нобелівські лауреати, Шевченківська премія, Букер, live lists); a collection shows only Works the listener already has, and tapping a book resolves-and-plays it exactly like the inline collection cards — the move changes location, not behaviour (spec-28 #190).
-_Avoid_: duplicated collection behaviour, new collection data source, a collection row for a book the listener does not have
+_Avoid_: duplicated collection behaviour, new collection data source, a personal collection row for a book the listener does not have, catalog discovery presented as ownership
 
 **Content Language Preference**:
-The local-only set of content languages shown in discovery: every known language on by default («Усі»), an empty selection means ALL, and a card is hidden only when every Edition of its Work carries a known language outside the selection. Rows with an unknown language stay visible under any selection (US17, ADR-0029). The offered languages are the ones with actual content, on both platforms. Android: `ContentLanguagePrefs` → `SourceCatalog.contentLanguageSelection` plus the «Мови контенту» destination and the «Мова» chip opening the same multiselect. Web: `contentLanguagePrefs.filterWorksByLanguage` plus language chips. It never syncs and never touches Listening State.
+The local-only set of content languages shown in discovery: every known language on by default («Усі»), an empty selection means ALL, and a card is hidden only when every Edition of its Work carries a known language outside the selection. Rows with an unknown language stay visible under any selection (US17, ADR-0029). The offered languages are the ones with actual content, on both platforms. Android: `ContentLanguagePrefs` → `SourceCatalog.contentLanguageSelection` plus the «Мови контенту» destination and the «Мова» chip opening the same multiselect. Web: `contentLanguagePrefs.filterWorksByLanguage` plus language chips. It never syncs and never touches Listening State. In Android’s explicit «Усі книжки» scope (#1826), the catalog has its own visible language filter rather than an additional hidden intersection with this preference. Clearing that catalog filter shows all admitted languages; it does not change the preference used by recommendations, search or other surfaces.
 _Avoid_: server-side preference, hiding unknown-language rows, an all-off state, a hardcoded two-language toggle
 
 **First Language Choice**:
@@ -718,7 +720,7 @@ A displayed count, percent or duration must be the truth the user can verify —
 _Avoid_: stale counters, in-chapter percent passed off as book progress, fabricated 4:00:00
 
 **One tool, one place**:
-Each capability has one obvious home: import is «+ Додати» (a sheet), genre filtering lives only behind the feed's «Фільтри» control (spec-42 #302 superseded the separate homepage «Жанри» navigation row), destructive delete lives in ⋮. Duplicate affordances (three genre rows, two import buttons) are the defect this rule kills.
+Each capability has one obvious home: import is «+ Додати» (a sheet), genre filtering uses the catalog’s single facet mechanism: the «Жанри» browse entry opens that same catalog with a selected facet, and «Фільтри» edits that selection (#1826; supersedes the spec-42 #302 restriction on a genre browse entry), destructive delete lives in ⋮. Duplicate affordances (three genre rows, two import buttons) are the defect this rule kills.
 _Avoid_: the same action reachable from competing buttons/chips
 
 **A landing answers one question**:

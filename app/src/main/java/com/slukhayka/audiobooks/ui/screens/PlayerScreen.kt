@@ -60,6 +60,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.slukhayka.audiobooks.ui.adaptive.rememberIsLandscapePhoneWindow
@@ -2112,10 +2113,20 @@ private fun SilentlySeekChapter(
             }
             .testTag("player_progress_slider"),
         colors = colors,
+        thumb = {
+            SliderDefaults.Thumb(
+                interactionSource = interactionSource,
+                colors = colors,
+                enabled = hasDuration,
+                thumbSize = DpSize(PaperInkDimens.SeekThumb, PaperInkDimens.SeekThumb),
+            )
+        },
         track = { sliderState ->
             SliderDefaults.Track(
                 sliderState = sliderState,
+                modifier = Modifier.height(PaperInkDimens.SeekTrack),
                 colors = colors,
+                enabled = hasDuration,
                 drawStopIndicator = {},
             )
         },
@@ -2318,7 +2329,6 @@ private fun TransportControls(
             description = backDescription,
             onClick = onBack,
             testTag = "player_rewind_button",
-            glyphSize = PaperInkIconSizes.Transport,
         )
         FilledIconButton(
             onClick = onPlayPause,
@@ -2363,7 +2373,6 @@ private fun TransportControls(
             description = forwardDescription,
             onClick = onForward,
             testTag = "player_forward_button",
-            glyphSize = PaperInkIconSizes.Transport,
         )
         TransportIcon(
             PaperInkIcons.SkipFwd,
@@ -2397,7 +2406,6 @@ private fun TransportIcon(
     // sized by them (4 × 52 dp + the 80 dp play box), so a name per target is
     // what lets the pane test state "these do not overlap" without reading px.
     testTag: String,
-    glyphSize: androidx.compose.ui.unit.Dp = PaperInkDimens.PlayerTransportGlyph,
 ) {
     IconButton(
         onClick = onClick,
@@ -2409,7 +2417,7 @@ private fun TransportIcon(
         Icon(
             icon,
             contentDescription = null,
-            modifier = Modifier.size(glyphSize)
+            modifier = Modifier.size(PaperInkDimens.PlayerTransportGlyph)
         )
     }
 }

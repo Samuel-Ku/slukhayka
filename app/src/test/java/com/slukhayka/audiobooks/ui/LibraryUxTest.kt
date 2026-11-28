@@ -83,6 +83,7 @@ class LibraryUxTest {
                 }
             }
         }
+        compose.onNodeWithText("Залишилось", substring = true, useUnmergedTree = true).assertIsDisplayed()
         val card = compose.onNodeWithTag("library_continue_card").getUnclippedBoundsInRoot()
         assertTrue("resume should fit into 220 dp, was ${card.bottom - card.top}", card.bottom - card.top <= 220.dp)
         compose.onNodeWithTag("library_book_item_${book.book.id}").performClick()
@@ -134,6 +135,7 @@ class LibraryUxTest {
             }
         }
         compose.onNodeWithText("Прослухано 45%", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithText("Залишилось", substring = true, useUnmergedTree = true).assertIsDisplayed()
         val play = compose.onNodeWithTag("library_continue_play").assertIsDisplayed().getUnclippedBoundsInRoot()
         assertTrue(play.bottom - play.top >= 48.dp)
     }

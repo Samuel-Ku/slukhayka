@@ -46,11 +46,10 @@ class PaperInkIconsTest {
 
     @Test
     fun `strokes are round-capped and share one weight scale`() {
-        // Exactly five weights, each with one job: 1.8 the base; 1.9 the
+        // Exactly four weights, each with one job: 1.8 the base; 1.9 the
         // naturally-thin chevrons/search/close; 2.0 plus/check; 1.7 the
-        // circular seek arc; 1.5 the numerals inside Rew15/Fwd30, which must
-        // stay lighter than the arc they sit in.
-        val allowed = setOf(1.5f, 1.7f, 1.8f, 1.9f, 2.0f)
+        // circular seek arc. Rew15/Fwd30 numerals use filled font outlines.
+        val allowed = setOf(1.7f, 1.8f, 1.9f, 2.0f)
         var strokedPaths = 0
         var strokedIcons = 0
         PaperInkIcons.All.forEach { icon ->

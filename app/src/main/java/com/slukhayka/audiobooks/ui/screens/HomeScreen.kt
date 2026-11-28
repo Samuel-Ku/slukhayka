@@ -93,6 +93,7 @@ import com.slukhayka.audiobooks.ui.components.accessibilityModalBackground
 import com.slukhayka.audiobooks.ui.components.accessibilityPane
 import com.slukhayka.audiobooks.ui.components.RestoreFocusAfterModal
 import com.slukhayka.audiobooks.ui.displayAuthor
+import com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionActionFeedback
 import com.slukhayka.audiobooks.ui.catalog.CatalogCardActionState
 import com.slukhayka.audiobooks.ui.theme.*
 
@@ -233,6 +234,11 @@ fun HomeScreen(
     // the embedding pass stays orchestrated by the ViewModel (single-flight).
     val scope = rememberCoroutineScope()
     val recommendationSnackbar = remember { SnackbarHostState() }
+    // #1822 — the vote/report outcome arrives on a replay-less event flow, so
+    // this screen needs its own host for that answer: the feed snackbar above
+    // sits UNDER the full-screen collection page, and the undo of a local hide
+    // has to outlive the page it closes.
+    val collectionFeedbackSnackbar = remember { SnackbarHostState() }
     val openLabel = stringResource(R.string.home_open)
     val recommendationUpdated = stringResource(R.string.home_recommendation_updated)
     val cancelLabel = stringResource(R.string.download_action_cancel)
@@ -489,34 +495,49 @@ fun HomeScreen(
         )
     }
     // Spec-51 (#693) — reading a collection / a curator straight from Слухати.
-    openedPublicCollection?.let { open ->
-        val isOwn = isOwnPublicCollection(open.authorId, listenerProfile?.uid)
-        com.slukhayka.audiobooks.ui.screens.collections.CollectionPage(
-            title = open.title,
-            onClose = { viewModel.closePublicCollection() },
-            testTag = "public_collection_page"
-        ) {
-            com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionContent(
-                collection = open,
-                originalAvailableLocally = allBooks.any { it.id in open.bookIds },
-                onSaveForYou = {
-                    viewModel.saveForkOfPublished(open.documentId)
-                    viewModel.closePublicCollection()
-                },
-                myStars = publicCollectionMyVote,
-                isOwn = isOwn,
-                onVote = { stars ->
-                    viewModel.voteCollection(
-                        open.bookIds.firstOrNull().orEmpty(),
-                        open.documentId,
-                        open.collectionId,
-                        stars
-                    )
-                },
-                onReport = if (isOwn) {
-                    null
-                } else {
-                    {
+    //
+    // #1822 — the page and the answer to its vote/report share ONE owner. The
+    // answer arrives on a replay-less event flow, so it is collected while
+    // this screen is on screen, and its snackbar is drawn ABOVE the
+    // full-screen page (the feed host is covered by it) while outliving the
+    // page a stored report closes — that is where the undo of the local hide is
+    // offered.
+    PublicCollectionActionFeedback(
+        voteResults = viewModel.publicCollectionVoteResults,
+        reportResults = viewModel.collectionReportResults,
+        snackbarHostState = collectionFeedbackSnackbar,
+        onReported = viewModel::closePublicCollection,
+        onUndoLocalHide = viewModel::unhideReportedCollection
+    )
+    Box(modifier = Modifier.fillMaxSize()) {
+        openedPublicCollection?.let { open ->
+            val isOwn = isOwnPublicCollection(open.authorId, listenerProfile?.uid)
+            com.slukhayka.audiobooks.ui.screens.collections.CollectionPage(
+                title = open.title,
+                onClose = { viewModel.closePublicCollection() },
+                testTag = "public_collection_page"
+            ) {
+                com.slukhayka.audiobooks.ui.screens.collections.PublicCollectionContent(
+                    collection = open,
+                    originalAvailableLocally = allBooks.any { it.id in open.bookIds },
+                    onSaveForYou = {
+                        viewModel.saveForkOfPublished(open.documentId)
+                        viewModel.closePublicCollection()
+                    },
+                    myStars = publicCollectionMyVote,
+                    isOwn = isOwn,
+                    onVote = { stars ->
+                        viewModel.voteCollection(
+                            open.bookIds.firstOrNull().orEmpty(),
+                            open.documentId,
+                            open.collectionId,
+                            stars
+                        )
+                    },
+                    onReport = if (isOwn) {
+                        null
+                    } else {
+                        {
                         viewModel.reportCollection(
                             open.bookIds.firstOrNull().orEmpty(),
                             open.documentId,
@@ -524,25 +545,35 @@ fun HomeScreen(
                         )
                     }
                 }
-            )
+                )
+            }
         }
-    }
-    curatorProfilePseudonym?.let { pseudonym ->
-        com.slukhayka.audiobooks.ui.screens.collections.CollectionPage(
-            title = pseudonym,
-            onClose = { viewModel.closeCuratorProfile() },
-            testTag = "curator_profile_page"
-        ) {
-            com.slukhayka.audiobooks.ui.screens.collections.CuratorProfileContent(
-                pseudonym = pseudonym,
-                rows = curatorProfileRows,
-                showcase = curatorProfileShowcase,
-                onOpen = { documentId ->
-                    viewModel.closeCuratorProfile()
-                    viewModel.openPublicCollection(documentId)
-                }
-            )
+        curatorProfilePseudonym?.let { pseudonym ->
+            com.slukhayka.audiobooks.ui.screens.collections.CollectionPage(
+                title = pseudonym,
+                onClose = { viewModel.closeCuratorProfile() },
+                testTag = "curator_profile_page"
+            ) {
+                com.slukhayka.audiobooks.ui.screens.collections.CuratorProfileContent(
+                    pseudonym = pseudonym,
+                    rows = curatorProfileRows,
+                    showcase = curatorProfileShowcase,
+                    onOpen = { documentId ->
+                        viewModel.closeCuratorProfile()
+                        viewModel.openPublicCollection(documentId)
+                    }
+                )
+            }
         }
+        SnackbarHost(
+            hostState = collectionFeedbackSnackbar,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 80.dp)
+                // ADR-0014 — the refusal is spoken, not merely drawn; the book
+                // page marks its host the same way.
+                .semantics { liveRegion = LiveRegionMode.Polite }
+        )
     }
     if (showWorkFeedFilters) {
         WorkFeedFilterSheet(

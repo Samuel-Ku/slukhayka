@@ -152,7 +152,7 @@ fun ProfileScreen(
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = "Профіль створюється сам, без реєстрації. Нік бачите лише ви.",
+                        text = stringResource(R.string.profile_intro),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -161,7 +161,7 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "Нік",
+                text = stringResource(R.string.profile_nickname_heading),
                 style = com.slukhayka.audiobooks.ui.theme.PaperInkType.Heading.Group,
                 modifier = Modifier.semantics { heading() }
             )
@@ -224,7 +224,7 @@ fun ProfileScreen(
             if (hiddenAuthors.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = "Приховані автори",
+                    text = stringResource(R.string.profile_hidden_authors_heading),
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.semantics { heading() }
@@ -279,7 +279,7 @@ fun ProfileScreen(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = "Синхронізація прогресу",
+                text = stringResource(R.string.profile_sync_heading),
                 style = com.slukhayka.audiobooks.ui.theme.PaperInkType.Heading.Group,
                 modifier = Modifier.semantics { heading() }
             )
@@ -293,9 +293,8 @@ fun ProfileScreen(
                 if (progressSyncSettings != null) {
                     val syncEnabled by progressSyncSettings.enabled.collectAsState()
                     SettingsSwitchRow(
-                        title = "Позиція дзеркалиться між вашими пристроями",
-                        description = "Нічого не надсилається без вашого профілю. " +
-                            "Вимкнено — усе лишається на телефоні.",
+                        title = stringResource(R.string.profile_sync_title),
+                        description = stringResource(R.string.profile_sync_description),
                         checked = syncEnabled,
                         onCheckedChange = progressSyncSettings::setEnabled,
                         testTag = "profile_sync_switch",
@@ -308,13 +307,12 @@ fun ProfileScreen(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Позиція дзеркалиться між вашими пристроями",
+                                text = stringResource(R.string.profile_sync_title),
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Нічого не надсилається без вашого профілю. " +
-                                    "Вимкнено — усе лишається на телефоні.",
+                                text = stringResource(R.string.profile_sync_description),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

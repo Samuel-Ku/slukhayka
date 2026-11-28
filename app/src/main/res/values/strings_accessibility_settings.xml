@@ -24,6 +24,11 @@
     <string name="recommendations_shared_on">Згоду збережено локально</string>
     <string name="recommendations_shared_off">Не беру участі</string>
     <string name="recommendations_hidden_heading">Приховане вами</string>
+    <!-- #1774 — the four feedback-kind labels of the hidden-preferences list. -->
+    <string name="recommendations_feedback_hide_work">Не рекомендувати цю книгу</string>
+    <string name="recommendations_feedback_reduce_similar">Менше схожих</string>
+    <string name="recommendations_feedback_hide_author">Не рекомендувати цього автора</string>
+    <string name="recommendations_feedback_other">Налаштування рекомендацій</string>
     <string name="recommendations_reset_action">Скинути персоналізацію</string>
     <string name="recommendations_reset_consequence">Скидання видалить лише явні налаштування рекомендацій і локально адаптовані ваги. Книги, прогрес та історія відтворення залишаться.</string>
     <string name="recommendations_reset_dialog_title">Скинути персоналізацію?</string>
@@ -33,6 +38,7 @@
     <string name="recommendations_restore_description">Повернути: %1$s</string>
 
     <string name="privacy_title">Приватність</string>
+    <string name="privacy_intro">Куди йде трафік джерел книг. За замовчуванням — прямо, як звичайний браузер.</string>
     <string name="privacy_route_direct_title">Пряме з’єднання</string>
     <string name="privacy_route_direct_description">Без проксі. Запити виглядають як звичайний браузер на вашому телефоні.</string>
     <string name="privacy_route_proxy_title">Власний проксі</string>
@@ -43,8 +49,13 @@
     <string name="privacy_route_relay_description">Ваше саморозгорнуте реле: джерела бачать адресу реле, а не вашу. Довіра — оператору реле.</string>
     <string name="privacy_doh_title">Шифрування DNS (DoH)</string>
     <string name="privacy_doh_description">Імена доменів ідуть зашифрованими до публічного DNS, тож провайдер не бачить, які сайти відкриває застосунок. Якщо DoH недоступний — автоматично працює системний резолвер.</string>
+    <string name="privacy_relay_address_label">Адреса реле</string>
+    <string name="privacy_proxy_address_label">Адреса проксі</string>
+    <string name="privacy_relay_address_format">Формат: повне https://-посилання на воркер-реле</string>
+    <string name="privacy_proxy_address_format">Формат: host:порт або socks5://host:порт</string>
     <string name="privacy_error">Помилка: %1$s</string>
     <string name="privacy_saved">Налаштування приватності збережено</string>
+    <string name="privacy_route_failure_note">Якщо обраний маршрут недоступний, запити завершуються помилкою — застосунок ніколи не повертається до прямого з\'єднання мовчки.</string>
     <string name="crash_reporting_prompt_title">Допоможіть зробити Слухайку стабільнішою</string>
     <string name="crash_reporting_prompt_body">Я роблю «Слухайку» сам. Якщо хочете допомогти мені зробити застосунок стабільнішим, дозвольте надсилати анонімні технічні звіти про збої. Вони не містять назв книжок, адрес джерел чи історії прослуховування. Рішення завжди можна змінити в налаштуваннях.</string>
     <string name="crash_reporting_allow">Надсилати звіти</string>
@@ -55,6 +66,12 @@
 
     <string name="profile_title">Профіль</string>
     <string name="profile_loading">Профіль завантажується</string>
+    <string name="profile_intro">Профіль створюється сам, без реєстрації. Нік бачите лише ви.</string>
+    <string name="profile_nickname_heading">Нік</string>
+    <string name="profile_hidden_authors_heading">Приховані автори</string>
+    <string name="profile_sync_heading">Синхронізація прогресу</string>
+    <string name="profile_sync_title">Позиція дзеркалиться між вашими пристроями</string>
+    <string name="profile_sync_description">Нічого не надсилається без вашого профілю. Вимкнено — усе лишається на телефоні.</string>
     <string name="profile_nickname_saved">Нік збережено</string>
     <string name="profile_unhide_author_description">Показувати відгуки автора %1$s</string>
     <string name="profile_biometric_unavailable">Біометричне підтвердження недоступне на цьому пристрої.</string>

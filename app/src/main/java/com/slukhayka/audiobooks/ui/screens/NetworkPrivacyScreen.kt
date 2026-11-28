@@ -104,7 +104,7 @@ fun NetworkPrivacyScreen(
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
-                        text = "Куди йде трафік джерел книг. За замовчуванням — прямо, як звичайний браузер.",
+                        text = stringResource(R.string.privacy_intro),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -165,7 +165,17 @@ fun NetworkPrivacyScreen(
                         address = it
                         savedNotice = null
                     },
-                    label = { Text(if (mode == RouteMode.RELAY) "Адреса реле" else "Адреса проксі") },
+                    label = {
+                        Text(
+                            stringResource(
+                                if (mode == RouteMode.RELAY) {
+                                    R.string.privacy_relay_address_label
+                                } else {
+                                    R.string.privacy_proxy_address_label
+                                }
+                            )
+                        )
+                    },
                     placeholder = {
                         Text(
                             if (mode == RouteMode.RELAY) "https://slukhayka-relay.example.workers.dev"
@@ -174,8 +184,13 @@ fun NetworkPrivacyScreen(
                     },
                     supportingText = {
                         Text(
-                            if (mode == RouteMode.RELAY) "Формат: повне https://-посилання на воркер-реле"
-                            else "Формат: host:порт або socks5://host:порт"
+                            stringResource(
+                                if (mode == RouteMode.RELAY) {
+                                    R.string.privacy_relay_address_format
+                                } else {
+                                    R.string.privacy_proxy_address_format
+                                }
+                            )
                         )
                     },
                     isError = error != null,
@@ -254,7 +269,7 @@ fun NetworkPrivacyScreen(
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Якщо обраний маршрут недоступний, запити завершуються помилкою — застосунок ніколи не повертається до прямого з'єднання мовчки.",
+                text = stringResource(R.string.privacy_route_failure_note),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

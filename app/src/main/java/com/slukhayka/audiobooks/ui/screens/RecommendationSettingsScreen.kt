@@ -205,9 +205,12 @@ private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
     }
 }
 
-private fun feedbackLabel(kind: String): String = when (kind) {
-    RecommendationPreferenceEntity.HIDE_WORK -> "Не рекомендувати цю книгу"
-    RecommendationPreferenceEntity.REDUCE_SIMILAR -> "Менше схожих"
-    RecommendationPreferenceEntity.HIDE_AUTHOR -> "Не рекомендувати цього автора"
-    else -> "Налаштування рекомендацій"
-}
+@Composable
+private fun feedbackLabel(kind: String): String = stringResource(
+    when (kind) {
+        RecommendationPreferenceEntity.HIDE_WORK -> R.string.recommendations_feedback_hide_work
+        RecommendationPreferenceEntity.REDUCE_SIMILAR -> R.string.recommendations_feedback_reduce_similar
+        RecommendationPreferenceEntity.HIDE_AUTHOR -> R.string.recommendations_feedback_hide_author
+        else -> R.string.recommendations_feedback_other
+    }
+)

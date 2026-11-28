@@ -9,6 +9,7 @@
     -->
 
     <string name="a11y_browser_back">Wstecz w przeglądarce źródła «%1$s»</string>
+    <string name="a11y_browser_close">Zamknij przeglądarkę źródła</string>
     <string name="a11y_browser_close_network_error">Zamknij komunikat o błędzie sieci</string>
     <string name="a11y_browser_close_route_message">Zamknij komunikat o trasie przeglądarki</string>
     <string name="a11y_browser_close_source">Zamknij przeglądarkę źródła «%1$s»</string>
@@ -104,6 +105,30 @@
     <string name="browser_fix_structure_question">Poprawić strukturę książki?</string>
     <string name="browser_got_it">Rozumiem</string>
     <string name="browser_refresh">Odśwież</string>
+    <!-- #1774 — the source browser's own status and recovery chrome. -->
+    <string name="browser_importing">Dodaję…</string>
+    <string name="browser_import_action">Dodaj do biblioteki</string>
+    <string name="browser_import_updated">Książka zaktualizowana</string>
+    <string name="browser_import_added">Książka dodana do biblioteki</string>
+    <string name="browser_import_audio_not_found">Nie znaleziono jeszcze audio. Otwórz książkę i uruchom ją na stronie, a potem spróbuj ponownie.</string>
+    <string name="browser_captured_audio_hint">Przechwycono %1$d plik(ów) audio — dotknij „Dodaj do biblioteki”</string>
+    <string name="browser_not_source_category">To nie jest strona %1$s — kategoria jest dostępna tylko ze źródła</string>
+    <string name="browser_not_source_import">To nie jest strona %1$s — dodawanie jest dostępne tylko z książek źródła</string>
+    <string name="browser_category_adding">Dodaję kategorię do Przeglądu…</string>
+    <string name="browser_category_next_page">Otwieram następną stronę kategorii…</string>
+    <string name="browser_navigation_blocked">Przejście poza %1$s zostało zablokowane</string>
+    <string name="browser_page_unreadable">Nie udało się odczytać strony</string>
+    <string name="browser_page_load_failed">Strona nie została wczytana</string>
+    <string name="browser_page_load_failed_body">Sprawdź połączenie i spróbuj ponownie. Wybrana trasa sieciowa nie zostanie zmieniona.</string>
+    <string name="browser_repair_needed">Nie zaktualizowano: zapisana książka ma %1$d rozdział(y), na stronie jest teraz %2$d. Postęp nie został zmieniony.</string>
+    <string name="browser_repair_consequence">Rozdziałów było %1$d, będzie %2$d. Zostaną usunięte lokalne pliki tej struktury, postęp rozdziałów i zakładki. Tytuł książki, biblioteka i źródło pozostaną.</string>
+    <string name="browser_repair_success">Struktura książki poprawiona</string>
+    <string name="browser_repair_error">Nie udało się potwierdzić nowej struktury. Dane nie zostały zmienione.</string>
+    <string name="browser_retry">Ponów</string>
+    <string name="browser_route_failure_reassurance">Żadne żądanie nie zostało wysłane poza wybrane proxy lub Tor.</string>
+    <string name="browser_route_prepare_failed">Nie udało się przygotować trasy sieciowej</string>
+    <string name="browser_route_preparing">Przygotowujemy bezpieczne połączenie…</string>
+    <string name="browser_route_refused_title">Przeglądarka źródła jest wyłączona przez trasę prywatności</string>
     <string name="catalog_card_audio_refused">Audio tego źródła jest wyłączone w ustawieniach.</string>
     <string name="catalog_card_browser_required">Wymagana weryfikacja na stronie.</string>
     <string name="catalog_card_cancel">Anuluj</string>
@@ -307,7 +332,13 @@
     </plurals>
     <string name="privacy_doh_description">Nazwy domen są szyfrowane do publicznego DNS, więc dostawca nie widzi, które strony otwiera aplikacja. Jeśli DoH jest niedostępny — automatycznie działa systemowy resolver.</string>
     <string name="privacy_doh_title">Szyfrowanie DNS (DoH)</string>
+    <string name="privacy_intro">Dokąd trafia ruch źródeł książek. Domyślnie — bezpośrednio, jak zwykła przeglądarka.</string>
+    <string name="privacy_proxy_address_format">Format: host:port lub socks5://host:port</string>
+    <string name="privacy_proxy_address_label">Adres proxy</string>
+    <string name="privacy_relay_address_format">Format: pełny link https:// do workera przekaźnika</string>
+    <string name="privacy_relay_address_label">Adres przekaźnika</string>
     <string name="privacy_error">Błąd: %1$s</string>
+    <string name="privacy_route_failure_note">Jeśli wybrana trasa jest niedostępna, żądania kończą się błędem — aplikacja nigdy po cichu nie wraca do połączenia bezpośredniego.</string>
     <string name="privacy_route_direct_description">Bez proxy. Zapytania wyglądają jak zwykła przeglądarka na Twoim telefonie.</string>
     <string name="privacy_route_direct_title">Połączenie bezpośrednie</string>
     <string name="privacy_route_proxy_description">Adres HTTP lub SOCKS5 — źródła widzą adres proxy, a nie Twój.</string>
@@ -322,6 +353,12 @@
     <string name="profile_biometric_title">Potwierdź, że to Ty</string>
     <string name="profile_biometric_unavailable">Potwierdzenie biometryczne jest niedostępne na tym urządzeniu.</string>
     <string name="profile_loading">Profil się wczytuje</string>
+    <string name="profile_hidden_authors_heading">Ukryci autorzy</string>
+    <string name="profile_intro">Profil powstaje sam, bez rejestracji. Pseudonim widzisz tylko Ty.</string>
+    <string name="profile_nickname_heading">Pseudonim</string>
+    <string name="profile_sync_description">Nic nie jest wysyłane bez Twojego profilu. Wyłączone — wszystko zostaje na telefonie.</string>
+    <string name="profile_sync_heading">Synchronizacja postępu</string>
+    <string name="profile_sync_title">Pozycja jest lustrzana na Twoich urządzeniach</string>
     <string name="profile_nickname_hint">Do 40 znaków. Profil istnieje bez żadnego logowania.</string>
     <string name="profile_nickname_label">Jak Cię pokazywać</string>
     <string name="profile_nickname_saved">Pseudonim zapisany</string>
@@ -360,6 +397,10 @@
     <string name="recommendation_disclosure_decline">Nie teraz</string>
     <string name="recommendation_disclosure_title">Wspólne ulepszanie rekomendacji</string>
     <string name="recommendations_hidden_heading">Ukryte przez Ciebie</string>
+    <string name="recommendations_feedback_hide_author">Nie polecaj tego autora</string>
+    <string name="recommendations_feedback_hide_work">Nie polecaj tej książki</string>
+    <string name="recommendations_feedback_other">Ustawienia rekomendacji</string>
+    <string name="recommendations_feedback_reduce_similar">Mniej podobnych</string>
     <string name="recommendations_local_description">Wybrane książki, postęp i Twoje odmowy nie opuszczają urządzenia.</string>
     <string name="recommendations_local_title">Ucz się tylko na tym urządzeniu</string>
     <string name="recommendations_model_downloading">Pobieranie… %1$d%%</string>

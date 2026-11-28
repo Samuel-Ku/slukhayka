@@ -1075,7 +1075,7 @@ class SourceCatalog(
         val localSelection = contentLanguageSelection.value
         val localSearch = searchLocalBooks(cleanQuery)
         val localBooks = localSearch.books.filter { contentLanguageVisible(it.language, localSelection) }
-        val localCards = orderSearchResults(mergeGlobalSearchResults(localBooks), cleanQuery, localSearch.narrators)
+        val localCards = orderSearchResults(mergeGlobalSearchResults(localBooks), cleanQuery, localSearch.narratorsByUrl)
             .visibleInContentLanguages(localSelection)
         currentCoroutineContext().ensureActive()
         Log.d("SourceCatalog", "search path=local_pending local=${localBooks.size} visible=${localCards.size}")
@@ -1091,7 +1091,7 @@ class SourceCatalog(
                     currentCoroutineContext().ensureActive()
                     received += outcome
                     val preview = orderSearchResults(
-                        mergeGlobalSearchResults(localBooks + received.flatMap { it.books }), cleanQuery, localSearch.narrators
+                        mergeGlobalSearchResults(localBooks + received.flatMap { it.books }), cleanQuery, localSearch.narratorsByUrl
                     ).visibleInContentLanguages(contentLanguageSelection.value)
                     onUpdate(GlobalSearchUpdate(preview, isSearchingSources = true,
                         hasSourceFailures = received.any { it.failed }))
@@ -1124,7 +1124,7 @@ class SourceCatalog(
             Log.w("SourceCatalog", "search genre assertions skipped", e)
         }
         val merged = mergeGlobalSearchResults(matched)
-        val ordered = orderSearchResults(merged, cleanQuery, localSearch.narrators)
+        val ordered = orderSearchResults(merged, cleanQuery, localSearch.narratorsByUrl)
         // Spec-30 T2 (#217): attach the resolved durations (local DB →
         // shared cache) to the visible cards. Best-effort and silent — a
         // resolver-less or failing path leaves the cards unchanged.
@@ -1153,16 +1153,15 @@ class SourceCatalog(
     private fun orderSearchResults(
         cards: List<GlobalSearchResult>,
         query: String,
-        localNarrators: Map<String, List<String>> = emptyMap()
-    ): List<GlobalSearchResult> {
-        return cards.map { card ->
-            val narrators = (listOf(card.narrator) + card.narrators + localNarrators[card.mergeKey].orEmpty()).filter { it.isNotBlank() }.distinct()
-            val match = SearchMatch.match(query, card.title, card.author, card.seriesTitle, narrators.joinToString(" "))
-            card.copy(correctedQuery = match?.correction, narrators = narrators)
-        }.sortedBy { card ->
-            SearchMatch.match(query, card.title, card.author, card.seriesTitle, card.narrators.joinToString(" "))?.rank ?: 11
-        }
-    }
+        claimsByUrl: Map<String, LocalNarratorClaim>
+    ): List<GlobalSearchResult> = cards.map { card ->
+        val claims = card.sources.mapNotNull { claimsByUrl[it.url] }
+        val owners = claims.map { it.workId }.distinct()
+        val localNames = if (owners.size == 1) claims.flatMap { it.names } else emptyList()
+        val names = (listOf(card.narrator) + card.narrators + localNames).filter(String::isNotBlank).distinct()
+        val match = SearchMatch.match(query, card.title, card.author, card.seriesTitle, names.joinToString(" "))
+        (match?.rank ?: 11) to card.copy(correctedQuery = match?.correction, narrators = names)
+    }.sortedBy { it.first }.map { it.second }
 
     /**
      * #822/#824 — the local leg of aggregated search: folded MATCH over the
@@ -1177,28 +1176,41 @@ class SourceCatalog(
      * one language every rendition agrees on, else unknown — the same
      * unknown-never-hides rule the merge applies to disagreeing sources.
      */
-    private data class LocalSearchBooks(val books: List<SourceBook>, val narrators: Map<String, List<String>>)
+    private data class LocalNarratorClaim(val workId: String, val names: List<String>)
+    private data class LocalSearchBooks(val books: List<SourceBook>, val narratorsByUrl: Map<String, LocalNarratorClaim>)
 
     private suspend fun searchLocalBooks(query: String): LocalSearchBooks {
         val match = SearchIndexNormalize.matchQuery(query) ?: return LocalSearchBooks(emptyList(), emptyMap())
-        val directIds = (dao.exactWorkSearch(SearchIndexNormalize.titleField(query), localSearchLimit) +
-            dao.matchWorkSearch(match, localSearchLimit)).distinct()
+        val queryTokens = SearchMatch.tokens(query)
+        val exactIds = dao.exactWorkSearch(SearchIndexNormalize.titleField(query), localSearchLimit)
+        val directIds = (exactIds + dao.matchWorkSearch(match, localSearchLimit)).distinct()
         val ranked = linkedMapOf<String, Int>()
-        fun consider(rows: List<com.slukhayka.audiobooks.data.db.WorkSearchFtsEntity>) {
-            for (row in rows) {
-                val hit = SearchMatch.match(query, row.title, row.author, row.series, row.narrator) ?: continue
-                ranked[row.workId] = hit.rank
+        val retainedSources = mutableMapOf<String, List<WorkSourceEntity>>()
+        suspend fun consider(rows: List<com.slukhayka.audiobooks.data.db.WorkSearchFtsEntity>) {
+            val matches = rows.mapNotNull { row ->
+                SearchMatch.matchIndexed(queryTokens, row.title, row.author, row.series, row.narrator)
+                    ?.let { row.workId to it.rank }
             }
-            // Keep only the best hydration window while scanning bounded pages.
-            val best = ranked.entries.sortedBy { it.value }.take(localSearchLimit)
-                .map { it.key to it.value }
+            val sources = matches.map { it.first }.distinct().chunked(400)
+                .flatMap { dao.getWorkSourcesForWorksSync(it) }
+                .filter { it.sourceUrl.isNotBlank() && !SourceRegistry.isScam(it.sourceId) && isIndexUsableNow(it.sourceId) }
+                .groupBy { it.workId }
+            for ((workId, rank) in matches) {
+                val eligible = sources[workId].orEmpty()
+                if (eligible.isEmpty()) continue
+                ranked[workId] = rank
+                retainedSources[workId] = eligible
+            }
+            val best = ranked.entries.sortedBy { it.value }.take(localSearchLimit).map { it.key to it.value }
             ranked.clear()
             ranked.putAll(best)
+            retainedSources.keys.retainAll(ranked.keys)
         }
+        fun completeTitleWindow(): Boolean = ranked.size == localSearchLimit && ranked.values.all { it <= 1 } &&
+            (exactIds.size < localSearchLimit || ranked.values.all { it == 0 })
         consider(dao.workSearchDocuments(directIds))
-        // No correction or entity match can outrank a full window of direct title matches.
-        val titleWindowFull = ranked.size == localSearchLimit && ranked.values.all { it <= 1 }
-        SearchMatch.anchors(query)?.takeUnless { titleWindowFull }?.let { anchors ->
+        val anchors = SearchMatch.anchors(query) ?: queryTokens.firstOrNull()?.let { token -> List(3) { "%$token%" } }
+        if (!completeTitleWindow() && anchors != null) {
             var afterRowId = 0L
             do {
                 currentCoroutineContext().ensureActive()
@@ -1207,9 +1219,25 @@ class SourceCatalog(
                 afterRowId = page.lastOrNull()?.rowId ?: afterRowId
             } while (page.size == 500)
         }
+        // Legacy owned Editions may have no facet (e.g. a long narrator claim),
+        // and their workId is a Library Entry id. Read names in bounded pages;
+        // only matching owners reach the existing index/hydration path.
+        if (!completeTitleWindow()) {
+            var afterRowId = 0L
+            do {
+                currentCoroutineContext().ensureActive()
+                val page = dao.ownedNarratorSearchRows(afterRowId, 500)
+                val matches = page.filter { SearchMatch.matchesAnyToken(queryTokens, it.narrator) }.groupBy { it.workId }
+                val documents = matches.keys.toList().chunked(400).flatMap { dao.workSearchDocuments(it) }
+                consider(documents.map { row -> row.copy(narrator =
+                    row.narrator + " " + matches[row.workId].orEmpty().joinToString(" ") { it.narrator }) })
+                afterRowId = page.lastOrNull()?.rowId ?: afterRowId
+            } while (page.size == 500)
+        }
         val ids = ranked.keys.toList()
         if (ids.isEmpty()) return LocalSearchBooks(emptyList(), emptyMap())
-        val narratorClaims = mutableMapOf<String, List<String>>()
+        val narratorClaims = mutableMapOf<String, LocalNarratorClaim>()
+        val expectedOwners = mutableMapOf<String, MutableSet<String>>()
         data class LocalHit(val order: Int, val rank: Int, val books: List<SourceBook>)
         val coverOverrides = CoverOverrideStore(dao)
         val hits = ids.mapIndexedNotNull { order, workId ->
@@ -1217,13 +1245,10 @@ class SourceCatalog(
             // ADR-0005: a tombstoned Work never resurfaces — including
             // through the index (same predicate as the enumeration guard).
             if (dao.isBookTombstoned(work.id)) return@mapIndexedNotNull null
-            val sources = dao.getWorkSourcesForWorkSync(workId)
-                // #741: a scam row never surfaces, even if one was written.
-                .filterNot { SourceRegistry.isScam(it.sourceId) }
-                // #825: a session-backed row only with a live session.
-                .filter { isIndexUsableNow(it.sourceId) }
+            val sources = retainedSources[workId].orEmpty().filter { isIndexUsableNow(it.sourceId) }
             if (sources.isEmpty()) return@mapIndexedNotNull null
-            narratorClaims[MergeKey.keyFor(work.title, work.author)] = dao.workSearchNarrators(workId)
+            narratorClaims[workId] = LocalNarratorClaim(workId, dao.workSearchNarrators(workId))
+            sources.forEach { expectedOwners.getOrPut(it.sourceUrl) { mutableSetOf() }.add(workId) }
             val narrator = dao.firstEditionNarrator(workId) ?: dao.firstFacetNarrator(workId).orEmpty()
             val language = dao.editionLanguagesForWork(workId).singleOrNull().orEmpty()
             // Local preview must respect the listener's cover decision too,
@@ -1249,9 +1274,15 @@ class SourceCatalog(
             val rank = ranked[workId] ?: 11
             LocalHit(order, rank, books)
         }
-        return LocalSearchBooks(
-            hits.sortedWith(compareBy({ it.rank }, { it.order })).flatMap { it.books }, narratorClaims
-        )
+        val observedOwners = expectedOwners.keys.toList().chunked(400)
+            .flatMap { dao.getWorkSourcesForUrlsSync(it) }
+            .groupBy({ it.sourceUrl }, { it.workId })
+        val claimsByUrl = expectedOwners.mapNotNull { (url, expected) ->
+            val owner = expected.singleOrNull()
+            if (owner == null || observedOwners[url].orEmpty().distinct().singleOrNull() != owner) null
+            else narratorClaims[owner]?.let { url to it }
+        }.toMap()
+        return LocalSearchBooks(hits.sortedWith(compareBy({ it.rank }, { it.order })).flatMap { it.books }, claimsByUrl)
     }
 
     /**

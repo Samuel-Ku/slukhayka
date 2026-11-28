@@ -62,6 +62,18 @@ fun LazyListScope.searchResultsContent(
     onRetrySearch: (() -> Unit)? = null,
     searchQuery: String = ""
 ) {
+    val queryTokens = SearchIndexNormalize.titleField(searchQuery).split(' ').filter(String::isNotBlank)
+    fun fieldMatches(field: String): Boolean {
+        val words = SearchIndexNormalize.titleField(field).split(' ')
+        return queryTokens.isNotEmpty() && queryTokens.all { token -> words.any { it.startsWith(token) } }
+    }
+    val directCount = globalResults.count { result ->
+        queryTokens.isEmpty() || result.correctedQuery != null ||
+            fieldMatches(listOf(result.title, result.author, result.seriesTitle, result.narrator)
+                .plus(result.narrators).joinToString(" "))
+    }
+    val onlyRelated = liveSearchActive && directCount == 0 && globalResults.isNotEmpty() &&
+        !isGlobalLoading && !globalError && localBooks.isEmpty()
     val localEmpty = localBooks.isEmpty()
     // The live lane has settled on a real, honest zero (no spinner, no error).
     val liveSettledEmpty = liveSearchActive && globalResults.isEmpty() && !isGlobalLoading && !globalError
@@ -69,7 +81,7 @@ fun LazyListScope.searchResultsContent(
     // would stack into two "nothing found" messages.
     val nothingAnywhere = localEmpty && (!liveSearchActive || liveSettledEmpty)
 
-    if (nothingAnywhere) {
+    if (nothingAnywhere || onlyRelated) {
         // F33 — one canonical empty state, not six blocks: no counted
         // «У вашій медіатеці (0)» / «Знайдені книги (0)» headers above a
         // second «нічого не знайдено», and no placeholder glyph — the
@@ -86,50 +98,52 @@ fun LazyListScope.searchResultsContent(
                     }
             )
         }
-        return
+        if (nothingAnywhere) return
     }
 
-    item(key = "library_results_header") {
-        // #885 (wave 2) — one canonical header instead of a private twin.
-        AppSectionHeader(
-            title = stringResource(R.string.home_library_results, localBooks.size),
-            level = SectionHeaderLevel.SECTION,
-            modifier = Modifier.testTag("search_library_header")
-        )
-    }
-    if (localEmpty) {
-        // `nothingAnywhere` already returned above, so this branch only runs
-        // when live results or a live status exist beside an empty library.
-        item(key = "library_results_empty") {
-            Text(
-                text = stringResource(R.string.home_library_no_matches),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .testTag("search_library_empty")
+    if (!onlyRelated) {
+        item(key = "library_results_header") {
+            // #885 (wave 2) — one canonical header instead of a private twin.
+            AppSectionHeader(
+                title = stringResource(R.string.home_library_results, localBooks.size),
+                level = SectionHeaderLevel.SECTION,
+                modifier = Modifier.testTag("search_library_header")
             )
         }
-    } else {
-        items(localBooks, key = { it.id }) { book ->
-            BookRow(
-                book = book,
-                onClick = { onOpenLocalBook(book) },
-                onPlayClick = { onPlayLocalBook(book) }
-            )
+        if (localEmpty) {
+            // `nothingAnywhere` already returned above, so this branch only runs
+            // when live results or a live status exist beside an empty library.
+            item(key = "library_results_empty") {
+                Text(
+                    text = stringResource(R.string.home_library_no_matches),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .testTag("search_library_empty")
+                )
+            }
+        } else {
+            items(localBooks, key = { it.id }) { book ->
+                BookRow(
+                    book = book,
+                    onClick = { onOpenLocalBook(book) },
+                    onPlayClick = { onPlayLocalBook(book) }
+                )
+            }
         }
-    }
 
+    }
     if (liveSearchActive) {
         // #1553 — the count is a FACT, never a progress hint: while the live
         // search is in flight the header would read «Знайдені книги (0)» right
         // next to «Шукаємо в усіх джерелах» (ADR-0014; web already waits for
         // settlement). The status and the results below must stay visible.
-        if (!isGlobalLoading) {
+        if (!isGlobalLoading && !onlyRelated) {
             item(key = "all_sources_header") {
                 AppSectionHeader(
-                    title = stringResource(R.string.home_all_sources, globalResults.size),
+                    title = stringResource(R.string.home_all_sources, directCount),
                     level = SectionHeaderLevel.SECTION,
                     modifier = Modifier.testTag("search_sources_header")
                 )
@@ -150,11 +164,6 @@ fun LazyListScope.searchResultsContent(
                 }
             }
         }
-        val queryTokens = SearchIndexNormalize.titleField(searchQuery).split(' ').filter(String::isNotBlank)
-        fun fieldMatches(field: String): Boolean {
-            val words = SearchIndexNormalize.titleField(field).split(' ')
-            return queryTokens.isNotEmpty() && queryTokens.all { token -> words.any { it.startsWith(token) } }
-        }
         val groups = globalResults.groupBy { result ->
             when {
                 result.correctedQuery != null -> R.string.search1826_correction to result.correctedQuery.orEmpty()
@@ -162,6 +171,8 @@ fun LazyListScope.searchResultsContent(
                 fieldMatches(result.author) -> R.string.search1826_author to result.author
                 fieldMatches(result.seriesTitle) -> R.string.search1826_series to result.seriesTitle
                 (result.narrators + result.narrator).any(::fieldMatches) -> R.string.search1826_narrator to (result.narrators + result.narrator).first(::fieldMatches)
+                fieldMatches(listOf(result.title, result.author, result.seriesTitle, result.narrator)
+                    .plus(result.narrators).joinToString(" ")) -> 0 to ""
                 else -> R.string.search1826_related to ""
             }
         }

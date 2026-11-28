@@ -62,7 +62,7 @@ data class GlobalSearchResult(
      * feeds the content-language filter (T5) and the EN/UA badges (T7).
      */
     val language: String = "",
-    /** Claimed bibliographic series; no name is inferred from the title. */
+    /** Query-local series claim; not inferred from the title or exported by the shared cache. */
     val seriesTitle: String = "",
     /** Query-local narrator claims across Editions; never a Source binding or shared-cache field. */
     val narrators: List<String> = listOf(narrator).filter { it.isNotBlank() },

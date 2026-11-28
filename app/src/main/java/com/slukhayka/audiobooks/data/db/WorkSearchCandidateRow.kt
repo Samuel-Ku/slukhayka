@@ -11,3 +11,6 @@ data class WorkSearchCandidateRow(
 ) {
     fun document() = WorkSearchFtsEntity(workId, title, author, series, narrator)
 }
+
+/** Lightweight cursor over owned narrator claims, without materializing the catalog. */
+data class OwnedNarratorSearchRow(val rowId: Long, val workId: String, val narrator: String)

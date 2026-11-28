@@ -668,7 +668,9 @@ interface AudiobookDao {
     /** Bounded reads of the SAME index for one-edit recovery; no independent vocabulary cache. */
     @Query(
         "SELECT rowid AS rowId, workId, title, author, series, narrator || ' ' || " +
-            "COALESCE((SELECT GROUP_CONCAT(e.narrator, ' ') FROM editions e WHERE e.workId = works_fts.workId), '') || ' ' || " +
+            "COALESCE((SELECT GROUP_CONCAT(e.narrator, ' ') FROM editions e WHERE " +
+            "(e.workId=works_fts.workId AND NOT EXISTS (SELECT 1 FROM library_entries le WHERE le.id=e.workId)) " +
+            "OR e.workId IN (SELECT le.id FROM library_entries le WHERE le.workId=works_fts.workId)), '') || ' ' || " +
             "COALESCE((SELECT GROUP_CONCAT(f.narratorId, ' ') FROM edition_facets f WHERE f.workId = works_fts.workId), '') AS narrator " +
             "FROM works_fts WHERE rowid > :afterRowId AND (" +
             "title LIKE :a OR title LIKE :b OR title LIKE :c OR " +
@@ -688,9 +690,17 @@ interface AudiobookDao {
     @Query("SELECT id FROM works WHERE mergeKey != '' AND id NOT IN (SELECT workId FROM works_fts)")
     suspend fun missingWorkSearchIds(): List<String>
 
-    @Query("SELECT DISTINCT narrator FROM editions WHERE workId = :workId AND narrator != '' " +
-        "UNION SELECT narratorId FROM edition_facets WHERE workId = :workId AND narratorId IS NOT NULL AND narratorId != ''")
+    @Query("SELECT DISTINCT e.narrator FROM editions e WHERE e.narrator != '' AND (" +
+        "(e.workId=:workId AND NOT EXISTS (SELECT 1 FROM library_entries le WHERE le.id=e.workId)) " +
+        "OR e.workId IN (SELECT le.id FROM library_entries le WHERE le.workId=:workId)) " +
+        "UNION SELECT narratorId FROM edition_facets WHERE workId=:workId AND narratorId IS NOT NULL AND narratorId != ''")
     suspend fun workSearchNarrators(workId: String): List<String>
+
+    /** Owned Editions anchor to Library Entry ids rather than directly to Works. */
+    @Query("SELECT e.rowid AS rowId, le.workId AS workId, e.narrator AS narrator " +
+        "FROM editions e JOIN library_entries le ON le.id=e.workId " +
+        "WHERE e.rowid>:afterRowId AND e.narrator!='' ORDER BY e.rowid LIMIT :limit")
+    suspend fun ownedNarratorSearchRows(afterRowId: Long, limit: Int): List<OwnedNarratorSearchRow>
 
     @Query("SELECT narrator FROM editions WHERE workId = :workId AND narrator != '' LIMIT 1")
     suspend fun firstEditionNarrator(workId: String): String?
@@ -861,6 +871,16 @@ interface AudiobookDao {
 
     @Query("SELECT * FROM work_sources WHERE workId = :workId ORDER BY addedAt ASC")
     suspend fun getWorkSourcesForWorkSync(workId: String): List<WorkSourceEntity>
+
+    @Query("SELECT * FROM work_sources WHERE workId IN (:workIds) " +
+        "AND NOT EXISTS (SELECT 1 FROM tombstones t WHERE t.bookId=work_sources.workId) " +
+        "ORDER BY workId, addedAt ASC")
+    suspend fun getWorkSourcesForWorksSync(workIds: List<String>): List<WorkSourceEntity>
+
+    /** URL ownership is read as a fact, never inferred from title or missing author. */
+    @Query("SELECT * FROM work_sources WHERE sourceUrl IN (:urls) ORDER BY addedAt ASC")
+    suspend fun getWorkSourcesForUrlsSync(urls: List<String>): List<WorkSourceEntity>
+
 
     @Query("SELECT * FROM works ORDER BY addedAt DESC")
     fun observeWorks(): Flow<List<WorkEntity>>

@@ -7,11 +7,25 @@ internal object SearchMatch {
     fun tokens(query: String): List<String> = SearchIndexNormalize.titleField(query)
         .split(' ').filter { it.isNotBlank() }.take(10)
 
-    fun match(query: String, title: String, author: String, series: String, narrator: String): Result? {
-        val queryTokens = tokens(query)
+    fun match(query: String, title: String, author: String, series: String, narrator: String): Result? =
+        matchNormalized(tokens(query), listOf(
+            SearchIndexNormalize.titleField(title), SearchIndexNormalize.personField(author),
+            SearchIndexNormalize.titleField(series), SearchIndexNormalize.personField(narrator)
+        ))
+
+    fun matchIndexed(queryTokens: List<String>, title: String, author: String, series: String, narrator: String): Result? =
+        matchNormalized(queryTokens, listOf(title, author, series, SearchIndexNormalize.personField(narrator)))
+
+    fun matchesAnyToken(queryTokens: List<String>, narrator: String): Boolean {
+        val words = SearchIndexNormalize.personField(narrator).split(' ')
+        return queryTokens.any { token -> words.any { word ->
+            word.startsWith(token) || (token.length >= 3 && oneEdit(token, word))
+        } }
+    }
+
+    private fun matchNormalized(queryTokens: List<String>, fields: List<String>): Result? {
         if (queryTokens.isEmpty()) return null
-        val fields = listOf(title, author, series, narrator).map(SearchIndexNormalize::titleField)
-        val words = fields.flatMap { it.split(' ').filter(String::isNotBlank) }.distinct()
+        val words = fields.flatMap { it.split(' ') }
         val corrected = queryTokens.toMutableList()
         var edits = 0
         for ((i, token) in queryTokens.withIndex()) {

@@ -653,10 +653,9 @@ fun GlobalSearchStatus(
 ) {
     if (!resultsEmpty && !isLoading && !hasError) return
     val message = when {
-        isLoading -> stringResource(R.string.a11y_search_loading)
-        hasError && !resultsEmpty -> stringResource(R.string.home_search_partial_failure)
-        hasError -> stringResource(R.string.a11y_search_error)
-        else -> stringResource(R.string.a11y_search_empty)
+        isLoading -> stringResource(R.string.search1826_loading)
+        hasError -> stringResource(R.string.search1826_partial_failure)
+        else -> stringResource(R.string.search1826_no_results)
     }
     Row(
         modifier = modifier

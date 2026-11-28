@@ -1152,7 +1152,9 @@ class FakeAudiobookDao(
         worksState.value.filter { it.mergeKey.isNotBlank() && it.id !in workSearchState.value }.map { it.id }
 
     override suspend fun workSearchNarrators(workId: String): List<String> =
-        (editionsState.value.filter { it.workId == workId }.map { it.narrator }.filter { it.isNotBlank() } +
+        (editionsState.value.filter { edition ->
+            (libraryEntriesState.value.firstOrNull { it.id == edition.workId }?.workId ?: edition.workId) == workId
+        }.map { it.narrator }.filter { it.isNotBlank() } +
             editionFacetsState.value.filter { it.workId == workId }.mapNotNull { it.narratorId?.takeIf(String::isNotBlank) }).distinct()
 
     override suspend fun firstEditionNarrator(workId: String): String? =
@@ -1254,6 +1256,20 @@ class FakeAudiobookDao(
 
     override suspend fun getWorkSourcesForWorkSync(workId: String): List<WorkSourceEntity> =
         workSourcesState.value.filter { it.workId == workId }.sortedBy { it.addedAt }
+
+    override suspend fun getWorkSourcesForWorksSync(workIds: List<String>): List<WorkSourceEntity> =
+        workSourcesState.value.filter { it.workId in workIds && tombstonesState.value.none { t -> t.bookId == it.workId } }
+            .sortedWith(compareBy({ it.workId }, { it.addedAt }))
+
+    override suspend fun getWorkSourcesForUrlsSync(urls: List<String>): List<WorkSourceEntity> =
+        workSourcesState.value.filter { it.sourceUrl in urls }.sortedBy { it.addedAt }
+
+    override suspend fun ownedNarratorSearchRows(afterRowId: Long, limit: Int): List<com.slukhayka.audiobooks.data.db.OwnedNarratorSearchRow> =
+        editionsState.value.mapIndexedNotNull { index, edition ->
+            val entry = libraryEntriesState.value.firstOrNull { it.id == edition.workId }
+            if (entry == null || edition.narrator.isBlank()) null else
+                com.slukhayka.audiobooks.data.db.OwnedNarratorSearchRow(index.toLong() + 1, entry.workId, edition.narrator)
+        }.filter { it.rowId > afterRowId }.take(limit)
 
     override fun observeWorks(): Flow<List<WorkEntity>> = worksState
 

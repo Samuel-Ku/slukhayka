@@ -65,6 +65,7 @@ describe('degrade-never (#1787)', () => {
     })
     const listener = vi.fn()
     const unsubscribe = subscribeUiLocale(listener)
+    document.documentElement.lang = 'uk'
 
     expect(() => setUiLocale('en')).not.toThrow()
     expect(getUiLocale()).toBe('en')

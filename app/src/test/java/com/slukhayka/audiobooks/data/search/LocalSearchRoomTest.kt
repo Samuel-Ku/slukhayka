@@ -449,4 +449,65 @@ class LocalSearchRoomTest {
         assertTrue(messages.none { it.contains("кобз", ignoreCase = true) || it.contains("https://") })
     }
 
+    @Test
+    fun `catalog search acceptance corpus ranks known works and one edit queries`() = runBlocking {
+        val repository = catalog()
+        repository.writeWorkEdition(
+            sourceId = "t1", title = "Кобзар", author = "Тарас Шевченко", narrator = "Іван Начитувач",
+            sourceUrl = "https://t1.example/kobzar", language = "uk", seriesTitle = "Українська класика"
+        )
+        write("t1", "Лісова пісня", "Леся Українка", "https://t1.example/lisova")
+        write("t1", "Тіні забутих предків", "Михайло Коцюбинський", "https://t1.example/tini")
+        write("t1", "Захар Беркут", "Іван Франко", "https://t1.example/zakhar")
+        write("t1", "Кобзареві думи", "Автор А", "https://t1.example/dumy")
+        write("t1", "Кобзар", "Інший Автор", "https://t1.example/other-kobzar")
+        val expectedKeys = mapOf(
+            "Кобзар" to "кобзар|тарас шевченко",
+            "Лісова пісня" to "лісова пісня|леся українка",
+            "Тіні забутих предків" to "тіні забутих предків|михайло коцюбинський"
+        )
+        // Scale distractors use the ordinary mirror/index write door; no search stub.
+        for (i in 0 until 10_000) {
+            val title = "Каталогова історія $i"
+            val author = if (i < 60) "Кобсар Автор $i" else "Автор каталогу $i"
+            val key = MergeKey.keyFor(title, author)
+            dao.upsertWorkWithSource(
+                com.slukhayka.audiobooks.data.db.WorkEntity(
+                    id = key, mergeKey = key, title = title, author = author, addedAt = i.toLong()
+                ),
+                com.slukhayka.audiobooks.data.db.WorkSourceEntity(
+                    id = "$key|t1", workId = key, sourceId = "t1",
+                    sourceUrl = "https://t1.example/filler/$i", addedAt = i.toLong()
+                )
+            )
+        }
+        val cases = listOf(
+            Triple("Кобзар", "Кобзар", 1),
+            Triple("Лісова пісня", "Лісова пісня", 1),
+            Triple("Тіні забутих предків", "Тіні забутих предків", 1),
+            Triple("лісова піс", "Лісова пісня", 5),
+            Triple("забутих пред", "Тіні забутих предків", 5),
+            Triple("кобсар", "Кобзар", 5),
+            Triple("кобзаар", "Кобзар", 5),
+            Triple("кобар", "Кобзар", 5),
+            Triple("кобзра", "Кобзар", 5),
+            Triple("тобзар", "Кобзар", 5),
+            Triple("лісова піснч", "Лісова пісня", 5),
+            Triple("Шевченко", "Кобзар", 5),
+            Triple("Шевчнко", "Кобзар", 5),
+            Triple("Українська класика", "Кобзар", 5),
+            Triple("Начитувач", "Кобзар", 5)
+        )
+        val missed = mutableListOf<String>()
+        for ((query, expected, maxRank) in cases) {
+            val start = System.nanoTime()
+            val results = repository.searchAllSources(query)
+            val rank = results.indexOfFirst { it.mergeKey == expectedKeys.getValue(expected) } + 1
+            println("search1826 query=$query rank=$rank ms=${(System.nanoTime() - start) / 1_000_000}")
+            if (rank !in 1..maxRank) missed += "$query -> $expected rank=$rank"
+        }
+        assertTrue("missed acceptance queries: $missed", missed.isEmpty())
+        assertTrue(repository.searchAllSources("zzzzzz nonexistent").isEmpty())
+    }
+
 }

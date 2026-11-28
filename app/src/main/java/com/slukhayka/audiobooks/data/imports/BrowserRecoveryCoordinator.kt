@@ -98,7 +98,9 @@ class BrowserRecoveryCoordinator(
             val storedChapterCount: Int,
             val capturedChapterCount: Int,
             val shouldCloseBrowser: Boolean = false
-        ) : Outcome
+        ) : Outcome {
+            val message: String = "Не оновлено: у збереженій книзі $storedChapterCount розділ(и), на сайті зараз $capturedChapterCount. Прогрес не змінено."
+        }
     }
 
     /**

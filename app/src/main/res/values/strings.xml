@@ -145,8 +145,6 @@
     <string name="browser_route_prepare_failed">Не вдалося підготувати мережевий маршрут</string>
     <string name="browser_route_preparing">Готуємо захищене з\'єднання…</string>
     <string name="browser_route_refused_title">Браузер джерела вимкнено маршрутом приватності</string>
-    <string name="browser_route_refusal_proxy_unsupported">Системний WebView цього пристрою не підтримує проксі-маршрут. Щоб не з’єднуватися напряму повз обраний маршрут, браузер джерела вимкнено — оновіть Android System WebView або поверніть маршрут «прямо».</string>
-    <string name="browser_route_refusal_relay">Маршрут реле переписує адреси лише для фонового транспорту — браузер джерела ним їхати не може. Оберіть прямий маршрут або проксі.</string>
     <string name="player_return_to">Повернутися до %1$s</string>
     <string name="listen_book">Книга</string>
     <string name="listen_chapter">Розділ</string>

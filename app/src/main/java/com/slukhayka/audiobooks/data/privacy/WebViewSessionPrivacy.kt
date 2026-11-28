@@ -38,11 +38,8 @@ object WebViewSessionPrivacy {
     /** The door's outcome: a usable WebView route or an honest refusal. */
     sealed interface RouteResolution {
         data class Ok(val route: SessionRoute) : RouteResolution
-        data class Refused(val reason: RefusalReason) : RouteResolution
+        data class Refused(val reason: String) : RouteResolution
     }
-
-    /** Why the interactive door refused the chosen network route. */
-    enum class RefusalReason { PROXY_UNSUPPORTED, RELAY }
 
     /**
      * Resolves the transport's own route into a WebView session route.
@@ -65,11 +62,11 @@ object WebViewSessionPrivacy {
         is NetworkRoute.Direct -> RouteResolution.Ok(SessionRoute.SystemDefault)
         is NetworkRoute.Proxy ->
             if (!proxyOverrideSupported) {
-                RouteResolution.Refused(RefusalReason.PROXY_UNSUPPORTED)
+                RouteResolution.Refused(UNSUPPORTED_REASON)
             } else {
                 RouteResolution.Ok(SessionRoute.Routed(proxyRule(route)))
             }
-        is NetworkRoute.Relay -> RouteResolution.Refused(RefusalReason.RELAY)
+        is NetworkRoute.Relay -> RouteResolution.Refused(RELAY_REASON)
     }
 
     /**
@@ -108,4 +105,13 @@ object WebViewSessionPrivacy {
         "Magnetometer",
         "AmbientLightSensor"
     )
+
+    private const val UNSUPPORTED_REASON =
+        "Системний WebView цього пристрою не підтримує проксі-маршрут. " +
+            "Щоб не з'єднуватися напряму повз обраний маршрут, браузер джерела вимкнено — " +
+            "оновіть Android System WebView або поверніть маршрут «прямо»."
+
+    private const val RELAY_REASON =
+        "Маршрут реле переписує адреси лише для фонового транспорту — " +
+            "браузер джерела ним їхати не може. Оберіть прямий маршрут або проксі."
 }

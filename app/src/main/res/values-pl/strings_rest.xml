@@ -129,8 +129,6 @@
     <string name="browser_route_prepare_failed">Nie udało się przygotować trasy sieciowej</string>
     <string name="browser_route_preparing">Przygotowujemy bezpieczne połączenie…</string>
     <string name="browser_route_refused_title">Przeglądarka źródła jest wyłączona przez trasę prywatności</string>
-    <string name="browser_route_refusal_proxy_unsupported">Systemowa WebView tego urządzenia nie obsługuje trasy proxy. Aby nie łączyć się bezpośrednio z pominięciem wybranej trasy, przeglądarka źródła jest wyłączona — zaktualizuj Android System WebView lub wróć do trasy bezpośredniej.</string>
-    <string name="browser_route_refusal_relay">Trasa przekaźnika przepisuje adresy tylko dla transportu w tle — przeglądarka źródła nie może jej użyć. Wybierz trasę bezpośrednią lub proxy.</string>
     <string name="catalog_card_audio_refused">Audio tego źródła jest wyłączone w ustawieniach.</string>
     <string name="catalog_card_browser_required">Wymagana weryfikacja na stronie.</string>
     <string name="catalog_card_cancel">Anuluj</string>

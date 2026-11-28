@@ -969,14 +969,7 @@ fun WebSourceBrowserScreen(
                                 }
                             }
                             Text(
-                                text = stringResource(
-                                    when (sessionRoute.reason) {
-                                        WebViewSessionPrivacy.RefusalReason.PROXY_UNSUPPORTED ->
-                                            R.string.browser_route_refusal_proxy_unsupported
-                                        WebViewSessionPrivacy.RefusalReason.RELAY ->
-                                            R.string.browser_route_refusal_relay
-                                    }
-                                ),
+                                text = sessionRoute.reason,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

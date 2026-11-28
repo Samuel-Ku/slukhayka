@@ -91,7 +91,10 @@ class WebViewSessionPrivacyTest {
             route = NetworkRoute.Proxy(RouteProxyType.SOCKS5, "127.0.0.1", 9050)
         )
         assertTrue(result is RouteResolution.Refused)
-        assertTrue((result as RouteResolution.Refused).reason.isNotBlank())
+        assertEquals(
+            WebViewSessionPrivacy.RefusalReason.PROXY_UNSUPPORTED,
+            (result as RouteResolution.Refused).reason
+        )
     }
 
     @Test
@@ -112,7 +115,10 @@ class WebViewSessionPrivacyTest {
             route = NetworkRoute.Relay("https://slukhayka-relay.example.workers.dev")
         )
         assertTrue(result is RouteResolution.Refused)
-        assertTrue((result as RouteResolution.Refused).reason.isNotBlank())
+        assertEquals(
+            WebViewSessionPrivacy.RefusalReason.RELAY,
+            (result as RouteResolution.Refused).reason
+        )
     }
 
     @Test

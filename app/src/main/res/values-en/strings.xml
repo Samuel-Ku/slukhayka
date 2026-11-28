@@ -151,6 +151,8 @@
     <string name="browser_route_prepare_failed">Couldn\'t prepare the network route</string>
     <string name="browser_route_preparing">Preparing a secure connection…</string>
     <string name="browser_route_refused_title">The source browser is disabled by the privacy route</string>
+    <string name="browser_route_refusal_proxy_unsupported">This device’s system WebView does not support the proxy route. To avoid connecting directly past the chosen route, the source browser is disabled — update Android System WebView or switch the route back to Direct.</string>
+    <string name="browser_route_refusal_relay">The relay route rewrites addresses only for background transport — the source browser cannot use it. Choose a direct route or a proxy.</string>
     <string name="player_return_to">Return to %1$s</string>
     <string name="listen_book">Book</string>
     <string name="listen_chapter">Chapter</string>

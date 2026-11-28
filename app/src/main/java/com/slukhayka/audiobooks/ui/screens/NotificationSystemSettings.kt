@@ -12,6 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.annotation.RequiresApi
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
@@ -56,16 +57,9 @@ internal fun openSystemNotificationSettings(context: Context, channelId: String?
  * closest useful door is the app's system details page. Both constants used
  * there exist since API 9, so the minSdk=24 build does not inline a newer API.
  */
-internal fun systemNotificationSettingsIntent(
-    context: Context,
-    channelId: String?,
-    sdkInt: Int = Build.VERSION.SDK_INT,
-): Intent {
-    if (sdkInt < Build.VERSION_CODES.O) {
-        return Intent(
-            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-            Uri.parse("package:${context.packageName}"),
-        )
+internal fun systemNotificationSettingsIntent(context: Context, channelId: String?): Intent {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+        return preOAppDetailsIntent(context)
     }
     if (channelId != null) {
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -78,9 +72,21 @@ internal fun systemNotificationSettingsIntent(
                 .putExtra(Settings.EXTRA_CHANNEL_ID, channelId)
         }
     }
-    return Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+    return appNotificationSettingsIntent(context)
 }
+
+/** API 24-25 have no notification page; the app details page is the closest door. */
+internal fun preOAppDetailsIntent(context: Context): Intent =
+    Intent(
+        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+        Uri.parse("package:${context.packageName}"),
+    )
+
+/** API 26+ only; the production caller is guarded by [Build.VERSION.SDK_INT]. */
+@RequiresApi(Build.VERSION_CODES.O)
+internal fun appNotificationSettingsIntent(context: Context): Intent =
+    Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+        .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
 
 /**
  * ADR-0052 — the section must say honestly when Android blocks every

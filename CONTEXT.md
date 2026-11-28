@@ -84,7 +84,7 @@ _Avoid_: факти джерела в політиках (SourceAccessPolicy/Dow
 другий список порядку на web, браузерні факти поза реєстром
 
 **Source Binding**:
-A device's locator, permission, and availability relationship to a Source. Bindings are device-specific even when the Source identity is shared. No Binding rows exist yet — with a single device, locator and permission stay on the Source row; the Binding table arrives with device sync, not before. NOTE (spec-40): the Firestore collection `device_bindings` is NOT this domain concept — it is the reinstall-recovery anchor mapping a device id to the listener's own uid.
+A device's locator, permission, and availability relationship to a Source. Bindings are device-specific even when the Source identity is shared. No Binding rows exist yet — with a single device, locator and permission stay on the Source row; the Binding table arrives with device sync, not before. NOTE (spec-40): the Firestore collection `device_bindings` is NOT this domain concept — it is the reinstall-recovery anchor mapping a derived device id (never the raw ANDROID_ID — see Recovery Code) to the listener's own uid.
 _Avoid_: Source, download
 
 **Source Catalog**:
@@ -532,7 +532,7 @@ A local listener relationship with one canonical Author or Narrator, keyed by `(
 _Avoid_: Work bookmark, raw display name as identity, mandatory cloud relationship
 
 **Recovery Code**:
-The encoded credential pair of the silent anonymous profile («Код відновлення профілю»), shown in ⚙️ Профіль only behind BiometricPrompt and accepted on a fresh install — or in the Web Client — to restore or link the same uid. Surviving reinstall also rides Android Auto Backup of the generated credentials and the Firestore `device_bindings/{ANDROID_ID} → uid` silent restore — the binding exists ONLY for recovery of one's own profile, written solely for the caller's own uid.
+The encoded credential pair of the silent anonymous profile («Код відновлення профілю»), shown in ⚙️ Профіль only behind BiometricPrompt and accepted on a fresh install — or in the Web Client — to restore or link the same uid. Surviving reinstall also rides Android Auto Backup of the generated credentials and the Firestore `device_bindings` silent restore — the binding exists ONLY for recovery of one's own profile, written solely for the caller's own uid. Its document key is a SHA-256 of the versioned namespace `slukhayka/device-bindings/v1` and the device's ANDROID_ID, never the raw id, because the collection is publicly readable before auth exists (#1738); documents written under the old raw-id key are no longer read by the app.
 _Avoid_: login screen, hardware identifiers (IMEI), password reset
 
 ## Playback

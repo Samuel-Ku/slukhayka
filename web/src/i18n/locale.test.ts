@@ -54,3 +54,46 @@ describe('ui locale store', () => {
     expect(listener).toHaveBeenCalledOnce()
   })
 })
+
+describe('degrade-never (#1787)', () => {
+  it('a storage throw still applies the locale and the document language', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error('quota')
+      },
+    })
+    const listener = vi.fn()
+    const unsubscribe = subscribeUiLocale(listener)
+
+    expect(() => setUiLocale('en')).not.toThrow()
+    expect(getUiLocale()).toBe('en')
+    expect(document.documentElement.lang).toBe('en')
+    expect(listener).toHaveBeenCalledOnce()
+    unsubscribe()
+  })
+})
+
+describe('document language (#1787)', () => {
+  it('an in-app switch sets <html lang> to the chosen locale', () => {
+    setUiLocale('en')
+    expect(document.documentElement.lang).toBe('en')
+    setUiLocale('uk')
+    expect(document.documentElement.lang).toBe('uk')
+  })
+
+  it('the first frame carries the resolved locale, before any React effect', async () => {
+    // A fresh module instance simulates the page load: web/index.html declares
+    // <html lang="uk">, the device is English and no override is persisted.
+    vi.resetModules()
+    localStorage.clear()
+    vi.stubGlobal('navigator', { language: 'en-US' })
+    document.documentElement.lang = 'uk'
+
+    const fresh = await import('./locale')
+    // Resolution happens in the store (during the first render), not in an
+    // effect, so English is announced from the very first frame.
+    expect(fresh.getUiLocale()).toBe('en')
+    expect(document.documentElement.lang).toBe('en')
+  })
+})

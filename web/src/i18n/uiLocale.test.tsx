@@ -48,6 +48,10 @@ describe('en locale flows', () => {
     // The collapsible search starts collapsed; expand it to see the field.
     await userEvent.click(screen.getByRole('button', { name: 'Search' }))
     expect(screen.getByPlaceholderText('Search…')).toBeTruthy()
+    // #1787 — the locale store also declares the document language, so the
+    // English chrome is announced as English, not as the static `uk` of
+    // web/index.html.
+    expect(document.documentElement.lang).toBe('en')
     await waitFor(() => expect(screen.getAllByText('Pride and Prejudice').length).toBeGreaterThan(0))
     // The heading and the source chip both carry the same label.
     expect(screen.getAllByText('All sources').length).toBeGreaterThan(0)

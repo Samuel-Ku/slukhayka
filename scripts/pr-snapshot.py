@@ -17,6 +17,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from pr_queue import queue_snapshot
+
 FAILURE_STATES = {"FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED",
                   "STARTUP_FAILURE", "ERROR"}
 PENDING_STATES = {"PENDING", "QUEUED", "IN_PROGRESS", "EXPECTED", "WAITING", "REQUESTED"}
@@ -281,7 +283,11 @@ def main(argv=None):
         "--expect-head", action="append", default=[], metavar="NUMBER=SHA",
         help="fail when a PR's head no longer matches the expected SHA (repeatable)",
     )
+    parser.add_argument("--queue-state", help="local JSON handoff receipts; see docs/agents/pr-loop.md")
+    parser.add_argument("--queue-json", help="write advisory next steps as JSON (requires --queue-state)")
     args = parser.parse_args(argv)
+    if args.queue_json and not args.queue_state:
+        parser.error("--queue-json requires --queue-state")
     expected_heads = parse_expect_head(args.expect_head, parser)
 
     try:
@@ -335,6 +341,20 @@ def main(argv=None):
             }, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+
+    if args.queue_state:
+        try:
+            state = json.loads(Path(args.queue_state).read_text(encoding="utf-8"))
+            queue = queue_snapshot(pulls, state)
+        except (OSError, ValueError) as error:
+            print(f"queue-unavailable: {error}", file=sys.stderr)
+            return 3
+        for row in queue['pullRequests']:
+            print(f"next: #{row['number']} {row['next']} owner={row['owner']} "
+                  f"dispatch-review={row['dispatchReview']} state-fresh={row['stateFresh']}")
+        print(f"review-wip: {queue['activeReviews']}/{queue['reviewLimit']}")
+        if args.queue_json:
+            Path(args.queue_json).write_text(json.dumps(queue, indent=2) + "\n", encoding="utf-8")
 
     by_number = {pull.get("number"): pull for pull in pulls}
     drifted = False

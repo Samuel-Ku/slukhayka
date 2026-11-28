@@ -100,19 +100,11 @@ and CI-gate details are in `docs/runbooks/snapshot-goldens.md`.
 
 ## The merge gate
 
-`scripts/merge-pr.sh` — green checks and a fresh `review:pass`, or no merge
-(squash only, never deletes the branch); call it instead of `gh pr merge`. The
-verdict is re-issued with `scripts/review-pass.sh <PR>`, not `gh pr edit
---add-label`: on a PR that already has the label the latter is a silent no-op,
-so the verdict keeps its old timestamp and the gate refuses (#1259). See
-`docs/agents/work-coordination.md` ("Вердикт огляду і мердж").
-
-The same verdict is published as the `Review gate` CI check
-(`.github/workflows/review-gate.yml`, logic in `scripts/review_gate.py`): it
-fails without a `review:pass` label, or when the label predates the PR head.
-Once that check is required in branch protection, a plain `gh pr merge` cannot
-even present a green board without the verdict — the script gate stays the
-final word, the check makes it visible where every tool looks.
+Merge only with `scripts/merge-pr.sh` (squash, branch preserved). An independent
+reviewer issues the fresh verdict through `scripts/review-pass.sh`. For review
+freshness, CI, conflicts and verdict renewal read
+`docs/agents/work-coordination.md`; for a recurring PR queue or DSH handoff
+read `docs/agents/pr-loop.md`.
 
 ## Remote worker
 

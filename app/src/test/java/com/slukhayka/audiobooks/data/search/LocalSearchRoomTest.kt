@@ -569,14 +569,25 @@ class LocalSearchRoomTest {
         val second = repository.writeWorkEdition(
             "t1", "Друга історія", "Автор Б", "Читач Другий", "https://t1.example/two", language = "uk"
         ).work
+        repository.writeWorkEdition("t1", "Перша історія", "Автор А", "Читач Додатковий Перший",
+            "https://t1.example/one", language = "uk")
+        repository.writeWorkEdition("t1", "Друга історія", "Автор Б", "Читач Додатковий Другий",
+            "https://t1.example/two", language = "uk")
         // Existing retained Work identities with incomplete display metadata.
-        dao.upsertWork(first.copy(author = ""))
-        dao.upsertWork(second.copy(author = ""))
+        dao.updateWorkAuthor(first.id, "")
+        dao.updateWorkAuthor(second.id, "")
         dao.refreshWorkSearchIndex(first.id)
         dao.refreshWorkSearchIndex(second.id)
         val results = repository.searchAllSources("читач")
-        assertEquals(setOf("Читач Перший"), results.single { it.title == "Перша історія" }.narrators.toSet())
-        assertEquals(setOf("Читач Другий"), results.single { it.title == "Друга історія" }.narrators.toSet())
+        assertEquals(2, results.size)
+        val firstCard = results.single { it.title == "Перша історія" }
+        val secondCard = results.single { it.title == "Друга історія" }
+        assertEquals("https://t1.example/one", firstCard.key)
+        assertEquals("https://t1.example/two", secondCard.key)
+        assertEquals(setOf("Читач Перший", "Читач Додатковий Перший"), firstCard.narrators.toSet())
+        assertEquals(setOf("Читач Другий", "Читач Додатковий Другий"), secondCard.narrators.toSet())
+        val wanted = repository.searchAllSources("додатковий перший").single { it.key == "https://t1.example/one" }
+        assertEquals(setOf("Читач Перший", "Читач Додатковий Перший"), wanted.narrators.toSet())
     }
 
     @Test
@@ -623,6 +634,46 @@ class LocalSearchRoomTest {
         assertTrue("owner voices are not public cache metadata", "narrators" !in encoded)
         assertTrue("series lacks public field provenance", "seriesTitle" !in encoded)
         assertNull(repository.searchAllSources("Кобзар").single().correctedQuery)
+    }
+
+    @Test
+    fun `eligible exact title behind clipped expired exact matches outranks prefixes`() = runBlocking {
+        repeat(50) { i -> write("t1", "Кобзареві історії $i", "Автор $i", "https://t1.example/prefix/$i") }
+        repeat(50) { i -> write("sluhay", "Кобзар", "Стале джерело $i", "https://sluhay.com/exact/$i") }
+        write("t1", "Кобзар", "Тарас Шевченко", "https://t1.example/exact")
+        assertEquals("кобзар|тарас шевченко", catalog().searchAllSources("Кобзар").firstOrNull()?.mergeKey)
+    }
+
+    @Test
+    fun `legacy first narrator projection discovers the other confirmed rendition`() = runBlocking {
+        val repository = catalog()
+        val work = repository.writeWorkEdition("t1", "Кобзар", "Тарас Шевченко", "Іван Перший",
+            "https://t1.example/one", language = "uk").work
+        repository.writeWorkEdition("t2", "Кобзар", "Тарас Шевченко", "Дмитро Другий",
+            "https://t2.example/two", language = "uk")
+        // The persisted projection shipped before #1826 carried only one voice.
+        dao.deleteWorkSearchRows(work.id)
+        dao.insertWorkSearchRow(work.id, "кобзар", "тарас шевченко", "", "іван перший")
+        val result = repository.searchAllSources("Дмитро Другий").single()
+        assertEquals(setOf("Іван Перший", "Дмитро Другий"), result.narrators.toSet())
+    }
+
+    @Test
+    fun `ambiguous source URL does not acquire an owner narrator aggregate`() = runBlocking {
+        val repository = catalog()
+        val first = repository.writeWorkEdition("t1", "Перша історія", "Автор А", "Марко Перший",
+            "https://t1.example/shared", language = "uk").work
+        repository.writeWorkEdition("t1", "Перша історія", "Автор А", "Олег Другий",
+            "https://t1.example/shared", language = "uk")
+        val other = repository.writeWorkEdition("t1", "Інша історія", "Автор Б", "Наталя Інша",
+            "https://t1.example/shared", language = "uk").work
+        dao.updateWorkAuthor(first.id, "")
+        dao.updateWorkAuthor(other.id, "")
+        dao.refreshWorkSearchIndex(first.id)
+        dao.refreshWorkSearchIndex(other.id)
+        val result = repository.searchAllSources("Олег Другий").single()
+        assertEquals("Перша історія", result.title)
+        assertEquals(listOf("Марко Перший"), result.narrators)
     }
 
 }
